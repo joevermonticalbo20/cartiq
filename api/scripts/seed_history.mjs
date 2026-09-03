@@ -3,12 +3,16 @@
 // dashboards and the predictive forecasts have data to work with.
 // Inserts bypass order/ingredient business rules on purpose (raw history).
 //
-//   node scripts/seed_history.mjs [days]     (default 21)
+//   node scripts/seed_history.mjs [days] [--clean]     (default 21)
+//
+//   --clean wipes previously seeded history (orders with clientRef LIKE
+//   'hist-%') first, so re-runs don't duplicate the demo dataset.
 
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 const DAYS = Number(process.argv[2]) || 21;
+const CLEAN = process.argv.includes("--clean");
 const BASE_PRICE = 40;
 const FLAVORS = ["Cheese", "Sour Cream", "BBQ"];
 
@@ -26,6 +30,13 @@ function randInt(min, max) {
 async function main() {
   const locations = await prisma.location.findMany();
   if (locations.length === 0) throw new Error("Run npm run db:seed first");
+
+  if (CLEAN) {
+    const deleted = await prisma.order.deleteMany({
+      where: { clientRef: { startsWith: "hist-" } },
+    });
+    console.log(`Cleaned ${deleted.count} previously seeded history orders.`);
+  }
 
   let orderCount = 0;
   let itemCount = 0;

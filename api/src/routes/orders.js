@@ -12,7 +12,9 @@ const randomRef = () =>
 
 router.post("/orders", requireAuth, async (req, res, next) => {
   try {
-    const { clientRef, locationCode, locationId, items, total } = req.body ?? {};
+    // Note: client-supplied `total` is intentionally ignored - the server
+    // recomputes it from items (see below).
+    const { clientRef, locationCode, locationId, items } = req.body ?? {};
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: "items must be a non-empty array" });
     }
@@ -25,6 +27,9 @@ router.post("/orders", requireAuth, async (req, res, next) => {
       }
     }
 
+    if (locationId === undefined && (locationCode === undefined || locationCode === "")) {
+      return res.status(400).json({ error: "locationCode or locationId is required" });
+    }
     const location = await prisma.location.findFirst({
       where: locationId !== undefined ? { id: +locationId } : { code: locationCode },
     });
@@ -42,9 +47,8 @@ router.post("/orders", requireAuth, async (req, res, next) => {
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      const orderTotal = Number.isFinite(+total)
-        ? +total
-        : items.reduce((sum, it) => sum + +it.qty * +it.unitPrice, 0);
+      // Server is the source of truth for the total - never trust the client.
+      const orderTotal = items.reduce((sum, it) => sum + +it.qty * +it.unitPrice, 0);
 
       const order = await tx.order.create({
         data: {

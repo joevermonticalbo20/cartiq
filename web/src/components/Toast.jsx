@@ -15,12 +15,16 @@ export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
   const idRef = useRef(0);
 
+  const dismiss = useCallback((id) => {
+    setToasts((t) => t.filter((x) => x.id !== id));
+  }, []);
+
   const push = useCallback((message, type = "info") => {
     const id = ++idRef.current;
     setToasts((t) => [...t, { id, message, type }]);
     setTimeout(() => {
       setToasts((t) => t.filter((x) => x.id !== id));
-    }, 3800);
+    }, 5000);
   }, []);
 
   useEffect(() => {
@@ -33,9 +37,13 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={push}>
       {children}
-      <div className="toast-host">
+      <div className="toast-host" aria-live="polite">
         {toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.type}`}>
+          <div
+            key={t.id}
+            className={`toast ${t.type}`}
+            role={t.type === "error" ? "alert" : "status"}
+          >
             {t.type === "success" ? (
               <CheckCircle2 size={17} />
             ) : t.type === "error" ? (
@@ -44,6 +52,13 @@ export function ToastProvider({ children }) {
               <Info size={17} />
             )}
             <span>{t.message}</span>
+            <button
+              className="ghost icon-only toast-close"
+              aria-label="Dismiss notification"
+              onClick={() => dismiss(t.id)}
+            >
+              ×
+            </button>
           </div>
         ))}
       </div>

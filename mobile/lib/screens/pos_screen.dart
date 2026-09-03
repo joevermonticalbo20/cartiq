@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -45,6 +46,8 @@ class _PosScreenState extends State<PosScreen> {
   late Future<List<Map<String, dynamic>>> _catalogFuture;
   String _search = '';
   String _categoryFilter = 'All';
+  Timer? _searchDebounce;
+  final _searchController = TextEditingController();
 
   OfflineQueue get _queue => PersistedOfflineQueue.instance;
 
@@ -52,6 +55,25 @@ class _PosScreenState extends State<PosScreen> {
   void initState() {
     super.initState();
     _catalogFuture = _loadCatalog();
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String v) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      setState(() => _search = v.trim().toLowerCase());
+    });
+  }
+
+  void _reloadCatalog() {
+    setState(() => _catalogFuture = _loadCatalog());
   }
 
   Future<List<Map<String, dynamic>>> _loadCatalog() async {
@@ -267,12 +289,116 @@ class _PosScreenState extends State<PosScreen> {
     } else {
       await Haptics.tap();
     }
+    // Queued-offline is a normal flow, not an error - keep it neutral.
     _showSnack(
       result.allDone
           ? 'Sale recorded · ${method.label} · P${snapshotTotal.toStringAsFixed(0)}'
           : '${result.message} · P${snapshotTotal.toStringAsFixed(0)} queued',
       success: result.allDone,
-      error: !result.allDone,
+    );
+    if (!mounted) return;
+    await _showSaleResultSheet(
+      method: method,
+      total: snapshotTotal,
+      cashTendered: cashTendered,
+      synced: result.allDone,
+      queueMessage: result.allDone ? null : result.message,
+    );
+  }
+
+  /// Confirmation sheet so the change amount can't be missed in a rush.
+  Future<void> _showSaleResultSheet({
+    required PaymentMethod method,
+    required double total,
+    required double? cashTendered,
+    required bool synced,
+    required String? queueMessage,
+  }) async {
+    final change =
+        method == PaymentMethod.cash && cashTendered != null ? cashTendered - total : 0;
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Icon(
+              synced ? Icons.check_circle_rounded : Icons.cloud_upload_outlined,
+              size: 56,
+              color: synced ? AppColors.ok : AppColors.warn,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              synced ? 'Sale recorded' : 'Sale queued offline',
+              textAlign: TextAlign.center,
+              style: Theme.of(ctx).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              synced
+                  ? '${method.label} · P${total.toStringAsFixed(0)}'
+                  : '${queueMessage ?? 'Will upload when online'} · P${total.toStringAsFixed(0)}',
+              textAlign: TextAlign.center,
+              style: Theme.of(ctx).textTheme.bodyMedium,
+            ),
+            if (method == PaymentMethod.cash && (cashTendered ?? 0) > 0) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.ok.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppRadius.m),
+                  border: Border.all(
+                    color: AppColors.ok.withValues(alpha: 0.4),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Change',
+                      style: TextStyle(
+                        color: AppColors.ok,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                      ),
+                    ),
+                    Text(
+                      'P${change.toStringAsFixed(0)}',
+                      style: const TextStyle(
+                        color: AppColors.ok,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 28,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 20),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(52),
+              ),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('New sale'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -283,10 +409,11 @@ class _PosScreenState extends State<PosScreen> {
       top: false,
       child: Column(
         children: [
-          // Search bar
+          // Search bar (debounced so typing doesn't rebuild the grid per keystroke)
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
             child: TextField(
+              controller: _searchController,
               decoration: InputDecoration(
                 hintText: 'Search product...',
                 prefixIcon: const Icon(Icons.search),
@@ -298,13 +425,18 @@ class _PosScreenState extends State<PosScreen> {
                     ? null
                     : IconButton(
                         icon: const Icon(Icons.clear),
-                        onPressed: () => setState(() => _search = ''),
+                        onPressed: () {
+                          _searchDebounce?.cancel();
+                          _searchController.clear();
+                          setState(() => _search = '');
+                        },
                       ),
               ),
-              onChanged: (v) =>
-                  setState(() => _search = v.trim().toLowerCase()),
+              onChanged: _onSearchChanged,
             ),
           ),
+          // Offline queue strip - visible where the cashier works.
+          const _OfflineStrip(),
           // Category filters
           SizedBox(
             height: 44,
@@ -327,8 +459,10 @@ class _PosScreenState extends State<PosScreen> {
                     return FilterChip(
                       label: Text(cat ?? ''),
                       selected: selected,
-                      onSelected: (_) =>
-                          setState(() => _categoryFilter = cat ?? 'All'),
+                      onSelected: (_) {
+                        Haptics.select();
+                        setState(() => _categoryFilter = cat ?? 'All');
+                      },
                       showCheckmark: false,
                       selectedColor: AppColors.primary,
                       labelStyle: TextStyle(
@@ -354,9 +488,22 @@ class _PosScreenState extends State<PosScreen> {
                   return Center(
                     child: Padding(
                       padding: const EdgeInsets.all(24),
-                      child: Text(
-                        'Catalog unavailable:\n${snap.error}',
-                        textAlign: TextAlign.center,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.cloud_off_outlined, size: 48),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Catalog unavailable:\n${snap.error}',
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 16),
+                          FilledButton.icon(
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('Retry'),
+                            onPressed: _reloadCatalog,
+                          ),
+                        ],
                       ),
                     ),
                   );
@@ -411,6 +558,21 @@ class _PosScreenState extends State<PosScreen> {
                       flavorCount: flavorCount,
                       inCartQty: inCartQty,
                       onTap: () => _openItemSheet(product),
+                      // Long-press = rush-hour quick-add with the default
+                      // (first) flavor, skipping the option sheet.
+                      onLongPress: flavorCount == 0
+                          ? null
+                          : () {
+                              final flavors = (product['flavors'] as List)
+                                  .cast<Map<String, dynamic>>();
+                              final def = flavors.first['name'] as String;
+                              _addToCart(product, flavor: def);
+                              Haptics.select();
+                              _showSnack(
+                                'Added: ${product['name']} ($def)',
+                                success: true,
+                              );
+                            },
                       onQuickAdd: flavorCount == 0
                           ? () {
                               _addToCart(product);
@@ -443,6 +605,7 @@ class _ProductCard extends StatelessWidget {
     required this.flavorCount,
     required this.inCartQty,
     required this.onTap,
+    this.onLongPress,
     this.onQuickAdd,
   });
 
@@ -450,6 +613,7 @@ class _ProductCard extends StatelessWidget {
   final int flavorCount;
   final int inCartQty;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final VoidCallback? onQuickAdd;
 
   @override
@@ -463,6 +627,7 @@ class _ProductCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.l),
         onTap: onTap,
+        onLongPress: onLongPress,
         child: Container(
           padding: const EdgeInsets.all(13),
           decoration: BoxDecoration(
@@ -600,7 +765,12 @@ class _QtyButton extends StatelessWidget {
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),
-        onTap: onPressed,
+        onTap: onPressed == null
+            ? null
+            : () {
+                Haptics.select();
+                onPressed!();
+              },
         child: SizedBox(
           width: 48,
           height: 48,
@@ -612,6 +782,66 @@ class _QtyButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Thin persistent strip showing queued-offline sales where the cashier works.
+class _OfflineStrip extends StatefulWidget {
+  const _OfflineStrip();
+
+  @override
+  State<_OfflineStrip> createState() => _OfflineStripState();
+}
+
+class _OfflineStripState extends State<_OfflineStrip> {
+  int _count = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    try {
+      final c = await PersistedOfflineQueue.instance.count;
+      if (mounted) setState(() => _count = c);
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<int>(
+      stream: PersistedOfflineQueue.instance.changes,
+      builder: (context, snap) {
+        final count = snap.hasData ? snap.data! : _count;
+        if (count <= 0) return const SizedBox.shrink();
+        return Container(
+          margin: const EdgeInsets.fromLTRB(14, 0, 14, 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.warn.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(AppRadius.s),
+            border: Border.all(
+              color: AppColors.warn.withValues(alpha: 0.45),
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.cloud_upload_outlined,
+                  size: 18, color: AppColors.warn),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '$count sale${count != 1 ? 's' : ''} waiting to sync - uploads automatically when online',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -729,6 +959,14 @@ class _CartSheetState extends State<_CartSheet> {
       _method == PaymentMethod.cash ? _tendered - widget.cart.total : 0;
   bool get _canPay => _method != PaymentMethod.cash || _tendered >= widget.cart.total;
 
+  void _submitIfReady() {
+    if (!_canPay) return;
+    widget.onPay(
+      _method,
+      _method == PaymentMethod.cash ? _tendered : null,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cart = widget.cart;
@@ -761,6 +999,7 @@ class _CartSheetState extends State<_CartSheet> {
               if (!cart.isEmpty)
                 TextButton.icon(
                   onPressed: () {
+                    Haptics.tap();
                     cart.clear();
                   },
                   icon: const Icon(Icons.delete_outline, size: 18),
@@ -897,6 +1136,7 @@ class _CartSheetState extends State<_CartSheet> {
                       method: m,
                       selected: _method == m,
                       onTap: () {
+                        Haptics.select();
                         setState(() => _method = m);
                         if (m != PaymentMethod.cash) {
                           _cashController.clear();
@@ -913,8 +1153,10 @@ class _CartSheetState extends State<_CartSheet> {
               const SizedBox(height: 14),
               TextField(
                 controller: _cashController,
+                autofocus: true,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
+                textInputAction: TextInputAction.done,
                 inputFormatters: [
                   FilteringTextInputFormatter.allow(RegExp(r'[\d.]')),
                 ],
@@ -924,17 +1166,29 @@ class _CartSheetState extends State<_CartSheet> {
                   border: OutlineInputBorder(),
                 ),
                 onChanged: (_) => setState(() {}),
+                onSubmitted: (_) => _submitIfReady(),
               ),
               const SizedBox(height: 8),
-              // Quick cash buttons
+              // Bill shortcuts ADD to the tendered amount; Exact sets it.
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
+                  for (final bill in const [20, 50, 100, 500, 1000])
+                    ActionChip(
+                      label: Text('+$bill'),
+                      onPressed: () {
+                        Haptics.select();
+                        final next = _tendered + bill;
+                        _cashController.text = next.toStringAsFixed(0);
+                        setState(() {});
+                      },
+                    ),
                   for (final amt in _quickCash(cart.total))
                     ActionChip(
                       label: Text('P$amt'),
                       onPressed: () {
+                        Haptics.select();
                         _cashController.text = amt.toStringAsFixed(0);
                         setState(() {});
                       },
@@ -942,6 +1196,7 @@ class _CartSheetState extends State<_CartSheet> {
                   ActionChip(
                     label: const Text('Exact'),
                     onPressed: () {
+                      Haptics.select();
                       _cashController.text = cart.total.toStringAsFixed(0);
                       setState(() {});
                     },
@@ -949,45 +1204,45 @@ class _CartSheetState extends State<_CartSheet> {
                 ],
               ),
               const SizedBox(height: 12),
-              if (_tendered > 0)
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
+              // Always visible so the cashier sees the running state.
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _tendered >= cart.total
+                      ? AppColors.ok.withValues(alpha: 0.12)
+                      : AppColors.danger.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(AppRadius.s),
+                  border: Border.all(
                     color: _tendered >= cart.total
-                        ? AppColors.ok.withValues(alpha: 0.12)
-                        : AppColors.danger.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(AppRadius.s),
-                    border: Border.all(
-                      color: _tendered >= cart.total
-                          ? AppColors.ok.withValues(alpha: 0.4)
-                          : AppColors.danger.withValues(alpha: 0.4),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        _tendered >= cart.total ? 'Change' : 'Short by',
-                        style: TextStyle(
-                          color: _tendered >= cart.total
-                              ? AppColors.ok
-                              : AppColors.danger,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      Text(
-                        'P${(_tendered >= cart.total ? _change : cart.total - _tendered).toStringAsFixed(0)}',
-                        style: TextStyle(
-                          color: _tendered >= cart.total
-                              ? AppColors.ok
-                              : AppColors.danger,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 18,
-                        ),
-                      ),
-                    ],
+                        ? AppColors.ok.withValues(alpha: 0.4)
+                        : AppColors.danger.withValues(alpha: 0.4),
                   ),
                 ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      _tendered >= cart.total ? 'Change' : 'Short by',
+                      style: TextStyle(
+                        color: _tendered >= cart.total
+                            ? AppColors.ok
+                            : AppColors.danger,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      'P${(_tendered >= cart.total ? _change : cart.total - _tendered).toStringAsFixed(0)}',
+                      style: TextStyle(
+                        color: _tendered >= cart.total
+                            ? AppColors.ok
+                            : AppColors.danger,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
             const SizedBox(height: 16),
             FilledButton.icon(
@@ -1000,13 +1255,16 @@ class _CartSheetState extends State<_CartSheet> {
                     ? 'Record sale · P${cart.total.toStringAsFixed(0)}'
                     : 'Record sale',
               ),
-              onPressed: !_canPay
-                  ? null
-                  : () => widget.onPay(
-                        _method,
-                        _method == PaymentMethod.cash ? _tendered : null,
-                      ),
+              onPressed: !_canPay ? null : _submitIfReady,
             ),
+            if (!_canPay) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Enter P${cart.total.toStringAsFixed(0)} or more to record the sale',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
           ],
         ],
       ),

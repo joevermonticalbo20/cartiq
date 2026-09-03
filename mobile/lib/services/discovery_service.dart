@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 class DiscoveryService {
   static const int _apiPort = 4000;
   static const Duration _scanTimeout = Duration(milliseconds: 500);
@@ -97,6 +99,7 @@ class DiscoveryService {
   Future<String> discoverApiUrl(String defaultUrl) async {
     final wifiIp = await getWifiIp();
     if (wifiIp == null) {
+      debugPrint('[discovery] no wifi IP, fallback $defaultUrl');
       return defaultUrl;
     }
 
@@ -115,6 +118,7 @@ class DiscoveryService {
     }
 
     // Step 2: Scan subnet
+    debugPrint('[discovery] scanning $subnet.1-254 for :$_apiPort…');
     final found = await scanSubnet(subnet);
     if (found != null) {
       if (ssid != null) {
@@ -122,8 +126,10 @@ class DiscoveryService {
       }
       _lastFoundUrl = found;
       _lastSsid = ssid;
+      debugPrint('[discovery] found API at $found');
       return found;
     }
+    debugPrint('[discovery] nothing on $subnet, fallback $defaultUrl');
 
     // Step 3: Fall back
     return defaultUrl;

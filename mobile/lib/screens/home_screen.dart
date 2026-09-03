@@ -11,10 +11,15 @@ import '../state/theme_controller.dart';
 import '../theme.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.onScanReceipt, required this.onGoPos});
+  const HomeScreen(
+      {super.key,
+      required this.onScanReceipt,
+      required this.onGoPos,
+      required this.onGoHistory});
 
   final VoidCallback onScanReceipt;
   final VoidCallback onGoPos;
+  final VoidCallback onGoHistory;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -248,7 +253,7 @@ class _HomeScreenState extends State<HomeScreen> {
             _SectionHeader(
               title: 'Recent sales',
               trailing: TextButton(
-                onPressed: widget.onGoPos,
+                onPressed: widget.onGoHistory,
                 child: const Text('View all'),
               ),
             ),

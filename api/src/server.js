@@ -20,12 +20,22 @@ import { errorHandler, notFound } from "./middleware/error.js";
 
 const app = express();
 
-// LOCAL-ONLY: accept browser calls only from the local web dev server.
-const allowedOrigins = [
+// Fail fast when auth is misconfigured - otherwise every request 401s.
+if (!process.env.JWT_SECRET) {
+  console.error("[api:fatal] JWT_SECRET is not set. Add it to api/.env and restart.");
+  process.exit(1);
+}
+
+// Browser origins: env-driven so LAN/DHCP changes don't need a code edit.
+// CORS_ORIGINS="http://localhost:5173,http://192.168.100.217:5173"
+const defaultOrigins = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
   "http://192.168.1.16:5173",
 ];
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean)
+  : defaultOrigins;
 app.use(cors({ origin: allowedOrigins }));
 
 app.use(express.json({ limit: "1mb" }));

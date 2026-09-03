@@ -21,19 +21,26 @@ class ErrorBoundary extends Component {
 
   render() {
     if (this.state.hasError) {
+      // Custom fallbacks (app-level, page-level) get a Retry automatically.
+      // Without it a single transient render error latches the screen until
+      // a manual browser refresh.
+      const retry = () => this.setState({ hasError: false });
       const Fallback = this.props.fallbackComponent || (
         <div className="error-boundary">
           <h3>Something went wrong</h3>
           <p>Please try again or contact support if the issue persists.</p>
-          <button
-            onClick={() => this.setState({ hasError: false })}
-            className="retry-btn"
-          >
-            Retry
-          </button>
         </div>
       );
-      return Fallback;
+      return (
+        <>
+          {Fallback}
+          <div style={{ margin: 20 }}>
+            <button onClick={retry} className="retry-btn">
+              Retry
+            </button>
+          </div>
+        </>
+      );
     }
     return this.props.children;
   }

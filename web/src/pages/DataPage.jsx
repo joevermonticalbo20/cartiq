@@ -24,28 +24,29 @@ export default function DataPage() {
   const toast = useToast();
   const nowMonth = new Date().toISOString().slice(0, 7);
   const [month, setMonth] = useState(nowMonth);
-  const [busy, setBusy] = useState(false);
+  const [busyExport, setBusyExport] = useState(null);
+  const [busyImport, setBusyImport] = useState(false);
   const [preview, setPreview] = useState(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const fileRef = useRef(null);
   const pendingFile = useRef(null);
 
   async function doExport(dataset) {
-    setBusy(true);
+    setBusyExport(dataset);
     try {
       await downloadExport(dataset, month);
       toast(`Downloaded cartiq-${dataset}-${month || "all"}.xlsx`, "success");
     } catch (err) {
       toast(err.response?.data?.error || "Export failed", "error");
     } finally {
-      setBusy(false);
+      setBusyExport(null);
     }
   }
 
   async function handleFile(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setBusy(true);
+    setBusyImport(true);
     try {
       pendingFile.current = file;
       const form = new FormData();
@@ -61,14 +62,14 @@ export default function DataPage() {
       toast(err.response?.data?.error || "Import preview failed", "error");
       setPreview(null);
     } finally {
-      setBusy(false);
+      setBusyImport(false);
       if (fileRef.current) fileRef.current.value = "";
     }
   }
 
   async function commit() {
     if (!pendingFile.current) return;
-    setBusy(true);
+    setBusyImport(true);
     try {
       const form = new FormData();
       form.append("file", pendingFile.current);
@@ -79,7 +80,7 @@ export default function DataPage() {
     } catch (err) {
       toast(err.response?.data?.error || "Commit failed", "error");
     } finally {
-      setBusy(false);
+      setBusyImport(false);
       setConfirmOpen(false);
     }
   }
@@ -100,8 +101,14 @@ export default function DataPage() {
         </label>
         <div className="seg">
           {["sales", "inventory", "expenses", "shifts"].map((ds) => (
-            <button key={ds} className="ghost small-btn" disabled={busy} onClick={() => doExport(ds)}>
-              <Download size={14} /> {ds}
+            <button
+              key={ds}
+              className="ghost small-btn"
+              disabled={busyExport !== null}
+              aria-busy={busyExport === ds}
+              onClick={() => doExport(ds)}
+            >
+              <Download size={14} /> {busyExport === ds ? `${ds}…` : ds}
             </button>
           ))}
         </div>
@@ -117,10 +124,10 @@ export default function DataPage() {
         <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
           <button
             className="ghost"
-            disabled={busy}
+            disabled={busyImport}
             onClick={() => fileRef.current?.click()}
           >
-            <FileUp size={16} /> Choose .xlsx file
+            <FileUp size={16} /> {busyImport ? "Reading file…" : "Choose .xlsx file"}
           </button>
           <a
             className="ghost"
@@ -160,7 +167,7 @@ export default function DataPage() {
             <button
               style={{ marginTop: "var(--space-2)" }}
               onClick={() => setConfirmOpen(true)}
-              disabled={busy || preview.errors.length > 0 || preview.valid_count === 0}
+              disabled={busyImport || preview.errors.length > 0 || preview.valid_count === 0}
             >
               Commit {preview.valid_count} product(s)
             </button>

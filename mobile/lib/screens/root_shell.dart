@@ -27,6 +27,7 @@ class _RootShellState extends State<RootShell> {
             HomeScreen(
               onScanReceipt: () => _openScan(context),
               onGoPos: () => setState(() => _index = 1),
+              onGoHistory: () => setState(() => _index = 3),
             ),
             const PosScreen(),
             const ReceiptsScreen(),

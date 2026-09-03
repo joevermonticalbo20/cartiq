@@ -69,6 +69,7 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
         locationCode: auth.locationCode,
       );
       final batch = (data['data'] as List).cast<Map<String, dynamic>>();
+      if (!mounted) return;
       setState(() {
         if (reset) _rows.clear();
         _rows.addAll(batch);
@@ -76,6 +77,7 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
         _done = batch.length < 10;
       });
     } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -209,8 +211,11 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
                                 ? Icons.document_scanner_rounded
                                 : Icons.edit_note_rounded,
                             size: 21,
-                            color:
-                                isOcr ? AppColors.accent : Colors.grey.shade500,
+                            color: isOcr
+                                ? AppColors.primary
+                                : Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
                           ),
                         ),
                         title: Text(e['vendor'] ?? '',
@@ -240,8 +245,10 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
                                   horizontal: 7, vertical: 2),
                               decoration: BoxDecoration(
                                 color: isOcr
-                                    ? AppColors.warn.withValues(alpha: 0.12)
-                                    : Theme.of(context).dividerColor,
+                                    ? AppColors.warn
+                                    : Theme.of(context)
+                                        .colorScheme
+                                        .surfaceContainerHighest,
                                 borderRadius: BorderRadius.circular(99),
                               ),
                               child: Text(
@@ -249,7 +256,11 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w800,
-                                  color: isOcr ? AppColors.warn : Colors.grey.shade600,
+                                  color: isOcr
+                                      ? Colors.white
+                                      : Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
                                 ),
                               ),
                             ),

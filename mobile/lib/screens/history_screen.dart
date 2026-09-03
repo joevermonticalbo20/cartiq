@@ -65,6 +65,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         locationCode: auth.locationCode,
       );
       final batch = (data['data'] as List).cast<Map<String, dynamic>>();
+      if (!mounted) return;
       setState(() {
         if (reset) _rows.clear();
         _rows.addAll(batch);
@@ -72,6 +73,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         _done = batch.length < 10;
       });
     } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _loading = false);

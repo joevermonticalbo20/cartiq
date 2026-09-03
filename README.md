@@ -4,8 +4,9 @@
 Multi-Location Food Cart Operations**
 
 SIA 2 & Mobile Application Development final project - Group 5, BSIT BA3B,
-Laguna University. Status: **Phases 0-5 + frontend UX polish P1-P4 complete
-(development build)**, pending hardware pilot and faculty approval.
+Laguna University. Status: **Phases 0-5 + frontend UX polish P1-P4 +
+reliability/checkout/connectivity sprints complete (development build)**,
+pending hardware pilot and faculty approval.
 
 | Component | Path | Stack | Status |
 |---|---|---|---|
@@ -29,7 +30,8 @@ cd web && npm install && npm run dev   # http://localhost:5173
 
 # 3) Mobile POS  (terminal 3)
 cd mobile && flutter pub get
-flutter run   # physical phone - auto-discovers API on the LAN (see "Mobile connectivity")
+flutter run   # physical phone - boot splash auto-discovers the API on the LAN
+              # (see "Mobile connectivity"); Skip or type the IP if the scan stalls
 #  Fallback when auto-discovery can't reach the server:
 #    flutter run --dart-define=API_BASE_URL=http://192.168.100.217:4000/api
 #  Alternate API_BASE_URL targets (see "Mobile connectivity" below):
@@ -42,7 +44,8 @@ node iot/simulator.mjs --interval 5000 --tap-every 6
 #    add --drain --interval 2000 to trigger low-stock alerts fast (great demo)
 
 # Optional demo data for analytics (21 days of sales):
-cd api && node scripts/seed_history.mjs
+cd api && node scripts/seed_history.mjs        # appends
+cd api && node scripts/seed_history.mjs 21 --clean   # wipes old hist-% rows first (re-runnable)
 ```
 
 ## Seeded accounts
@@ -59,15 +62,27 @@ Device tokens (printed by seed, hashed in DB): `dev-CART-01-potafries`, etc.
 The mobile POS talks directly to the API on `:4000` (it is not a browser, so it
 does not use the web `/api` proxy).
 
-**Auto-discovery (default, no rebuild on Wi-Fi change):** on startup
-`mobile/lib/main.dart` calls `ApiClient.ensureResolved()` →
-`AppConfig.resolveApiUrl()` → `DiscoveryService.discoverApiUrl()` (
-`mobile/lib/services/discovery_service.dart`). It reads the phone's Wi-Fi IP,
-derives the `/24` subnet, and probes `*.1 - *.254` on port `4000` in parallel
-(batches of 30, 500 ms timeout). First open port wins, e.g.
-`http://192.168.100.217:4000/api`. Result is cached for the session. If the
-scan finds nothing it falls back to the `--dart-define=API_BASE_URL=...`
+**Auto-discovery (default, no rebuild on Wi-Fi change):** the app boots
+straight into a splash (`mobile/lib/main.dart` `_BootApp`) while
+`ApiClient.ensureResolved()` → `AppConfig.resolveApiUrl()` →
+`DiscoveryService.discoverApiUrl()` (
+`mobile/lib/services/discovery_service.dart`) runs in the background. It reads
+the phone's Wi-Fi IP, derives the `/24` subnet, and probes `*.1 - *.254` on
+port `4000` in parallel (batches of 30, 500 ms timeout). First open port wins,
+e.g. `http://192.168.100.217:4000/api`. Result is cached for the session. If
+the scan finds nothing it falls back to the `--dart-define=API_BASE_URL=...`
 value (built-in default `http://cartiq-api.local:4000/api`).
+
+No rebuild needed, ever, for LAN moves — two in-app escape hatches:
+- **Boot splash:** progress + `Skip - enter later` (uses fallback) + manual
+  `Server (IP or host)` field + Connect (15 s scan timeout, never hangs).
+- **Login → Server row (collapsible):** shows the active URL (+ `manual
+  override` tag when pinned), `Rescan`, and `Save & test connection` with a
+  live reachability result. A manual URL is persisted in secure storage
+  (`cartiq_api_url`) and wins over discovery on every future launch until you
+  Rescan.
+
+Connection errors report the **resolved** URL, not the build-time default.
 
 The API also advertises itself via Bonjour/mDNS (`bonjour` npm package in
 `api/src/server.js`, service `CartIQ API`, `_http._tcp`, port `4000`) whenever
@@ -81,7 +96,8 @@ Manual override is still supported at **build/run time** via
 | Target | `API_BASE_URL` | Requirements |
 |---|---|---|
 | Physical Android phone (auto) | _(discovered)_ | PC and phone on same Wi-Fi; API running with `HOST=0.0.0.0`; Windows Firewall allows TCP 4000 |
-| Physical Android phone (manual) | `http://<PC_LAN_IP>:4000/api` | same as above, plus rebuild with the current IP |
+| Physical Android phone (manual, in-app) | typed on splash or Login → Server | same as above, no rebuild; persists across restarts |
+| Physical Android phone (manual, build-time) | `http://<PC_LAN_IP>:4000/api` | same as above, plus rebuild with the current IP |
 | Android emulator | `http://10.0.2.2:4000/api` | host loopback alias |
 | Windows desktop | `http://127.0.0.1:4000/api` | none |
 | iOS simulator | `http://127.0.0.1:4000/api` | none |
@@ -96,16 +112,35 @@ IPv4 address (e.g. `192.168.100.217`). The API must be running with
 
 **Troubleshooting "Cannot reach CartIQ server":**
 1. Confirm the API is up: `curl http://127.0.0.1:4000/api/health` on the PC,
-   and from the LAN: `curl http://<PC_LAN_IP>:4000/api/health`.
+   and from the LAN: `curl http://<PC_LAN_IP>:4000/api/health`. The reply
+   includes `ok`, `version`, `uptimeSec`, `db` (503 when the DB is down).
 2. Switching Wi-Fi changes the PC IP (DHCP) — just **restart the app**, the
-   subnet scan picks up the new IP. Only the manual `--dart-define` path
-   needs a rebuild.
-3. Ensure the phone is on the same network as the PC (not mobile data, not a
+   splash scan picks up the new IP. Only the build-time `--dart-define` path
+   needs a rebuild; the in-app manual URL just needs re-typing once.
+3. The error message now shows the URL the app actually tried — compare it
+   with `ipconfig` on the PC before rebuilding anything.
+4. Ensure the phone is on the same network as the PC (not mobile data, not a
    guest/AP-isolated SSID — the scan is same-subnet only).
 4. Verify Windows Firewall: inbound allow rule for TCP port `4000`, e.g.
    `New-NetFirewallRule -DisplayName "CartIQ API" -Direction Inbound -LocalPort 4000 -Protocol TCP -Action Allow`.
 5. `mDNS error: Service name is already in use on the network` from the API
    log is harmless (stale Bonjour registration) — HTTP still serves.
+
+## API notes
+
+- **CORS is env-driven:** set `CORS_ORIGINS` in `api/.env` to a
+  comma-separated list (e.g.
+  `CORS_ORIGINS="http://localhost:5173,http://192.168.100.217:5173"`) so a
+  DHCP change doesn't need a code edit. Server exits at boot with
+  `[api:fatal]` if `JWT_SECRET` is missing.
+- **Orders are server-authoritative:** `POST /orders` requires
+  `locationCode`/`locationId` (400 otherwise, never silently books to the
+  first cart) and the `total` is recomputed from items — client totals are
+  ignored. Replays with the same `clientRef` return `duplicate: true`.
+- **Errors carry `correlationId`:** Prisma P2002 → 409, P2025 → 404, 404s
+  include an id — quote it when reporting a failure.
+- **LAN origins:** browser dashboard on a phone/laptop needs its origin in
+  `CORS_ORIGINS` plus `HOST=0.0.0.0` and the Windows Firewall TCP 4000 rule.
 
 ## Testing
 
@@ -213,3 +248,21 @@ React+Vite setup:
 - **Mobile network auto-discovery** — `DiscoveryService` subnet scan
   (`mobile/lib/services/discovery_service.dart`) + Bonjour advertise on the
   API; no rebuild needed when switching Wi-Fi (see "Mobile connectivity").
+- **Checkout speed (mobile)** — long-press quick-add with default flavor,
+  debounced catalog search, Retry on catalog failure, additive bill chips
+  (+20–1000) + Exact, autofocus cash field with Done-to-pay, always-visible
+  Change/Short-by, disabled-pay hint, and a sale-result sheet with a big
+  change readout + New sale button (`mobile/lib/screens/pos_screen.dart`).
+- **Offline trust (mobile)** — session survives offline cold-start (sign-out
+  only on 401/403), persistent queued-sales strip on POS, neutral (not red)
+  queued-offline feedback, `View all` routes to History.
+- **Connectivity UX (mobile)** — non-blocking boot splash with progress,
+  Skip, and manual-IP entry; persisted manual server URL; Login → Server
+  panel with Rescan + Save & test; errors show the resolved URL
+  (`main.dart`, `services/api_client.dart`, `screens/login_screen.dart`).
+- **Dialog + toast a11y (web)** — `ConfirmDialog` has `role=dialog`,
+  Esc-to-cancel, initial focus; toasts have `role=status`/`alert`,
+  `aria-live`, a dismiss button, and a 5 s timeout.
+- **Loading + honesty (web)** — Analytics skeleton blocks + `aria-busy` +
+  error Retry; Expenses summary respects the category filter; Data Hub
+  exports show per-dataset progress with independent import busy state.

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import '../config.dart';
 
@@ -14,16 +15,82 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
+/// Normalizes free-typed server input ("192.168.1.5", "http://host:4000/",
+/// "host:4000/api") into a full API base URL.
+String normalizeApiBaseUrl(String input) {
+  var v = input.trim();
+  if (v.isEmpty) throw ApiException('Enter a server address');
+  if (!v.contains('://')) v = 'http://$v';
+  v = v.replaceAll(RegExp(r'/+$'), '');
+  if (!v.endsWith('/api')) v = '$v/api';
+  final uri = Uri.tryParse(v);
+  if (uri == null || uri.host.isEmpty) {
+    throw ApiException('Invalid server address "$input"');
+  }
+  return v;
+}
+
 /// Thin HTTP client for the local CartIQ REST API.
 class ApiClient {
+  static const _manualKey = 'cartiq_api_url';
+
   final http.Client _http = http.Client();
+  final FlutterSecureStorage storage;
   String? _resolvedBaseUrl;
+  bool _isManual = false;
+
+  ApiClient({FlutterSecureStorage? secureStorage})
+      : storage = secureStorage ?? const FlutterSecureStorage();
 
   Future<void> ensureResolved() async {
-    if (_resolvedBaseUrl == null) {
-      _resolvedBaseUrl = await AppConfig.resolveApiUrl();
+    if (_resolvedBaseUrl != null) return;
+    try {
+      final manual = await storage.read(key: _manualKey);
+      if (manual != null && manual.isNotEmpty) {
+        _resolvedBaseUrl = manual;
+        _isManual = true;
+        return;
+      }
+    } catch (_) {
+      // Secure storage unavailable - fall through to discovery.
     }
+    _resolvedBaseUrl ??= await AppConfig.resolveApiUrl();
   }
+
+  /// Skip discovery and use the built-in fallback URL.
+  void useFallback() {
+    _resolvedBaseUrl ??= AppConfig.apiBaseUrl;
+  }
+
+  /// Forget any manual URL and re-run subnet discovery.
+  Future<String> rescan() async {
+    try {
+      await storage.delete(key: _manualKey);
+    } catch (_) {}
+    _isManual = false;
+    _resolvedBaseUrl = await AppConfig.resolveApiUrl();
+    return _resolvedBaseUrl!;
+  }
+
+  /// Pin a manual server URL (persisted across restarts).
+  Future<String> setManualBaseUrl(String input) async {
+    final normalized = normalizeApiBaseUrl(input);
+    _resolvedBaseUrl = normalized;
+    _isManual = true;
+    try {
+      await storage.write(key: _manualKey, value: normalized);
+    } catch (_) {}
+    return normalized;
+  }
+
+  /// The base URL actually in use (resolved, manual, or fallback).
+  String get currentBaseUrl => _resolvedBaseUrl ?? AppConfig.apiBaseUrl;
+
+  /// True when the URL was typed by the user rather than discovered.
+  bool get isManualUrl => _isManual;
+
+  /// Quick reachability probe used by the login server row and boot splash.
+  Future<bool> testConnection() => health();
 
   Uri _uri(String path) => Uri.parse('${_resolvedBaseUrl ?? AppConfig.apiBaseUrl}$path');
 
@@ -46,10 +113,10 @@ class ApiClient {
     } on FormatException {
       rethrow;
     } on TimeoutException {
-      throw ApiException('Timed out reaching CartIQ server at ${AppConfig.apiBaseUrl}');
+      throw ApiException('Timed out reaching CartIQ server at $currentBaseUrl');
     } on SocketException catch (e) {
       throw ApiException(
-        'Cannot reach CartIQ server at ${AppConfig.apiBaseUrl}'
+        'Cannot reach CartIQ server at $currentBaseUrl'
         ' (${e.message})',
       );
     } catch (e) {

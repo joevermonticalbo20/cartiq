@@ -45,13 +45,15 @@ export default function ExpensesPage() {
   ]);
 
   // summary (totals + by_category) comes with every response; use the first
-  // page's payload to render the breakdown strip.
+  // page's payload to render the breakdown strip. Includes the category
+  // filter so the strip never disagrees with the table.
   async function loadSummary() {
     try {
       const res = await api.get(
         `/expenses?page=1&pageSize=1` +
           (code ? `&code=${code}` : "") +
-          (month ? `&month=${month}` : "")
+          (month ? `&month=${month}` : "") +
+          (category ? `&category=${encodeURIComponent(category)}` : "")
       );
       setSummary(res.data);
     } catch {
@@ -62,7 +64,7 @@ export default function ExpensesPage() {
   useEffect(() => {
     const timer = setTimeout(loadSummary, 0);
     return () => clearTimeout(timer);
-  }, [code, month]);
+  }, [code, month, category]);
 
   async function doDelete() {
     if (!confirming) return;

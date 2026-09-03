@@ -22,8 +22,12 @@ class AuthState extends ChangeNotifier {
       try {
         final data = await api.me(token!);
         user = data['user'] as Map<String, dynamic>?;
-      } on ApiException {
-        await signOut();
+      } on ApiException catch (e) {
+        // Only drop the session when the server rejects the token (401/403).
+        // Network errors (offline cold-start) must keep the staff signed in.
+        if (e.statusCode == 401 || e.statusCode == 403) {
+          await signOut();
+        }
       }
     }
     notifyListeners();

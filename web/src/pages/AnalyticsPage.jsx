@@ -36,6 +36,8 @@ export default function AnalyticsPage() {
   const [forecast, setForecast] = useState(null);
   const [profit, setProfit] = useState(null);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [reload, setReload] = useState(0);
   const [sortCol, setSortCol] = useState("sales");
   const [sortDir, setSortDir] = useState("desc");
 
@@ -43,6 +45,9 @@ export default function AnalyticsPage() {
     api.get("/catalog").then(({ data }) => setCarts(data.locations ?? [])).catch(() => {});
   }, []);
 
+  // Note: setLoading(true) lives in the filter/retry handlers below, not
+  // here - calling setState synchronously inside the effect trips
+  // react-hooks/set-state-in-effect.
   useEffect(() => {
     let alive = true;
     const days = Number(range) || 30;
@@ -55,6 +60,7 @@ export default function AnalyticsPage() {
     ])
       .then(([cur, ext, f, pf]) => {
         if (!alive) return;
+        setLoading(false);
         const curSales = cur.data.total_sales;
         const extSales = ext.data.total_sales;
         const prevSales = Math.max(0, extSales - curSales);
@@ -70,11 +76,12 @@ export default function AnalyticsPage() {
       })
       .catch((err) => {
         if (!alive) return;
+        setLoading(false);
         const msg = err.response?.data?.error || err.message || "Unable to load analytics. Please try again.";
         setError(msg);
       });
     return () => { alive = false; };
-  }, [range, cartCode]);
+  }, [range, cartCode, reload]);
 
   const revenueTrend = useMemo(() => {
     if (!trends || !prevTrends || prevTrends.total_sales <= 0) return null;
@@ -181,7 +188,7 @@ export default function AnalyticsPage() {
 
   return (
     <PageErrorBoundary>
-      <div className="page-container">
+      <div className="page-container" aria-busy={loading}>
         <div className="page-header">
           <div>
             <h1 className="page-header-title">Analytics</h1>
@@ -191,12 +198,21 @@ export default function AnalyticsPage() {
             <select
               className="cart-select"
               value={cartCode}
-              onChange={(e) => setCartCode(e.target.value)}
+              onChange={(e) => {
+                setLoading(true);
+                setCartCode(e.target.value);
+              }}
             >
               <option value="">All carts</option>
               {carts.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
             </select>
-            <select value={range} onChange={(e) => setRange(e.target.value)}>
+            <select
+              value={range}
+              onChange={(e) => {
+                setLoading(true);
+                setRange(e.target.value);
+              }}
+            >
               <option value="7">Last 7 days</option>
               <option value="14">Last 14 days</option>
               <option value="30">Last 30 days</option>
@@ -205,7 +221,20 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {error && <div className="error-box">{error}</div>}
+        {error && (
+          <div className="error-box" role="alert">
+            <span>{error}</span>
+            <button
+              className="ghost"
+              onClick={() => {
+                setLoading(true);
+                setReload((n) => n + 1);
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         {trends && (
           <>
@@ -511,9 +540,12 @@ export default function AnalyticsPage() {
           </>
         )}
 
-        {!trends && !error && (
-          <div className="analytics-loading">
-            Loading analytics...
+        {loading && !trends && (
+          <div className="analytics-loading" role="status" aria-label="Loading analytics">
+            <div className="skel" style={{ height: 92 }} />
+            <div className="skel" style={{ height: 220, marginTop: "var(--space-4)" }} />
+            <div className="skel" style={{ height: 160, marginTop: "var(--space-4)" }} />
+            <span className="muted small">Loading analytics…</span>
           </div>
         )}
       </div>
