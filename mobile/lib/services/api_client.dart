@@ -17,8 +17,15 @@ class ApiException implements Exception {
 /// Thin HTTP client for the local CartIQ REST API.
 class ApiClient {
   final http.Client _http = http.Client();
+  String? _resolvedBaseUrl;
 
-  Uri _uri(String path) => Uri.parse('${AppConfig.apiBaseUrl}$path');
+  Future<void> ensureResolved() async {
+    if (_resolvedBaseUrl == null) {
+      _resolvedBaseUrl = await AppConfig.resolveApiUrl();
+    }
+  }
+
+  Uri _uri(String path) => Uri.parse('${_resolvedBaseUrl ?? AppConfig.apiBaseUrl}$path');
 
   Map<String, String> _headers({String? token}) => {
         'Content-Type': 'application/json',

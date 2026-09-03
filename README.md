@@ -4,14 +4,14 @@
 Multi-Location Food Cart Operations**
 
 SIA 2 & Mobile Application Development final project - Group 5, BSIT BA3B,
-Laguna University. Status: **Phases 0-5 complete (development build)**, pending
-hardware pilot and faculty approval.
+Laguna University. Status: **Phases 0-5 + frontend UX polish P1-P4 complete
+(development build)**, pending hardware pilot and faculty approval.
 
 | Component | Path | Stack | Status |
 |---|---|---|---|
-| REST API | `api/` | Node.js 24, Express 5, Prisma ORM, SQLite (local file), JWT, ExcelJS | done, tested |
-| Web admin dashboard | `web/` | React 19, Vite, React Router, Axios | done, builds |
-| Mobile POS app | `mobile/` | Flutter (Android/Windows), offline-first sqflite queue, ML Kit OCR | done, analyzes clean |
+| REST API | `api/` | Node.js 24, Express 5, Prisma ORM, SQLite (local file), JWT, ExcelJS, Bonjour/mDNS advertise | done, tested |
+| Web admin dashboard | `web/` | React 19, Vite, React Router, Axios | done, builds (lint 0 errors, P1-P4 UX polish) |
+| Mobile POS app | `mobile/` | Flutter (Android/Windows), offline-first sqflite queue, ML Kit OCR, subnet auto-discovery | done, analyzes clean (0 errors) |
 | ESP32 IoT node | `iot/` | Arduino C++ firmware + **Node simulator** (`iot/simulator.mjs`) | code complete; hardware pending |
 
 ## Quickstart
@@ -29,10 +29,12 @@ cd web && npm install && npm run dev   # http://localhost:5173
 
 # 3) Mobile POS  (terminal 3)
 cd mobile && flutter pub get
-flutter run --dart-define=API_BASE_URL=http://192.168.1.16:4000/api   # physical phone
+flutter run   # physical phone - auto-discovers API on the LAN (see "Mobile connectivity")
+#  Fallback when auto-discovery can't reach the server:
+#    flutter run --dart-define=API_BASE_URL=http://192.168.100.217:4000/api
 #  Alternate API_BASE_URL targets (see "Mobile connectivity" below):
 #    Android emulator:  http://10.0.2.2:4000/api
-#    Windows desktop:   http://127.0.0.1:4000/api   (the built-in default)
+#    Windows desktop:   http://127.0.0.1:4000/api
 #    iOS simulator:     http://127.0.0.1:4000/api
 
 # 4) Fake ESP32 node until hardware arrives (terminal 4)
@@ -55,27 +57,55 @@ Device tokens (printed by seed, hashed in DB): `dev-CART-01-potafries`, etc.
 ## Mobile connectivity
 
 The mobile POS talks directly to the API on `:4000` (it is not a browser, so it
-does not use the web `/api` proxy). The API base URL is set at **build/run time**
-via `--dart-define=API_BASE_URL=...`; the built-in default is
-`http://127.0.0.1:4000/api`.
+does not use the web `/api` proxy).
+
+**Auto-discovery (default, no rebuild on Wi-Fi change):** on startup
+`mobile/lib/main.dart` calls `ApiClient.ensureResolved()` →
+`AppConfig.resolveApiUrl()` → `DiscoveryService.discoverApiUrl()` (
+`mobile/lib/services/discovery_service.dart`). It reads the phone's Wi-Fi IP,
+derives the `/24` subnet, and probes `*.1 - *.254` on port `4000` in parallel
+(batches of 30, 500 ms timeout). First open port wins, e.g.
+`http://192.168.100.217:4000/api`. Result is cached for the session. If the
+scan finds nothing it falls back to the `--dart-define=API_BASE_URL=...`
+value (built-in default `http://cartiq-api.local:4000/api`).
+
+The API also advertises itself via Bonjour/mDNS (`bonjour` npm package in
+`api/src/server.js`, service `CartIQ API`, `_http._tcp`, port `4000`) whenever
+it is LAN-exposed (`HOST != 127.0.0.1`). Note: plain `.local` names do **not**
+resolve on stock Android, which is why the app uses the subnet scan instead
+of relying on the mDNS name.
+
+Manual override is still supported at **build/run time** via
+`--dart-define=API_BASE_URL=...`:
 
 | Target | `API_BASE_URL` | Requirements |
 |---|---|---|
-| Physical Android phone | `http://<PC_LAN_IP>:4000/api` | PC and phone on same Wi-Fi; Windows Firewall allows TCP 4000 |
+| Physical Android phone (auto) | _(discovered)_ | PC and phone on same Wi-Fi; API running with `HOST=0.0.0.0`; Windows Firewall allows TCP 4000 |
+| Physical Android phone (manual) | `http://<PC_LAN_IP>:4000/api` | same as above, plus rebuild with the current IP |
 | Android emulator | `http://10.0.2.2:4000/api` | host loopback alias |
-| Windows desktop | `http://127.0.0.1:4000/api` (default) | none |
-| iOS simulator | `http://127.0.0.1:4000/api` (default) | none |
+| Windows desktop | `http://127.0.0.1:4000/api` | none |
+| iOS simulator | `http://127.0.0.1:4000/api` | none |
+
+Android permissions required for scan + cleartext LAN HTTP are declared in
+`mobile/android/app/src/main/AndroidManifest.xml`: `INTERNET`,
+`ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `usesCleartextTraffic="true"`.
 
 To find your PC's LAN IP on Windows: `ipconfig` → look for the Ethernet/Wi-Fi
-IPv4 address (e.g. `192.168.1.16`). The API must be running with `HOST=0.0.0.0`
-(set in `api/.env`) so it accepts LAN connections.
+IPv4 address (e.g. `192.168.100.217`). The API must be running with
+`HOST=0.0.0.0` (set in `api/.env`) so it accepts LAN connections.
 
 **Troubleshooting "Cannot reach CartIQ server":**
-1. Confirm the API is up: `curl http://127.0.0.1:4000/api/health` on the PC.
-2. Re-check the PC IP (`ipconfig`) — it is DHCP and can change; rebuild with the
-   new `--dart-define` value if it does.
-3. Ensure the phone is on the same network as the PC (not mobile data).
-4. Verify Windows Firewall: inbound allow rule for TCP port `4000`.
+1. Confirm the API is up: `curl http://127.0.0.1:4000/api/health` on the PC,
+   and from the LAN: `curl http://<PC_LAN_IP>:4000/api/health`.
+2. Switching Wi-Fi changes the PC IP (DHCP) — just **restart the app**, the
+   subnet scan picks up the new IP. Only the manual `--dart-define` path
+   needs a rebuild.
+3. Ensure the phone is on the same network as the PC (not mobile data, not a
+   guest/AP-isolated SSID — the scan is same-subnet only).
+4. Verify Windows Firewall: inbound allow rule for TCP port `4000`, e.g.
+   `New-NetFirewallRule -DisplayName "CartIQ API" -Direction Inbound -LocalPort 4000 -Protocol TCP -Action Allow`.
+5. `mDNS error: Service name is already in use on the network` from the API
+   log is harmless (stale Bonjour registration) — HTTP still serves.
 
 ## Testing
 
@@ -162,3 +192,24 @@ React+Vite setup:
   HTML coverage reports). CI-ready: fails build on test or lint errors.
 - **GitHub Actions CI** — `.github/workflows/web-ci.yml` runs lint + test +
   build on every push and PR to the web frontend.
+- **UX polish P1 (web a11y)** — chip contrast fix in `theme.css`; reusable
+  `PasswordStrengthMeter` wired into Settings change-password; 44px minimum
+  touch targets for icon-only buttons.
+- **UX polish P2 (empty states + clarity)** — shared web `EmptyState`
+  component (`icon/title/hint/actions`) used on Inventory/Staff/Expenses;
+  mobile empty states on history/home/receipts; mobile login
+  show/hide password toggle; chart accessibility labels in Analytics;
+  prominent bulk stock-adjust bar in Inventory.
+- **UX polish P3 (findability + honesty)** — client-side search boxes on
+  mobile History/Receipts; forecast-method explainer ("last-14-day average,
+  needs ~14 days of history") in Analytics; downloadable products import
+  template at `web/public/templates/products-template.xlsx`
+  (generated by `api/scripts/make_product_template.cjs`, ships in
+  `dist/templates/`).
+- **UX polish P4 (feel)** — `mobile/lib/utils/haptics.dart`
+  (`tap/select/success/error`) wired into POS add-to-cart, sale-recorded /
+  queued, and login success/error; web `:active` press-scale (`scale(0.96)`)
+  on `button` and `a.ghost` in `styles.css`.
+- **Mobile network auto-discovery** — `DiscoveryService` subnet scan
+  (`mobile/lib/services/discovery_service.dart`) + Bonjour advertise on the
+  API; no rebuild needed when switching Wi-Fi (see "Mobile connectivity").

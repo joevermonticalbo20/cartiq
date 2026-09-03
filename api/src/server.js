@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import bonjour from "bonjour";
 import authRoutes from "./routes/auth.js";
 import healthRouter from "./routes/health.js";
 import catalogRoutes from "./routes/catalog.js";
@@ -52,6 +53,30 @@ app.use(errorHandler);
 const HOST = process.env.HOST || "127.0.0.1";
 const PORT = process.env.PORT || 4000;
 
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
   console.log(`CartIQ API listening on http://${HOST}:${PORT}${HOST === "127.0.0.1" ? " (localhost only)" : " (LAN-exposed)"}`);
+  
+  // Advertise the API via mDNS (Bonjour) so mobile clients can discover it
+  // automatically without hardcoding IP addresses.
+  if (HOST !== "127.0.0.1") {
+    const mdns = bonjour();
+    const service = mdns.publish({
+      name: "CartIQ API",
+      type: "http",
+      port: PORT,
+      txt: { id: "cartiq-api" }
+    });
+    
+    service.on("up", () => console.log("mDNS service advertised: CartIQ API"));
+    service.on("error", err => console.error("mDNS error:", err));
+    
+    // Clean up on shutdown
+    const shutdown = () => {
+      service.stop();
+      mdns.destroy();
+      console.log("mDNS service stopped");
+    };
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
+  }
 });

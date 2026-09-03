@@ -16,6 +16,9 @@ Future<void> main() async {
   await PersistedOfflineQueue.instance.open();
 
   final api = ApiClient();
+  // Auto-discover the API on the local subnet so the app works on any WiFi
+  // without rebuilding. Scans the /24 subnet for port 4000.
+  await api.ensureResolved();
   final auth = AuthState(apiClient: api);
   final sync = SyncService(api: api, auth: auth, queue: PersistedOfflineQueue.instance);
   final themeController = ThemeController();
