@@ -184,6 +184,27 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  /// 7-day sales series for the home sparkline. Never throws - returns [].
+  Future<List<double>> salesSeries(
+    String token, {
+    String? locationCode,
+    int days = 7,
+  }) async {
+    try {
+      final params = 'days=$days${locationCode != null ? '&code=$locationCode' : ''}';
+      final res = await _send(() => _http
+          .get(_uri('/analytics/trends?$params'), headers: _headers(token: token)));
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      final series = (body['daily_series'] as List?) ?? [];
+      return series
+          .map<double>(
+              (e) => (((e as Map?)?['total_sales'] ?? 0) as num).toDouble())
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
   Future<Map<String, dynamic>> dailyReport(
     String token, {
     String? locationCode,

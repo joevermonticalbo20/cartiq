@@ -41,6 +41,24 @@ router.get("/inventory", requireAuth, async (req, res, next) => {
   }
 });
 
+router.patch("/inventory/items/:id", requireAuth, async (req, res, next) => {
+  try {
+    const { threshold } = req.body ?? {};
+    if (threshold === undefined || !Number.isFinite(+threshold) || +threshold < 0) {
+      return res.status(400).json({ error: "non-negative threshold is required" });
+    }
+    const item = await prisma.inventoryItem.findUnique({ where: { id: +req.params.id } });
+    if (!item) return res.status(404).json({ error: "Inventory item not found" });
+    const updated = await prisma.inventoryItem.update({
+      where: { id: item.id },
+      data: { threshold: +threshold },
+    });
+    return res.json({ item: decorate([updated])[0] });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.post("/inventory/adjustments", requireAuth, async (req, res, next) => {
   try {
     const { inventoryItemId, newStock, reason } = req.body ?? {};

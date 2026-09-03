@@ -12,6 +12,7 @@ import '../services/sync_service.dart';
 import '../state/cart_state.dart';
 import '../theme.dart';
 import '../utils/haptics.dart';
+import '../widgets/empty_state.dart';
 
 String newClientRef() {
   final rnd = Random.secure();
@@ -518,21 +519,13 @@ class _PosScreenState extends State<PosScreen> {
                             p['category'] == _categoryFilter))
                     .toList();
                 if (products.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.inbox_outlined,
-                            size: 48,
-                            color: AppColors.accent
-                                .withValues(alpha: 0.4)),
-                        const SizedBox(height: 12),
-                        Text(
-                          'No products match',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ],
-                    ),
+                  return AppEmptyState(
+                    compact: true,
+                    icon: Icons.search_off_rounded,
+                    title: 'No products match',
+                    subtitle: _search.isNotEmpty
+                        ? 'Try a different name or category.'
+                        : 'Pull down to refresh the catalog.',
                   );
                 }
                 return GridView.builder(
@@ -620,9 +613,8 @@ class _ProductCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final name = product['name'] as String;
     final price = product['basePrice'] as num;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Material(
-      color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+      color: Theme.of(context).colorScheme.surface,
       borderRadius: BorderRadius.circular(AppRadius.l),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.l),
@@ -638,14 +630,30 @@ class _ProductCard extends StatelessWidget {
               width: inCartQty > 0 ? 1.5 : 1,
             ),
             borderRadius: BorderRadius.circular(AppRadius.l),
+            boxShadow: inCartQty > 0 ? AppShadow.sm() : null,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Top: name + cart badge
+              // Top: food icon tile + name + cart badge
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(AppRadius.s),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Icon(
+                      Icons.fastfood_rounded,
+                      size: 20,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       name,
@@ -679,25 +687,23 @@ class _ProductCard extends StatelessWidget {
                 ],
               ),
               const Spacer(),
-              // Price + flavor badge
+              // Price + flavor badge / quick-add
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Flexible(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'P$price',
-                        style: Theme.of(context)
-                            .textTheme
-                            .headlineSmall
-                            ?.copyWith(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w800,
-                            ),
-                      ),
+                    child: Text(
+                      'P$price',
+                      style: Theme.of(context)
+                          .textTheme
+                          .headlineSmall
+                          ?.copyWith(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   if (flavorCount > 0)
@@ -718,17 +724,21 @@ class _ProductCard extends StatelessWidget {
                       ),
                     )
                   else if (onQuickAdd != null)
-                    Container(
-                      width: 30,
-                      height: 30,
-                      decoration: const BoxDecoration(
-                        color: AppColors.primary,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.add,
-                        color: Colors.white,
-                        size: 18,
+                    Material(
+                      color: AppColors.primary,
+                      shape: const CircleBorder(),
+                      child: InkWell(
+                        customBorder: const CircleBorder(),
+                        onTap: onQuickAdd,
+                        child: const SizedBox(
+                          width: 44,
+                          height: 44,
+                          child: Icon(
+                            Icons.add,
+                            color: Colors.white,
+                            size: 22,
+                          ),
+                        ),
                       ),
                     ),
                 ],
@@ -855,21 +865,14 @@ class _CartBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isEmpty = cart.isEmpty;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
         border: Border(
           top: BorderSide(color: Theme.of(context).dividerColor),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.07),
-            blurRadius: 14,
-            offset: const Offset(0, -4),
-          ),
-        ],
+        boxShadow: AppShadow.md(),
       ),
       child: SafeArea(
         top: false,
@@ -1010,14 +1013,33 @@ class _CartSheetState extends State<_CartSheet> {
           const SizedBox(height: 8),
           if (cart.isEmpty)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 32),
+              padding: const EdgeInsets.symmetric(vertical: 28),
               child: Column(
                 children: [
-                  Icon(Icons.shopping_basket_outlined,
-                      size: 48,
-                      color: AppColors.accent.withValues(alpha: 0.4)),
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: const Icon(Icons.shopping_basket_outlined,
+                        size: 30, color: AppColors.primary),
+                  ),
                   const SizedBox(height: 12),
-                  const Text('No items yet'),
+                  Text(
+                    'No items yet',
+                    style: Theme.of(context)
+                        .textTheme
+                        .headlineSmall
+                        ?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Tap a product to start the order.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 ],
               ),
             )

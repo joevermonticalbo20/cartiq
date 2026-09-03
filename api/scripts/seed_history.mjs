@@ -32,10 +32,16 @@ async function main() {
   if (locations.length === 0) throw new Error("Run npm run db:seed first");
 
   if (CLEAN) {
-    const deleted = await prisma.order.deleteMany({
+    const old = await prisma.order.findMany({
       where: { clientRef: { startsWith: "hist-" } },
+      select: { id: true },
     });
-    console.log(`Cleaned ${deleted.count} previously seeded history orders.`);
+    if (old.length > 0) {
+      const ids = old.map((o) => o.id);
+      await prisma.orderItem.deleteMany({ where: { orderId: { in: ids } } });
+      await prisma.order.deleteMany({ where: { id: { in: ids } } });
+    }
+    console.log(`Cleaned ${old.length} previously seeded history orders.`);
   }
 
   let orderCount = 0;

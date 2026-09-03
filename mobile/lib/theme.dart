@@ -25,6 +25,23 @@ class AppRadius {
   static const s = 10.0;
 }
 
+class AppShadow {
+  static List<BoxShadow> sm({Color color = Colors.black}) => [
+        BoxShadow(
+          color: color.withValues(alpha: 0.06),
+          blurRadius: 8,
+          offset: const Offset(0, 2),
+        ),
+      ];
+  static List<BoxShadow> md({Color color = Colors.black}) => [
+        BoxShadow(
+          color: color.withValues(alpha: 0.08),
+          blurRadius: 16,
+          offset: const Offset(0, 6),
+        ),
+      ];
+}
+
 class AppTheme {
   static ThemeData light() => _build(Brightness.light);
   static ThemeData dark() => _build(Brightness.dark);
@@ -164,22 +181,22 @@ class AppTheme {
         iconTheme: WidgetStateProperty.resolveWith((states) => IconThemeData(
               size: 24,
               color: states.contains(WidgetState.selected)
-                  ? AppColors.accent
+                  ? AppColors.primary
                   : muted,
             )),
         labelTextStyle: WidgetStateProperty.resolveWith((states) => TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
               color: states.contains(WidgetState.selected)
-                  ? AppColors.accent
+                  ? AppColors.primary
                   : muted,
             )),
       ),
 
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: isDark ? surface : const Color(0xFF0A0908),
-        contentTextStyle: TextStyle(fontSize: 14, color: isDark ? const Color(0xFF0A0908) : const Color(0xFFF8F9FA)),
+        backgroundColor: isDark ? AppColors.accentSoft : const Color(0xFF0A0908),
+        contentTextStyle: const TextStyle(fontSize: 14, color: Color(0xFFF8F9FA)),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
 

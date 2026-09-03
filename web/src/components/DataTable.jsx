@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Inbox } from "lucide-react";
 import Pagination from "./Pagination.jsx";
+import EmptyState from "./EmptyState.jsx";
 
 export default function DataTable({
   columns,
@@ -50,11 +51,7 @@ export default function DataTable({
   }
 
   if (!data || data.length === 0) {
-    return (
-      <div className="empty-state">
-        <strong>{emptyMessage}</strong>
-      </div>
-    );
+    return <EmptyState icon={Inbox} title={emptyMessage} compact />;
   }
 
   function handleSort(key) {

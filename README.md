@@ -280,3 +280,12 @@ React+Vite setup:
 - **Recoverable error screens (web)** — every `ErrorBoundary` fallback
   (app-level "System Error" included) now has a Retry button, so a single
   transient render error can never latch the screen until a manual refresh.
+- **Deeper analytics (all three families)** — descriptive: peak-hour heatmap
+  (`/analytics/hourly`), basket analysis with flavor pairs + VOID rate
+  (`/analytics/basket`), cost-burn strip; predictive: 7-day revenue forecast
+  reusing the deseasonalized-MA engine (`/analytics/sales-forecast`),
+  dated stockout alerts inside reorder suggestions; prescriptive: 3-day prep
+  quantities + noisy/silent threshold calibration with one-click apply
+  (`/reorders/prep`, `PATCH /inventory/items/:id`). Analytics page
+  restructured: takeaway chips on top, numbered sections, fixed axes/legends,
+  donut center totals, rich forecast empties (see `docs/api-contract.md`).

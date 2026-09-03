@@ -143,6 +143,110 @@ export async function sensorDailyRate(locationId, channel, lookbackDays = 5) {
   return used / spanDays; // kg/day average over the lookback window
 }
 
+// ---------- hourly sales matrix (descriptive: peak-hour staffing) ----------
+
+export function daypart(hour) {
+  if (hour < 11) return "morning";
+  if (hour < 14) return "lunch";
+  if (hour < 17) return "afternoon";
+  return "evening";
+}
+
+// 7 x 24 matrix of {dow, hour, orders, total_sales} plus peak summaries.
+// Weekday uses server-local time, same convention as the trends endpoint.
+export function buildHourlyMatrix(orders) {
+  const cells = new Map();
+  const key = (dow, hour) => `${dow}:${hour}`;
+  for (const o of orders) {
+    const d = new Date(o.createdAt);
+    const k = key(d.getDay(), d.getHours());
+    const cell = cells.get(k) ?? { orders: 0, total_sales: 0 };
+    cell.orders += 1;
+    cell.total_sales += o.total;
+    cells.set(k, cell);
+  }
+  const matrix = [];
+  for (let dow = 0; dow < 7; dow++) {
+    for (let hour = 0; hour < 24; hour++) {
+      const cell = cells.get(key(dow, hour)) ?? { orders: 0, total_sales: 0 };
+      matrix.push({
+        dow,
+        hour,
+        daypart: daypart(hour),
+        orders: cell.orders,
+        total_sales: Number(cell.total_sales.toFixed(2)),
+      });
+    }
+  }
+  let peak = { dow: 0, hour: 0, orders: 0, total_sales: 0 };
+  for (const c of matrix) {
+    if (c.total_sales > peak.total_sales) peak = c;
+  }
+  const byPart = {};
+  for (const c of matrix) {
+    const p = byPart[c.daypart] ?? { orders: 0, total_sales: 0 };
+    p.orders += c.orders;
+    p.total_sales += c.total_sales;
+    byPart[c.daypart] = p;
+  }
+  return {
+    matrix,
+    peak,
+    by_daypart: Object.entries(byPart).map(([part, v]) => ({
+      part,
+      orders: v.orders,
+      total_sales: Number(v.total_sales.toFixed(2)),
+    })),
+  };
+}
+
+// ---------- basket analysis (descriptive: what sells together) ----------
+
+export function buildBasket(paidOrders, voidCount) {
+  const totalOrders = paidOrders.length;
+  let units = 0;
+  let lines = 0;
+  const pairCounts = new Map();
+  for (const o of paidOrders) {
+    const keys = (o.items ?? []).map(
+      (it) => `${it.productName}|${it.flavor ?? ""}`
+    );
+    units += (o.items ?? []).reduce((s, it) => s + (it.qty ?? 0), 0);
+    lines += (o.items ?? []).length;
+    const uniq = [...new Set(keys)].sort();
+    for (let i = 0; i < uniq.length; i++) {
+      for (let j = i + 1; j < uniq.length; j++) {
+        const k = `${uniq[i]} + ${uniq[j]}`;
+        pairCounts.set(k, (pairCounts.get(k) ?? 0) + 1);
+      }
+    }
+  }
+  const topPairs = [...pairCounts.entries()]
+    .map(([pair, orders]) => ({
+      pair: pair.split(" + ").map((p) => {
+        const [name, flavor] = p.split("|");
+        return flavor ? `${name} (${flavor})` : name;
+      }),
+      orders,
+      pct:
+        totalOrders > 0 ? Number(((orders / totalOrders) * 100).toFixed(1)) : 0,
+    }))
+    .sort((a, b) => b.orders - a.orders)
+    .slice(0, 5);
+  const all = totalOrders + voidCount;
+  return {
+    orders: totalOrders,
+    void_orders: voidCount,
+    void_rate_pct:
+      all > 0 ? Number(((voidCount / all) * 100).toFixed(1)) : 0,
+    avg_units_per_ticket:
+      totalOrders > 0 ? Number((units / totalOrders).toFixed(2)) : 0,
+    avg_lines_per_ticket:
+      totalOrders > 0 ? Number((lines / totalOrders).toFixed(2)) : 0,
+    top_pairs: topPairs,
+  };
+}
+
 // ---------- forecast assembly for one item ----------
 
 export function forecastForSeries(seriesEntries, { horizon, minDays }) {

@@ -21,16 +21,20 @@ export default function InventoryPage() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkValue, setBulkValue] = useState("");
   const [bulkConfirm, setBulkConfirm] = useState(false);
+  const [prep, setPrep] = useState(null);
+  const [applyingId, setApplyingId] = useState(null);
 
   const refresh = useCallback(() => {
     setLoading(true);
     Promise.all([
       api.get("/inventory"),
       api.get(`/analytics/forecast?code=${selected}`).catch(() => ({ data: { items: [] } })),
+      api.get(`/reorders/prep?code=${selected}&days=3`).catch(() => ({ data: null })),
     ])
-      .then(([inv, fc]) => {
+      .then(([inv, fc, pr]) => {
         setLocations(inv.data.locations);
         setForecast(fc.data?.items ?? []);
+        setPrep(pr.data);
         if (!inv.data.locations.some((l) => l.code === selected) && inv.data.locations[0]) {
           setSelected(inv.data.locations[0].code);
         }
@@ -263,6 +267,92 @@ export default function InventoryPage() {
             Clear
           </button>
         </div>
+      )}
+
+      {prep && (
+        <section className="panel" style={{ marginTop: "var(--space-3)" }}>
+          <h3 className="section-title">Prep for the next {prep.days} days</h3>
+          <p className="muted small">
+            Expected usage from trailing averages scaled by weekday patterns.
+            Shortfall = what to prepare beyond current stock.
+          </p>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th className="t-right">Stock</th>
+                  <th className="t-right">Expected use</th>
+                  <th className="t-right">Shortfall</th>
+                </tr>
+              </thead>
+              <tbody>
+                {prep.prep.map((p) => (
+                  <tr key={p.item}>
+                    <td><strong>{p.item}</strong> <span className="muted small">{p.unit}</span></td>
+                    <td className="t-right">{p.current_stock}</td>
+                    <td className="t-right">{p.data_sufficient ? p.expected_use : <span className="muted">—</span>}</td>
+                    <td className="t-right">
+                      {p.data_sufficient ? (
+                        p.shortfall > 0
+                          ? <span className="chip critical">PREP {p.shortfall}</span>
+                          : <span className="chip ok">COVERED</span>
+                      ) : (
+                        <span className="muted small">{p.reason}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {prep.calibration.length > 0 && (
+            <div style={{ marginTop: "var(--space-4)" }}>
+              <h3 className="section-title">Threshold review</h3>
+              <p className="muted small">
+                Noisy thresholds alert while stock stays healthy; silent ones
+                never fire. One click applies the suggestion.
+              </p>
+              {prep.calibration.map((c) => (
+                <div key={c.inventory_item_id} className="alert-item">
+                  <span className="alert-item-text">
+                    <div className="alert-item-name">
+                      {c.item}{" "}
+                      <span className={`chip ${c.verdict === "noisy" ? "low" : "critical"}`}>
+                        {c.verdict.toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="alert-item-detail">{c.reason}</div>
+                  </span>
+                  <span className="muted small">
+                    {c.current_threshold} → <strong>{c.suggested_threshold}</strong>
+                  </span>
+                  <button
+                    className="ghost small-btn"
+                    disabled={applyingId === c.inventory_item_id}
+                    onClick={async () => {
+                      setApplyingId(c.inventory_item_id);
+                      try {
+                        await api.patch(
+                          `/inventory/items/${c.inventory_item_id}`,
+                          { threshold: c.suggested_threshold }
+                        );
+                        toast(`Threshold for ${c.item} set to ${c.suggested_threshold}`, "success");
+                        refresh();
+                      } catch (err) {
+                        toast(err.response?.data?.error || "Update failed", "error");
+                      } finally {
+                        setApplyingId(null);
+                      }
+                    }}
+                  >
+                    {applyingId === c.inventory_item_id ? "Applying…" : "Apply"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       )}
 
       <div style={{ marginTop: "var(--space-3)" }}>

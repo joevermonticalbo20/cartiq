@@ -20,6 +20,7 @@ import {
   Users,
 } from "lucide-react";
 import api from "../api.js";
+import EmptyState from "../components/EmptyState.jsx";
 import { SkeletonCards } from "../components/Skeleton.jsx";
 import SensorPanel from "../components/SensorPanel.jsx";
 import { useToast } from "../components/Toast.jsx";
@@ -374,10 +375,12 @@ export default function DashboardPage() {
               </button>
             </div>
             {latestSales.length === 0 ? (
-              <div className="empty-state">
-                <strong>No sales today</strong>
-                <p>Sales appear here as soon as staff records them.</p>
-              </div>
+              <EmptyState
+                icon={ShoppingBag}
+                title="No sales today"
+                subtitle="Sales appear here as soon as staff records them."
+                compact
+              />
             ) : (
               <div className="table-wrap">
                 <table className="data">
@@ -430,10 +433,12 @@ export default function DashboardPage() {
               </button>
             </div>
             {inventory.length === 0 ? (
-              <div className="empty-state">
-                <strong>No carts configured</strong>
-                <p>Stock alerts appear as soon as a cart reports readings.</p>
-              </div>
+              <EmptyState
+                icon={Boxes}
+                title="No carts configured"
+                subtitle="Stock alerts appear as soon as a cart reports readings."
+                compact
+              />
             ) : (
               <div>
                 {inventory
@@ -468,11 +473,12 @@ export default function DashboardPage() {
                     );
                   })}
                 {inventory.every((loc) => loc.items.every((i) => i.status === "ok")) && (
-                  <div className="empty-state">
-                    <CheckCircle size={22} strokeWidth={1.6} />
-                    <strong>All stock healthy</strong>
-                    <p>Nothing below threshold right now.</p>
-                  </div>
+                  <EmptyState
+                    icon={CheckCircle}
+                    title="All stock healthy"
+                    subtitle="Nothing below threshold right now."
+                    compact
+                  />
                 )}
               </div>
             )}
@@ -522,11 +528,12 @@ export default function DashboardPage() {
               </span>
             </div>
             {onShift.length === 0 ? (
-              <div className="empty-state">
-                <Clock size={22} strokeWidth={1.6} />
-                <strong>No one on shift</strong>
-                <p>Staff will appear here when they tap in.</p>
-              </div>
+              <EmptyState
+                icon={Clock}
+                title="No one on shift"
+                subtitle="Staff will appear here when they tap in."
+                compact
+              />
             ) : (
               <div className="flex flex-col gap-2">
                 {onShift.map((s) => (

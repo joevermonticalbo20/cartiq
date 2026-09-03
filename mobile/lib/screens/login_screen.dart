@@ -5,6 +5,7 @@ import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../theme.dart';
 import '../utils/haptics.dart';
+import '../widgets/brand_hero.dart';
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -125,40 +126,7 @@ Future<void> _submit() async {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [AppColors.primary, AppColors.accent],
-                      ),
-                      borderRadius: BorderRadius.circular(18),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.primary.withValues(alpha: 0.3),
-                          blurRadius: 16,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: const Center(
-                      child: Text('CQ',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 24,
-                              fontWeight: FontWeight.w900)),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Text('CartIQ',
-                      style: Theme.of(context)
-                          .textTheme
-                          .headlineMedium
-                          ?.copyWith(color: AppColors.accent)),
-                  Text('Pota Fries Staff POS',
-                      style: Theme.of(context).textTheme.bodySmall),
+                  const BrandHero(),
                   const SizedBox(height: 20),
                   Card(
                     child: Padding(
@@ -223,123 +191,135 @@ Future<void> _submit() async {
                               )
                             : const Text('Sign in'),
                       ),
-                      const SizedBox(height: 4),
-                      TextButton.icon(
-                        onPressed: () => setState(
-                            () => _showServer = !_showServer),
-                        icon: Icon(
-                          _showServer
-                              ? Icons.expand_less_rounded
-                              : Icons.expand_more_rounded,
-                          size: 18,
-                        ),
-                        label: const Text('Server'),
-                      ),
-                      if (_showServer) ...[
-                        const Divider(height: 16),
-                        Builder(
-                          builder: (context) {
-                            final api =
-                                context.watch<AuthState>().api;
-                            return Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.stretch,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                SelectableText(
-                                  api.currentBaseUrl,
-                                  textAlign: TextAlign.center,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.copyWith(
-                                        fontFamily: 'monospace',
-                                      ),
-                                ),
-                                if (api.isManualUrl)
-                                  Text(
-                                    'manual override',
-                                    textAlign: TextAlign.center,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodySmall,
-                                  ),
-                                const SizedBox(height: 8),
-                                if (_serverMsg != null)
-                                  Padding(
-                                    padding:
-                                        const EdgeInsets.only(bottom: 8),
-                                    child: Text(
-                                      _serverMsg!,
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: _serverOk == true
-                                            ? AppColors.ok
-                                            : _serverOk == false
-                                                ? Theme.of(context)
-                                                    .colorScheme
-                                                    .error
-                                                : null,
-                                      ),
-                                    ),
-                                  ),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: OutlinedButton.icon(
-                                        onPressed: _scanning
-                                            ? null
-                                            : _rescanServer,
-                                        icon: _scanning
-                                            ? const SizedBox(
-                                                width: 14,
-                                                height: 14,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                        strokeWidth: 2),
-                                              )
-                                            : const Icon(
-                                                Icons.radar_rounded,
-                                                size: 18),
-                                        label: const Text('Rescan'),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                TextField(
-                                  controller: _serverController,
-                                  keyboardType: TextInputType.url,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Server IP or host',
-                                    hintText: '192.168.1.5',
-                                    prefixIcon:
-                                        Icon(Icons.dns_outlined),
-                                    border: OutlineInputBorder(),
-                                    isDense: true,
-                                  ),
-                                  onSubmitted: (_) => _saveServer(),
-                                ),
-                                const SizedBox(height: 8),
-                                OutlinedButton(
-                                  onPressed: _saveServer,
-                                  child: const Text(
-                                      'Save & test connection'),
-                                ),
-                              ],
-                            );
-                          },
-                        ),
-                      ],
                           ],
                         ),
                       ),
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  _ServerCard(
+                    showServer: _showServer,
+                    onToggle: () =>
+                        setState(() => _showServer = !_showServer),
+                    scanning: _scanning,
+                    onRescan: _rescanServer,
+                    serverController: _serverController,
+                    onSave: _saveServer,
+                    serverMsg: _serverMsg,
+                    serverOk: _serverOk,
+                  ),
                 ],
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ServerCard extends StatelessWidget {
+  const _ServerCard({
+    required this.showServer,
+    required this.onToggle,
+    required this.scanning,
+    required this.onRescan,
+    required this.serverController,
+    required this.onSave,
+    required this.serverMsg,
+    required this.serverOk,
+  });
+
+  final bool showServer;
+  final VoidCallback onToggle;
+  final bool scanning;
+  final VoidCallback onRescan;
+  final TextEditingController serverController;
+  final VoidCallback onSave;
+  final String? serverMsg;
+  final bool? serverOk;
+
+  @override
+  Widget build(BuildContext context) {
+    final api = context.watch<AuthState>().api;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextButton.icon(
+              onPressed: onToggle,
+              icon: Icon(
+                showServer
+                    ? Icons.expand_less_rounded
+                    : Icons.expand_more_rounded,
+                size: 18,
+              ),
+              label: const Text('Server'),
+            ),
+            if (showServer) ...[
+              SelectableText(
+                api.currentBaseUrl,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontFamily: 'monospace',
+                    ),
+              ),
+              if (api.isManualUrl)
+                Text(
+                  'manual override',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              const SizedBox(height: 8),
+              if (serverMsg != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    serverMsg!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: serverOk == true
+                          ? AppColors.ok
+                          : serverOk == false
+                              ? Theme.of(context).colorScheme.error
+                              : null,
+                    ),
+                  ),
+                ),
+              OutlinedButton.icon(
+                onPressed: scanning ? null : onRescan,
+                icon: scanning
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.radar_rounded, size: 18),
+                label: const Text('Rescan'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: serverController,
+                keyboardType: TextInputType.url,
+                decoration: const InputDecoration(
+                  labelText: 'Server IP or host',
+                  hintText: '192.168.1.5',
+                  prefixIcon: Icon(Icons.dns_outlined),
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                onSubmitted: (_) => onSave(),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                onPressed: onSave,
+                child: const Text('Save & test connection'),
+              ),
+            ],
+          ],
         ),
       ),
     );

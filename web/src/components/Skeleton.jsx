@@ -19,3 +19,17 @@ export function SkeletonCards({ count = 4 }) {
     </div>
   );
 }
+
+export function SkeletonChart({ height = 220 }) {
+  return (
+    <div className="card" aria-hidden="true">
+      <div className="skel" style={{ width: "38%", height: 16 }} />
+      <div className="skel" style={{ height, marginTop: "var(--space-3)" }} />
+      <div style={{ display: "flex", gap: 8, marginTop: "var(--space-3)" }}>
+        <div className="skel" style={{ flex: 1, height: 12 }} />
+        <div className="skel" style={{ flex: 1, height: 12 }} />
+        <div className="skel" style={{ flex: 1, height: 12 }} />
+      </div>
+    </div>
+  );
+}

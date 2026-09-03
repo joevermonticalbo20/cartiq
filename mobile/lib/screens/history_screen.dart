@@ -84,6 +84,21 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Widget build(BuildContext context) {
     final filtered = _rows.where((o) => _matches(o, _search)).toList();
     final hasResults = filtered.isNotEmpty;
+    // Group consecutive rows by day with a header (date · sales · day total).
+    final grouped = <String, List<Map<String, dynamic>>>{};
+    for (final o in filtered) {
+      final dt = DateTime.tryParse('${o['createdAt']}');
+      final key =
+          dt == null ? 'Unknown date' : '${dt.year}/${dt.month}/${dt.day}';
+      (grouped[key] ??= []).add(o);
+    }
+    final rows = <Object>[];
+    for (final entry in grouped.entries) {
+      final dayTotal = entry.value.fold<double>(
+          0, (s, o) => s + ((o['total'] ?? 0) as num).toDouble());
+      rows.add((entry.key, entry.value.length, dayTotal));
+      rows.addAll(entry.value);
+    }
     return Scaffold(
       appBar: AppBar(
         title: _searching
@@ -159,17 +174,41 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 child: ListView.separated(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(14),
-                  itemCount: filtered.length + (_loading ? 1 : 0),
+                  itemCount: rows.length + (_loading ? 1 : 0),
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (context, i) {
-                    if (i >= filtered.length) {
+                    if (i >= rows.length) {
                       return const Center(
                           child: Padding(
                         padding: EdgeInsets.all(12),
                         child: CircularProgressIndicator(),
                       ));
                     }
-                    final o = filtered[i];
+                    final row = rows[i];
+                    if (row is (String, int, double)) {
+                      final (date, count, total) = row;
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 6, bottom: 2),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '$date · $count sale${count != 1 ? 's' : ''}',
+                                style: Theme.of(context).textTheme.labelSmall,
+                              ),
+                            ),
+                            Text(
+                              'P${total.toStringAsFixed(0)}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(fontWeight: FontWeight.w800),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                    final o = row as Map<String, dynamic>;
                     final items = (o['items'] as List)
                         .map((it) =>
                             '${it['qty']}x ${it['productName']}${it['flavor'] != null ? ' (${it['flavor']})' : ''}')

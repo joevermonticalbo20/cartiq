@@ -9,17 +9,18 @@ Auth: JWT bearer token from `POST /api/auth/login` (12h expiry)
 |---|---|---|---|
 | `/auth/login` | POST | `{username, password}` | `{token, user{id,name,username,role,location}}` |
 | `/auth/me` | GET | Bearer token | `{user}` |
-| `/health` | GET | - | `{ok, service, db, time}` |
+| `/health` | GET | - | `{ok, service, version, uptimeSec, db, time}` — 503 when the DB is unreachable. |
 | `/secure-ping` | GET | Bearer token | `{pong, user}` |
 
 ## Phase 1 - core platform (IMPLEMENTED)
 
 | Endpoint | Method | Notes |
 |---|---|---|
-| `/orders` | POST | `{clientRef, locationCode, items[{productName, flavor, qty, unitPrice}], total, status:"PAID"}` — `clientRef` dedupes offline replays (`duplicate:true` + original order). Deducts ingredients via `IngredientMap` recipes inside a transaction; raises `LOW_STOCK` alerts on threshold crossings; returns `warnings[]` for missing inventory rows. |
+| `/orders` | POST | `{clientRef, locationCode|locationId, items[{productName, flavor, qty, unitPrice}]}` — missing location → 400 (never books to a wrong cart); `total` is recomputed server-side (client value ignored). `clientRef` dedupes offline replays (`duplicate:true` + original order). Deducts ingredients via `IngredientMap` recipes inside a transaction; raises `LOW_STOCK` alerts on threshold crossings; returns `warnings[]` for missing inventory rows. |
 | `/orders?location_code&date&limit` | GET | Recent orders incl. items, location, staff. |
 | `/inventory` / `/inventory?code=` | GET | Grouped per location; each item gains computed `status`: `ok` / `low` (≤ threshold) / `critical` (≤ threshold/2). |
 | `/inventory/adjustments` | POST | Manual count correction `{inventoryItemId, newStock, reason}` (auth required); creates an alert if the result is below threshold. |
+| `/inventory/items/:id` | PATCH | Threshold update `{threshold}` (non-negative) — apply target for threshold calibration. |
 | `/catalog` | GET | Products with flavors + active locations (POS bootstrap payload). |
 | `/alerts?unread_only=true&limit` | GET | Alert feed, newest first. |
 | `/alerts/:id/read` | PATCH | OWNER-only mark-read. |
@@ -51,8 +52,13 @@ with a reason (cold-start honesty). Demo history: `node scripts/seed_history.mjs
 | Endpoint | Method | Notes |
 |---|---|---|
 | `/analytics/trends?days=28&code=` | GET | Descriptive: totals, by-weekday, by-location, top/slow items, daily series. |
+| `/analytics/hourly?days=28&code=` | GET | Descriptive: 7x24 `{dow, hour, orders, total_sales}` matrix + peak cell + daypart rollup (morning/lunch/afternoon/evening). Powers the rush-hour heatmap. |
+| `/analytics/basket?days=28&code=` | GET | Descriptive: avg units/lines per ticket, VOID count + rate, top-5 flavor pairs with attach rate. |
 | `/analytics/forecast?code=&horizon=7` | GET | Predictive: per-item `avg_daily_use`, 7-day series, depletion date/days, risk (`high/medium/low`), backtest `mape_pct`. Recipe-tracked items use order history; SENSOR items use reading slope. |
-| `/reorders/suggestions?code=` | GET | Prescriptive: safety stock, reorder point, suggested qty over review cycle, urgency (`immediate/this_week/ok/manual_check`) with human-readable reasons. |
+| `/analytics/sales-forecast?days=28&code=&horizon=7` | GET | Predictive: same deseasonalized MA + trend engine applied to daily revenue (`forecast[].expected_use`), shared 14-day cold-start gate, backtest MAPE. |
+| `/reorders/suggestions?code=` | GET | Prescriptive: safety stock, reorder point, suggested qty over review cycle, urgency (`immediate/this_week/ok/manual_check`) with human-readable reasons. Now also `depletion_days/date` per item plus an `alerts[]` attention queue ("Cheese runs out Fri"). |
+| `/reorders/prep?code=&days=3` | GET | Prescriptive: per-item expected use + prep qty for the next N days (trailing avg x weekday factors) with shortfall vs stock, plus `calibration[]` (`noisy`/`silent` thresholds with one-click `suggested_threshold`). |
+| `/inventory/items/:id` | PATCH | `{threshold}` (non-negative) - apply target for threshold calibration. |
 | `/analytics/staff-performance?days=28` | GET | Per-staff rollup: orders, total_sales, avg_ticket, shifts_in/out, shifts_completed. Sorted by total_sales desc. |
 
 Test: `node scripts/phase3_test.mjs` (19 checks incl. seasonality detection).

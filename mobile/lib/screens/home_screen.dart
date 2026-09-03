@@ -34,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> _onShift = const [];
   List<Map<String, dynamic>> _recentOrders = const [];
   Map<String, dynamic>? _prevReport;
+  List<double> _weekSales = const [];
 
   OfflineQueue get _queue => PersistedOfflineQueue.instance;
 
@@ -64,6 +65,7 @@ class _HomeScreenState extends State<HomeScreen> {
         auth.api.orders(auth.token!, page: 1, pageSize: 3, locationCode: code),
         auth.api.dailyReport(auth.token!, locationCode: code, daysAgo: 1)
             .catchError((_) => <String, dynamic>{}),
+        auth.api.salesSeries(auth.token!, locationCode: code),
       ]);
 
       final report = results[0] as Map<String, dynamic>?;
@@ -71,6 +73,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final onShift = results[2] as Map<String, dynamic>;
       final recentOrders = results[3] as List<dynamic>;
       final prevReport = results[4] as Map<String, dynamic>?;
+      final weekSales = results[5] as List<double>;
 
       List<Map<String, dynamic>> low = [];
       if (inv != null && inv.isNotEmpty) {
@@ -87,6 +90,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _onShift = (onShift['on_shift'] as List?)?.cast<Map<String, dynamic>>() ?? [];
         _recentOrders = recentOrders.cast<Map<String, dynamic>>();
         _prevReport = prevReport;
+        _weekSales = weekSales;
         _loading = false;
       });
     } catch (_) {
@@ -184,6 +188,7 @@ class _HomeScreenState extends State<HomeScreen> {
             todayOrders: _todayOrders,
             avgTicket: _avgTicket,
             vsYesterday: _vsYesterday,
+            weekSales: _weekSales,
             loading: _loading,
           ),
           const SizedBox(height: 12),
@@ -275,9 +280,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     backgroundColor: AppColors.warn,
                     child: CircleAvatar(
                       radius: 19,
-                      backgroundColor: _isDark
-                          ? const Color(0xFF262626)
-                          : const Color(0xFFF1F3F5),
+                      backgroundColor: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest,
                       child: syncing
                           ? const SizedBox(
                               width: 16,
@@ -417,6 +422,7 @@ class _KpiRow extends StatelessWidget {
     required this.todayOrders,
     required this.avgTicket,
     required this.vsYesterday,
+    required this.weekSales,
     required this.loading,
   });
 
@@ -424,6 +430,7 @@ class _KpiRow extends StatelessWidget {
   final int todayOrders;
   final double avgTicket;
   final double vsYesterday;
+  final List<double> weekSales;
   final bool loading;
 
   @override
@@ -447,7 +454,10 @@ class _KpiRow extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: isDark
-              ? [const Color(0xFF3B1513), const Color(0xFF1E1E1E)]
+              ? [
+                  const Color(0xFF3B1513),
+                  Theme.of(context).colorScheme.surface
+                ]
               : [AppColors.primarySoft, Colors.white],
         ),
         border: Border.all(
@@ -455,6 +465,7 @@ class _KpiRow extends StatelessWidget {
               ? AppColors.primary.withValues(alpha: 0.3)
               : AppColors.primary.withValues(alpha: 0.25),
         ),
+        boxShadow: AppShadow.sm(),
       ),
       child: Column(
         children: [
@@ -506,16 +517,19 @@ class _KpiRow extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(16),
+              if (weekSales.length >= 2)
+                _Sparkline(values: weekSales)
+              else
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(Icons.storefront_rounded,
+                      size: 28, color: AppColors.primary),
                 ),
-                child: Icon(Icons.storefront_rounded,
-                    size: 28, color: AppColors.primary),
-              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -539,6 +553,90 @@ class _KpiRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 7-day sales sparkline for the KPI hero. Pure CustomPainter, no deps.
+class _Sparkline extends StatelessWidget {
+  const _Sparkline({required this.values});
+
+  final List<double> values;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 118,
+      height: 56,
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppRadius.m),
+      ),
+      child: CustomPaint(
+        painter: _SparklinePainter(values),
+        child: const SizedBox.expand(),
+      ),
+    );
+  }
+}
+
+class _SparklinePainter extends CustomPainter {
+  _SparklinePainter(this.values);
+
+  final List<double> values;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (values.length < 2) return;
+    final max = values.reduce((a, b) => a > b ? a : b);
+    final min = values.reduce((a, b) => a < b ? a : b);
+    final span = (max - min) == 0 ? 1.0 : (max - min);
+    const pad = 4.0;
+    final pts = List<Offset>.generate(values.length, (i) {
+      final x = pad + (size.width - pad * 2) * (i / (values.length - 1));
+      final y = size.height -
+          pad -
+          (size.height - pad * 2) * ((values[i] - min) / span);
+      return Offset(x, y);
+    });
+
+    final fill = Path()
+      ..moveTo(pts.first.dx, size.height)
+      ..lineTo(pts.first.dx, pts.first.dy);
+    for (final p in pts.skip(1)) {
+      fill.lineTo(p.dx, p.dy);
+    }
+    fill
+      ..lineTo(pts.last.dx, size.height)
+      ..close();
+    canvas.drawPath(
+      fill,
+      Paint()..color = AppColors.primary.withValues(alpha: 0.15),
+    );
+
+    final line = Path()
+      ..moveTo(pts.first.dx, pts.first.dy);
+    for (final p in pts.skip(1)) {
+      line.lineTo(p.dx, p.dy);
+    }
+    canvas.drawPath(
+      line,
+      Paint()
+        ..color = AppColors.primary
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+
+    // Last-day dot in brand yellow with a white halo.
+    final last = pts.last;
+    canvas.drawCircle(last, 5, Paint()..color = Colors.white);
+    canvas.drawCircle(last, 3.2, Paint()..color = AppColors.highlight);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SparklinePainter old) =>
+      old.values != values;
 }
 
 class _MiniKpi extends StatelessWidget {
@@ -774,7 +872,7 @@ class _QuickAction extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Material(
-      color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+      color: Theme.of(context).colorScheme.surface,
       borderRadius: BorderRadius.circular(AppRadius.l),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.l),

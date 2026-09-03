@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme.dart';
+
 /// Reusable empty state placeholder for ListView bodies.
 /// Designed to live inside a scrollable so the parent's pull-to-refresh
 /// (e.g. RefreshIndicator) still works.
@@ -25,7 +27,6 @@ class AppEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final outline = Theme.of(context).colorScheme.outline;
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: EdgeInsets.symmetric(
@@ -37,12 +38,25 @@ class AppEmptyState extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: compact ? 38 : 48, color: outline),
-              const SizedBox(height: 12),
+              Container(
+                width: compact ? 64 : 76,
+                height: compact ? 64 : 76,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Icon(icon,
+                    size: compact ? 30 : 34, color: AppColors.primary),
+              ),
+              const SizedBox(height: 14),
               Text(
                 title,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleMedium,
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.w800),
               ),
               if (subtitle != null) ...[
                 const SizedBox(height: 6),
@@ -53,8 +67,8 @@ class AppEmptyState extends StatelessWidget {
                 ),
               ],
               if (actionLabel != null && onAction != null) ...[
-                const SizedBox(height: 16),
-                FilledButton.tonalIcon(
+                const SizedBox(height: 18),
+                FilledButton.icon(
                   onPressed: onAction,
                   icon: Icon(actionIcon ?? Icons.add),
                   label: Text(actionLabel!),

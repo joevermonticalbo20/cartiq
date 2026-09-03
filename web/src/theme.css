@@ -29,6 +29,10 @@
   --border: #E5E7EB;
   --border-strong: #D1D5DB;
 
+  /* === warm food-brand tints (login + brand moments) === */
+  --cream: #FAF5EF;
+  --cream-deep: #F3E9DD;
+
   /* === text === */
   --text: #0A0908;
   --text-muted: #6B7280;
@@ -49,11 +53,13 @@
   /* === shape & depth === */
   --radius-xs: 4px;
   --radius-sm: 8px;
+  --radius-md: 10px;
   --radius: 12px;
   --radius-lg: 16px;
   --radius-xl: 20px;
   --shadow: 0 6px 20px rgba(10, 9, 8, 0.08);
   --shadow-sm: 0 2px 8px rgba(10, 9, 8, 0.05);
+  --shadow-soft: 0 2px 8px rgba(10, 9, 8, 0.06);
   --shadow-lg: 0 10px 30px rgba(231, 54, 49, 0.18);
   --shadow-strong: 0 10px 30px rgba(231, 54, 49, 0.18);
 
@@ -101,6 +107,9 @@
   --surface-alt: #262626;
   --border: #2A2A2A;
   --border-strong: #3A3A3A;
+
+  --cream: #1A1310;
+  --cream-deep: #26190F;
 
   --text: #F8F9FA;
   --text-muted: #A1A1AA;

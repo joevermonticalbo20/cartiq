@@ -1,13 +1,15 @@
-import { TrendingUp, TrendingDown, DollarSign, MinusCircle } from "lucide-react";
 import ProfitTrendChart from "./ProfitTrendChart.jsx";
 import ExpenseBreakdownChart from "./ExpenseBreakdownChart.jsx";
 
 export default function ProfitSection({ profit }) {
   if (!profit) {
     return (
-      <div className="analytics-section">
+      <div className="analytics-section" id="section-profit">
         <div className="analytics-section-header">
-          <h2 className="analytics-section-title">Profit & Expenses</h2>
+          <div>
+            <h2 className="analytics-section-title"><span className="section-num" aria-hidden="true">7</span> Profit & Expenses</h2>
+            <p className="analytics-section-sub">What you keep after recorded expenses</p>
+          </div>
         </div>
         <p className="muted">No profit data available.</p>
       </div>
@@ -25,55 +27,41 @@ export default function ProfitSection({ profit }) {
 
   const nonZeroCategories = (expenses_by_category ?? []).filter((c) => c.amount > 0);
 
+  const marginLabel =
+    margin_pct >= 50 ? "Healthy margin" : margin_pct < 20 ? "Low margin" : "Watch margin";
+  const marginChip = margin_pct >= 50 ? "ok" : margin_pct < 20 ? "critical" : "low";
+
+  const burnPct = revenue > 0 ? (total_expenses / revenue) * 100 : 0;
+  const topCost = [...(expenses_by_category ?? [])]
+    .filter((c) => c.amount > 0)
+    .sort((a, b) => b.amount - a.amount)[0];
+
   return (
-    <div className="analytics-section">
+    <div className="analytics-section" id="section-profit">
       <div className="analytics-section-header">
-        <h2 className="analytics-section-title">Profit & Expenses</h2>
-        <p className="muted small">Revenue minus recorded expenses for this period</p>
+        <div>
+          <h2 className="analytics-section-title"><span className="section-num" aria-hidden="true">7</span> Profit & Expenses</h2>
+          <p className="analytics-section-sub">What you keep after recorded expenses</p>
+        </div>
       </div>
 
-      <div className="analytics-kpis">
-        <div className="kpi-card">
-          <div className="kpi-card-header">
-            <span className="kpi-card-label">Revenue</span>
-            <div className="kpi-card-icon"><DollarSign size={18} /></div>
-          </div>
-          <div className="kpi-card-value">P{revenue.toLocaleString()}</div>
-          <div className="kpi-card-trend">From {profit.order_count} orders</div>
-        </div>
+      <div className="profit-strip" aria-label="Profit summary">
+        <span><span className="muted">Revenue</span> <strong>P{revenue.toLocaleString()}</strong></span>
+        <span><span className="muted">− Expenses</span> <strong>P{total_expenses.toLocaleString()}</strong></span>
+        <span><span className="muted">= Profit</span> <strong>P{gross_profit.toLocaleString()}</strong></span>
+        <span>
+          <span className="muted">Margin</span> <strong>{margin_pct.toFixed(1)}%</strong>{" "}
+          <span className={`chip ${marginChip}`}>{marginLabel}</span>
+          <span className="muted small"> · {profit.order_count} orders · {profit.expense_count} expenses</span>
+        </span>
+      </div>
 
-        <div className="kpi-card">
-          <div className="kpi-card-header">
-            <span className="kpi-card-label">Total Expenses</span>
-            <div className="kpi-card-icon"><MinusCircle size={18} /></div>
-          </div>
-          <div className="kpi-card-value">P{total_expenses.toLocaleString()}</div>
-          <div className="kpi-card-trend">{profit.expense_count} recorded</div>
-        </div>
-
-        <div className="kpi-card">
-          <div className="kpi-card-header">
-            <span className="kpi-card-label">Gross Profit</span>
-            <div className="kpi-card-icon">
-              {gross_profit >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
-            </div>
-          </div>
-          <div className="kpi-card-value">P{gross_profit.toLocaleString()}</div>
-          <div className="kpi-card-trend">
-            Revenue - Expenses
-          </div>
-        </div>
-
-        <div className="kpi-card">
-          <div className="kpi-card-header">
-            <span className="kpi-card-label">Profit Margin</span>
-            <div className="kpi-card-icon"><TrendingUp size={18} /></div>
-          </div>
-          <div className="kpi-card-value">{margin_pct.toFixed(1)}%</div>
-          <div className={`kpi-card-trend ${margin_pct >= 50 ? "up" : margin_pct < 20 ? "down" : ""}`}>
-            {margin_pct >= 50 ? "Healthy margin" : margin_pct < 20 ? "Low margin" : "Moderate margin"}
-          </div>
-        </div>
+      <div className="profit-strip" aria-label="Cost burn">
+        <span><span className="muted">Burn rate</span> <strong>{burnPct.toFixed(1)}%</strong></span>
+        <span className="muted small">
+          of every peso, {(burnPct).toFixed(0)}¢ goes to costs
+          {topCost ? <> · biggest: {topCost.category} ({topCost.pct}%)</> : " · no expenses recorded"}
+        </span>
       </div>
 
       <div className="profit-charts-row">

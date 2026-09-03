@@ -10,6 +10,7 @@ import 'services/sync_service.dart';
 import 'state/cart_state.dart';
 import 'state/theme_controller.dart';
 import 'theme.dart';
+import 'widgets/brand_hero.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -119,25 +120,7 @@ class _BootAppState extends State<_BootApp> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [AppColors.primary, AppColors.accent],
-                        ),
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: const Center(
-                        child: Text('CQ',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.w900)),
-                      ),
-                    ),
+                    const BrandHero(compact: true),
                     const SizedBox(height: 16),
                     Text('Finding CartIQ server…',
                         style: Theme.of(context).textTheme.titleMedium),
@@ -179,6 +162,11 @@ class _BootAppState extends State<_BootApp> {
                     FilledButton(
                       onPressed: _useManual,
                       child: const Text('Connect'),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Pota Fries • Staff POS • v1.0.0',
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
                 ),
