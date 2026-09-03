@@ -1,0 +1,39 @@
+# Node
+node_modules/
+*.log
+npm-debug.log*
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Builds
+dist/
+build/
+out/
+
+# Dart / Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+pubspec.lock
+
+# Android / IDE
+android/.gradle/
+android/local.properties
+android/app/upload-keystore*
+*.iml
+.idea/
+.vscode/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Prisma / SQLite
+api/prisma/dev.db
+api/prisma/dev.db-journal
+*.db
+*.db-journal

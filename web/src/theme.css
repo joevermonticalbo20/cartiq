@@ -1,0 +1,138 @@
+/* CartIQ design tokens - single source of visual truth
+ * 60-30-20 rule:
+ *   60% base neutral (--bg, --surface, --surface-alt, --text, --text-muted)
+ *   30% structure (--accent charcoal, --border, --text)
+ *   20% primary accent (--primary brand red)
+ *   Supporting: --highlight (yellow) for accent strokes/highlights
+ */
+:root {
+  /* === 20% primary accent: Brand Red === */
+  --primary: #E73631;
+  --primary-strong: #C72824;
+  --primary-soft: #FBE3E2;
+  --primary-tint: #FCEFEE;
+
+  /* === 30% structure: Charcoal / Black === */
+  --accent: #0A0908;
+  --accent-soft: #1E1E1E;
+  --accent-faint: #3A3A3A;
+
+  /* === supporting: Bright Yellow highlight === */
+  --highlight: #ECC242;
+  --highlight-soft: #FEF6D7;
+  --highlight-strong: #D4A82F;
+
+  /* === 60% base neutrals (off-white) === */
+  --bg: #F8F9FA;
+  --surface: #FFFFFF;
+  --surface-alt: #F1F3F5;
+  --border: #E5E7EB;
+  --border-strong: #D1D5DB;
+
+  /* === text === */
+  --text: #0A0908;
+  --text-muted: #6B7280;
+  --text-faint: #9CA3AF;
+
+  /* === status (kept distinct from brand red) === */
+  --ok: #166534;
+  --ok-bg: #DCFCE7;
+  --success: #166534;
+  --success-bg: #DCFCE7;
+  --warn: #92400E;
+  --warn-bg: #FEF3C7;
+  --danger: #991B1B;
+  --danger-bg: #FEE2E2;
+  --info: #1E3A8A;
+  --info-bg: #DBEAFE;
+
+  /* === shape & depth === */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --shadow: 0 6px 20px rgba(10, 9, 8, 0.08);
+  --shadow-sm: 0 2px 8px rgba(10, 9, 8, 0.05);
+  --shadow-lg: 0 10px 30px rgba(231, 54, 49, 0.18);
+  --shadow-strong: 0 10px 30px rgba(231, 54, 49, 0.18);
+
+  /* === spacing scale (4px base) === */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+
+  /* === font weights === */
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --fw-extrabold: 800;
+
+  /* === transitions === */
+  --transition-fast: 150ms ease;
+  --transition-base: 200ms ease;
+  --transition-slow: 300ms ease;
+
+  /* === layout === */
+  --sidebar-w: 232px;
+  --sidebar-collapsed: 68px;
+  --topbar-h: 60px;
+
+  /* === type scale === */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 22px;
+  --fs-2xl: 28px;
+  --fs-3xl: 36px;
+}
+
+/* ============ dark theme ============ */
+[data-theme="dark"] {
+  --bg: #121212;
+  --surface: #1E1E1E;
+  --surface-alt: #262626;
+  --border: #2A2A2A;
+  --border-strong: #3A3A3A;
+
+  --text: #F8F9FA;
+  --text-muted: #A1A1AA;
+  --text-faint: #71717A;
+
+  --accent: #F8F9FA;
+  --accent-soft: #D4D4D8;
+  --accent-faint: #A1A1AA;
+
+  --primary: #FF4D47;
+  --primary-strong: #E73631;
+  --primary-soft: #3B1513;
+  --primary-tint: #2A0F0E;
+
+  --highlight: #ECC242;
+  --highlight-soft: #3A2F0F;
+  --highlight-strong: #F5D55B;
+
+  /* status colors get lighter in dark mode for proper contrast */
+  --ok: #4ADE80;
+  --success: #4ADE80;
+  --warn: #FCD34D;
+  --danger: #FCA5A5;
+  --info: #93C5FD;
+
+  --ok-bg: #0F2A18;
+  --success-bg: #0F2A18;
+  --warn-bg: #3A2C10;
+  --danger-bg: #2A0F0E;
+  --info-bg: #0F1B3A;
+
+  --shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-strong: 0 10px 30px rgba(255, 77, 71, 0.25);
+}

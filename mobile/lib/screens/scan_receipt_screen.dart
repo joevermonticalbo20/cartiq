@@ -1,0 +1,324 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
+
+import '../services/api_client.dart';
+import '../services/auth_state.dart';
+import '../services/receipt_scanner.dart';
+import '../theme.dart';
+
+class ScanReceiptScreen extends StatefulWidget {
+  const ScanReceiptScreen({super.key});
+
+  @override
+  State<ScanReceiptScreen> createState() => _ScanReceiptScreenState();
+}
+
+class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
+  final ReceiptScanner _scanner = ReceiptScanner();
+  final _vendor = TextEditingController();
+  final _amount = TextEditingController();
+  final _date = TextEditingController();
+  final _note = TextEditingController();
+  String? _locationCode;
+  String _category = 'Supplies';
+  bool _busy = false;
+  String? _message;
+  List<Map<String, dynamic>> _locations = const [];
+
+  static const _categories = [
+    'Supplies',
+    'LPG/Gas',
+    'Maintenance',
+    'Fees/Rent',
+    'Other',
+  ];
+
+  bool get _ocrSupported => Platform.isAndroid || Platform.isIOS;
+
+  @override
+  void initState() {
+    super.initState();
+    final auth = context.read<AuthState>();
+    _locationCode = auth.locationCode;
+    auth.api.catalog(auth.token!).then((data) {
+      if (!mounted) return;
+      setState(() {
+        _locations = (data['locations'] as List).cast<Map<String, dynamic>>();
+      });
+    }).catchError((_) {});
+  }
+
+  @override
+  void dispose() {
+    _scanner.dispose();
+    _vendor.dispose();
+    _amount.dispose();
+    _date.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pick(ImageSource source) async {
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    try {
+      final picker = ImagePicker();
+      final xfile = await picker.pickImage(source: source, imageQuality: 85);
+      if (xfile == null) return;
+      final parsed = await _scanner.scanFromFile(xfile.path);
+      setState(() {
+        _vendor.text = parsed.vendor;
+        if (parsed.amount != null) _amount.text = parsed.amount.toString();
+        if (parsed.dateText != null) _date.text = parsed.dateText!;
+        _note.text =
+            'OCR lines: ${parsed.lines.take(5).join(' / ')}';
+        _message = 'Receipt scanned - review the fields below before saving.';
+      });
+    } catch (e) {
+      setState(() => _message = 'Scan failed: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _save(bool ocrSource) async {
+    final amount = double.tryParse(_amount.text.trim());
+    if (_vendor.text.trim().isEmpty || amount == null || amount <= 0) {
+      setState(() => _message = 'Vendor and a positive amount are required.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    try {
+      final auth = context.read<AuthState>();
+      await auth.api.createExpense(auth.token!, {
+        'vendor': _vendor.text.trim(),
+        'locationCode': _locationCode,
+        'amount': amount,
+        'date': DateTime.now().toIso8601String(),
+        'source': ocrSource ? 'OCR' : 'MANUAL',
+        'category': _category,
+        'note': _note.text.trim(),
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Expense recorded: ${_vendor.text.trim()} (P${amount.toStringAsFixed(2)})')),
+      );
+      Navigator.pop(context);
+    } on ApiException catch (e) {
+      setState(() => _message = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Widget _stepBadge(int n, String label, {IconData? icon}) {
+    return Row(
+      children: [
+        Container(
+          width: 26,
+          height: 26,
+          decoration: BoxDecoration(
+            color: AppColors.primary,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Center(
+            child: Text('$n',
+                style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white)),
+          ),
+        ),
+        const SizedBox(width: 9),
+        if (icon != null) ...[
+          Icon(icon, size: 17, color: AppColors.primary),
+          const SizedBox(width: 4),
+        ],
+        Text(label, style: Theme.of(context).textTheme.titleMedium),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Record expense')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _stepBadge(1, 'Scan vendor receipt',
+                      icon: Icons.document_scanner_rounded),
+                  const SizedBox(height: 10),
+                  Text(
+                    _ocrSupported
+                        ? 'On-device OCR (ML Kit). Fields auto-fill after scanning.'
+                        : 'On-device OCR runs on Android/iOS builds. On Windows, fill the form manually.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.tonalIcon(
+                          onPressed:
+                              !_ocrSupported || _busy ? null : () => _pick(ImageSource.camera),
+                          icon: const Icon(Icons.photo_camera),
+                          label: const Text('Camera'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton.tonalIcon(
+                          onPressed:
+                              !_ocrSupported || _busy ? null : () => _pick(ImageSource.gallery),
+                          icon: const Icon(Icons.photo_library),
+                          label: const Text('Gallery'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_busy)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 12),
+                      child: LinearProgressIndicator(),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _stepBadge(2, 'Confirm details', icon: Icons.fact_check_rounded),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    initialValue: _locationCode,
+                    decoration: const InputDecoration(
+                      labelText: 'Cart location',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _locations
+                        .map((loc) => DropdownMenuItem(
+                              value: loc['code'] as String,
+                              child: Text('${loc['code']} - ${loc['name']}'),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setState(() => _locationCode = v),
+                  ),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    initialValue: _category,
+                    decoration: const InputDecoration(
+                      labelText: 'Category',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _categories
+                        .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                        .toList(),
+                    onChanged: (v) => setState(() => _category = v ?? 'Supplies'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _vendor,
+                    decoration: const InputDecoration(
+                      labelText: 'Vendor *',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _amount,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Amount (PHP) *',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _date,
+                    decoration: const InputDecoration(
+                      labelText: 'Date text (from receipt)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _note,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      labelText: 'Note / OCR excerpt',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_message != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _message!.startsWith('Scan failed') ||
+                          _message!.startsWith('Vendor and')
+                      ? AppColors.danger.withValues(alpha: 0.12)
+                      : AppColors.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(AppRadius.s),
+                  border: Border.all(
+                    color: _message!.startsWith('Scan failed') ||
+                            _message!.startsWith('Vendor and')
+                        ? AppColors.danger.withValues(alpha: 0.35)
+                        : AppColors.primary.withValues(alpha: 0.30),
+                    width: 1,
+                  ),
+                ),
+                child: Text(
+                  _message!,
+                  style: TextStyle(
+                    color: _message!.startsWith('Scan failed') ||
+                            _message!.startsWith('Vendor and')
+                        ? AppColors.danger
+                        : AppColors.primary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ),
+          const SizedBox(height: 10),
+          FilledButton.icon(
+            onPressed: _busy ? null : () => _save(true),
+            icon: const Icon(Icons.save),
+            label: const Text('Save expense (OCR)'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _busy ? null : () => _save(false),
+            icon: const Icon(Icons.edit_note),
+            label: const Text('Save as manual entry'),
+          ),
+        ],
+      ),
+    );
+  }
+}

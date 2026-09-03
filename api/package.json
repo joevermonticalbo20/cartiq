@@ -1,0 +1,26 @@
+{
+  "name": "cartiq-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CartIQ REST API - Pota Fries multi-location food cart platform (localhost-only dev server)",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "db:push": "prisma db push",
+    "db:seed": "node prisma/seed.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.10.0",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.0.0",
+    "exceljs": "^4.4.0",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.2.0"
+  },
+  "devDependencies": {
+    "prisma": "^6.10.0"
+  }
+}
