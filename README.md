@@ -266,3 +266,17 @@ React+Vite setup:
 - **Loading + honesty (web)** — Analytics skeleton blocks + `aria-busy` +
   error Retry; Expenses summary respects the category filter; Data Hub
   exports show per-dataset progress with independent import busy state.
+- **Logout that actually logs out (mobile)** — sign-in/out is fully
+  auth-state driven (`main.dart` home rebuilds from `AuthState`); the old
+  `pushReplacement` that stranded the shell on top after sign-out is gone,
+  and the sync timer stops on logout.
+- **Readable receipt badges (mobile)** — MANUAL/OCR source chips and leading
+  icons use theme-system colors (`onSurfaceVariant` /
+  `surfaceContainerHighest`, white on solid amber) instead of fixed greys —
+  legible in light and dark mode (`screens/receipts_screen.dart`).
+- **Crash-proof lists (mobile)** — History/Receipts loaders guard
+  post-`await` `setState` with `mounted`, fixing the dispose race seen in
+  device logs.
+- **Recoverable error screens (web)** — every `ErrorBoundary` fallback
+  (app-level "System Error" included) now has a Retry button, so a single
+  transient render error can never latch the screen until a manual refresh.
