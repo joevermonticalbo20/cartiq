@@ -655,9 +655,9 @@ label.field {
   display: flex;
   align-items: flex-end;
   gap: 6px;
-  height: 64px;
+  height: 72px;
   margin-top: var(--space-3);
-  padding-top: var(--space-3);
+  padding: 12px 8px 6px;
   border-top: 1px solid var(--border);
 }
 .login-preview-barcol {
@@ -683,10 +683,13 @@ label.field {
   bottom: calc(var(--h) + 5px);
   left: 50%;
   transform: translateX(-50%);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: var(--fw-extrabold);
   letter-spacing: 0.08em;
   color: var(--highlight-strong);
+  background: var(--highlight-soft);
+  border-radius: 4px;
+  padding: 2px 5px;
   line-height: 1;
   white-space: nowrap;
 }
