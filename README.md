@@ -153,6 +153,7 @@ node scripts/phase4_test.mjs   # OCR + Excel   - 20 checks
 node scripts/phase5_test.mjs   # hardening     - 23 checks (pagination/staff/password/devices/shifts)
 node scripts/phase6_test.mjs   # categories    - 13 checks (expense buckets)
 flutter analyze                # mobile static analysis
+flutter test                   # mobile unit tests - 21 checks (URL normalize, cart, receipt parser)
 cd web && npm run build        # web production build
 ```
 
@@ -230,6 +231,13 @@ React+Vite setup:
   HTML coverage reports). CI-ready: fails build on test or lint errors.
 - **GitHub Actions CI** — `.github/workflows/web-ci.yml` runs lint + test +
   build on every push and PR to the web frontend.
+- **Tailwind CSS v4** — `@tailwindcss/vite` plugin with a token-mapped
+  `src/tailwind.css` (`@theme` references `theme.css` vars, `dark:` variant
+  follows the `data-theme` toggle); sits alongside the legacy stylesheet,
+  which loads last and wins ties. Piloted on `EmptyState`.
+- **Alerts mark-all-read** — `PATCH /alerts/read` (OWNER, optional `{ids}`
+  subset, returns `{updated}`); dashboard Stock alerts panel exposes it as
+  “Mark all read”.
 - **UX polish P1 (web a11y)** — chip contrast fix in `theme.css`; reusable
   `PasswordStrengthMeter` wired into Settings change-password; 44px minimum
   touch targets for icon-only buttons.
