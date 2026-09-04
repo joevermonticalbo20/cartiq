@@ -150,12 +150,14 @@ Automated suites (API must be running):
 node scripts/phase2_test.mjs   # IoT pipeline - 11 checks
 node scripts/phase3_test.mjs   # analytics     - 19 checks (needs seed_history first)
 node scripts/phase4_test.mjs   # OCR + Excel   - 20 checks
+node scripts/phase5_test.mjs   # hardening     - 23 checks (pagination/staff/password/devices/shifts)
+node scripts/phase6_test.mjs   # categories    - 13 checks (expense buckets)
 flutter analyze                # mobile static analysis
 cd web && npm run build        # web production build
 ```
 
-Last full regression on a fresh database: **50 automated checks passed** across
-phases 2-4 plus an idempotency rerun.
+Last full regression on a fresh database: **86 automated checks passed** across
+phases 2-6 plus an idempotency rerun.
 
 Manual acceptance: `docs/uat-script.md` (15-scenario supervised parallel-run).
 
@@ -221,8 +223,9 @@ React+Vite setup:
   crash on one screen doesn't take the app down.
 - **Quick cart switcher** on the dashboard — shows each cart with its
   current low-stock count, links to the Inventory page.
-- **Vitest test suite** — `npm run test` (37 unit tests covering api utils,
-  DataTable, ConfirmDialog, Pagination, and custom hooks); `npm run lint`
+- **Vitest test suite** — `npm run test` (56 unit tests covering api utils,
+  DataTable, ConfirmDialog, Pagination, EmptyState, PasswordStrengthMeter,
+  and custom hooks); `npm run lint`
   (ESLint + React plugin + react-hooks rules); `npm run coverage` (text +
   HTML coverage reports). CI-ready: fails build on test or lint errors.
 - **GitHub Actions CI** — `.github/workflows/web-ci.yml` runs lint + test +
