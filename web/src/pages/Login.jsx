@@ -45,13 +45,27 @@ export default function Login() {
         <div className="login-preview" aria-hidden="true">
           <div className="login-preview-card">
             <span className="login-preview-label">SALES TODAY</span>
-            <strong className="login-preview-value">P12,450</strong>
-            <span className="login-preview-trend">+8.2% vs yesterday</span>
+            <div className="login-preview-row">
+              <strong className="login-preview-value">P12,450</strong>
+              <span className="login-preview-trend">▲ +8.2% vs yesterday</span>
+            </div>
           </div>
           <div className="login-preview-bars">
-            {[38, 62, 48, 78, 58, 92, 70].map((h, i) => (
-              <span key={i} style={{ height: `${h}%` }} />
-            ))}
+            {[38, 62, 48, 78, 58, 92, 70].map((h, i) => {
+              const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+              const isPeak = i === 5;
+              return (
+                <div
+                  key={i}
+                  className="login-preview-barcol"
+                  style={{ "--h": `${h}%` }}
+                  title={`${days[i]} — ${h}% of peak day`}
+                >
+                  {isPeak && <span className="login-preview-peak">PEAK</span>}
+                  <span className={`bar${isPeak ? " peak" : ""}`} />
+                </div>
+              );
+            })}
           </div>
           <div className="login-preview-carts">
             <span><i className="dot ok pulse" /> CART-01 · Selling now</span>
