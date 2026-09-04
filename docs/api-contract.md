@@ -31,6 +31,8 @@ Auth: JWT bearer token from `POST /api/auth/login` (12h expiry)
 Device auth: ESP32 nodes authenticate with per-node bearer tokens
 (bcrypt-hashed in the `Device` table; dev tokens printed by `db:seed`).
 Sensor stock updates share the same threshold-alert rules as POS orders.
+Channel mapping: `LPG_TANK` → `LPG Tank` row, `CHEESE_BIN` → `Cheese Powder` row
+(source becomes `SENSOR`). Firmware uploads FIFO; `ts` omitted when NTP unsynced.
 
 | Endpoint | Method | Notes |
 |---|---|---|

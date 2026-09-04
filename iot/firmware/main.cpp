@@ -94,30 +94,38 @@ void flushShifts() {
     doc["device_id"] = DEVICE_ID;
     JsonArray events = doc["events"].to<JsonArray>();
     JsonObject e = events.add<JsonObject>();
-    e["staff_uid"] = shiftBuf[shiftCount - 1].uid;
-    e["event"] = shiftBuf[shiftCount - 1].event;
-    e["ts"] = nowIso();
+    e["staff_uid"] = shiftBuf[0].uid;
+    e["event"] = shiftBuf[0].event;
+    String ts = nowIso();
+    if (ts.length() > 0) e["ts"] = ts;
     String body;
     serializeJson(doc, body);
-    if (!postBatch("/api/shifts", body)) return;  // server down: retry later
+    if (!postBatch("/shifts", body)) return;  // server down: retry later
+    for (int i = 1; i < shiftCount; i++) shiftBuf[i - 1] = shiftBuf[i];
     shiftCount--;
   }
 }
 
 void flushReadings() {
+  const int BATCH = 10;
   while (readingCount > 0) {
     JsonDocument doc;
     doc["cart_id"] = DEVICE_CART_ID;
     doc["device_id"] = DEVICE_ID;
     JsonArray arr = doc["readings"].to<JsonArray>();
-    JsonObject r = arr.add<JsonObject>();
-    r["channel"] = readingBuf[readingCount - 1].channel;
-    r["kg"] = serialized(String(readingBuf[readingCount - 1].kg, 3));
-    r["ts"] = nowIso();
+    int n = readingCount < BATCH ? readingCount : BATCH;
+    String ts = nowIso();
+    for (int i = 0; i < n; i++) {
+      JsonObject r = arr.add<JsonObject>();
+      r["channel"] = readingBuf[i].channel;
+      r["kg"] = serialized(String(readingBuf[i].kg, 3));
+      if (ts.length() > 0) r["ts"] = ts;
+    }
     String body;
     serializeJson(doc, body);
-    if (!postBatch("/api/iot/readings", body)) return;
-    readingCount--;
+    if (!postBatch("/iot/readings", body)) return;
+    for (int i = n; i < readingCount; i++) readingBuf[i - n] = readingBuf[i];
+    readingCount -= n;
   }
 }
 
@@ -132,6 +140,8 @@ void setup() {
   scaleBin.begin(BIN_DT_PIN, BIN_SCK_PIN);
   scaleLpg.set_scale(CAL_FACTOR_LPG);
   scaleBin.set_scale(CAL_FACTOR_BIN);
+  if (scaleLpg.is_ready()) scaleLpg.tare();
+  if (scaleBin.is_ready()) scaleBin.tare();
 
   configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
 

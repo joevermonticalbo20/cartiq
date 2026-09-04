@@ -92,17 +92,37 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
       setState(() => _message = 'Vendor and a positive amount are required.');
       return;
     }
+    // Expenses are online-only (not queued offline). Surface connectivity
+    // failures honestly instead of silently dropping them.
+    final auth = context.read<AuthState>();
+    try {
+      final online = await auth.api.health();
+      if (!mounted) return;
+      if (!online) {
+        setState(() => _message =
+            'Offline — expenses need a connection and are not queued. Reconnect and try again; POS sales are the only offline-queued records.');
+        return;
+      }
+    } catch (_) {
+      // Fall through to createExpense which will report the real error.
+    }
     setState(() {
       _busy = true;
       _message = null;
     });
+    // Prefer the OCR-parsed date text when it is ISO-8601; otherwise the
+    // server records upload time. The raw text stays visible in the form.
+    DateTime expenseDate = DateTime.now();
+    final dateText = _date.text.trim();
+    if (dateText.isNotEmpty) {
+      expenseDate = DateTime.tryParse(dateText) ?? DateTime.now();
+    }
     try {
-      final auth = context.read<AuthState>();
       await auth.api.createExpense(auth.token!, {
         'vendor': _vendor.text.trim(),
         'locationCode': _locationCode,
         'amount': amount,
-        'date': DateTime.now().toIso8601String(),
+        'date': expenseDate.toIso8601String(),
         'source': ocrSource ? 'OCR' : 'MANUAL',
         'category': _category,
         'note': _note.text.trim(),
@@ -154,6 +174,24 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  const Icon(Icons.cloud_off_outlined, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Expenses need a connection — they are sent immediately and are not queued offline (POS sales queue instead).',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(14),

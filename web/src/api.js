@@ -14,55 +14,28 @@ const api = axios.create({
   },
 });
 
-let isRefreshing = false;
-let failedQueue = [];
 let navigateFn = null;
-
-const processQueue = (error) => {
-  failedQueue.forEach((prom) => {
-    if (error) {
-      prom.reject(error);
-    } else {
-      prom.resolve(api);
-    }
-  });
-  failedQueue = [];
-};
+let interceptorInstalled = false;
 
 // Called once at app startup to wire up the navigate function and response interceptor
 export function setupAuthInterceptor(navigate) {
   navigateFn = navigate;
+  if (interceptorInstalled) return;
+  interceptorInstalled = true;
 
   api.interceptors.response.use(
     (response) => response,
     (error) => {
       const originalRequest = error.config;
 
-      // Handle 401 - token expired or invalid
-      if (error.response?.status === 401 && !originalRequest.url.startsWith("/login")) {
-        if (isRefreshing) {
-          return new Promise((resolve, reject) => {
-            failedQueue.push({ resolve, reject });
-          })
-            .then(() => api(originalRequest))
-            .catch((err) => Promise.reject(err));
+      // Handle 401 - token expired or invalid: log out and redirect.
+      // No refresh-token flow exists, so fail fast instead of queueing.
+      if (error.response?.status === 401 && !originalRequest?.url?.startsWith("/login")) {
+        localStorage.removeItem("cartiq_token");
+        if (navigateFn) {
+          navigateFn("/login", { replace: true });
         }
-
-        originalRequest._retry = true;
-        isRefreshing = true;
-
-        try {
-          localStorage.removeItem("cartiq_token");
-          if (navigateFn) {
-            navigateFn("/login", { replace: true });
-          }
-          return Promise.reject(error);
-        } catch (navError) {
-          return Promise.reject(navError);
-        } finally {
-          isRefreshing = false;
-          processQueue(null);
-        }
+        return Promise.reject(error);
       }
 
       // Handle other errors - show toast
@@ -73,7 +46,7 @@ export function setupAuthInterceptor(navigate) {
           "An unexpected error occurred";
 
         // Don't show toast for 401s being redirected to login
-        if (!(error.response.status === 401 && !originalRequest.url.startsWith("/login"))) {
+        if (!(error.response.status === 401 && !originalRequest?.url?.startsWith("/login"))) {
           toast(errorMsg, "error");
         }
       }

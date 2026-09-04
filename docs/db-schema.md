@@ -10,6 +10,7 @@ erDiagram
     LOCATION ||--o{ SHIFT : logs
     LOCATION ||--o{ SENSOR_READING : senses
     LOCATION ||--o{ EXPENSE : incurs
+    LOCATION ||--o{ DEVICE : "hosts node"
     USER ||--o{ ORDER : records
     USER ||--o{ SHIFT : "taps RFID"
     PRODUCT }o--o{ FLAVOR : "offered in"
@@ -26,7 +27,17 @@ erDiagram
         string username UK
         string passwordHash
         enum role "OWNER|STAFF"
+        bool active
+        string rfidUid UK "nullable, RFID card"
         int locationId FK "null for owner"
+    }
+    DEVICE {
+        int id PK
+        string deviceId UK "esp32-cart-0x"
+        int locationId FK
+        string tokenHash "bcrypt device token"
+        bool active
+        datetime lastSeenAt "online if <5min"
     }
     PRODUCT {
         int id PK
@@ -78,11 +89,14 @@ erDiagram
         int locationId FK
         float amount
         enum source "OCR|MANUAL"
+        string category
     }
     ALERT {
         int id PK
-        string type
-        bool isRead
+        string type "LOW_STOCK|UNKNOWN_CARD|..."
+        string message
+        string payload "nullable JSON"
+        bool isRead "dedupe: one unread per key"
     }
 ```
 
@@ -93,6 +107,13 @@ erDiagram
 - **Per-cart inventory rows** (`@@unique([locationId, name])`): each cart owns its
   stock, so offline edits across carts can never conflict (last-write-wins per key).
 - **Device timestamps** (`Shift.ts`, `SensorReading.ts`) are taken at the cart,
-  not upload time, so delayed batch sync stays historically correct.
+  not upload time, so delayed batch sync stays historically correct. Firmware
+  omits `ts` when NTP is unsynced so the server can default to upload time.
 - **Alerts** is a generic feed (low-stock, unknown-card, sensor-drift) the
-  dashboard polls; keeps business rules server-side.
+  dashboard polls; keeps business rules server-side. Low-stock alerts dedupe
+  to one unread row per item; unknown-card alerts dedupe per UID.
+- **`Device`** registry: one ESP32 node per cart, bearer token bcrypt-hashed
+  at rest, `lastSeenAt` updated on every reading/shift, `online = lastSeen < 5min`.
+- **Sensor → inventory mapping:** `LPG_TANK` mirrors into the `LPG Tank` row,
+  `CHEESE_BIN` into `Cheese Powder` (source flips to `SENSOR`). Recipe-tracked
+  items (pouches, frozen packs, powders via `IngredientMap`) deduct on POS orders.

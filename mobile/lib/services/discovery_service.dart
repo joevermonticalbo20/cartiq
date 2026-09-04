@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -85,7 +86,25 @@ class DiscoveryService {
         timeout: _scanTimeout,
       );
       socket.destroy();
-      return 'http://$ip:4000/api';
+    } catch (_) {
+      return null;
+    }
+    // Port is open — verify it is actually a CartIQ API via /health
+    // identity check to avoid false positives on any :4000 listener.
+    try {
+      final uri = Uri.parse('http://$ip:4000/api/health');
+      final client = HttpClient()..connectionTimeout = const Duration(milliseconds: 1000);
+      final request = await client.getUrl(uri).timeout(const Duration(milliseconds: 1500));
+      final response = await request.close().timeout(const Duration(milliseconds: 1500));
+      final body = await response.transform(utf8.decoder).join().timeout(
+        const Duration(milliseconds: 1500),
+        onTimeout: () => '',
+      );
+      client.close();
+      if (response.statusCode == 200 && body.contains('cartiq-api')) {
+        return 'http://$ip:4000/api';
+      }
+      return null;
     } catch (_) {
       return null;
     }

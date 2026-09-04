@@ -69,7 +69,7 @@ export default function ExpensesPage() {
   async function doDelete() {
     if (!confirming) return;
     try {
-      await api.delete(`/expenses/${confirming.id}`);
+      await api.del(`/expenses/${confirming.id}`);
       toast(`Deleted expense: ${confirming.vendor}`, "success");
       refresh();
       loadSummary();

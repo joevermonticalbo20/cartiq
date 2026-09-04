@@ -19,8 +19,12 @@ ESP32 board support: install **esp32 by Espressif Systems** via Boards Manager.
 
 - **RC522**: 3.3V ONLY. SDA→GPIO5, SCK→GPIO18, MOSI→GPIO23, MISO→GPIO19, RST→GPIO22, GND→GND.
 - **HX711 #1 (LPG tank platform)**: DT→GPIO32, SCK→GPIO33, VCC→VIN 5V, GND→GND.
-- **HX711 #2 (cheese bin mount)**: DT→GPIO26, SCK→GPIO25.
+- **HX711 #2 (cheese bin mount)**: DT→GPIO25, SCK→GPIO26.
 - Status LED on GPIO2 (onboard).
+
+> Pin source of truth is `config.example.h` (`BIN_DT_PIN 25`, `BIN_SCK_PIN 26`).
+> Firmware sends FIFO in chronological order: shifts one-per-POST to `/shifts`,
+> readings batched up to 10-per-POST to `/iot/readings` (base URL keeps trailing `/api`).
 
 ## Setup
 
@@ -36,6 +40,21 @@ ESP32 board support: install **esp32 by Espressif Systems** via Boards Manager.
 
 ## Offline behavior
 
-Events/readings buffer in RAM (`BUF_SIZE` slots). Phase 2 upgrades buffering to
-Preferences/NVS so records survive power loss, then uploads in batches with
-original timestamps whenever Wi-Fi is reachable.
+Events/readings buffer in RAM (`BUF_SIZE` slots) in chronological (FIFO) order.
+Phase 2 upgrades buffering to Preferences/NVS so records survive power loss,
+then uploads in batches with original timestamps whenever Wi-Fi is reachable.
+Until then, power loss drops the RAM buffer — refill/reset and re-tap after outages.
+
+## Hardware ops (pilot)
+
+- **Wi-Fi provisioning:** edit `config.h` (`WIFI_SSID`/`WIFI_PASS`), reflash. No portal.
+- **LAN target:** `API_BASE_URL=http://<PC_LAN_IP>:4000/api` (`ipconfig` on the API PC),
+  API must run with `HOST=0.0.0.0` + Windows Firewall TCP 4000 allow.
+- **Tokens:** dev tokens printed by `npm run db:seed` (`dev-CART-0x-potafries`); rotate
+  for deployment by updating the `Device` row hash + `API_DEVICE_TOKEN`, reflash.
+- **Install/tare:** mount cells, power on with empty platform to auto-tare (see `setup()`),
+  then place tank/bin. Weekly re-tare; refill-reset after each gas/powder refill.
+- **Calibration:** adjust `CAL_FACTOR_LPG`/`CAL_FACTOR_BIN` with a known weight
+  (measured / raw), target ±5%.
+- **Multi-cart:** validate CART-01 first, then duplicate node with new `DEVICE_ID`,
+  `DEVICE_CART_ID`, and token.

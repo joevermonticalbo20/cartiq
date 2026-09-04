@@ -19,7 +19,7 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react";
-import api from "../api.js";
+import api, { API_BASE } from "../api.js";
 import EmptyState from "../components/EmptyState.jsx";
 import { SkeletonCards } from "../components/Skeleton.jsx";
 import SensorPanel from "../components/SensorPanel.jsx";
@@ -100,7 +100,7 @@ export default function DashboardPage() {
     return () => { clearTimeout(timer); clearInterval(t); };
   }, [refresh]);
 
-  useSSE("/api/events", {
+  useSSE(`${API_BASE}/events`, {
     token,
     onStatus: setSseStatus,
     onEvent: (event, data) => {
