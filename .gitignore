@@ -37,3 +37,6 @@ api/prisma/dev.db
 api/prisma/dev.db-journal
 *.db
 *.db-journal
+
+# Meeting-only client deck (local file, never commit)
+docs/CartIQ-Client-Presentation.pptx
