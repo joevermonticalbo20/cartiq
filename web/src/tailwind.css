@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+/* Follow the app's existing dark toggle (Layout.jsx sets
+   document.documentElement.dataset.theme = "dark").
+   Needed only for `dark:`-prefixed utilities. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Brand tokens -> Tailwind theme. Values reference theme.css
+   variables, so [data-theme="dark"] recolors utilities
+   automatically with no extra code. */
+@theme {
+  --color-primary: var(--primary);
+  --color-primary-strong: var(--primary-strong);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-tint: var(--primary-tint);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-faint: var(--accent-faint);
+  --color-highlight: var(--highlight);
+  --color-highlight-soft: var(--highlight-soft);
+  --color-surface: var(--surface);
+  --color-surface-alt: var(--surface-alt);
+}
