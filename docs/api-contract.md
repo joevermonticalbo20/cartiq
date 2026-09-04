@@ -24,6 +24,7 @@ Auth: JWT bearer token from `POST /api/auth/login` (12h expiry)
 | `/catalog` | GET | Products with flavors + active locations (POS bootstrap payload). |
 | `/alerts?unread_only=true&limit` | GET | Alert feed, newest first. |
 | `/alerts/:id/read` | PATCH | OWNER-only mark-read. |
+| `/alerts/read` | PATCH | OWNER-only mark-all-read (`{ids?[]}` optional subset, omits to clear all unread; returns `{updated}`). Dashboard Stock alerts panel exposes it as “Mark all read”. |
 | `/reports/daily?date&code` | GET | `{total_sales, orders, top_items[5]}` for one cart or ALL. |
 
 ## Phase 2 - IoT (IMPLEMENTED - hardware pending, use `iot/simulator.mjs`)

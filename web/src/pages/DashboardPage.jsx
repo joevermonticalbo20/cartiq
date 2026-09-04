@@ -428,9 +428,29 @@ export default function DashboardPage() {
                 <Bell size={16} />
                 Stock alerts
               </h3>
-              <button className="ghost small-btn" onClick={() => navigate("/inventory")}>
-                View inventory
-              </button>
+              <div className="flex items-center gap-2">
+                {alerts.length > 0 && (
+                  <button
+                    className="ghost small-btn"
+                    onClick={async () => {
+                      try {
+                        await api.patch("/alerts/read", {});
+                        const alr = await api.get("/alerts?unread_only=true&page=1&pageSize=6");
+                        setAlerts(alr.data.data);
+                        toast("All alerts marked as read", "success");
+                      } catch {
+                        toast("Failed to mark alerts as read", "error");
+                      }
+                    }}
+                    title="Mark all alerts as read"
+                  >
+                    Mark all read
+                  </button>
+                )}
+                <button className="ghost small-btn" onClick={() => navigate("/inventory")}>
+                  View inventory
+                </button>
+              </div>
             </div>
             {inventory.length === 0 ? (
               <EmptyState

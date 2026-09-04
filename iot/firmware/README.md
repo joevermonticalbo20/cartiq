@@ -1,7 +1,7 @@
 # CartIQ ESP32 IoT Node
 
-Firmware for the RFID + load-cell node described in the approved proposal
-(Section X). One node per cart; validate the **CART-01 prototype first**, then
+Firmware for the RFID + load-cell node in the approved project proposal.
+One node per cart; validate the **CART-01 prototype first**, then
 replicate.
 
 ## Libraries (Arduino IDE → Library Manager)
@@ -32,11 +32,22 @@ ESP32 board support: install **esp32 by Espressif Systems** via Boards Manager.
 2. Flash to the ESP32 DevKit, open Serial Monitor at 115200.
 3. Tap a card → `Shift event queued: <uid>` appears; readings sample every 10 min and flush every 30 s when online.
 
-## Safety notes (from proposal Section X)
+## Safety notes (pilot rules)
 
 - The LPG tank simply rests on an external platform — **no modification of tank, valve, or regulator**.
 - Weekly tare calibration; refill-reset after each gas/powder refill.
 - Accuracy target ±5%; drift beyond that raises a maintenance alert.
+
+## Load-cell calibration
+
+1. Flash with the placeholder `CAL_FACTOR_* = 420.0`, open Serial Monitor at 115200.
+2. Empty the platform (auto-tare runs at boot), then place a **known weight**
+   (e.g. 5 kg dumbbell or 6 kg water jug) centered on the platform.
+3. Read the reported kg from the next `readings` POST (or add a temporary
+   `Serial.println(scale.get_units(3))` in `loop()`).
+4. Set `CAL_FACTOR_* = reported_raw / known_kg` — i.e. new factor =
+   old factor × (reported kg / known kg) — reflash, repeat until error < ±5%.
+5. Record the final factors per cart; recalibrate after any remount.
 
 ## Offline behavior
 
@@ -54,7 +65,6 @@ Until then, power loss drops the RAM buffer — refill/reset and re-tap after ou
   for deployment by updating the `Device` row hash + `API_DEVICE_TOKEN`, reflash.
 - **Install/tare:** mount cells, power on with empty platform to auto-tare (see `setup()`),
   then place tank/bin. Weekly re-tare; refill-reset after each gas/powder refill.
-- **Calibration:** adjust `CAL_FACTOR_LPG`/`CAL_FACTOR_BIN` with a known weight
-  (measured / raw), target ±5%.
+- **Calibration:** see “Load-cell calibration” above (known weight, target ±5%).
 - **Multi-cart:** validate CART-01 first, then duplicate node with new `DEVICE_ID`,
   `DEVICE_CART_ID`, and token.

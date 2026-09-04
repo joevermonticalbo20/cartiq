@@ -28,6 +28,20 @@ router.get("/alerts", requireAuth, async (req, res, next) => {
   }
 });
 
+router.patch("/alerts/read", requireAuth, requireRole("OWNER"), async (req, res, next) => {
+  try {
+    const ids = Array.isArray(req.body?.ids)
+      ? req.body.ids.map(Number).filter((n) => Number.isInteger(n))
+      : null;
+    const where = { isRead: false };
+    if (ids && ids.length > 0) where.id = { in: ids };
+    const { count } = await prisma.alert.updateMany({ where, data: { isRead: true } });
+    return res.json({ updated: count });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.patch("/alerts/:id/read", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
     const alert = await prisma.alert.update({

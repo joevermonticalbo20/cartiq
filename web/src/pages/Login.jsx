@@ -3,9 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, XCircle } from "lucide-react";
 import api from "../api.js";
 
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.1.0";
+
 export default function Login() {
-  const navigate = useNavigate();
-  const [username, setUsername] = useState("");
+  const navigate = useNavigate();  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [capsOn, setCapsOn] = useState(false);
@@ -142,7 +143,7 @@ export default function Login() {
           <span className="chip info">DEV</span>
           <span>Local build — <button type="button" className="linklike" onClick={() => { setUsername("owner"); setPassword("owner123"); setError(""); }}>try the demo</button></span>
         </p>
-        <p className="muted small login-trust">Protected outlet login · v0.1.0</p>
+        <p className="muted small login-trust">Protected outlet login · v{APP_VERSION}</p>
       </form>
       </div>
     </div>
