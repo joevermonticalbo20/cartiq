@@ -20,6 +20,9 @@
   padding: 20px;
   width: 100%;
   max-width: 460px;
+  /* Tall content (inventory adjust) + open keyboard must scroll, not clip. */
+  max-height: min(90vh, 90dvh);
+  overflow-y: auto;
   box-shadow: var(--shadow);
   animation: pop 0.14s ease;
 }
@@ -78,4 +81,5 @@
 @media (max-width: 480px) {
 .toast-host { top: auto; bottom: var(--space-4); right: var(--space-3); left: var(--space-3); }
   .toast { max-width: 100%; min-width: 0; }
+  .modal { padding: 16px; }
 }

@@ -21,7 +21,7 @@ export default function DataTable({
     // NOTE: intentionally not <Skeleton/> — the placeholder must keep real
     // table markup (columns align with headers while loading).
     return (
-      <div className="table-wrap">
+      <div className="table-wrap" tabIndex={0} role="region" aria-label="Loading table">
         <table className={`data${compact ? " compact" : ""}`}>
           <thead>
             <tr>
@@ -79,7 +79,7 @@ export default function DataTable({
 
   return (
     <>
-      <div className="table-wrap">
+      <div className="table-wrap" tabIndex={0} role="region" aria-label="Scrollable data table">
         <table className={`data${compact ? " compact" : ""}`}>
           <thead>
             <tr>

@@ -67,7 +67,8 @@
 .table-wrap .data .compact-td { padding: 4px 8px; }
 
 /* ----- Tables: cart-select — filter dropdown (Sales, Inventory, Staff, Expenses, Analytics) ----- */
-.cart-select { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 10px; font-size: var(--fs-sm); background: var(--surface); }
+.cart-select { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 10px; font-size: 16px; background: var(--surface); }
+/* 16px stops iOS auto-zoom on focus; visual size unchanged via padding. */
 
 /* ----- Tables: pagination (dating 'pagination') ----- */
 /* ================= pagination ================= */
@@ -107,4 +108,10 @@
 /* ----- Responsive (max-width: 640px): mobile — data table density ----- */
 @media (max-width: 640px) {
 table.data th, table.data td { padding: 8px; font-size: var(--fs-xs); }
+}
+
+/* ----- Responsive (max-width: 480px): small phones — pagination wraps ----- */
+@media (max-width: 480px) {
+  .pagination { flex-wrap: wrap; justify-content: center; }
+  .page-btns { flex-wrap: wrap; justify-content: center; }
 }

@@ -38,6 +38,18 @@
   outline: none;
 }
 
+/* Global motion kill-switch: every CSS animation/transition collapses.
+   (Login keeps its own stricter block. The sensor dot's SMIL <animate>
+   is unaffected by CSS — it's a 5px pulse, accepted as-is.) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Smooth scroll */
 html {
   scroll-behavior: smooth;

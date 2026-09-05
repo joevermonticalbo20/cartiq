@@ -123,6 +123,7 @@ export default function SettingsPage() {
             <Skeleton rows={3} />
           ) : (
             <>
+              <div className="table-wrap" tabIndex={0} role="region" aria-label="Profile details">
               <table className="data">
                 <tbody>
                   <tr><td className="muted">Name</td><td><strong>{profile.name}</strong></td></tr>
@@ -137,6 +138,7 @@ export default function SettingsPage() {
                   </tr>
                 </tbody>
               </table>
+              </div>
             </>
           )}
         </section>

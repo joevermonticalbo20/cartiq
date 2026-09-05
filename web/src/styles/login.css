@@ -227,6 +227,11 @@
   .login-card { width: 100%; max-width: 420px; }
 }
 
+/* ----- Responsive (max-width: 480px): small phones — tighter card ----- */
+@media (max-width: 480px) {
+  .login-card { padding: 20px; gap: 12px; }
+}
+
 /* ----- Login: form card, inputs, demo hint ----- */
 .login-card h1 { margin: 0; color: var(--accent); font-size: 28px; letter-spacing: -0.5px; }
 .login-card label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; font-weight: 700; color: var(--text); }

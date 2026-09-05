@@ -177,3 +177,10 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ----- Responsive (max-width: 480px): small phones — mini stats stack ----- */
+@media (max-width: 480px) {
+  .sensor-stat-grid {
+    grid-template-columns: 1fr;
+  }
+}

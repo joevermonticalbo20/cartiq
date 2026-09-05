@@ -83,6 +83,8 @@ export default function Layout() {
 
   const current = NAV.find((n) => location.pathname.startsWith(n.to));
   const initial = user?.name?.[0]?.toUpperCase() ?? "?";
+  // Drawer labels always show when open on mobile, even if desktop is collapsed.
+  const showLabels = !collapsed || mobileOpen;
 
   return (
     <div className="shell">
@@ -97,7 +99,7 @@ export default function Layout() {
       >
         <div className="side-logo">
           <div className="logo-mark">CQ</div>
-          {!collapsed && (
+          {showLabels && (
             <div className="logo-text">
               <strong>CartIQ</strong>
               <span>Pota Fries Operations</span>
@@ -114,7 +116,7 @@ export default function Layout() {
               title={label}
             >
               <Icon size={19} strokeWidth={2.2} />
-              {!collapsed && <span>{label}</span>}
+              {showLabels && <span>{label}</span>}
             </NavLink>
           ))}
         </nav>
@@ -122,7 +124,7 @@ export default function Layout() {
         <div className="side-foot">
           <button className="ghost nav-item" onClick={toggleSidebar} title="Toggle sidebar">
             <Menu size={19} />
-            {!collapsed && <span>Collapse</span>}
+            {showLabels && <span>Collapse</span>}
           </button>
         </div>
       </aside>

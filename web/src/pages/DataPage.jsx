@@ -149,6 +149,7 @@ export default function DataPage() {
 
         {preview && (
           <div style={{ marginTop: "var(--space-3)" }}>
+            <div className="table-wrap" tabIndex={0} role="region" aria-label="Import preview">
             <table className="data">
               <tbody>
                 {preview.errors.map((e, i) => (
@@ -165,6 +166,7 @@ export default function DataPage() {
                 )}
               </tbody>
             </table>
+            </div>
             <button
               style={{ marginTop: "var(--space-2)" }}
               onClick={() => setConfirmOpen(true)}

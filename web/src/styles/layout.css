@@ -132,7 +132,8 @@
 
 @media (max-width: 900px) {
   .sidebar { transform: translateX(-100%); box-shadow: var(--shadow); }
-  .sidebar.mobile-open { transform: translateX(0); }
+  /* Drawer always opens full-width, even if desktop sidebar is collapsed. */
+  .sidebar.mobile-open { transform: translateX(0); width: var(--sidebar-w); }
   .main-area { margin-left: 0 !important; }
   .hamburger { display: inline-flex; }
   .backdrop.show {
@@ -192,7 +193,13 @@
 .page-container { padding: var(--space-4); }
 }
 
-/* ----- Responsive (max-width: 480px): small phones — page container ----- */
+/* ----- Responsive (max-width: 480px): small phones — page container + topbar ----- */
 @media (max-width: 480px) {
 .page-container { padding: var(--space-3); }
+  /* 360px: title ellipsizes, name text hides (avatar initial identifies). */
+  .topbar { padding: 0 14px; gap: 8px; }
+  .topbar-left { flex: 1; }
+  .topbar-title { overflow: hidden; text-overflow: ellipsis; }
+  .user-chip { gap: 6px; }
+  .user-chip > span:first-child { display: none; }
 }

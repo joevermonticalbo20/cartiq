@@ -36,7 +36,8 @@
   /* === text === */
   --text: #0A0908;
   --text-muted: #6B7280;
-  --text-faint: #9CA3AF;
+  /* #767676 = 4.5:1 on white (was #9CA3AF at ~2.8:1, unreadable at 12px). */
+  --text-faint: #767676;
 
   /* === status (kept distinct from brand red) === */
   /* NOTE: --ok/--ok-bg were duplicates of --success/--success-bg and have
@@ -113,7 +114,8 @@
 
   --text: #F8F9FA;
   --text-muted: #A1A1AA;
-  --text-faint: #71717A;
+  /* Same as muted: keeps 12px text above 4.5:1 on near-black. */
+  --text-faint: #A1A1AA;
 
   --accent: #F8F9FA;
   --accent-soft: #D4D4D8;
