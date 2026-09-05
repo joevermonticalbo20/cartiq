@@ -14,6 +14,7 @@ import EmptyState from "../components/EmptyState.jsx";
 import { SkeletonCards, SkeletonChart } from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import ProfitSection from "../components/analytics/ProfitSection.jsx";
+import AnalyticsTooltip, { TooltipItem } from "../components/analytics/AnalyticsTooltip.jsx";
 import { fmtMoneyAxis, fmtShortDate } from "../utils/format.js";
 
 // API risk level -> badge variant: high red, medium amber, low green.
@@ -61,14 +62,13 @@ function HeatmapGrid({ matrix }) {
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="recharts-default-tooltip analytics-tooltip">
-      <div className="recharts-tooltip-label">{label}</div>
+    <AnalyticsTooltip label={label}>
       {payload.map((p, i) => (
-        <div key={i} className="recharts-tooltip-item">
+        <TooltipItem key={i}>
           {p.name}: <strong className="tooltip-value">P{typeof p.value === "number" ? p.value.toLocaleString() : p.value}</strong>
-        </div>
+        </TooltipItem>
       ))}
-    </div>
+    </AnalyticsTooltip>
   );
 }
 
@@ -160,10 +160,18 @@ export default function AnalyticsPage() {
     return ((curAvg - prevAvg) / prevAvg) * 100;
   }, [trends, prevTrends, totalRevenue, totalOrders]);
 
-  const topCategoryName = useMemo(() => {
-    if (!trends?.top_items?.length) return "—";
-    return trends.top_items[0].name || "—";
-  }, [trends]);
+  // Top-selling item + its prior-period delta (matched by name; null
+  // when the item is new or history is missing — never faked).
+  const topItemStat = useMemo(() => {
+    const cur = trends?.top_items?.[0];
+    if (!cur) return { name: "—", qty: null, trend: null };
+    const prevMatch = prevTrends?.top_items?.find((t) => t.name === cur.name);
+    const trend =
+      prevMatch && prevMatch.qty > 0
+        ? ((cur.qty - prevMatch.qty) / prevMatch.qty) * 100
+        : null;
+    return { name: cur.name, qty: cur.qty, trend };
+  }, [trends, prevTrends]);
 
   // Takeaway chips pinned under the KPIs: short, linked to the evidence.
   const insights = useMemo(() => {
@@ -302,7 +310,13 @@ export default function AnalyticsPage() {
                 { label: "Total Revenue", value: `P${totalRevenue.toLocaleString()}`, trend: revenueTrend, icon: DollarSign },
                 { label: "Total Orders", value: totalOrders, trend: ordersTrend, icon: ShoppingBag },
                 { label: "Avg Order Value", value: `P${avgOrderValue.toLocaleString()}`, trend: avgTrend, icon: BarChart2 },
-                { label: "Top Item", value: topCategoryName, trend: null, icon: TrendingUp },
+                {
+                  label: "Top Item",
+                  value: topItemStat.name,
+                  trend: topItemStat.trend,
+                  sub: topItemStat.qty != null ? `${topItemStat.qty} sold` : "No data yet",
+                  icon: TrendingUp,
+                },
               ].map((kpi) => (
                 <div key={kpi.label} className="kpi-card">
                   <div className="kpi-card-header">
@@ -310,7 +324,8 @@ export default function AnalyticsPage() {
                     <div className="kpi-card-icon"><kpi.icon size={18} /></div>
                   </div>
                   <div className="kpi-card-value">{kpi.value}</div>
-                  {kpi.trend !== null && (
+                  {kpi.sub && <div className="kpi-card-sub">{kpi.sub}</div>}
+                  {kpi.trend !== null && kpi.trend !== undefined && (
                     <div className={`kpi-card-trend ${kpi.trend >= 0 ? "up" : "down"}`}>
                       {kpi.trend >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                       {Math.abs(kpi.trend).toFixed(1)}% vs prior period
@@ -443,6 +458,37 @@ export default function AnalyticsPage() {
                     )}
                   </p>
                   <HeatmapGrid matrix={hourly.matrix} />
+                  <details className="muted small" style={{ marginTop: "var(--space-2)" }}>
+                    <summary>View as a table</summary>
+                    <div className="table-wrap" style={{ marginTop: "var(--space-2)" }}>
+                      <table className="data compact">
+                        <caption className="muted small">Revenue by weekday and hour (PHP)</caption>
+                        <thead>
+                          <tr>
+                            <th scope="col">Day</th>
+                            {HEAT_HOURS.map((h) => (
+                              <th key={h} scope="col">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[0, 1, 2, 3, 4, 5, 6].map((dow) => {
+                            const byKey = new Map((hourly.matrix ?? []).map((c) => [`${c.dow}:${c.hour}`, c]));
+                            return (
+                              <tr key={dow}>
+                                <th scope="row">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dow]}</th>
+                                {HEAT_HOURS.map((h) => (
+                                  <td key={h} className="t-right">
+                                    {(byKey.get(`${dow}:${h}`)?.total_sales ?? 0).toLocaleString()}
+                                  </td>
+                                ))}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
                 </div>
               )}
             </div>
@@ -682,6 +728,7 @@ export default function AnalyticsPage() {
                   <p className="muted small" style={{ marginBottom: "var(--space-2)" }}>
                     Same engine as inventory forecasts
                     {salesFc.mape != null && <> · backtest MAPE <strong>{salesFc.mape}%</strong></>}.
+                    {" "}<span aria-hidden="true">┄┄</span> dashed line = forecast, not history.
                   </p>
                   <div
                     className="chart-container"

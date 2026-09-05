@@ -538,6 +538,9 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex flex-col gap-4">
+          {/* Live sensor first: the only real-time ops signal on this page */}
+          <SensorPanel code="CART-01" />
+
           {/* Weekly sales trend */}
           {trends && trends.by_weekday && (
             <section className="panel">
@@ -656,8 +659,6 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
-
-      <SensorPanel code="CART-01" />
     </div>
   );
 }

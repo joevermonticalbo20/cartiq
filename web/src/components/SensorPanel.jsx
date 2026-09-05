@@ -220,7 +220,14 @@ export default function SensorPanel({ code = "CART-01" }) {
 
           {/* Chart */}
           <div className="sensor-chart-wrap">
-            <svg viewBox={`0 0 ${W} ${H}`} className="sensor-chart" preserveAspectRatio="none">
+            <svg
+              viewBox={`0 0 ${W} ${H}`}
+              className="sensor-chart"
+              preserveAspectRatio="none"
+              role="img"
+              aria-label={`${channelConfig.label} weight over time: latest ${lastVal.toFixed(1)} ${channelConfig.unit}, low limit ${channelConfig.lowThreshold}, critical limit ${channelConfig.criticalThreshold}`}
+            >
+              <title>{`${channelConfig.label} — latest ${lastVal.toFixed(1)} ${channelConfig.unit}`}</title>
               <defs>
                 <linearGradient id="sensorGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={channelConfig.color} stopOpacity="0.35" />
@@ -228,27 +235,41 @@ export default function SensorPanel({ code = "CART-01" }) {
                 </linearGradient>
               </defs>
 
-              {/* Threshold lines */}
-              <line
-                x1={padX}
-                y1={H - padBottom - ((channelConfig.lowThreshold - min) / (max - min || 1)) * (H - padTop - padBottom)}
-                x2={W - padX}
-                y2={H - padBottom - ((channelConfig.lowThreshold - min) / (max - min || 1)) * (H - padTop - padBottom)}
-                stroke="var(--warn)"
-                strokeWidth="1"
-                strokeDasharray="4 4"
-                opacity="0.5"
-              />
-              <line
-                x1={padX}
-                y1={H - padBottom - ((channelConfig.criticalThreshold - min) / (max - min || 1)) * (H - padTop - padBottom)}
-                x2={W - padX}
-                y2={H - padBottom - ((channelConfig.criticalThreshold - min) / (max - min || 1)) * (H - padTop - padBottom)}
-                stroke="var(--danger)"
-                strokeWidth="1"
-                strokeDasharray="4 4"
-                opacity="0.5"
-              />
+              {/* Threshold lines (clamped to the plot so they never leave the chart) */}
+              {[
+                { v: channelConfig.lowThreshold, label: `Low ${channelConfig.lowThreshold}`, color: "var(--warn)" },
+                { v: channelConfig.criticalThreshold, label: `Critical ${channelConfig.criticalThreshold}`, color: "var(--danger)" },
+              ].map(({ v, label, color }) => {
+                const y = Math.min(
+                  Math.max(
+                    H - padBottom - ((v - min) / (max - min || 1)) * (H - padTop - padBottom),
+                    padTop
+                  ),
+                  H - padBottom
+                );
+                return (
+                  <g key={label}>
+                    <line
+                      x1={padX}
+                      y1={y}
+                      x2={W - padX}
+                      y2={y}
+                      stroke={color}
+                      strokeWidth="1"
+                      strokeDasharray="4 4"
+                      opacity="0.5"
+                    />
+                    <text
+                      x={padX + 3}
+                      y={y - 3}
+                      fontSize="9"
+                      fill={color}
+                    >
+                      {label}
+                    </text>
+                  </g>
+                );
+              })}
 
               {/* Vertical gridlines at each clock tick */}
               {xTicks.map((ts) => (
