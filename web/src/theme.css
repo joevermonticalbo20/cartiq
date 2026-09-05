@@ -39,8 +39,8 @@
   --text-faint: #9CA3AF;
 
   /* === status (kept distinct from brand red) === */
-  --ok: #166534;
-  --ok-bg: #DCFCE7;
+  /* NOTE: --ok/--ok-bg were duplicates of --success/--success-bg and have
+     been removed — use --success everywhere. */
   --success: #166534;
   --success-bg: #DCFCE7;
   --warn: #92400E;
@@ -129,13 +129,12 @@
   --highlight-strong: #F5D55B;
 
   /* status colors get lighter in dark mode for proper contrast */
-  --ok: #4ADE80;
+  /* NOTE: --ok/--ok-bg removed (duplicates of --success) — see above. */
   --success: #4ADE80;
   --warn: #FCD34D;
   --danger: #FCA5A5;
   --info: #93C5FD;
 
-  --ok-bg: #0F2A18;
   --success-bg: #0F2A18;
   --warn-bg: #3A2C10;
   --danger-bg: #2A0F0E;

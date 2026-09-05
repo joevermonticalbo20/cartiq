@@ -1,4 +1,5 @@
 import { Component } from "react";
+import Button from "./Button.jsx";
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -35,9 +36,9 @@ class ErrorBoundary extends Component {
         <>
           {Fallback}
           <div style={{ margin: 20 }}>
-            <button onClick={retry} className="retry-btn">
+            <Button onClick={retry}>
               Retry
-            </button>
+            </Button>
           </div>
         </>
       );

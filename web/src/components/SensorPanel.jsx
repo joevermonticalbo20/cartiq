@@ -13,6 +13,7 @@ import {
   Zap,
 } from "lucide-react";
 import api from "../api.js";
+import EmptyState from "./EmptyState.jsx";
 import { clockTicks, timeX, formatTick, formatLastReading } from "./sensorTimeScale.js";
 
 const CHANNELS = [
@@ -142,20 +143,18 @@ export default function SensorPanel({ code = "CART-01" }) {
       </div>
 
       {error ? (
-        <div className="sensor-error">
-          <WifiOff size={32} strokeWidth={1.4} />
-          <strong>Sensor offline</strong>
-          <p className="muted small">{error}</p>
-          <button className="ghost small-btn" onClick={fetchData}>
-            Retry
-          </button>
-        </div>
+        <EmptyState
+          icon={WifiOff}
+          title="Sensor offline"
+          subtitle={error}
+          action={{ label: "Retry", onClick: fetchData }}
+        />
       ) : series.length === 0 ? (
-        <div className="sensor-empty">
-          <Icon size={36} strokeWidth={1.4} />
-          <strong>Waiting for readings</strong>
-          <p className="muted small">Start iot/simulator.mjs to see live data</p>
-        </div>
+        <EmptyState
+          icon={Icon}
+          title="Waiting for readings"
+          subtitle="Start iot/simulator.mjs to see live data"
+        />
       ) : (
         <>
           {/* Top stats row */}

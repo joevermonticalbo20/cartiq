@@ -9,14 +9,15 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api.js";
+import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import { SkeletonCards, SkeletonChart } from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import ProfitSection from "../components/analytics/ProfitSection.jsx";
 import { fmtMoneyAxis, fmtShortDate } from "../utils/format.js";
 
-// API risk level -> chip color: high red, medium amber, low green.
-const RISK_CHIP = { high: "critical", medium: "low", low: "ok", unknown: "read" };
+// API risk level -> badge variant: high red, medium amber, low green.
+const RISK_CHIP = { high: "danger", medium: "warn", low: "ok", unknown: "neutral" };
 
 const HEAT_HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 const HEAT_DAYS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -644,7 +645,7 @@ export default function AnalyticsPage() {
                               <td>{i.avg_daily_use} {i.unit}</td>
                               <td>{i.depletion_date ?? "—"}</td>
                               <td className="muted">{i.mape_pct != null ? `${i.mape_pct}%` : "—"}</td>
-                              <td><span className={`chip ${RISK_CHIP[i.risk] ?? "read"}`}>{String(i.risk ?? "unknown").toUpperCase()}</span></td>
+                              <td><Badge variant={RISK_CHIP[i.risk] ?? "neutral"}>{String(i.risk ?? "unknown").toUpperCase()}</Badge></td>
                             </tr>
                           ))}
                         </tbody>

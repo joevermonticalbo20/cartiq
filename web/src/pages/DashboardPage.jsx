@@ -20,6 +20,7 @@ import {
   Users,
 } from "lucide-react";
 import api, { API_BASE } from "../api.js";
+import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import { SkeletonCards } from "../components/Skeleton.jsx";
 import SensorPanel from "../components/SensorPanel.jsx";
@@ -437,12 +438,12 @@ export default function DashboardPage() {
                           <strong>P{Number(o.total).toLocaleString()}</strong>
                         </td>
                         <td>
-                          <span className="chip read">
+                          <Badge variant="neutral">
                             {(o.paymentMethod || "CASH").toUpperCase()}
-                          </span>
+                          </Badge>
                         </td>
                         <td>
-                          <span className="chip loc">{o.location?.code}</span>
+                          <Badge variant="info">{o.location?.code}</Badge>
                         </td>
                       </tr>
                     ))}
@@ -517,9 +518,9 @@ export default function DashboardPage() {
                             {it.stock} {it.unit} remaining · threshold {it.threshold}
                           </div>
                         </span>
-                        <span className={`chip ${statusClass(it.status)}`}>
+                        <Badge variant={statusClass(it.status)}>
                           {it.status.toUpperCase()}
-                        </span>
+                        </Badge>
                       </div>
                     );
                   })}
@@ -545,9 +546,9 @@ export default function DashboardPage() {
                   <TrendingUp size={16} />
                   Weekly sales trend
                 </h3>
-                <span className="chip brand">
+                <Badge variant="brand">
                   P{Number(trends.total_sales).toLocaleString()}
-                </span>
+                </Badge>
               </div>
               <div className="trend-bars">
                 {trends.by_weekday.map((d) => {
@@ -574,9 +575,9 @@ export default function DashboardPage() {
                 <Users size={16} />
                 On-shift staff
               </h3>
-              <span className={`chip ${onShift.length > 0 ? "ok" : "read"}`}>
+              <Badge variant={onShift.length > 0 ? "ok" : "neutral"}>
                 {onShift.length} on duty
-              </span>
+              </Badge>
             </div>
             {onShift.length === 0 ? (
               <EmptyState
@@ -599,9 +600,9 @@ export default function DashboardPage() {
                         {s.location_name} · since {formatTime(s.since)}
                       </div>
                     </span>
-                    <span className={`chip ${s.registered ? "ok" : "critical"}`}>
+                    <Badge variant={s.registered ? "ok" : "danger"}>
                       {s.registered ? "ON" : "UNREG"}
-                    </span>
+                    </Badge>
                   </div>
                 ))}
               </div>
@@ -616,7 +617,7 @@ export default function DashboardPage() {
                   <Boxes size={16} />
                   Cart status
                 </h3>
-                <span className="chip read">{inventory.length} carts</span>
+                <Badge variant="neutral">{inventory.length} carts</Badge>
               </div>
               <div>
                 {inventory.map((loc) => {
@@ -640,13 +641,13 @@ export default function DashboardPage() {
                           {loc.name} · {loc.items.length} items
                         </div>
                       </span>
-                      <span className={`chip ${critical > 0 ? "critical" : low > 0 ? "low" : "ok"}`}>
+                      <Badge variant={critical > 0 ? "danger" : low > 0 ? "warn" : "ok"}>
                         {critical > 0
                           ? `${critical} critical`
                           : low > 0
                             ? `${low} low`
                             : "OK"}
-                      </span>
+                      </Badge>
                     </div>
                   );
                 })}
@@ -660,3 +661,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+

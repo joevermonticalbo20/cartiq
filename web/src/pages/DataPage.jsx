@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Download, FileUp, FileDown } from "lucide-react";
 import api from "../api.js";
+import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import { useToast } from "../components/Toast.jsx";
@@ -152,13 +153,13 @@ export default function DataPage() {
               <tbody>
                 {preview.errors.map((e, i) => (
                   <tr key={`e${i}`}>
-                    <td><span className="chip critical">ROW {e.row}</span></td>
+                    <td><Badge variant="danger">ROW {e.row}</Badge></td>
                     <td>{e.reason}</td>
                   </tr>
                 ))}
                 {preview.errors.length === 0 && (
                   <tr>
-                    <td><span className="chip ok">READY</span></td>
+                    <td><Badge variant="ok">READY</Badge></td>
                     <td>{preview.valid_count} valid row(s), no conflicts.</td>
                   </tr>
                 )}

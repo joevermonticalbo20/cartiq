@@ -1,5 +1,8 @@
 import ProfitTrendChart from "./ProfitTrendChart.jsx";
 import ExpenseBreakdownChart from "./ExpenseBreakdownChart.jsx";
+import EmptyState from "../EmptyState.jsx";
+import Badge from "../Badge.jsx";
+import { Wallet } from "lucide-react";
 
 export default function ProfitSection({ profit }) {
   if (!profit) {
@@ -11,7 +14,11 @@ export default function ProfitSection({ profit }) {
             <p className="analytics-section-sub">What you keep after recorded expenses</p>
           </div>
         </div>
-        <p className="muted">No profit data available.</p>
+        <EmptyState
+          icon={Wallet}
+          title="No profit data available"
+          subtitle="Record sales and expenses to see profit here."
+        />
       </div>
     );
   }
@@ -29,7 +36,7 @@ export default function ProfitSection({ profit }) {
 
   const marginLabel =
     margin_pct >= 50 ? "Healthy margin" : margin_pct < 20 ? "Low margin" : "Watch margin";
-  const marginChip = margin_pct >= 50 ? "ok" : margin_pct < 20 ? "critical" : "low";
+  const marginChip = margin_pct >= 50 ? "ok" : margin_pct < 20 ? "danger" : "warn";
 
   const burnPct = revenue > 0 ? (total_expenses / revenue) * 100 : 0;
   const topCost = [...(expenses_by_category ?? [])]
@@ -51,7 +58,7 @@ export default function ProfitSection({ profit }) {
         <span><span className="muted">= Profit</span> <strong>P{gross_profit.toLocaleString()}</strong></span>
         <span>
           <span className="muted">Margin</span> <strong>{margin_pct.toFixed(1)}%</strong>{" "}
-          <span className={`chip ${marginChip}`}>{marginLabel}</span>
+          <Badge variant={marginChip}>{marginLabel}</Badge>
           <span className="muted small"> · {profit.order_count} orders · {profit.expense_count} expenses</span>
         </span>
       </div>
@@ -75,9 +82,12 @@ export default function ProfitSection({ profit }) {
           {nonZeroCategories.length > 0 ? (
             <ExpenseBreakdownChart data={nonZeroCategories} />
           ) : (
-            <div className="profit-empty">
-              <p className="muted">No expenses recorded for this period.</p>
-            </div>
+            <EmptyState
+              icon={Wallet}
+              title="No expenses recorded"
+              subtitle="Snap a vendor receipt from the POS app to see the breakdown."
+              compact
+            />
           )}
         </div>
       </div>

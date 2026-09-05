@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Trophy, Users } from "lucide-react";
 import api from "../api.js";
+import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
@@ -45,13 +46,15 @@ export default function StaffPage() {
       <section className="panel">
         <div className="panel-head">
           <h3>Currently on shift (RFID)</h3>
-          <span className="chip brand">{onShift.length} on duty</span>
+          <Badge variant="brand">{onShift.length} on duty</Badge>
         </div>
         {onShift.length === 0 ? (
-          <div className="empty-state">
-            <strong>Nobody tapped IN</strong>
-            Shift events appear when staff tap RFID cards at a cart node.
-          </div>
+          <EmptyState
+            icon={Users}
+            title="Nobody tapped IN"
+            subtitle="Shift events appear when staff tap RFID cards at a cart node."
+            compact
+          />
         ) : (
           <div className="flex flex-wrap gap-3">
             {onShift.map((s) => (
@@ -61,9 +64,9 @@ export default function StaffPage() {
                   <div className="fw-semibold">{s.name}</div>
                   <div className="muted text-xs">{s.location_name}</div>
                 </div>
-                <span className={`chip ${s.registered ? "ok" : "critical"}`}>
+                <Badge variant={s.registered ? "ok" : "danger"}>
                   {s.registered ? "ON" : "UNREG"}
-                </span>
+                </Badge>
               </div>
             ))}
           </div>
@@ -93,7 +96,7 @@ export default function StaffPage() {
               <div key={s.staff_id} className="card staff-perf-card">
                 <div className="flex items-center justify-between gap-2">
                   <strong>{s.name}</strong>
-                  {i === 0 && <span className="chip brand" title="Top performer"><Trophy size={11} /></span>}
+                  {i === 0 && <Badge variant="brand" title="Top performer"><Trophy size={11} /></Badge>}
                 </div>
                 <div className="muted text-xs" style={{ marginTop: "var(--space-1)" }}>
                   {s.orders} order{s.orders !== 1 ? "s" : ""} · avg P{s.avg_ticket}
@@ -152,7 +155,7 @@ export default function StaffPage() {
                 label: "Staff",
                 render: (s) =>
                   s.staffName ?? (
-                    <span className="chip critical">UNREGISTERED</span>
+                    <Badge variant="danger">UNREGISTERED</Badge>
                   ),
               },
               {
@@ -164,15 +167,15 @@ export default function StaffPage() {
                 key: "event",
                 label: "Event",
                 render: (s) => (
-                  <span className={`chip ${s.event === "IN" ? "ok" : "read"}`}>
+                  <Badge variant={s.event === "IN" ? "ok" : "neutral"}>
                     {s.event}
-                  </span>
+                  </Badge>
                 ),
               },
               {
                 key: "location",
                 label: "Cart",
-                render: (s) => <span className="chip loc">{s.location?.code}</span>,
+                render: (s) => <Badge variant="info">{s.location?.code}</Badge>,
               },
             ]}
             data={rows}

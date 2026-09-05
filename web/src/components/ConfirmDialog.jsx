@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import Button from "./Button.jsx";
 
 export default function ConfirmDialog({
   open,
@@ -36,13 +37,13 @@ export default function ConfirmDialog({
         <h3 id="confirm-dialog-title">{title}</h3>
         <p className="muted">{message}</p>
         <div className="modal-actions">
-          <button ref={cancelRef} className="ghost" onClick={onCancel}>Cancel</button>
-          <button
-            className={danger ? "danger" : ""}
+          <Button ref={cancelRef} variant="ghost" onClick={onCancel}>Cancel</Button>
+          <Button
+            variant={danger ? "danger" : "primary"}
             onClick={onConfirm}
           >
             {confirmLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

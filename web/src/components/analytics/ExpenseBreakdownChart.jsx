@@ -2,28 +2,37 @@ import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { expenseCategoryColor } from "../../constants/expenseCategories.js";
+import AnalyticsTooltip, { TooltipItem } from "./AnalyticsTooltip.jsx";
+import EmptyState from "../EmptyState.jsx";
+import { ReceiptText } from "lucide-react";
 
 function CustomTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const p = payload[0];
   return (
-    <div className="recharts-default-tooltip analytics-tooltip">
-      <div className="recharts-tooltip-label">{p.name}</div>
-      <div className="recharts-tooltip-item">
+    <AnalyticsTooltip label={p.name}>
+      <TooltipItem>
         Amount: <strong className="tooltip-value">P{Number(p.value).toLocaleString()}</strong>
-      </div>
+      </TooltipItem>
       {p.payload?.pct != null && (
-        <div className="recharts-tooltip-item">
+        <TooltipItem>
           Share: <strong className="tooltip-value">{p.payload.pct}%</strong>
-        </div>
+        </TooltipItem>
       )}
-    </div>
+    </AnalyticsTooltip>
   );
 }
 
 export default function ExpenseBreakdownChart({ data }) {
   if (!data || data.length === 0) {
-    return <div className="profit-empty"><p className="muted">No expense data.</p></div>;
+    return (
+      <EmptyState
+        icon={ReceiptText}
+        title="No expense data"
+        subtitle="Expenses appear here once recorded."
+        compact
+      />
+    );
   }
 
   const total = data.reduce((s, d) => s + (Number(d.amount) || 0), 0);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CheckSquare, SlidersHorizontal, Square, Boxes } from "lucide-react";
 import api from "../api.js";
+import Badge from "../components/Badge.jsx";
 import SensorPanel from "../components/SensorPanel.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
@@ -158,11 +159,13 @@ export default function InventoryPage() {
               <thead>
                 <tr>
                   <th>
-                    <button
-                      className="icon-only ghost small-btn"
-                      onClick={toggleSelectAll}
-                      title={allSelected ? "Deselect all" : "Select all"}
-                    >
+                      <button
+                        className="icon-only ghost small-btn"
+                        onClick={toggleSelectAll}
+                        title={allSelected ? "Deselect all" : "Select all"}
+                        aria-label={allSelected ? "Deselect all" : "Select all"}
+                        aria-pressed={allSelected}
+                      >
                       {allSelected ? <CheckSquare size={14} /> : <Square size={14} />}
                     </button>
                   </th>
@@ -182,11 +185,13 @@ export default function InventoryPage() {
                   return (
                   <tr key={item.id} className={isSelected ? "row-selected" : undefined}>
                     <td>
-                      <button
-                        className="icon-only ghost small-btn"
-                        onClick={() => toggleSelect(item.id)}
-                        title={isSelected ? "Deselect" : "Select"}
-                      >
+                        <button
+                          className="icon-only ghost small-btn"
+                          onClick={() => toggleSelect(item.id)}
+                          title={isSelected ? "Deselect" : "Select"}
+                          aria-label={`${isSelected ? "Deselect" : "Select"} ${item.name}`}
+                          aria-pressed={isSelected}
+                        >
                         {isSelected ? <CheckSquare size={14} color="var(--primary)" /> : <Square size={14} />}
                       </button>
                     </td>
@@ -196,23 +201,23 @@ export default function InventoryPage() {
                     </td>
                     <td className="muted">{item.threshold} {item.unit}</td>
                     <td>
-                      <span className={`chip ${item.source === "SENSOR" ? "loc" : "read"}`}>
+                      <Badge variant={item.source === "SENSOR" ? "info" : "neutral"}>
                         {item.source}
-                      </span>
+                      </Badge>
                     </td>
-                    <td><span className={`chip ${item.status}`}>{STATUS_LABEL[item.status]}</span></td>
+                    <td><Badge variant={item.status}>{STATUS_LABEL[item.status]}</Badge></td>
                     <td>
                       {fcItem?.data_sufficient && fcItem.depletion_date ? (
-                        <span
-                          className={`chip ${fcItem.risk === "high" ? "critical" : fcItem.risk === "medium" ? "low" : "ok"}`}
+                        <Badge
+                          variant={fcItem.risk === "high" ? "danger" : fcItem.risk === "medium" ? "warn" : "ok"}
                           title={`Avg ${fcItem.avg_daily_use} ${item.unit}/day · MAPE ${fcItem.mape_pct}%`}
                         >
                           {fcItem.depletion_date}
-                        </span>
+                        </Badge>
                       ) : fcItem ? (
-                        <span className="chip read" title={fcItem.reason || "Not enough data yet"}>
+                        <Badge variant="neutral" title={fcItem.reason || "Not enough data yet"}>
                           —
-                        </span>
+                        </Badge>
                       ) : (
                         <span className="muted small">—</span>
                       )}
@@ -295,8 +300,8 @@ export default function InventoryPage() {
                     <td className="t-right">
                       {p.data_sufficient ? (
                         p.shortfall > 0
-                          ? <span className="chip critical">PREP {p.shortfall}</span>
-                          : <span className="chip ok">COVERED</span>
+                          ? <Badge variant="danger">PREP {p.shortfall}</Badge>
+                          : <Badge variant="ok">COVERED</Badge>
                       ) : (
                         <span className="muted small">{p.reason}</span>
                       )}
@@ -318,9 +323,9 @@ export default function InventoryPage() {
                   <span className="alert-item-text">
                     <div className="alert-item-name">
                       {c.item}{" "}
-                      <span className={`chip ${c.verdict === "noisy" ? "low" : "critical"}`}>
+                      <Badge variant={c.verdict === "noisy" ? "warn" : "danger"}>
                         {c.verdict.toUpperCase()}
-                      </span>
+                      </Badge>
                     </div>
                     <div className="alert-item-detail">{c.reason}</div>
                   </span>

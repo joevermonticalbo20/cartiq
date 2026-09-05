@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { KeyRound, Plus, RefreshCw } from "lucide-react";
 import api from "../api.js";
+import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
@@ -128,7 +129,7 @@ export default function SettingsPage() {
                   <tr><td className="muted">Username</td><td>{profile.username}</td></tr>
                   <tr>
                     <td className="muted">Role</td>
-                    <td><span className="chip brand">{profile.role}</span></td>
+                      <td><Badge variant="brand">{profile.role}</Badge></td>
                   </tr>
                   <tr>
                     <td className="muted">Cart assignment</td>
@@ -208,11 +209,11 @@ export default function SettingsPage() {
                   {devices.map((d) => (
                     <tr key={d.id}>
                       <td><strong>{d.device_id}</strong></td>
-                      <td><span className="chip loc">{d.cart}</span></td>
+                      <td><Badge variant="info">{d.cart}</Badge></td>
                       <td>
-                        <span className={`chip ${d.online ? "ok" : "read"}`}>
+                        <Badge variant={d.online ? "ok" : "neutral"}>
                           {d.active ? (d.online ? "ONLINE" : "IDLE") : "DISABLED"}
-                        </span>
+                        </Badge>
                       </td>
                       <td className="muted small">
                         {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "never"}
@@ -253,13 +254,13 @@ export default function SettingsPage() {
                     <tr key={s.id} className={!s.active ? "row-disabled" : undefined}>
                       <td><strong>{s.name}</strong></td>
                       <td>{s.username}</td>
-                      <td><span className={`chip ${s.role === "OWNER" ? "brand" : "read"}`}>{s.role}</span></td>
+                      <td><Badge variant={s.role === "OWNER" ? "brand" : "neutral"}>{s.role}</Badge></td>
                       <td>{s.location ? s.location.code : "-"}</td>
                       <td className="muted small">{s.rfidUid ?? "-"}</td>
                       <td>
-                        <span className={`chip ${s.active ? "ok" : "critical"}`}>
+                        <Badge variant={s.active ? "ok" : "danger"}>
                           {s.active ? "ACTIVE" : "DISABLED"}
-                        </span>
+                        </Badge>
                       </td>
                       <td className="t-right nowrap">
                         {s.role !== "OWNER" && (

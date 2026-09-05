@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { Trash2, ReceiptText } from "lucide-react";
 import api from "../api.js";
+import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
@@ -11,10 +12,10 @@ import { useToast } from "../components/Toast.jsx";
 
 const CATEGORY_CLASS = {
   Supplies: "brand",
-  "LPG/Gas": "critical",
-  Maintenance: "low",
+  "LPG/Gas": "danger",
+  Maintenance: "warn",
   "Fees/Rent": "info",
-  Other: "read",
+  Other: "neutral",
 };
 
 export default function ExpensesPage() {
@@ -86,9 +87,9 @@ export default function ExpensesPage() {
       <section className="panel">
         <div className="panel-head">
           <h3>Expenses</h3>
-          <span className="chip loc">
+          <Badge variant="info">
             {meta ? `${meta.total} record(s) in period` : "..."}
-          </span>
+          </Badge>
         </div>
 
         <div className="filters">
@@ -116,13 +117,13 @@ export default function ExpensesPage() {
         {summary && (
           <div className="filters" style={{ marginBottom: 10 }}>
             {summary.by_category.map((c) => (
-              <span key={c.category} className={`chip ${CATEGORY_CLASS[c.category] ?? "read"}`}>
+              <Badge key={c.category} variant={CATEGORY_CLASS[c.category] ?? "neutral"}>
                 {c.category}: P{Number(c.total).toLocaleString()}
-              </span>
+              </Badge>
             ))}
-            <span className="chip brand">
+            <Badge variant="brand">
               TOTAL: P{Number(summary.totals.total_amount).toLocaleString()}
-            </span>
+            </Badge>
           </div>
         )}
 
@@ -158,7 +159,7 @@ export default function ExpensesPage() {
                 label: "Cart",
                 render: (e) =>
                   e.location ? (
-                    <span className="chip loc">{e.location.code}</span>
+                    <Badge variant="info">{e.location.code}</Badge>
                   ) : (
                     "-"
                   ),
@@ -167,18 +168,18 @@ export default function ExpensesPage() {
                 key: "category",
                 label: "Category",
                 render: (e) => (
-                  <span className={`chip ${CATEGORY_CLASS[e.category] ?? "read"}`}>
+                  <Badge variant={CATEGORY_CLASS[e.category] ?? "neutral"}>
                     {e.category}
-                  </span>
+                  </Badge>
                 ),
               },
               {
                 key: "source",
                 label: "Source",
                 render: (e) => (
-                  <span className={`chip ${e.source === "OCR" ? "low" : "read"}`}>
+                  <Badge variant={e.source === "OCR" ? "warn" : "neutral"}>
                     {e.source}
-                  </span>
+                  </Badge>
                 ),
               },
               {

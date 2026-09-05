@@ -18,6 +18,8 @@ export default function DataTable({
   const [sortDir, setSortDir] = useState("asc");
 
   if (loading) {
+    // NOTE: intentionally not <Skeleton/> — the placeholder must keep real
+    // table markup (columns align with headers while loading).
     return (
       <div className="table-wrap">
         <table className={`data${compact ? " compact" : ""}`}>

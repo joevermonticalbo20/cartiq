@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ReceiptText } from "lucide-react";
 import api from "../api.js";
+import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
@@ -88,7 +89,7 @@ export default function SalesPage() {
             {
               key: "location",
               label: "Cart",
-              render: (o) => <span className="chip loc">{o.location?.code}</span>,
+              render: (o) => <Badge variant="info">{o.location?.code}</Badge>,
             },
             {
               key: "items",

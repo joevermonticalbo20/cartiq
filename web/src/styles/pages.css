@@ -35,7 +35,7 @@
 .pw-strength[data-level="strong"] .pw-strength-bar > span { background: var(--danger); }
 .pw-strength[data-level="fair"] .pw-strength-bar > span { background: var(--warn); }
 .pw-strength[data-level="good"] .pw-strength-bar > span { background: var(--info); }
-.pw-strength[data-level="strong"] .pw-strength-bar > span { background: var(--ok); }
+.pw-strength[data-level="strong"] .pw-strength-bar > span { background: var(--success); }
 .pw-strength-meta {
   display: flex;
   align-items: center;
@@ -50,7 +50,7 @@
 .pw-strength[data-level="weak"] .pw-strength-label { color: var(--danger); }
 .pw-strength[data-level="fair"] .pw-strength-label { color: var(--warn); }
 .pw-strength[data-level="good"] .pw-strength-label { color: var(--info); }
-.pw-strength[data-level="strong"] .pw-strength-label { color: var(--ok); }
+.pw-strength[data-level="strong"] .pw-strength-label { color: var(--success); }
 .pw-strength-warn {
   color: var(--warn);
   font-weight: var(--fw-semibold);
@@ -71,7 +71,7 @@
   gap: 6px;
   padding: 2px 0;
 }
-.pw-strength-checks li.ok { color: var(--ok); }
+.pw-strength-checks li.ok { color: var(--success); }
 .pw-strength-checks li.fail { color: var(--text-muted); }
 .pw-check-mark {
   font-weight: var(--fw-bold);
@@ -145,3 +145,4 @@
   border-radius: 50%;
   display: inline-block;
 }
+

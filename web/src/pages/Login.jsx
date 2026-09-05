@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, XCircle } from "lucide-react";
 import api from "../api.js";
+import Badge from "../components/Badge.jsx";
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.1.0";
 
@@ -154,7 +155,7 @@ export default function Login() {
           )}
         </button>
         <p className="muted small login-hint">
-          <span className="chip info">DEV</span>
+          <Badge variant="info">DEV</Badge>
           <span>Local build — <button type="button" className="linklike" onClick={() => { setUsername("owner"); setPassword("owner123"); setError(""); }}>try the demo</button></span>
         </p>
         <p className="muted small login-trust">Protected outlet login · v{APP_VERSION}</p>

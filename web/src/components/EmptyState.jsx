@@ -1,3 +1,5 @@
+import Button from "./Button.jsx";
+
 export default function EmptyState({
   icon: Icon,
   title,
@@ -20,15 +22,14 @@ export default function EmptyState({
         {subtitle && <span className="muted small">{subtitle}</span>}
       </div>
       {action && (
-        <div className="empty-state-action mt-1.5">
-          <button
-            type="button"
+        <div className="empty-state-action">
+          <Button
+            variant={action.variant === "ghost" ? "ghost" : "primary"}
             onClick={action.onClick}
-            className={action.variant === "ghost" ? "ghost" : ""}
             disabled={action.disabled}
           >
             {action.label}
-          </button>
+          </Button>
         </div>
       )}
     </div>

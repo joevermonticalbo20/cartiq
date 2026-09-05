@@ -3,6 +3,9 @@ import {
   ResponsiveContainer, CartesianGrid, ReferenceLine, Legend,
 } from "recharts";
 import { fmtMoneyAxis, fmtMoney } from "../../utils/format.js";
+import AnalyticsTooltip, { TooltipItem } from "./AnalyticsTooltip.jsx";
+import EmptyState from "../EmptyState.jsx";
+import { TrendingUp } from "lucide-react";
 
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
@@ -12,23 +15,29 @@ function CustomTooltip({ active, payload, label }) {
       ? byName.Revenue
       : (Number(byName.Profit) || 0) + (Number(byName.Expenses) || 0);
   return (
-    <div className="recharts-default-tooltip analytics-tooltip">
-      <div className="recharts-tooltip-label">{label}</div>
+    <AnalyticsTooltip label={label}>
       {payload.map((p, i) => (
-        <div key={i} className="recharts-tooltip-item">
+        <TooltipItem key={i}>
           {p.name}: <strong className="tooltip-value">{fmtMoney(p.value)}</strong>
-        </div>
+        </TooltipItem>
       ))}
-      <div className="recharts-tooltip-item muted small">
+      <TooltipItem muted>
         Revenue − Expenses = Profit · {fmtMoney(revenue)}
-      </div>
-    </div>
+      </TooltipItem>
+    </AnalyticsTooltip>
   );
 }
 
 export default function ProfitTrendChart({ data }) {
   if (!data || data.length === 0) {
-    return <div className="profit-empty"><p className="muted">No profit data available.</p></div>;
+    return (
+      <EmptyState
+        icon={TrendingUp}
+        title="No profit data available"
+        subtitle="Daily profit appears here once sales are recorded."
+        compact
+      />
+    );
   }
 
   return (
