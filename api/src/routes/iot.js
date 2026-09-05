@@ -38,6 +38,10 @@ router.post("/iot/readings", requireDevice, async (req, res, next) => {
           continue;
         }
         const ts = r.ts ? new Date(r.ts) : new Date();
+        if (!Number.isFinite(ts.getTime())) {
+          rejected.push({ channel: r.channel ?? null, reason: "invalid ts" });
+          continue;
+        }
         await tx.sensorReading.create({
           data: {
             locationId: location.id,
@@ -90,6 +94,10 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
           continue;
         }
         const ts = e.ts ? new Date(e.ts) : new Date();
+        if (!Number.isFinite(ts.getTime())) {
+          rejected.push({ staff_uid: uid || null, reason: "invalid ts" });
+          continue;
+        }
         const user = await prisma.user.findUnique({ where: { rfidUid: uid } });
         await tx.shift.create({
           data: {

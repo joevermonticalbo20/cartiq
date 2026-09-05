@@ -55,3 +55,31 @@ export function timeX(tsMs, startMs, endMs, padX, W) {
   if (!(span > 0)) return padX + (W - padX * 2) / 2;
   return padX + ((tsMs - startMs) / span) * (W - padX * 2);
 }
+
+/**
+ * Tick label that can never be ambiguous: time-only within a single
+ * day, "Sep 4, 10 PM" once the span crosses midnight — otherwise the
+ * same "01:14 AM" repeats for different days.
+ */
+export function formatTick(tsMs, startMs, endMs) {
+  const time = new Date(tsMs).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const sameDay =
+    new Date(startMs).toDateString() === new Date(endMs).toDateString();
+  if (sameDay) return time;
+  const day = new Date(tsMs).toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+  });
+  return `${day}, ${time}`;
+}
+
+/** "Last reading" footer: adds the date when it isn't today. */
+export function formatLastReading(ts) {
+  const d = new Date(ts);
+  const time = d.toLocaleTimeString();
+  if (d.toDateString() === new Date().toDateString()) return time;
+  return `${d.toLocaleDateString([], { month: "short", day: "numeric" })}, ${time}`;
+}

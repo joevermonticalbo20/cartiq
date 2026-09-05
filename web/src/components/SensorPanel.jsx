@@ -13,7 +13,7 @@ import {
   Zap,
 } from "lucide-react";
 import api from "../api.js";
-import { clockTicks, timeX } from "./sensorTimeScale.js";
+import { clockTicks, timeX, formatTick, formatLastReading } from "./sensorTimeScale.js";
 
 const CHANNELS = [
   { id: "LPG_TANK", label: "LPG Tank", unit: "kg", icon: Zap, color: "var(--accent)", lowThreshold: 5, criticalThreshold: 2 },
@@ -317,10 +317,6 @@ export default function SensorPanel({ code = "CART-01" }) {
               {/* X-axis labels */}
               {xTicks.map((ts, i) => {
                 const x = xOfTime(ts);
-                const time = new Date(ts).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                });
                 return (
                   <text
                     key={ts}
@@ -330,7 +326,7 @@ export default function SensorPanel({ code = "CART-01" }) {
                     fill="var(--text-muted)"
                     textAnchor={i === 0 ? "start" : i === xTicks.length - 1 ? "end" : "middle"}
                   >
-                    {time}
+                    {formatTick(ts, startMs, endMs)}
                   </text>
                 );
               })}
@@ -341,7 +337,7 @@ export default function SensorPanel({ code = "CART-01" }) {
           <div className="sensor-footer">
             <span className="muted small">
               <Clock size={11} style={{ verticalAlign: "middle", marginRight: 3 }} />
-              Last reading: {latest ? new Date(latest.ts).toLocaleTimeString() : "—"}
+              Last reading: {latest ? formatLastReading(latest.ts) : "—"}
             </span>
             <button
               className="ghost small-btn"

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pickTickStep, clockTicks, timeX } from "./sensorTimeScale.js";
+import { pickTickStep, clockTicks, timeX, formatTick, formatLastReading } from "./sensorTimeScale.js";
 
 const MIN = 60 * 1000;
 
@@ -62,6 +62,30 @@ describe("clockTicks", () => {
     expect([...ticks].sort((a, b) => a - b)).toEqual(ticks);
     expect(ticks[0]).toBeGreaterThanOrEqual(start);
     expect(ticks[ticks.length - 1]).toBeLessThanOrEqual(end);
+  });
+});
+
+describe("formatTick", () => {
+  it("shows time only within a single day", () => {
+    const start = new Date("2026-09-05T09:00:00").getTime();
+    const end = new Date("2026-09-05T13:00:00").getTime();
+    expect(formatTick(start, start, end)).toMatch(/\d{1,2}:\d{2}/);
+    expect(formatTick(start, start, end)).not.toMatch(/Sep|Aug/);
+  });
+
+  it("adds the day once the span crosses midnight", () => {
+    const start = new Date("2026-09-04T21:37:00").getTime();
+    const end = new Date("2026-09-05T01:14:00").getTime();
+    const label = formatTick(end, start, end);
+    expect(label).toMatch(/Sep 5/);
+    expect(label).toMatch(/\d{1,2}:\d{2}/);
+  });
+});
+
+describe("formatLastReading", () => {
+  it("adds the date for readings from another day", () => {
+    const yesterday = Date.now() - 26 * 60 * 60 * 1000;
+    expect(formatLastReading(new Date(yesterday).toISOString())).toMatch(/[A-Z][a-z]{2} \d{1,2},/);
   });
 });
 
