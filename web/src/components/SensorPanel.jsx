@@ -93,14 +93,21 @@ export default function SensorPanel({ code = "CART-01" }) {
   // Y-axis labels
   const yLabels = [max, (max + min) / 2, min].map((v) => v.toFixed(1));
 
-  // X-axis: show first, middle, last timestamps
-  const xLabels = series.length
-    ? [
-        { idx: 0, ts: series[0].ts },
-        { idx: Math.floor(series.length / 2), ts: series[Math.floor(series.length / 2)].ts },
-        { idx: series.length - 1, ts: series[series.length - 1].ts },
-      ]
-    : [];
+  // X-axis: evenly spaced time ticks (5 when data allows) instead of
+  // first/middle/last only, so long spans stop looking stretched.
+  const TICK_COUNT = 5;
+  const xLabels = (() => {
+    if (!series.length) return [];
+    const n = Math.min(TICK_COUNT, series.length);
+    const idxs = Array.from(new Set(
+      Array.from({ length: n }, (_, k) =>
+        Math.round((k * (series.length - 1)) / Math.max(n - 1, 1))
+      )
+    ));
+    return idxs.map((idx) => ({ idx, ts: series[idx].ts }));
+  })();
+  const xOf = (idx) =>
+    (idx / Math.max(series.length - 1, 1)) * (W - padX * 2) + padX;
 
   return (
     <section className="panel sensor-panel">
@@ -236,6 +243,20 @@ export default function SensorPanel({ code = "CART-01" }) {
                 opacity="0.5"
               />
 
+              {/* Vertical gridlines at each time tick */}
+              {xLabels.map(({ idx }, i) => (
+                <line
+                  key={`grid-${i}`}
+                  x1={xOf(idx)}
+                  y1={padTop - 6}
+                  x2={xOf(idx)}
+                  y2={H - padBottom}
+                  stroke="var(--border)"
+                  strokeWidth="1"
+                  opacity="0.7"
+                />
+              ))}
+
               {/* Area fill */}
               {pts.length > 0 && (
                 <polygon fill="url(#sensorGrad)" points={areaStr} />
@@ -289,7 +310,7 @@ export default function SensorPanel({ code = "CART-01" }) {
 
               {/* X-axis labels */}
               {xLabels.map(({ idx, ts }, i) => {
-                const x = (idx / Math.max(series.length - 1, 1)) * (W - padX * 2) + padX;
+                const x = xOf(idx);
                 const time = new Date(ts).toLocaleTimeString([], {
                   hour: "2-digit",
                   minute: "2-digit",
