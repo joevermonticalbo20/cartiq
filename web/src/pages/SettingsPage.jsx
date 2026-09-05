@@ -6,6 +6,7 @@ import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
+import PageHeader from "../components/PageHeader.jsx";
 import PasswordStrengthMeter from "../components/PasswordStrengthMeter.jsx";
 import { useToast } from "../components/Toast.jsx";
 
@@ -23,6 +24,9 @@ export default function SettingsPage() {
   const [resetting, setResetting] = useState(null);
   const [resetPw, setResetPw] = useState("");
   const [disabling, setDisabling] = useState(null);
+  const [pwError, setPwError] = useState("");
+  const [staffError, setStaffError] = useState("");
+  const [resetError, setResetError] = useState("");
   const [newStaff, setNewStaff] = useState({
     name: "",
     username: "",
@@ -47,13 +51,14 @@ export default function SettingsPage() {
   async function changePassword(e) {
     e.preventDefault();
     if (pw.next !== pw.confirm) {
-      toast("New passwords do not match", "error");
+      setPwError("New passwords do not match — check the confirmation field.");
       return;
     }
     if (pw.next.length < 8) {
-      toast("New password must be at least 8 characters", "error");
+      setPwError("New password must be at least 8 characters.");
       return;
     }
+    setPwError("");
     try {
       await api.post("/auth/change-password", {
         currentPassword: pw.current,
@@ -62,16 +67,17 @@ export default function SettingsPage() {
       toast("Password updated successfully", "success");
       setPw({ current: "", next: "", confirm: "" });
     } catch (err) {
-      toast(err.response?.data?.error || "Change failed", "error");
+      setPwError(err.response?.data?.error || "Change failed — is the current password correct?");
     }
   }
 
   async function createStaff(e) {
     e.preventDefault();
     if (newStaff.password.length < 8) {
-      toast("Password must be at least 8 characters", "error");
+      setStaffError("Password must be at least 8 characters.");
       return;
     }
+    setStaffError("");
     try {
       await api.post("/auth/staff", {
         ...newStaff,
@@ -82,7 +88,7 @@ export default function SettingsPage() {
       setNewStaff({ name: "", username: "", password: "", locationCode: "CART-01", rfidUid: "" });
       loadOwnerData();
     } catch (err) {
-      toast(err.response?.data?.error || "Create failed", "error");
+      setStaffError(err.response?.data?.error || "Create failed — is the username or RFID already taken?");
     }
   }
 
@@ -100,22 +106,28 @@ export default function SettingsPage() {
   async function doResetPassword() {
     if (!resetting) return;
     if (resetPw.length < 8) {
-      toast("New password must be at least 8 characters", "error");
+      setResetError("New password must be at least 8 characters.");
       return;
     }
+    setResetError("");
     try {
       await api.patch(`/auth/staff/${resetting.id}`, { password: resetPw });
       toast(`Password reset for ${resetting.username}`, "success");
       setResetting(null);
       setResetPw("");
     } catch (err) {
-      toast(err.response?.data?.error || "Reset failed", "error");
+      setResetError(err.response?.data?.error || "Reset failed — try again.");
     }
   }
 
   return (
     <PageErrorBoundary>
     <div className="page-container">
+      <PageHeader
+        eyebrow="Administration"
+        title="Settings"
+        sub="Your profile, password, devices, and staff accounts."
+      />
       <div className="settings-grid">
         <section className="panel">
           <h3 className="section-title">Profile</h3>
@@ -153,6 +165,7 @@ export default function SettingsPage() {
                 value={pw.current}
                 onChange={(e) => setPw({ ...pw, current: e.target.value })}
                 required
+                autoComplete="current-password"
               />
             </label>
             <label className="field">
@@ -163,6 +176,7 @@ export default function SettingsPage() {
                 onChange={(e) => setPw({ ...pw, next: e.target.value })}
                 required
                 minLength={8}
+                autoComplete="new-password"
               />
               <PasswordStrengthMeter value={pw.next} minLevel="good" />
             </label>
@@ -173,11 +187,13 @@ export default function SettingsPage() {
                 value={pw.confirm}
                 onChange={(e) => setPw({ ...pw, confirm: e.target.value })}
                 required
+                autoComplete="new-password"
               />
             </label>
             <button type="submit" className="self-start">
               <KeyRound size={15} /> Update password
             </button>
+            {pwError && <p className="error-box" role="alert">{pwError}</p>}
           </form>
         </section>
       </div>
@@ -234,7 +250,7 @@ export default function SettingsPage() {
           <section className="panel">
             <div className="panel-head">
               <h3 className="section-title">Staff accounts</h3>
-              <button onClick={() => setAddOpen(true)}>
+              <button onClick={() => { setStaffError(""); setAddOpen(true); }}>
                 <Plus size={15} /> Add staff
               </button>
             </div>
@@ -272,6 +288,7 @@ export default function SettingsPage() {
                               onClick={() => {
                                 setResetting(s);
                                 setResetPw("");
+                                setResetError("");
                               }}
                             >
                               Reset password
@@ -324,6 +341,7 @@ export default function SettingsPage() {
                   type="password"
                   value={newStaff.password}
                   onChange={(e) => setNewStaff({ ...newStaff, password: e.target.value })}
+                  autoComplete="new-password"
                 />
                 <PasswordStrengthMeter value={newStaff.password} minLevel="fair" />
               </label>
@@ -352,6 +370,7 @@ export default function SettingsPage() {
                 </button>
                 <button type="submit">Create account</button>
               </div>
+              {staffError && <p className="error-box" role="alert">{staffError}</p>}
             </form>
           </div>
         </div>
@@ -377,6 +396,7 @@ export default function SettingsPage() {
               <button className="ghost" onClick={() => setResetting(null)}>Cancel</button>
               <button onClick={doResetPassword}>Save new password</button>
             </div>
+            {resetError && <p className="error-box" role="alert">{resetError}</p>}
           </div>
         </div>
       )}

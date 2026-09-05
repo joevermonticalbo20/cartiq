@@ -4,6 +4,7 @@ import api from "../api.js";
 import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
+import PageHeader from "../components/PageHeader.jsx";
 import { useToast } from "../components/Toast.jsx";
 
 async function downloadExport(dataset, month) {
@@ -89,6 +90,11 @@ export default function DataPage() {
   return (
     <PageErrorBoundary>
     <div className="page-container">
+    <PageHeader
+      eyebrow="Operations"
+      title="Data Hub"
+      sub="Excel out, product workbooks in — previewed before anything commits."
+    />
     <div className="settings-grid">
       <section className="panel">
         <h3 className="section-title">Export workbooks</h3>

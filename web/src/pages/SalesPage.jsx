@@ -6,6 +6,7 @@ import { usePagedData } from "../hooks/usePagedData.js";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
+import PageHeader from "../components/PageHeader.jsx";
 
 export default function SalesPage() {
   const [locations, setLocations] = useState([]);
@@ -27,11 +28,13 @@ export default function SalesPage() {
   return (
     <PageErrorBoundary>
     <div className="page-container">
+    <PageHeader
+      eyebrow="Operations"
+      title="Sales"
+      sub="Every receipt, searchable by cart and day."
+      actions={<button className="ghost small-btn" onClick={refresh}>Refresh</button>}
+    />
     <section className="panel">
-      <div className="panel-head">
-        <h3>Sales transactions</h3>
-        <button className="ghost small-btn" onClick={refresh}>Refresh</button>
-      </div>
 
       <div className="filters">
         <select className="cart-select" value={loc} onChange={(e) => setLoc(e.target.value)}>

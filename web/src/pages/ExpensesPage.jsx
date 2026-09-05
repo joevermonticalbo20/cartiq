@@ -8,6 +8,7 @@ import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
+import PageHeader from "../components/PageHeader.jsx";
 import { useToast } from "../components/Toast.jsx";
 
 const CATEGORY_CLASS = {
@@ -84,13 +85,17 @@ export default function ExpensesPage() {
   return (
     <PageErrorBoundary>
     <div className="page-container">
-      <section className="panel">
-        <div className="panel-head">
-          <h3>Expenses</h3>
+      <PageHeader
+        eyebrow="Operations"
+        title="Expenses"
+        sub="Vendor costs by month and category."
+        actions={
           <Badge variant="info">
             {meta ? `${meta.total} record(s) in period` : "..."}
           </Badge>
-        </div>
+        }
+      />
+      <section className="panel">
 
         <div className="filters">
           <select className="cart-select" value={code} onChange={(e) => setCode(e.target.value)}>

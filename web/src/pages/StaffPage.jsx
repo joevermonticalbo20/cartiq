@@ -7,6 +7,7 @@ import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
+import PageHeader from "../components/PageHeader.jsx";
 
 export default function StaffPage() {
   const [onShift, setOnShift] = useState([]);
@@ -43,6 +44,11 @@ export default function StaffPage() {
   return (
     <PageErrorBoundary>
     <div className="page-container">
+      <PageHeader
+        eyebrow="Operations"
+        title="Staff & Shifts"
+        sub="Who tapped in, who sold what, and the full tap log."
+      />
       <section className="panel">
         <div className="panel-head">
           <h3>Currently on shift (RFID)</h3>

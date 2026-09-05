@@ -88,7 +88,7 @@ export default function Login() {
           if (e.key === "Escape") setError("");
         }}
       >
-        <h1>Welcome back</h1>
+        <h2 className="login-form-title">Welcome back</h2>
         <p className="muted">Sign in to the admin dashboard</p>
         <label htmlFor="login-username" className="field">
           Username
@@ -100,7 +100,6 @@ export default function Login() {
             onChange={(e) => setUsername(e.target.value)}
             placeholder="Username"
             autoComplete="username"
-            autoFocus
             required
           />
         </label>

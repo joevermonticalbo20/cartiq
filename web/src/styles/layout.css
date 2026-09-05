@@ -169,6 +169,14 @@
   color: var(--text);
   margin: 0;
 }
+.page-eyebrow {
+  margin: 0 0 2px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
 .page-header-subtitle {
   font-size: var(--fs-sm);
   color: var(--text-muted);

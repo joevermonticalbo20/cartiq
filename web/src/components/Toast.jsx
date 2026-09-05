@@ -37,12 +37,15 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={push}>
       {children}
-      <div className="toast-host" aria-live="polite">
+      {/* NOTE: no aria-live here — each toast announces itself once via
+          role=status/alert below. A live host + live items double-announces. */}
+      <div className="toast-host">
         {toasts.map((t) => (
           <div
             key={t.id}
             className={`toast ${t.type}`}
             role={t.type === "error" ? "alert" : "status"}
+            aria-atomic="true"
           >
             {t.type === "success" ? (
               <CheckCircle2 size={17} />

@@ -181,7 +181,7 @@ export default function DashboardPage() {
       <div className="page-header">
         <div>
           <div className="flex items-center gap-3">
-            <h2 className="page-header-title">Dashboard</h2>
+            <h1 className="page-header-title">Dashboard</h1>
             <span
               className={`sse-pill ${sseStatus === "open" ? "open" : sseStatus === "down" ? "down" : "connecting"}`}
               title={`Live stream: ${sseStatus}`}

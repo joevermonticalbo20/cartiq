@@ -6,6 +6,7 @@ import SensorPanel from "../components/SensorPanel.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import PageHeader from "../components/PageHeader.jsx";
 import { useToast } from "../components/Toast.jsx";
 
 const STATUS_LABEL = { ok: "OK", low: "LOW", critical: "CRITICAL" };
@@ -17,6 +18,7 @@ export default function InventoryPage() {
   const [loading, setLoading] = useState(true);
   const [adjusting, setAdjusting] = useState(null);
   const [newStock, setNewStock] = useState("");
+  const [adjustError, setAdjustError] = useState("");
   const [saving, setSaving] = useState(false);
   const [forecast, setForecast] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -53,9 +55,10 @@ export default function InventoryPage() {
     if (!adjusting) return;
     const value = Number(newStock);
     if (!Number.isFinite(value) || value < 0) {
-      toast("Enter a valid non-negative stock count", "error");
+      setAdjustError("Enter a valid non-negative stock count.");
       return;
     }
+    setAdjustError("");
     setSaving(true);
     try {
       await api.post("/inventory/adjustments", {
@@ -67,7 +70,7 @@ export default function InventoryPage() {
       setAdjusting(null);
       refresh();
     } catch (err) {
-      toast(err.response?.data?.error || "Adjustment failed", "error");
+      setAdjustError(err.response?.data?.error || "Adjustment failed — try again.");
     } finally {
       setSaving(false);
     }
@@ -131,19 +134,24 @@ export default function InventoryPage() {
   return (
     <PageErrorBoundary>
     <div className="page-container">
-      <section className="panel">
-        <div className="panel-head">
-          <h3>Inventory by cart</h3>
+      <PageHeader
+        eyebrow="Operations"
+        title="Inventory"
+        sub="Stock per cart — recount, forecast, and prep."
+        actions={
           <select
             className="cart-select"
             value={selected}
             onChange={(e) => setSelected(e.target.value)}
+            aria-label="Select cart"
           >
             {locations.map((l) => (
               <option key={l.id} value={l.code}>{l.code} - {l.name}</option>
             ))}
           </select>
-        </div>
+        }
+      />
+      <section className="panel">
 
         {loading ? (
           <div className="skel" style={{ width: "60%" }} />
@@ -228,6 +236,7 @@ export default function InventoryPage() {
                         onClick={() => {
                           setAdjusting(item);
                           setNewStock(String(item.stock));
+                          setAdjustError("");
                         }}
                       >
                         <SlidersHorizontal size={13} /> Adjust
@@ -389,6 +398,7 @@ export default function InventoryPage() {
                 {saving ? "Saving..." : "Save adjustment"}
               </button>
             </div>
+            {adjustError && <p className="error-box" role="alert">{adjustError}</p>}
           </div>
         </div>
       )}
