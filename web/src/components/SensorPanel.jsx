@@ -82,7 +82,12 @@ export default function SensorPanel({ code = "CART-01" }) {
 
   // Time scale: x-position is clock time (sorted copy), never sample
   // order, so bursts compress honestly and gaps read as gaps.
-  const ordered = [...series].sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  // Readings with unparseable timestamps (e.g. "" from an NTP-unsynced
+  // node) are dropped from the chart — one bad ts must never stretch
+  // the whole axis back to 1970.
+  const ordered = [...series]
+    .filter((r) => Number.isFinite(new Date(r.ts).getTime()))
+    .sort((a, b) => new Date(a.ts) - new Date(b.ts));
   const startMs = ordered.length ? new Date(ordered[0].ts).getTime() : 0;
   const endMs = ordered.length ? new Date(ordered[ordered.length - 1].ts).getTime() : 0;
   const hasSpan = endMs > startMs;

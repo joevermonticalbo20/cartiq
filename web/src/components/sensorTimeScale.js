@@ -9,7 +9,14 @@ export const TICK_STEPS_MS = [
   30 * 60 * 1000,
   60 * 60 * 1000,
   2 * 60 * 60 * 1000,
+  6 * 60 * 60 * 1000,
+  12 * 60 * 60 * 1000,
+  24 * 60 * 60 * 1000,
+  7 * 24 * 60 * 60 * 1000,
 ];
+
+/** Hard ceiling so a huge span can never smear the axis. */
+export const MAX_TICKS = 8;
 
 /** Smallest step that yields at most `target` ticks across the span. */
 export function pickTickStep(spanMs, target = 5) {
@@ -22,7 +29,9 @@ export function pickTickStep(spanMs, target = 5) {
 /**
  * Round clock ticks covering [startMs, endMs]: first tick snapped up
  * to the step boundary, so labels read 10:00 / 10:30, never 09:37.
- * Always distinct and ascending by construction.
+ * Always distinct and ascending by construction, and never more
+ * than MAX_TICKS (stride-thinned) — a multi-day span can never
+ * smear the axis into a barcode again.
  */
 export function clockTicks(startMs, endMs, target = 5) {
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return [];
@@ -35,7 +44,9 @@ export function clockTicks(startMs, endMs, target = 5) {
   }
   // Span shorter than one step (or nothing snapped inside): pin the ends.
   if (ticks.length === 0) return [startMs, endMs];
-  return ticks;
+  if (ticks.length <= MAX_TICKS) return ticks;
+  const stride = Math.ceil(ticks.length / MAX_TICKS);
+  return ticks.filter((_, i) => i % stride === 0);
 }
 
 /** X pixel for a timestamp on a [padX, W - padX] axis. */

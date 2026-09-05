@@ -13,7 +13,11 @@ describe("pickTickStep", () => {
   });
 
   it("caps at 2-hour steps for very long spans", () => {
-    expect(pickTickStep(48 * 60 * MIN)).toBe(2 * 60 * MIN);
+    expect(pickTickStep(48 * 60 * MIN)).toBe(12 * 60 * MIN);
+  });
+
+  it("uses 7-day steps for multi-month spans", () => {
+    expect(pickTickStep(90 * 24 * 60 * MIN)).toBe(7 * 24 * 60 * MIN);
   });
 });
 
@@ -47,6 +51,17 @@ describe("clockTicks", () => {
 
   it("returns a single tick for a zero span", () => {
     expect(clockTicks(5000, 5000)).toEqual([5000]);
+  });
+
+  it("never smears: a 90-day span yields few distinct ordered ticks", () => {
+    const start = new Date("2026-06-01T00:00:00").getTime();
+    const end = new Date("2026-08-30T00:00:00").getTime();
+    const ticks = clockTicks(start, end);
+    expect(ticks.length).toBeLessThanOrEqual(8);
+    expect(new Set(ticks).size).toBe(ticks.length);
+    expect([...ticks].sort((a, b) => a - b)).toEqual(ticks);
+    expect(ticks[0]).toBeGreaterThanOrEqual(start);
+    expect(ticks[ticks.length - 1]).toBeLessThanOrEqual(end);
   });
 });
 
