@@ -13,6 +13,7 @@ import {
   Zap,
 } from "lucide-react";
 import api from "../api.js";
+import { clockTicks, timeX } from "./sensorTimeScale.js";
 
 const CHANNELS = [
   { id: "LPG_TANK", label: "LPG Tank", unit: "kg", icon: Zap, color: "var(--accent)", lowThreshold: 5, criticalThreshold: 2 },
@@ -78,12 +79,24 @@ export default function SensorPanel({ code = "CART-01" }) {
   const padX = 8;
   const padTop = 16;
   const padBottom = 28;
-  const pts = series
-    .map((r, i) => {
-      const x = (i / Math.max(series.length - 1, 1)) * (W - padX * 2) + padX;
-      const y = H - padBottom - ((r.kg - min) / (max - min || 1)) * (H - padTop - padBottom);
-      return [x, y];
-    });
+
+  // Time scale: x-position is clock time (sorted copy), never sample
+  // order, so bursts compress honestly and gaps read as gaps.
+  const ordered = [...series].sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  const startMs = ordered.length ? new Date(ordered[0].ts).getTime() : 0;
+  const endMs = ordered.length ? new Date(ordered[ordered.length - 1].ts).getTime() : 0;
+  const hasSpan = endMs > startMs;
+  const xOfTime = (ts) =>
+    hasSpan
+      ? timeX(new Date(ts).getTime(), startMs, endMs, padX, W)
+      : (W - padX * 2) / 2 + padX;
+  const pts = (hasSpan ? ordered : series).map((r) => {
+    const x = hasSpan
+      ? xOfTime(r.ts)
+      : (ordered.indexOf(r) / Math.max(ordered.length - 1, 1)) * (W - padX * 2) + padX;
+    const y = H - padBottom - ((r.kg - min) / (max - min || 1)) * (H - padTop - padBottom);
+    return [x, y, r.ts];
+  });
 
   const pointsStr = pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   const areaStr = pts.length
@@ -93,21 +106,9 @@ export default function SensorPanel({ code = "CART-01" }) {
   // Y-axis labels
   const yLabels = [max, (max + min) / 2, min].map((v) => v.toFixed(1));
 
-  // X-axis: evenly spaced time ticks (5 when data allows) instead of
-  // first/middle/last only, so long spans stop looking stretched.
-  const TICK_COUNT = 5;
-  const xLabels = (() => {
-    if (!series.length) return [];
-    const n = Math.min(TICK_COUNT, series.length);
-    const idxs = Array.from(new Set(
-      Array.from({ length: n }, (_, k) =>
-        Math.round((k * (series.length - 1)) / Math.max(n - 1, 1))
-      )
-    ));
-    return idxs.map((idx) => ({ idx, ts: series[idx].ts }));
-  })();
-  const xOf = (idx) =>
-    (idx / Math.max(series.length - 1, 1)) * (W - padX * 2) + padX;
+  // X-axis: round clock ticks across the true time span — distinct
+  // labels by construction, so "12:29 AM" can never repeat.
+  const xTicks = hasSpan ? clockTicks(startMs, endMs) : [];
 
   return (
     <section className="panel sensor-panel">
@@ -243,13 +244,13 @@ export default function SensorPanel({ code = "CART-01" }) {
                 opacity="0.5"
               />
 
-              {/* Vertical gridlines at each time tick */}
-              {xLabels.map(({ idx }, i) => (
+              {/* Vertical gridlines at each clock tick */}
+              {xTicks.map((ts) => (
                 <line
-                  key={`grid-${i}`}
-                  x1={xOf(idx)}
+                  key={`grid-${ts}`}
+                  x1={xOfTime(ts)}
                   y1={padTop - 6}
-                  x2={xOf(idx)}
+                  x2={xOfTime(ts)}
                   y2={H - padBottom}
                   stroke="var(--border)"
                   strokeWidth="1"
@@ -309,20 +310,20 @@ export default function SensorPanel({ code = "CART-01" }) {
               })}
 
               {/* X-axis labels */}
-              {xLabels.map(({ idx, ts }, i) => {
-                const x = xOf(idx);
+              {xTicks.map((ts, i) => {
+                const x = xOfTime(ts);
                 const time = new Date(ts).toLocaleTimeString([], {
                   hour: "2-digit",
                   minute: "2-digit",
                 });
                 return (
                   <text
-                    key={i}
+                    key={ts}
                     x={x}
                     y={H - 6}
                     fontSize="9"
                     fill="var(--text-muted)"
-                    textAnchor={i === 0 ? "start" : i === xLabels.length - 1 ? "end" : "middle"}
+                    textAnchor={i === 0 ? "start" : i === xTicks.length - 1 ? "end" : "middle"}
                   >
                     {time}
                   </text>
