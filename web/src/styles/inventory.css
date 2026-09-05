@@ -1,0 +1,34 @@
+/* ============================================================
+ * PART: inventory.css  |  SAKOP: InventoryPage lang — bulk action
+ *         bar, bulk input
+ * HUWAG DITO: table mismo → tables.css
+ * ============================================================ */
+
+/* ----- Inventory: bulk action bar (dating 'bulk action bar') ----- */
+/* ================= bulk action bar ================= */
+.bulk-action-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  margin-top: 14px;
+  background: var(--surface);
+  border: 2px solid var(--primary);
+  border-radius: var(--radius);
+  box-shadow: 0 -6px 20px rgba(10, 9, 8, 0.12);
+  z-index: 10;
+}
+.bulk-action-bar input {
+  padding: 7px 10px;
+  font-size: var(--fs-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ----- Inventory: bulk input (InventoryPage — dating 'utility' block) ----- */
+.bulk-input { width: 140px; }

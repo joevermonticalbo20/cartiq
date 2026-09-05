@@ -1,0 +1,110 @@
+/* ============================================================
+ * PART: tables.css  |  SAKOP: DataTable, pagination, filter bar,
+ *         cart-select, row states (Sales, Inventory, Staff,
+ *         Expenses, Data Hub)
+ * PINAGSAMA: dating dalawang "data table" (line 335 stub + 945)
+ * HUWAG DITO: bulk bar → inventory.css
+ * ============================================================ */
+
+/* ----- Tables: filter bar (dating 'cards & panels' block) ----- */
+.filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+
+/* ----- Tables: DataTable — PINAGSAMA ang stub (335) at buong table (945-997) ----- */
+/* ================= data table ================= */
+/* .table-wrap styles consolidated below */
+/* ================= data table ================= */
+.table-wrap {
+  overflow-x: auto;
+  border-radius: var(--radius-sm);
+}
+.table-wrap .data {
+  width: 100%;
+  border-collapse: collapse;
+}
+.table-wrap .data th {
+  background: var(--bg);
+  padding: 8px 12px;
+  text-align: left;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+.table-wrap .data td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm);
+}
+.table-wrap .data tr:hover {
+  background: var(--primary-soft);
+  cursor: pointer;
+}
+.t-left { text-align: left; }
+.t-center { text-align: center; }
+.t-right { text-align: right; white-space: nowrap; }
+
+.table-wrap .data th.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.table-wrap .data th.sortable-th:hover { color: var(--text); }
+.table-wrap .data .th-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.table-wrap .data .sort-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+.table-wrap .data th.sortable-th:hover .sort-icon { opacity: 1; }
+.table-wrap .data .compact-th { padding: 4px 8px; }
+.table-wrap .data .compact-td { padding: 4px 8px; }
+
+/* ----- Tables: cart-select — filter dropdown (Sales, Inventory, Staff, Expenses, Analytics) ----- */
+.cart-select { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 10px; font-size: var(--fs-sm); background: var(--surface); }
+
+/* ----- Tables: pagination (dating 'pagination') ----- */
+/* ================= pagination ================= */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.page-btns { display: flex; gap: 4px; }
+.page-btn {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  background: var(--surface);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+.page-btn:hover:not(:disabled) { background: var(--surface-alt); }
+.page-btn.current { background: var(--primary); color: var(--surface); border-color: var(--primary); }
+
+/* ----- Tables: row states — InventoryPage (dating 'utility' block) ----- */
+.row-selected { background: var(--primary-soft); }
+.sort-icon { margin-left: 4px; opacity: 0.3; }
+.sort-icon.active { opacity: 1; }
+
+/* ----- Tables: tabular numbers + sortable headers (dating 'utility'/'analytics' block) ----- */
+.data td.t-right { font-variant-numeric: tabular-nums; }
+.top-items-table th { cursor: pointer; }
+.top-items-table th:hover { color: var(--text); }
+
+/* ----- Responsive (max-width: 640px): mobile — data table density ----- */
+@media (max-width: 640px) {
+table.data th, table.data td { padding: 8px; font-size: var(--fs-xs); }
+}

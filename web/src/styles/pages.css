@@ -1,0 +1,147 @@
+/* ============================================================
+ * PART: pages.css  |  SAKOP: maliliit na page — settings grid,
+ *         password meter (Settings), staff chips/perf (Staff),
+ *         expense list/charts (Expenses). Pag lumampas ng ~100
+ *         lines ang isang page, bigyan ng sariling file.
+ * HUWAG DITO: malalaking page → sariling file (login, dashboard…)
+ * ============================================================ */
+
+/* ----- Pages: settings grid — Data + Settings (dating 'misc' block) ----- */
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; align-items: start; }
+
+/* ----- Pages: password meter — SettingsPage (dating 'password strength meter') ----- */
+/* ================= password strength meter ================= */
+.pw-strength {
+  margin-top: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pw-strength-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  height: 5px;
+}
+.pw-strength-bar > span {
+  background: var(--border);
+  border-radius: 99px;
+  transition: background var(--transition-fast);
+}
+.pw-strength[data-level="empty"] .pw-strength-bar > span { background: var(--border); }
+.pw-strength[data-level="weak"] .pw-strength-bar > span:nth-child(-n+1),
+.pw-strength[data-level="fair"] .pw-strength-bar > span:nth-child(-n+2),
+.pw-strength[data-level="good"] .pw-strength-bar > span:nth-child(-n+3),
+.pw-strength[data-level="strong"] .pw-strength-bar > span { background: var(--danger); }
+.pw-strength[data-level="fair"] .pw-strength-bar > span { background: var(--warn); }
+.pw-strength[data-level="good"] .pw-strength-bar > span { background: var(--info); }
+.pw-strength[data-level="strong"] .pw-strength-bar > span { background: var(--ok); }
+.pw-strength-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--fs-xs);
+}
+.pw-strength-label {
+  font-weight: var(--fw-semibold);
+  color: var(--text-muted);
+}
+.pw-strength[data-level="weak"] .pw-strength-label { color: var(--danger); }
+.pw-strength[data-level="fair"] .pw-strength-label { color: var(--warn); }
+.pw-strength[data-level="good"] .pw-strength-label { color: var(--info); }
+.pw-strength[data-level="strong"] .pw-strength-label { color: var(--ok); }
+.pw-strength-warn {
+  color: var(--warn);
+  font-weight: var(--fw-semibold);
+}
+.pw-strength-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.pw-strength-checks li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+.pw-strength-checks li.ok { color: var(--ok); }
+.pw-strength-checks li.fail { color: var(--text-muted); }
+.pw-check-mark {
+  font-weight: var(--fw-bold);
+  display: inline-flex;
+  width: 14px;
+  justify-content: center;
+}
+
+/* ----- Pages: staff chips — StaffPage (dating 'dashboard' block) ----- */
+.staff-chip {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: 4px 10px; border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--surface); font-size: var(--fs-sm);
+}
+
+/* ----- Pages: staff performance card — StaffPage ----- */
+.staff-perf-card { padding: var(--space-3); }
+
+/* ----- Pages: expense list/charts — ExpensesPage (dating 'profit & expense analytics') ----- */
+/* TANDAAN: expense-list-* — 0 hits sa JSX, mukhang hindi ginagamit. Huwag burahin nang walang check. */
+.expense-list-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border);
+  margin: 6px 0 2px;
+  overflow: hidden;
+}
+.expense-list-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+}
+.expense-charts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.expense-donut {
+  display: grid;
+  place-items: center;
+  min-height: 140px;
+}
+.expense-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.expense-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.expense-list-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.expense-list-value {
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.expense-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}

@@ -1,0 +1,91 @@
+/* ============================================================
+ * PART: base.css  |  SAKOP: reset, focus, body, headings, links,
+ *         text helpers, form controls, error box (lahat ng page)
+ * HUWAG DITO: buttons → buttons.css | layout → layout.css
+ * ============================================================ */
+
+/* ----- Base: reset, focus, page (dating 'base') ----- */
+/* ================= base ================= */
+* { box-sizing: border-box; }
+
+/* Skip to main content for keyboard users */
+.skip-link {
+  position: fixed;
+  top: -100px;
+  left: var(--space-4);
+  background: var(--primary);
+  color: white;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-sm);
+  z-index: 9999;
+  transition: top var(--transition-fast);
+  text-decoration: none;
+}
+.skip-link:focus {
+  top: var(--space-4);
+}
+
+/* Visible focus states for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Remove default focus for mouse users */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Smooth scroll */
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 80px;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--fs-md);
+}
+h1, h2, h3, h4 { margin: 0; color: var(--text); }
+a { color: inherit; text-decoration: none; }
+
+.muted { color: var(--text-muted); }
+.small { font-size: var(--fs-xs); }
+
+/* ----- Base: form controls (dating 'buttons' block, linya 114-135) ----- */
+input, select {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: var(--fs-md);
+  background: var(--surface);
+  color: var(--text);
+}
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 3px var(--surface-alt);
+}
+
+label.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* ----- Base: error box (Login, Sales, Staff, Expenses, Analytics) ----- */
+.error-box {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  font-size: var(--fs-sm);
+}

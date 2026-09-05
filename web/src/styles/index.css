@@ -1,0 +1,21 @@
+/* ============================================================
+ * CartIQ styles — BAWAT PAGE MAY SARILING FILE.
+ * Ayaw baguhin ang ayos ng @import sa ibaba: ito ang cascade
+ * contract. Huling file (utilities.css) = panalo sa tie.
+ * Bagong page na lumampas ng ~100 lines? Bigyan ng sariling
+ * file dito (tingnan ang pages.css header).
+ * ============================================================ */
+@import "./base.css";
+@import "./buttons.css";
+@import "./layout.css";
+@import "./cards.css";
+@import "./tables.css";
+@import "./chips.css";
+@import "./overlays.css";
+@import "./login.css";
+@import "./dashboard.css";
+@import "./sensor.css";
+@import "./analytics.css";
+@import "./inventory.css";
+@import "./pages.css";
+@import "./utilities.css";

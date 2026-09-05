@@ -1,0 +1,179 @@
+/* ============================================================
+ * PART: sensor.css  |  SAKOP: SensorPanel lang — stat cards, live
+ *         dot, sparkline, chart, trend pills, text-ok/warn/danger
+ * HUWAG DITO: SSE badge → dashboard.css
+ * ============================================================ */
+
+/* ----- Sensor: sparkline (SensorPanel — dating 'misc' block) ----- */
+.spark { width: 100%; height: auto; background: var(--bg); border-radius: 8px; border: 1px solid var(--border); }
+
+/* ----- Sensor: live panel — stats, live dot, chart (dating 'live sensor panel') ----- */
+/* ================= live sensor panel ================= */
+.sensor-panel {
+  position: relative;
+}
+.sensor-stats {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.sensor-stat {
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  position: relative;
+  overflow: hidden;
+}
+.sensor-stat.status-low {
+  border-color: var(--warn);
+  background: linear-gradient(135deg, var(--bg), color-mix(in srgb, var(--warn) 6%, transparent));
+}
+.sensor-stat.status-critical {
+  border-color: var(--danger);
+  background: linear-gradient(135deg, var(--bg), color-mix(in srgb, var(--danger) 8%, transparent));
+  animation: pulse-critical 2.5s ease-in-out infinite;
+}
+@keyframes pulse-critical {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 0%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 15%, transparent); }
+}
+.sensor-stat-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.live-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 2px 6px;
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  border-radius: 10px;
+}
+.live-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: live-blink 1.4s ease-in-out infinite;
+}
+@keyframes live-blink {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+.live-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--success);
+}
+.sensor-stat-value {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.big-num {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  line-height: 1;
+}
+.unit {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.sensor-stat-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.trend-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 10px;
+}
+.trend-up { background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success); }
+.trend-down { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+.trend-stable { background: var(--surface); color: var(--text-muted); }
+.text-ok { color: var(--success); font-weight: 600; }
+.text-warn { color: var(--warn); font-weight: 600; }
+.text-danger { color: var(--danger); font-weight: 600; }
+
+.sensor-stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.sensor-stat-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.sensor-stat-mini strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.unit-sm {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.sensor-chart-wrap {
+  position: relative;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.sensor-chart {
+  width: 100%;
+  max-width: 100%;
+  height: 160px;
+  display: block;
+}
+
+.sensor-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.sensor-error,
+.sensor-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-muted);
+}
+.sensor-error svg { color: var(--danger); }
+.sensor-empty svg { color: var(--text-muted); }
+.sensor-error strong { color: var(--danger); }
+
+@media (max-width: 640px) {
+  .sensor-stats {
+    grid-template-columns: 1fr;
+  }
+}

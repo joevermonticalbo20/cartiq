@@ -1,0 +1,70 @@
+/* ============================================================
+ * PART: buttons.css  |  SAKOP: lahat ng button variant (primary,
+ *         ghost, danger, icon-only, small-btn)
+ * HUWAG DITO: form inputs → base.css | login submit → login.css
+ * ============================================================ */
+
+/* ----- Buttons: lahat ng variant (dating 'buttons') ----- */
+/* ================= buttons ================= */
+button {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s, transform 0.08s;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  justify-content: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
+button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+button:hover:not(:disabled) { background: var(--primary-strong); }
+button:disabled { opacity: 0.55; cursor: default; }
+button.ghost {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent);
+}
+button.ghost:hover:not(:disabled) { background: var(--primary-soft); }
+a.ghost:active {
+  transform: scale(0.96);
+}
+a.ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  transition: background 0.15s, transform 0.08s;
+  user-select: none;
+}
+button.ghost.active,
+button.active {
+  background: var(--primary-soft);
+  color: var(--accent);
+  border-color: var(--primary);
+}
+button.danger-ghost {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+}
+button.danger-ghost:hover:not(:disabled) { background: var(--danger-bg); }
+button.danger {
+  background: #991B1B;
+  color: #fff;
+  border: none;
+}
+button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 85%, #000); }
+button.icon-only { padding: 12px; }
+
+/* ----- Buttons: small button (dating 'chips' block, linya 438) ----- */
+.small-btn { padding: 5px 10px; font-size: var(--fs-xs); }

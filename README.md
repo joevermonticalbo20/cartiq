@@ -238,6 +238,9 @@ React+Vite setup:
 - **Alerts mark-all-read** — `PATCH /alerts/read` (OWNER, optional `{ids}`
   subset, returns `{updated}`); dashboard Stock alerts panel exposes it as
   “Mark all read”.
+- **Per-page stylesheets** — `src/styles/` gives every page its own file
+  (`dashboard.css`, `login.css`, …) with `PART/SAKOP` identifiers and its own
+  responsive tail; `npm run css:check` fails on cross-file duplicates.
 - **UX polish P1 (web a11y)** — chip contrast fix in `theme.css`; reusable
   `PasswordStrengthMeter` wired into Settings change-password; 44px minimum
   touch targets for icon-only buttons.

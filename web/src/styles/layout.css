@@ -1,0 +1,198 @@
+/* ============================================================
+ * PART: layout.css  |  SAKOP: app shell (sidebar/topbar), page
+ *         containers, page headers, grid helpers, avatars
+ * HUWAG DITO: cards → cards.css | tables → tables.css
+ * ============================================================ */
+
+/* ----- Layout: app shell — sidebar, topbar, page containers (dating 'layout shell') ----- */
+/* ================= layout shell ================= */
+.shell { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: var(--sidebar-w);
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 40;
+  transition: width 0.18s ease, transform 0.18s ease;
+}
+.sidebar.collapsed { width: var(--sidebar-collapsed); }
+
+.side-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--topbar-h);
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.logo-mark {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 10px;
+  background: linear-gradient(140deg, var(--primary) 30%, var(--highlight-strong));
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 15px;
+  box-shadow: 0 4px 14px rgba(231, 54, 49, 0.35);
+}
+.logo-text strong { color: var(--text); font-size: var(--fs-lg); display: block; line-height: 1.1; }
+.logo-text span { color: var(--text-muted); font-size: 11px; }
+
+.side-nav { flex: 1; padding: 12px 10px; display: flex; flex-direction: column; gap: 3px; overflow-y: auto; }
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+}
+.nav-item svg { flex: 0 0 auto; }
+.nav-item:hover { background: var(--surface-alt); color: var(--text); }
+.nav-item.active { background: var(--primary-soft); color: var(--primary-strong); }
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 8px;
+  bottom: 8px;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+  background: var(--primary);
+}
+
+.side-foot {
+  border-top: 1px solid var(--border);
+  padding: 10px;
+}
+
+.main-area {
+  flex: 1;
+  margin-left: var(--sidebar-w);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  transition: margin-left 0.18s ease;
+}
+.main-area.collapsed { margin-left: var(--sidebar-collapsed); }
+
+.topbar {
+  height: var(--topbar-h);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 22px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.topbar-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.topbar-title { font-size: var(--fs-lg); font-weight: 700; white-space: nowrap; }
+.user-chip { display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: var(--fs-sm); }
+.avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--primary-soft);
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+}
+
+.page-body { padding: 20px 22px 30px; width: 100%; }
+.page-container {
+  max-width: 980px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.page-container.wide { max-width: 1280px; }
+
+.hamburger { display: none; }
+.backdrop { display: none; }
+
+@media (max-width: 900px) {
+  .sidebar { transform: translateX(-100%); box-shadow: var(--shadow); }
+  .sidebar.mobile-open { transform: translateX(0); }
+  .main-area { margin-left: 0 !important; }
+  .hamburger { display: inline-flex; }
+  .backdrop.show {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    z-index: 35;
+  }
+}
+
+/* ----- Layout: grid helpers (dating 'cards & panels' block) ----- */
+/* TANDAAN: grid2/col-stack — 0 hits sa JSX, mukhang hindi ginagamit. Huwag burahin nang walang check. */
+.grid2 { display: grid; grid-template-columns: 3fr 2fr; gap: 14px; align-items: start; }
+.col-stack { display: flex; flex-direction: column; gap: 14px; }
+@media (max-width: 1100px) { .grid2 { grid-template-columns: 1fr; } }
+
+/* ----- Layout: staff avatar (Layout, Dashboard, Staff) ----- */
+.staff-avatar { width: 26px; height: 26px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+
+/* ----- Layout: page header — lahat ng page (dating 'analytics' block, linya 1722) ----- */
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: var(--space-5);
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.page-header-title {
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-extrabold);
+  color: var(--text);
+  margin: 0;
+}
+.page-header-subtitle {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  margin: 4px 0 0;
+}
+.page-header-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* ----- Responsive (max-width: 900px): tablet portrait — page header ----- */
+@media (max-width: 900px) {
+.page-header { flex-direction: column; align-items: flex-start; }
+  .page-header-actions { width: 100%; }
+  .page-header-actions select, .page-header-actions button { flex: 1; }
+}
+
+/* ----- Responsive (max-width: 640px): mobile — page container ----- */
+@media (max-width: 640px) {
+.page-container { padding: var(--space-4); }
+}
+
+/* ----- Responsive (max-width: 480px): small phones — page container ----- */
+@media (max-width: 480px) {
+.page-container { padding: var(--space-3); }
+}

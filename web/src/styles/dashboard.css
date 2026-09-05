@@ -1,0 +1,248 @@
+/* ============================================================
+ * PART: dashboard.css  |  SAKOP: DashboardPage lang — header actions,
+ *         KPI trending, trend bars, cart status, SSE badge/pill,
+ *         alert list, dashboard body
+ * PINAGSAMA: dating dalawang "dashboard header" (867 + 1206)
+ * HUWAG DITO: tables → tables.css | sensor → sensor.css
+ * ============================================================ */
+
+/* ----- Dashboard: header actions + date picker (dating 'dashboard header' #1) ----- */
+/* ================= dashboard header ================= */
+.header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  position: relative;
+}
+.header-actions .small-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  padding: 6px 12px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.header-actions .small-btn:hover {
+  background: var(--primary-soft);
+}
+.date-picker-overlay {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  z-index: 50;
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+}
+.date-picker-overlay .small-btn {
+  padding: 4px 10px;
+  font-size: var(--fs-xs);
+}
+.date-picker-overlay .small-btn.cancel {
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+}
+
+/* ----- Dashboard: KPI trending ----- */
+/* TANDAAN: kpi-trending — 0 hits sa JSX, mukhang hindi ginagamit. Huwag burahin nang walang check. */
+/* ================= kpi trending ================= */
+.kpi-trending {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-right: 4px;
+}
+.kpi-trending:not(:empty) {
+  background: var(--success-bg);
+  color: var(--success);
+}
+.kpi-trending:empty {
+  display: none;
+}
+
+/* ----- Dashboard: refresh indicator ----- */
+/* TANDAAN: refresh-indicator — 0 hits sa JSX, mukhang hindi ginagamit. Huwag burahin nang walang check. */
+/* ================= refresh indicator ================= */
+.refresh-indicator {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  box-shadow: var(--shadow);
+  z-index: 40;
+}
+
+/* ----- Dashboard: trend bars (dating 'trend bars') ----- */
+/* ================= trend bars ================= */
+.trend-bars {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  height: 110px;
+  padding: 8px 4px 4px;
+}
+.trend-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  justify-content: flex-end;
+}
+.trend-bar {
+  width: 100%;
+  max-width: 40px;
+  min-height: 4px;
+  background: linear-gradient(180deg, var(--primary), var(--accent));
+  border-radius: 4px 4px 0 0;
+  transition: height 0.3s ease;
+}
+.trend-bar-col:hover .trend-bar {
+  filter: brightness(1.15);
+}
+
+/* ----- Dashboard: cart list/status (dating 'cart list') ----- */
+/* TANDAAN: cart-row/cart-list — 0 hits sa JSX (cart-status-item aktibo). Huwag burahin nang walang check. */
+/* ================= cart list ================= */
+.cart-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cart-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.cart-row:hover {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+.cart-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+/* ----- Dashboard: dashboard header — PINAGSAMA #1 (867) at #2 (1206) ----- */
+/* ================= dashboard header ================= */
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.dashboard-header h2 {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+
+/* ----- Dashboard: live SSE badge (dating 'live SSE badge') ----- */
+/* ================= live SSE badge ================= */
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: #0A0908;
+  border: 1px solid var(--border-strong);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  animation: live-badge-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes live-badge-pop {
+  from { transform: scale(0); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+/* ----- Dashboard: body, SSE pill, alert list (dating 'dashboard') ----- */
+/* ================= dashboard ================= */
+.dashboard-body {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+
+/* sse pill */
+.sse-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: var(--fs-xs); font-weight: var(--fw-semibold);
+  padding: 3px 8px; border-radius: 99px;
+  background: var(--surface); border: 1px solid var(--border);
+}
+.sse-pill.open { border-color: var(--success); color: var(--success); background: var(--success-bg); }
+.sse-pill.down { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
+.sse-pill.connecting { color: var(--text-muted); }
+
+/* alert list compact */
+.alert-item {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-2) 0; border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm);
+}
+.alert-item:last-child { border-bottom: none; }
+.alert-item-icon { flex-shrink: 0; }
+.alert-item-text { flex: 1; min-width: 0; }
+.alert-item-name { font-weight: var(--fw-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alert-item-detail { font-size: var(--fs-xs); color: var(--text-muted); }
+
+/* ----- Dashboard: alert rows (dating 'chips' block, linya 428-437) ----- */
+/* TANDAAN: alert-row — 0 hits sa JSX (alert-item aktibo). Huwag burahin nang walang check. */
+.alert-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+.alert-row:last-child { border-bottom: none; }
+.alert-row.read { opacity: 0.6; }
+
+/* ----- Dashboard: cart status dots (dating 'dashboard' block) ----- */
+/* cart status */
+.cart-status-item { display: flex; align-items: center; gap: var(--space-3); padding: 6px 0; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
+.cart-status-item:last-child { border-bottom: none; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.status-dot.ok { background: var(--success); }
+.status-dot.warn { background: var(--warn); }
+.status-dot.critical { background: var(--danger); animation: pulse-critical 2s infinite; }
+
+/* ----- Responsive (max-width: 1200px): tablet landscape — dashboard body ----- */
+@media (max-width: 1200px) {
+.dashboard-body { grid-template-columns: 1fr; }
+}

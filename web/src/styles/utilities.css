@@ -1,0 +1,117 @@
+/* ============================================================
+ * PART: utilities.css  |  SAKOP: shared helpers (text/flex/gap/mt/mb),
+ *         error boundary, spin/pulse keyframes. PINAKAHULI ito —
+ *         mababa ang specificity ng helpers kaya't huli sila.
+ * HUWAG DITO: component styles → file ng component/page nito
+ * ============================================================ */
+
+/* ----- Utilities: error boundary — shared component (dating 'error boundary') ----- */
+/* ================= error boundary ================= */
+.error-boundary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 20px;
+  color: var(--text);
+}
+.error-boundary h3 {
+  color: var(--danger);
+  margin-bottom: 8px;
+}
+.error-boundary p {
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+.error-boundary .retry-btn {
+  background: var(--primary);
+  color: var(--surface);
+  padding: 8px 20px;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+}
+.error-boundary .retry-btn:hover {
+  background: var(--primary-strong);
+}
+
+/* ----- Utilities: text/flex/spacing helpers (dating 'utility classes') ----- */
+/* ================= utility classes ================= */
+.text-xs { font-size: var(--fs-xs); }
+.text-sm { font-size: var(--fs-sm); }
+.text-md { font-size: var(--fs-md); }
+.text-lg { font-size: var(--fs-lg); }
+.text-xl { font-size: var(--fs-xl); }
+.text-2xl { font-size: var(--fs-2xl); }
+.text-3xl { font-size: var(--fs-3xl); }
+.text-muted { color: var(--text-muted); }
+.text-faint { color: var(--text-faint); }
+.text-right { text-align: right; }
+.text-center { text-align: center; }
+.fw-medium { font-weight: var(--fw-medium); }
+.fw-semibold { font-weight: var(--fw-semibold); }
+.fw-bold { font-weight: var(--fw-bold); }
+.fw-extrabold { font-weight: var(--fw-extrabold); }
+.flex { display: flex; }
+.flex-col { display: flex; flex-direction: column; }
+.items-center { align-items: center; }
+.items-start { align-items: flex-start; }
+.items-end { align-items: flex-end; }
+.justify-between { justify-content: space-between; }
+.justify-center { justify-content: center; }
+.justify-end { justify-content: flex-end; }
+.gap-1 { gap: var(--space-1); }
+.gap-2 { gap: var(--space-2); }
+.gap-3 { gap: var(--space-3); }
+.gap-4 { gap: var(--space-4); }
+.gap-5 { gap: var(--space-5); }
+.gap-6 { gap: var(--space-6); }
+.flex-1 { flex: 1; }
+.flex-wrap { flex-wrap: wrap; }
+.mt-1 { margin-top: var(--space-1); }
+.mt-2 { margin-top: var(--space-2); }
+.mt-3 { margin-top: var(--space-3); }
+.mt-4 { margin-top: var(--space-4); }
+.mt-6 { margin-top: var(--space-6); }
+.mb-1 { margin-bottom: var(--space-1); }
+.mb-2 { margin-bottom: var(--space-2); }
+.mb-3 { margin-bottom: var(--space-3); }
+.mb-4 { margin-bottom: var(--space-4); }
+.mb-6 { margin-bottom: var(--space-6); }
+.w-full { width: 100%; }
+.min-w-0 { min-width: 0; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.font-mono { font-variant-numeric: tabular-nums; }
+
+/* ----- Utilities: success/danger wash (dating 'utility') ----- */
+/* ================= utility ================= */
+.success-light { background: var(--success-bg); }
+.danger-light { background: var(--danger-bg); }
+
+/* ----- Utilities: spin + pulse-dot keyframes (dating 'spin animation' + SSE badge) ----- */
+/* ================= spin animation ================= */
+.spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.35; }
+}
+
+/* ----- Utilities: layout helpers — PINAGSAMA sa itaas; inalis ang eksaktong duplikado ----- */
+.nowrap { white-space: nowrap; }
+.row-disabled { opacity: 0.55; }
+.hidden { display: none; }
+
+/* ----- Utilities: segmented control row — SensorPanel + DataPage (dating 'misc' block) ----- */
+.seg { display: flex; gap: 6px; flex-wrap: wrap; }

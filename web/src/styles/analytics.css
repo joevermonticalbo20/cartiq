@@ -1,0 +1,243 @@
+/* ============================================================
+ * PART: analytics.css  |  SAKOP: AnalyticsPage lang — KPI grid,
+ *         sections, heatmap, insights, forecast, pct-bar,
+ *         recharts overrides, profit charts
+ * HUWAG DITO: expense list → pages.css | page header → layout.css
+ * ============================================================ */
+
+/* ----- Analytics: day-of-week bars (dating 'misc' block) ----- */
+/* TANDAAN: dow-* — 0 hits sa JSX, mukhang hindi ginagamit. Huwag burahin nang walang check. */
+.dow-bars { display: flex; align-items: flex-end; gap: 10px; height: 84px; padding: 4px 2px 0; }
+.dow-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; }
+.dow-bar { width: 100%; max-width: 46px; background: linear-gradient(180deg, var(--primary-soft), var(--primary)); border-radius: 6px 6px 3px 3px; }
+
+/* ----- Analytics: tooltip, flavor note, forecast, pct-bar, loading (dating 'utility' block) ----- */
+.analytics-tooltip { min-width: 120px; }
+.tooltip-value { color: var(--text); }
+.flavor-note { margin-left: 6px; }
+.forecast-empty { padding: 16px 0; }
+.forecast-note { margin-top: var(--space-2); }
+.forecast-progress { margin-top: var(--space-3); display: flex; flex-direction: column; gap: 6px; }
+.forecast-progress-bar {
+  height: 8px;
+  border-radius: 5px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.forecast-progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--primary), var(--highlight-strong));
+  transition: width var(--transition-slow);
+}
+.pct-bar {
+  display: inline-block;
+  width: 56px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border);
+  vertical-align: middle;
+  margin-right: 8px;
+  overflow: hidden;
+}
+.pct-bar span { display: block; height: 100%; background: var(--primary); border-radius: 3px; }
+.analytics-loading { text-align: center; padding: 60px 0; color: var(--text-muted); }
+
+/* ----- Analytics: recharts overrides (dating 'recharts overrides') ----- */
+/* ================= recharts overrides ================= */
+.recharts-tooltip-wrapper { outline: none; }
+.recharts-cartesian-axis-tick-value { font-size: var(--fs-xs); fill: var(--text-muted); }
+.recharts-legend-item-text { font-size: var(--fs-sm); color: var(--text-muted); }
+.recharts-default-tooltip {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm) !important;
+  box-shadow: var(--shadow) !important;
+  padding: var(--space-2) var(--space-3) !important;
+  font-size: var(--fs-sm) !important;
+}
+.recharts-tooltip-label { font-weight: var(--fw-semibold); color: var(--text); margin-bottom: 2px; }
+.recharts-tooltip-item { color: var(--text-muted); }
+
+/* ----- Analytics: KPIs, sections, heatmap, insights, sticky header (dating 'analytics') ----- */
+/* ================= analytics ================= */
+.analytics-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+.analytics-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-4);
+}
+.analytics-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+.analytics-section-title {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+.section-num {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-extrabold);
+  flex-shrink: 0;
+}
+.analytics-section-sub {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  margin: var(--space-1) 0 0;
+}
+.chart-container { width: 100%; height: 280px; }
+.heat-grid {
+  display: grid;
+  grid-template-columns: 22px repeat(15, 1fr);
+  gap: 3px;
+  align-items: center;
+}
+.heat-corner { height: 12px; }
+.heat-col-label,
+.heat-row-label {
+  font-size: 10px;
+  font-weight: var(--fw-semibold);
+  color: var(--text-muted);
+  text-align: center;
+}
+.heat-row-label { text-align: left; }
+.heat-cell {
+  aspect-ratio: 1.4;
+  border-radius: 3px;
+  min-width: 0;
+}
+/* takeaway strip pinned right under the KPIs */
+.insights-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+}
+.insight-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border-radius: 99px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+.insight-chip:hover { border-color: var(--primary-soft); transform: translateY(-1px); }
+.insight-chip.success { border-left: 3px solid var(--success); }
+.insight-chip.danger { border-left: 3px solid var(--danger); }
+.insight-chip.info { border-left: 3px solid var(--primary); }
+/* inline profit summary replacing the 4-card grid */
+.profit-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  align-items: baseline;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-4);
+  font-size: var(--fs-sm);
+}
+.profit-strip strong { font-size: var(--fs-lg); font-weight: var(--fw-extrabold); }
+.profit-strip .muted { margin-right: var(--space-1); }
+/* sticky analytics filters under the topbar */
+.page-header.analytics-sticky {
+  position: sticky;
+  top: calc(var(--topbar-h) + 8px);
+  z-index: 20;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  padding: var(--space-2) var(--space-3);
+  margin-left: calc(-1 * var(--space-3));
+  margin-right: calc(-1 * var(--space-3));
+  border-radius: var(--radius);
+}
+.insight-item {
+  display: flex; align-items: flex-start; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--border);
+  background: var(--surface-alt);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: var(--fs-sm);
+  margin-bottom: var(--space-2);
+}
+.insight-item.success { border-left-color: var(--success); }
+.insight-item.danger { border-left-color: var(--danger); }
+.insight-item.warn { border-left-color: var(--warn); }
+.insight-item.info { border-left-color: var(--primary); }
+.insight-icon { flex-shrink: 0; margin-top: 1px; }
+.insight-text { color: var(--text); line-height: 1.4; }
+
+/* ----- Analytics: profit charts (dating 'profit & expense analytics') ----- */
+/* ================= profit & expense analytics ================= */
+.profit-charts-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+}
+.profit-chart-half {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+.profit-chart-title {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--text);
+  margin: 0 0 var(--space-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.profit-empty {
+  display: grid;
+  place-items: center;
+  height: 200px;
+  color: var(--text-muted);
+}
+
+/* ----- Responsive (max-width: 1200px): tablet landscape — analytics KPIs ----- */
+@media (max-width: 1200px) {
+.analytics-kpis { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ----- Responsive (max-width: 900px): tablet portrait — profit charts ----- */
+@media (max-width: 900px) {
+.profit-charts-row { grid-template-columns: 1fr; }
+}
+
+/* ----- Responsive (max-width: 640px): mobile — analytics density ----- */
+@media (max-width: 640px) {
+.analytics-kpis { grid-template-columns: 1fr; }
+  .analytics-section { padding: var(--space-4); }
+  .chart-container { height: 180px; }
+}
