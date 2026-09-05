@@ -61,6 +61,20 @@ export default function DataTable({
     onSort?.(key, dir);
   }
 
+  function handleKeySort(e, key) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      handleSort(key);
+    }
+  }
+
+  function handleRowKey(e, row) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onRowClick(row);
+    }
+  }
+
   return (
     <>
       <div className="table-wrap">
@@ -82,6 +96,19 @@ export default function DataTable({
                       .filter(Boolean)
                       .join(" ")}
                     onClick={canSort ? () => handleSort(col.key) : undefined}
+                    onKeyDown={canSort ? (e) => handleKeySort(e, col.key) : undefined}
+                    tabIndex={canSort ? 0 : undefined}
+                    role={canSort ? "button" : undefined}
+                    aria-sort={
+                      canSort
+                        ? isActive
+                          ? sortDir === "asc"
+                            ? "ascending"
+                            : "descending"
+                          : "none"
+                        : undefined
+                    }
+                    aria-label={canSort ? `Sort by ${col.label}` : undefined}
                   >
                     <span className="th-inner">
                       {col.label}
@@ -109,6 +136,8 @@ export default function DataTable({
               <tr
                 key={row.id ?? i}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
+                onKeyDown={onRowClick ? (e) => handleRowKey(e, row) : undefined}
+                tabIndex={onRowClick ? 0 : undefined}
                 style={onRowClick ? { cursor: "pointer" } : undefined}
               >
                 {columns.map((col) => (

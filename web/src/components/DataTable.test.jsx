@@ -52,6 +52,22 @@ describe("DataTable", () => {
     expect(handleClick).toHaveBeenCalledWith(sample[0]);
   });
 
+  it("sorts with Enter and announces sort direction", () => {
+    const onSort = vi.fn();
+    render(<DataTable columns={columns} data={sample} onSort={onSort} />);
+    const th = screen.getByText("Price").closest("th");
+    expect(th).toHaveAttribute("aria-sort", "none");
+    fireEvent.keyDown(th, { key: "Enter" });
+    expect(onSort).toHaveBeenCalledWith("price", "asc");
+  });
+
+  it("activates clickable rows with Enter", () => {
+    const handleClick = vi.fn();
+    render(<DataTable columns={columns} data={sample} onRowClick={handleClick} />);
+    fireEvent.keyDown(screen.getByText("Apple").closest("tr"), { key: "Enter" });
+    expect(handleClick).toHaveBeenCalledWith(sample[0]);
+  });
+
   it("does not call onRowClick when not provided", () => {
     render(<DataTable columns={columns} data={sample} />);
     expect(() => fireEvent.click(screen.getByText("Apple"))).not.toThrow();

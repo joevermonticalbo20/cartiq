@@ -66,10 +66,12 @@ input, select {
   background: var(--surface);
   color: var(--text);
 }
+/* Keyboard ring is never removed: 2px primary outline works on both themes. */
 input:focus, select:focus {
-  outline: none;
-  border-color: var(--border-strong);
-  box-shadow: 0 0 0 3px var(--surface-alt);
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
 }
 
 label.field {

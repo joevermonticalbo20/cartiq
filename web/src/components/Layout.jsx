@@ -59,6 +59,16 @@ export default function Layout() {
     setTimeout(() => setMobileOpen(false), 0);
   }, [location.pathname]);
 
+  // Esc closes the mobile drawer.
+  useEffect(() => {
+    if (!mobileOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") setMobileOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobileOpen]);
+
   function toggleSidebar() {
     setCollapsed((c) => {
       localStorage.setItem("cartiq_sidebar_collapsed", c ? "0" : "1");
@@ -80,7 +90,11 @@ export default function Layout() {
         <div className="backdrop show" onClick={() => setMobileOpen(false)} />
       )}
 
-      <aside className={`sidebar ${collapsed ? "collapsed" : ""} ${mobileOpen ? "mobile-open" : ""}`}>
+      <aside
+        id="cartiq-sidebar"
+        aria-label="Primary navigation"
+        className={`sidebar ${collapsed ? "collapsed" : ""} ${mobileOpen ? "mobile-open" : ""}`}
+      >
         <div className="side-logo">
           <div className="logo-mark">CQ</div>
           {!collapsed && (
@@ -116,7 +130,13 @@ export default function Layout() {
       <div className={`main-area ${collapsed ? "collapsed" : ""}`}>
         <header className="topbar">
           <div className="topbar-left">
-            <button className="ghost icon-only hamburger" onClick={() => setMobileOpen(true)}>
+            <button
+              className="ghost icon-only hamburger"
+              onClick={() => setMobileOpen((o) => !o)}
+              aria-label={mobileOpen ? "Close navigation menu" : "Open navigation menu"}
+              aria-expanded={mobileOpen}
+              aria-controls="cartiq-sidebar"
+            >
               <Menu size={20} />
             </button>
             <span className="topbar-title">{current?.label ?? "CartIQ"}</span>
@@ -129,11 +149,18 @@ export default function Layout() {
             <button
               className="ghost icon-only"
               title={dark ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+              aria-pressed={dark}
               onClick={toggleTheme}
             >
               {dark ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-            <button className="ghost icon-only" title="Log out" onClick={logout}>
+            <button
+              className="ghost icon-only"
+              title="Log out"
+              aria-label="Log out"
+              onClick={logout}
+            >
               <LogOut size={18} />
             </button>
           </div>

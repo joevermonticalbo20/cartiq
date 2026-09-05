@@ -11,7 +11,7 @@ export default function Pagination({ meta, onPage }) {
   for (let p = start; p <= Math.min(start + 4, totalPages); p++) numbers.push(p);
 
   return (
-    <div className="pagination">
+    <nav className="pagination" aria-label="Table pages">
       <span>
         {total} record{total === 1 ? "" : "s"} · page {page} of {totalPages}
       </span>
@@ -29,6 +29,8 @@ export default function Pagination({ meta, onPage }) {
             key={p}
             className={`page-btn ${p === page ? "current" : ""}`}
             onClick={() => onPage(p)}
+            aria-label={`Page ${p}`}
+            aria-current={p === page ? "page" : undefined}
           >
             {p}
           </button>
@@ -42,6 +44,6 @@ export default function Pagination({ meta, onPage }) {
           ›
         </button>
       </div>
-    </div>
+    </nav>
   );
 }

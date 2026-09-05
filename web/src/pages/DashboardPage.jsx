@@ -51,6 +51,14 @@ function TrendArrow({ dir }) {
   return <Minus size={12} />;
 }
 
+// Keyboard parity for clickable cards: Enter/Space activates like a click.
+function activate(e, fn) {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    fn();
+  }
+}
+
 export default function DashboardPage() {
   const navigate = useNavigate();
   const toast = useToast();
@@ -60,6 +68,7 @@ export default function DashboardPage() {
   const [latestSales, setLatestSales] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [trends, setTrends] = useState(null);
+  const [prev, setPrev] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -71,13 +80,14 @@ export default function DashboardPage() {
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [rpt, inv, staff, sales, alr, trend] = await Promise.all([
+      const [rpt, inv, staff, sales, alr, trend, yday] = await Promise.all([
         api.get("/reports/daily"),
         api.get("/inventory"),
         api.get("/staff/on-shift"),
         api.get("/orders?page=1&pageSize=8"),
         api.get("/alerts?unread_only=true&page=1&pageSize=6"),
         api.get("/analytics/trends?days=7").catch(() => ({ data: null })),
+        api.get("/reports/daily?daysAgo=1").catch(() => ({ data: null })),
       ]);
       setReport(rpt.data);
       setInventory(inv.data.locations);
@@ -85,6 +95,7 @@ export default function DashboardPage() {
       setLatestSales(sales.data.data);
       setAlerts(alr.data.data);
       setTrends(trend.data);
+      setPrev(yday.data);
       setLastUpdated(new Date());
     } catch {
       toast("Failed to refresh dashboard data", "error");
@@ -149,8 +160,16 @@ export default function DashboardPage() {
     return all.sort((a, b) => (b.qty ?? 0) - (a.qty ?? 0))[0];
   })();
 
-  const salesDir = todaySales > 0 ? "up" : "flat";
-  const ordersDir = todayOrders > 0 ? "up" : "flat";
+  // Real deltas vs yesterday (null = unknown, never faked).
+  const pct = (today, was) =>
+    was != null && was > 0 ? ((today - was) / was) * 100 : null;
+  const dirOf = (d) => (d == null ? "flat" : d > 0 ? "up" : d < 0 ? "down" : "flat");
+  const labelOf = (d) =>
+    d == null ? "Idle" : `${d >= 0 ? "+" : ""}${d.toFixed(1)}% vs yesterday`;
+  const salesDelta = pct(todaySales, prev?.total_sales);
+  const ordersDelta = pct(todayOrders, prev?.orders);
+  const salesDir = dirOf(salesDelta);
+  const ordersDir = dirOf(ordersDelta);
 
   const weeklyMax = trends?.by_weekday
     ? Math.max(...trends.by_weekday.map((s) => s.total_sales), 1)
@@ -215,8 +234,10 @@ export default function DashboardPage() {
             <div
               className="kpi-card large"
               onClick={() => navigate("/sales")}
+              onKeyDown={(e) => activate(e, () => navigate("/sales"))}
               role="button"
               tabIndex={0}
+              aria-label="Sales today — view sales"
             >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">Sales today</span>
@@ -236,7 +257,7 @@ export default function DashboardPage() {
                 </div>
                 <span className={`kpi-card-trend ${salesDir}`}>
                   <TrendArrow dir={salesDir} />
-                  {salesDir === "up" ? "On track" : salesDir === "down" ? "Down" : "Idle"}
+                  {labelOf(salesDelta)}
                 </span>
               </div>
             </div>
@@ -244,8 +265,10 @@ export default function DashboardPage() {
             <div
               className="kpi-card large"
               onClick={() => navigate("/sales")}
+              onKeyDown={(e) => activate(e, () => navigate("/sales"))}
               role="button"
               tabIndex={0}
+              aria-label="Orders today — view sales"
             >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">Orders today</span>
@@ -263,7 +286,7 @@ export default function DashboardPage() {
                 </div>
                 <span className={`kpi-card-trend ${ordersDir}`}>
                   <TrendArrow dir={ordersDir} />
-                  {ordersDir === "up" ? "Active" : "Idle"}
+                  {labelOf(ordersDelta)}
                 </span>
               </div>
             </div>
@@ -274,8 +297,10 @@ export default function DashboardPage() {
             <div
               className="kpi-card"
               onClick={() => navigate("/sales")}
+              onKeyDown={(e) => activate(e, () => navigate("/sales"))}
               role="button"
               tabIndex={0}
+              aria-label="Average ticket — view sales"
             >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">Avg ticket</span>
@@ -290,8 +315,10 @@ export default function DashboardPage() {
             <div
               className="kpi-card"
               onClick={() => navigate("/analytics")}
+              onKeyDown={(e) => activate(e, () => navigate("/analytics"))}
               role="button"
               tabIndex={0}
+              aria-label="Top item — view analytics"
             >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">Top item</span>
@@ -310,8 +337,10 @@ export default function DashboardPage() {
             <div
               className="kpi-card"
               onClick={() => navigate("/inventory")}
+              onKeyDown={(e) => activate(e, () => navigate("/inventory"))}
               role="button"
               tabIndex={0}
+              aria-label="Low stock — view inventory"
             >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">Low stock</span>
@@ -341,8 +370,10 @@ export default function DashboardPage() {
             <div
               className="kpi-card"
               onClick={() => navigate("/staff")}
+              onKeyDown={(e) => activate(e, () => navigate("/staff"))}
               role="button"
               tabIndex={0}
+              aria-label="Staff on shift — view staff"
             >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">On shift</span>
@@ -597,6 +628,10 @@ export default function DashboardPage() {
                       key={loc.id}
                       className="cart-status-item"
                       onClick={() => navigate("/inventory")}
+                      onKeyDown={(e) => activate(e, () => navigate("/inventory"))}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${loc.code} stock status — view inventory`}
                     >
                       <span className={`status-dot ${dotClass}`} />
                       <span className="alert-item-text">

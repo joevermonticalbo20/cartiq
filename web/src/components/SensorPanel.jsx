@@ -122,14 +122,16 @@ export default function SensorPanel({ code = "CART-01" }) {
           <Activity size={16} style={{ verticalAlign: "middle", marginRight: 6 }} />
           Live sensor
         </h3>
-        <div className="seg">
+        <div className="seg" role="group" aria-label="Sensor channel">
           {CHANNELS.map((c) => {
             const Ic = c.icon;
+            const selected = channel === c.id;
             return (
               <button
                 key={c.id}
-                className={`ghost small-btn ${channel === c.id ? "active" : ""}`}
+                className={`ghost small-btn ${selected ? "active" : ""}`}
                 onClick={() => setChannel(c.id)}
+                aria-pressed={selected}
               >
                 <Ic size={13} style={{ marginRight: 4, verticalAlign: "middle" }} />
                 {c.label}
@@ -343,6 +345,8 @@ export default function SensorPanel({ code = "CART-01" }) {
               className="ghost small-btn"
               onClick={() => setIsLive(!isLive)}
               title={isLive ? "Pause auto-refresh" : "Resume auto-refresh"}
+              aria-pressed={isLive}
+              aria-label={isLive ? "Pause live updates" : "Resume live updates"}
             >
               {isLive ? <Wifi size={12} /> : <WifiOff size={12} />}
               {isLive ? "Live" : "Paused"}

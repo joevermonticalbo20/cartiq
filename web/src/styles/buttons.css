@@ -59,11 +59,14 @@ button.danger-ghost {
 }
 button.danger-ghost:hover:not(:disabled) { background: var(--danger-bg); }
 button.danger {
-  background: #991B1B;
+  background: var(--danger);
   color: #fff;
   border: none;
 }
 button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 85%, #000); }
+/* Dark: --danger turns light red, unreadable as a solid bg — use red-700 instead (white text ~5.9:1). */
+[data-theme="dark"] button.danger { background: #B91C1C; }
+[data-theme="dark"] button.danger:hover:not(:disabled) { background: #991B1B; }
 button.icon-only { padding: 12px; }
 
 /* ----- Buttons: small button (dating 'chips' block, linya 438) ----- */
