@@ -44,44 +44,6 @@
   margin-top: 32px; /* Pinalayo ng konti sa content */
 }
 
-/* Confirm dialog: optional icon badge beside the title */
-.confirm-icon-badge {
-  display: inline-grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--primary-soft);
-  color: var(--primary-strong);
-}
-.confirm-icon-badge.danger {
-  background: var(--danger-bg);
-  color: var(--danger);
-}
-
-/* Logout dialog: signed-in identity card */
-.logout-user-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 16px;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--text-muted) 7%, transparent);
-}
-.logout-user-card .avatar {
-  width: 40px;
-  height: 40px;
-}
-.logout-user-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
 @keyframes pop {
   from { transform: scale(0.96); opacity: 0; }
   to { transform: none; opacity: 1; }

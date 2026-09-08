@@ -217,25 +217,12 @@ export default function Layout() {
 
       <ConfirmDialog
         open={confirmingLogout}
-        title="Log out?"
-        message="You will be signed out on this device."
+        title={user ? `Log out ${user.name}?` : "Log out?"}
+        message="You'll be signed out on this device."
         confirmLabel="Log out"
-        icon={<LogOut size={20} />}
         onConfirm={logout}
         onCancel={() => setConfirmingLogout(false)}
-      >
-        {user && (
-          <div className="logout-user-card">
-            <span className="avatar" aria-hidden="true">{initial}</span>
-            <div className="logout-user-meta">
-              <strong>{user.name}</strong>
-              <span className="muted small">
-                {user.role}{user.location ? ` • ${user.location.name}` : ""}
-              </span>
-            </div>
-          </div>
-        )}
-      </ConfirmDialog>
+      />
     </div>
   );
 }
