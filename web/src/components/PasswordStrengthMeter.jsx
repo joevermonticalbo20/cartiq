@@ -3,17 +3,16 @@ export function evaluatePassword(pw = "") {
     length: pw.length >= 8,
     case: /[a-z]/.test(pw) && /[A-Z]/.test(pw),
     digit: /\d/.test(pw),
+    special: /[^A-Za-z0-9]/.test(pw),
   };
 
   const passed = Object.values(checks).filter(Boolean).length;
-  
+
   let level = "empty";
-  if (pw.length > 0) {
-    if (passed === 0) level = "weak";       // 1 bar (Red)
-    else if (passed === 1) level = "fair";  // 2 bars (Yellow)
-    else if (passed === 2) level = "good";  // 3 bars (Yellow)
-    else if (passed === 3) level = "strong"; // 4 bars (Green)
-  }
+  if (pw.length > 0 && passed <= 1) level = "weak";
+  else if (passed === 2) level = "fair";
+  else if (passed === 3) level = "good";
+  else if (passed === 4) level = "strong";
 
   return { checks, passed, level };
 }
@@ -30,6 +29,7 @@ const REQUIREMENTS = [
   { key: "length", label: "At least 8 characters" },
   { key: "case", label: "Uppercase and lowercase letters" },
   { key: "digit", label: "At least one number" },
+  { key: "special", label: "At least one special character" },
 ];
 
 export default function PasswordStrengthMeter({ value = "", minLevel = null }) {

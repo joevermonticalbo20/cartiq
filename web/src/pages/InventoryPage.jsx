@@ -496,7 +496,7 @@ export default function InventoryPage() {
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <h3><PackagePlus size={22} className="muted"/> Add New Item</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                Add a new supply or ingredient to <strong>{selected}</strong>'s inventory. Tracked manually.
+                Add a new supply or ingredient to <strong>{selected}</strong>&rsquo;s inventory. Tracked manually.
               </p>
               
               <form onSubmit={handleAddItem} className="flex flex-col gap-4">

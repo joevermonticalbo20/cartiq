@@ -30,6 +30,7 @@ export default function SalesPage() {
   // Awtomatikong kukuha ng bagong oras tuwing matatapos mag-load ang table data
   useEffect(() => {
     if (!loading) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional clock sync when loading flips
       setLastUpdated(new Date());
     }
   }, [loading]);

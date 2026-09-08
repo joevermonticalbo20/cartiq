@@ -54,6 +54,7 @@ export default function ExpensesPage() {
   // Update ang Last Updated timestamp kapag natapos mag-load
   useEffect(() => {
     if (!loading) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional clock sync when loading flips
       setLastUpdated(new Date());
     }
   }, [loading]);

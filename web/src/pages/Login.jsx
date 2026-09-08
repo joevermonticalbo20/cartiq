@@ -6,37 +6,8 @@ import Badge from "../components/Badge.jsx";
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.1.0";
 
-export default function Login() {
-  const navigate = useNavigate();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [capsOn, setCapsOn] = useState(false);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  
-  const [userFocused, setUserFocused] = useState(false);
-  const [passwordFocused, setPasswordFocused] = useState(false);
-
-  const passwordRef = useRef(null);
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-    try {
-      const { data } = await api.post("/auth/login", { username, password });
-      localStorage.setItem("cartiq_token", data.token);
-      navigate("/dashboard");
-    } catch (err) {
-      setError(err.response?.data?.error || "Login failed. Is the API running?");
-      passwordRef.current?.focus();
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const TiltedPreviewCard = ({ className = "" }) => (
+function TiltedPreviewCard({ className = "" }) {
+  return (
     <div className={`login-preview ${className}`} aria-hidden="true">
       <div className="login-preview-header">
         <span className="login-preview-label">SALES TODAY</span>
@@ -45,7 +16,7 @@ export default function Login() {
           <span className="login-preview-trend">↑ +8.2%</span>
         </div>
       </div>
-      
+
       {/* Improved Graph Area */}
       <div className="login-preview-chart-area">
         <div className="login-preview-bars">
@@ -76,6 +47,37 @@ export default function Login() {
       </div>
     </div>
   );
+}
+
+export default function Login() {
+  const navigate = useNavigate();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [capsOn, setCapsOn] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  
+  const [userFocused, setUserFocused] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
+
+  const passwordRef = useRef(null);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const { data } = await api.post("/auth/login", { username, password });
+      localStorage.setItem("cartiq_token", data.token);
+      navigate("/dashboard");
+    } catch (err) {
+      setError(err.response?.data?.error || "Login failed. Is the API running?");
+      passwordRef.current?.focus();
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="login-split">
@@ -235,7 +237,7 @@ export default function Login() {
 
           {/* Cleaned Quote, Centered, No Citation */}
           <div className="login-quote">
-            “We see every cart's day before dinner. It completely changed our operations.”
+            &ldquo;We see every cart&rsquo;s day before dinner. It completely changed our operations.&rdquo;
           </div>
           
         </div>

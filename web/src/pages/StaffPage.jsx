@@ -42,12 +42,14 @@ export default function StaffPage() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial mount fetch via stable callback
     fetchTopData();
   }, [fetchTopData]);
 
   // I-update ang time kapag natapos na ang table mag-load automatically
   useEffect(() => {
     if (!tableLoading && !perfLoading) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional clock sync when loading flips
       setLastUpdated(new Date());
     }
   }, [tableLoading, perfLoading]);
