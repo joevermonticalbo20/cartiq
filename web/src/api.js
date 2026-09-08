@@ -1,5 +1,4 @@
 import axios from "axios";
-import { toast } from "./components/Toast.jsx";
 
 // --- Configuration ---
 const API_BASE = import.meta.env.VITE_API_BASE || "/api";
@@ -35,22 +34,14 @@ export function setupAuthInterceptor(navigate) {
         if (navigateFn) {
           navigateFn("/login", { replace: true });
         }
-        return Promise.reject(error);
       }
 
-      // Handle other errors - show toast
-      if (error.response) {
-        const errorMsg =
-          error.response.data?.message ||
-          error.response.data?.error ||
-          "An unexpected error occurred";
-
-        // Don't show toast for 401s being redirected to login
-        if (!(error.response.status === 401 && !originalRequest?.url?.startsWith("/login"))) {
-          toast(errorMsg, "error");
-        }
-      }
-
+      // NOTE: no global error toast here on purpose. Every caller owns its
+      // error UI (error boxes, empty states, or an explicit toast call), and
+      // background reads deliberately swallow failures. A global toast caused
+      // phantom "error" popups on page open (e.g. staff hitting owner-only
+      // endpoints in the background, SensorPanel's 5s poll) plus double
+      // reporting next to each page's own error display.
       return Promise.reject(error);
     }
   );
