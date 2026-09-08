@@ -185,8 +185,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     context: context,
                     builder: (dialogContext) => AlertDialog(
                       title: const Text('Log out?'),
-                      content: const Text(
-                        'Queued offline sales stay saved on this device.',
+                      content: Text(
+                        _queueCount > 0
+                            ? '$_queueCount sale(s) still queued — they stay saved on this device.'
+                            : 'No queued sales. You can sign back in anytime.',
                       ),
                       actions: [
                         TextButton(
@@ -201,7 +203,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   );
                   if (confirmed != true || !context.mounted) return;
-                  await context.read<AuthState>().signOut();
+                  final auth = context.read<AuthState>();
+                  if (!auth.isLoggedIn) return;
+                  await auth.signOut();
                 },
                 icon: const Icon(Icons.logout_rounded, size: 20),
                 tooltip: 'Log out',

@@ -15,6 +15,7 @@ import {
   Wallet,
 } from "lucide-react";
 import api from "../api.js";
+import ConfirmDialog from "./ConfirmDialog.jsx";
 
 const NAV_GROUPS = [
   {
@@ -50,6 +51,7 @@ export default function Layout() {
   );
   const [mobileOpen, setMobileOpen] = useState(false);
   const [user, setUser] = useState(null);
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
   const [dark, setDark] = useState(
     () => document.documentElement.dataset.theme === "dark"
   );
@@ -91,8 +93,18 @@ export default function Layout() {
     });
   }
 
+  // Validation: with no session token there is nothing to confirm.
+  function requestLogout() {
+    if (!localStorage.getItem("cartiq_token")) {
+      navigate("/login");
+      return;
+    }
+    setConfirmingLogout(true);
+  }
+
   function logout() {
     localStorage.removeItem("cartiq_token");
+    setConfirmingLogout(false);
     navigate("/login");
   }
 
@@ -181,7 +193,7 @@ export default function Layout() {
               className="ghost icon-only logout-btn"
               title="Log out"
               aria-label="Log out"
-              onClick={logout}
+              onClick={requestLogout}
             >
               <LogOut size={18} />
             </button>
@@ -202,6 +214,19 @@ export default function Layout() {
           <Outlet context={{ user }} />
         </main>
       </div>
+
+      <ConfirmDialog
+        open={confirmingLogout}
+        title="Log out?"
+        message={
+          user
+            ? `Signed in as ${user.name}. You will be signed out on this device and need your password to sign back in.`
+            : "You will be signed out on this device."
+        }
+        confirmLabel="Log out"
+        onConfirm={logout}
+        onCancel={() => setConfirmingLogout(false)}
+      />
     </div>
   );
 }
