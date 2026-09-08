@@ -11,9 +11,16 @@ router.get("/reports/daily", requireAuth, async (req, res, next) => {
     let day;
     if (date) {
       day = new Date(`${date}T00:00:00`);
+      if (!Number.isFinite(day.getTime())) {
+        return res.status(400).json({ error: "date must be YYYY-MM-DD" });
+      }
     } else if (daysAgo != null) {
+      const n = Number(daysAgo);
+      if (!Number.isInteger(n) || n < 0) {
+        return res.status(400).json({ error: "daysAgo must be an integer >= 0" });
+      }
       day = new Date();
-      day.setDate(day.getDate() - Number(daysAgo));
+      day.setDate(day.getDate() - n);
     } else {
       day = new Date();
     }

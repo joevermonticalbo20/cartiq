@@ -19,16 +19,25 @@ router.post("/orders", requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: "items must be a non-empty array" });
     }
     for (const it of items) {
-      if (!it.productName || !Number.isFinite(+it.qty) || +it.qty <= 0 ||
-          !Number.isFinite(+it.unitPrice)) {
+      const qty = +it.qty;
+      const price = +it.unitPrice;
+      if (typeof it.productName !== "string" || !it.productName.trim() ||
+          !Number.isInteger(qty) || qty < 1 ||
+          !Number.isFinite(price) || price < 0) {
         return res.status(400).json({
-          error: "each item needs productName, qty > 0 and unitPrice",
+          error: "each item needs a productName, an integer qty >= 1 and a unitPrice >= 0",
         });
       }
     }
 
     if (locationId === undefined && (locationCode === undefined || locationCode === "")) {
       return res.status(400).json({ error: "locationCode or locationId is required" });
+    }
+    if (locationId !== undefined && !Number.isInteger(+locationId)) {
+      return res.status(400).json({ error: "locationId must be an integer" });
+    }
+    if (clientRef !== undefined && String(clientRef).length > 200) {
+      return res.status(400).json({ error: "clientRef is too long (max 200 chars)" });
     }
     const location = await prisma.location.findFirst({
       where: locationId !== undefined ? { id: +locationId } : { code: locationCode },
@@ -59,9 +68,9 @@ router.post("/orders", requireAuth, async (req, res, next) => {
           status: "PAID",
           items: {
             create: items.map((it) => ({
-              productName: it.productName,
-              flavor: it.flavor ?? null,
-              qty: Math.round(+it.qty),
+              productName: String(it.productName).trim().slice(0, 120),
+              flavor: it.flavor == null ? null : String(it.flavor).slice(0, 80),
+              qty: Math.trunc(+it.qty),
               unitPrice: +it.unitPrice,
             })),
           },
@@ -126,6 +135,9 @@ router.get("/orders", requireAuth, async (req, res, next) => {
     }
     if (date) {
       const start = new Date(`${date}T00:00:00`);
+      if (!Number.isFinite(start.getTime())) {
+        return res.status(400).json({ error: "date must be YYYY-MM-DD" });
+      }
       const end = new Date(start);
       end.setDate(end.getDate() + 1);
       where.createdAt = { gte: start, lt: end };

@@ -71,7 +71,7 @@ router.post("/change-password", requireAuth, async (req, res, next) => {
     }
     await prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash: bcrypt.hashSync(newPassword, 10) },
+      data: { passwordHash: await bcrypt.hash(newPassword, 10) },
     });
     return res.json({ updated: true });
   } catch (err) {
@@ -128,7 +128,7 @@ router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) 
       data: {
         name,
         username,
-        passwordHash: bcrypt.hashSync(String(password), 10),
+        passwordHash: await bcrypt.hash(String(password), 10),
         role: "STAFF",
         active: true,
         locationId,
@@ -154,7 +154,7 @@ router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, n
       if (String(password).length < 6) {
         return res.status(400).json({ error: "password min 6 chars" });
       }
-      data.passwordHash = bcrypt.hashSync(String(password), 10);
+      data.passwordHash = await bcrypt.hash(String(password), 10);
     }
     if (locationCode !== undefined) {
       if (locationCode === null || locationCode === "") {

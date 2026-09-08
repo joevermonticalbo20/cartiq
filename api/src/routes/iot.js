@@ -25,6 +25,9 @@ router.post("/iot/readings", requireDevice, async (req, res, next) => {
     if (!rows || rows.length === 0) {
       return res.status(400).json({ error: "readings array is required" });
     }
+    if (rows.length > 200) {
+      return res.status(400).json({ error: "max 200 readings per request" });
+    }
     const location = req.device.location;
     const accepted = [];
     const rejected = [];
@@ -33,7 +36,7 @@ router.post("/iot/readings", requireDevice, async (req, res, next) => {
       for (const r of rows) {
         const itemName = CHANNELS[r.channel];
         const kg = Number(r.kg);
-        if (!itemName || !Number.isFinite(kg) || kg < 0) {
+        if (!itemName || !Number.isFinite(kg) || kg < 0 || kg > 1000) {
           rejected.push({ channel: r.channel ?? null, reason: "invalid channel or kg" });
           continue;
         }
@@ -81,6 +84,9 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
     if (!rows || rows.length === 0) {
       return res.status(400).json({ error: "events array is required" });
     }
+    if (rows.length > 200) {
+      return res.status(400).json({ error: "max 200 events per request" });
+    }
     const location = req.device.location;
     const accepted = [];
     const rejected = [];
@@ -89,7 +95,7 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
       for (const e of rows) {
         const uid = String(e.staff_uid ?? "").trim();
         const event = String(e.event ?? "").toUpperCase();
-        if (!uid || !EVENTS.includes(event)) {
+        if (!uid || uid.length > 64 || !EVENTS.includes(event)) {
           rejected.push({ staff_uid: uid || null, reason: "invalid uid or event" });
           continue;
         }
@@ -182,6 +188,9 @@ router.get("/shifts/history", requireAuth, async (req, res, next) => {
     if (code) where.location = { code: String(code) };
     if (date) {
       const start = new Date(`${date}T00:00:00`);
+      if (!Number.isFinite(start.getTime())) {
+        return res.status(400).json({ error: "date must be YYYY-MM-DD" });
+      }
       const end = new Date(start);
       end.setDate(end.getDate() + 1);
       where.ts = { gte: start, lt: end };

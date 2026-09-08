@@ -111,23 +111,28 @@ router.get("/expenses", requireAuth, async (req, res, next) => {
     // so the category chart always shows the full picture)
     const breakdownWhere = { ...where };
     delete breakdownWhere.category;
-    const all = await prisma.expense.findMany({
-      where: breakdownWhere,
-      select: { vendor: true, amount: true, category: true },
-    });
-    const byVendorMap = new Map();
-    const byCategoryMap = new Map();
-    for (const e of all) {
-      byVendorMap.set(e.vendor, (byVendorMap.get(e.vendor) ?? 0) + e.amount);
-      byCategoryMap.set(e.category, (byCategoryMap.get(e.category) ?? 0) + e.amount);
-    }
-    const byVendor = [...byVendorMap.entries()]
-      .map(([vendor, amt]) => ({ vendor, total: Number(amt.toFixed(2)) }))
+    // Aggregated in the DB (groupBy) instead of scanning every row, so this
+    // stays cheap as the expenses table grows.
+    const [vendorGroups, categoryGroups] = await Promise.all([
+      prisma.expense.groupBy({
+        by: ["vendor"],
+        where: breakdownWhere,
+        _sum: { amount: true },
+      }),
+      prisma.expense.groupBy({
+        by: ["category"],
+        where: breakdownWhere,
+        _sum: { amount: true },
+      }),
+    ]);
+    const byVendor = vendorGroups
+      .map((g) => ({ vendor: g.vendor, total: Number((g._sum.amount ?? 0).toFixed(2)) }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 8);
+    const catTotals = new Map(categoryGroups.map((g) => [g.category, g._sum.amount ?? 0]));
     const byCategory = EXPENSE_CATEGORIES.map((cat) => ({
       category: cat,
-      total: Number((byCategoryMap.get(cat) ?? 0).toFixed(2)),
+      total: Number((catTotals.get(cat) ?? 0).toFixed(2)),
     }));
 
     return res.json({
