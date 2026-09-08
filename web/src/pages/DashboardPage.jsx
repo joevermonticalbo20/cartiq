@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useOutletContext } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowDown,
@@ -22,7 +22,7 @@ import {
 import api, { API_BASE } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
-import { SkeletonCards } from "../components/Skeleton.jsx";
+import Skeleton from "../components/Skeleton.jsx";
 import SensorPanel from "../components/SensorPanel.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { useSSE } from "../hooks/useSSE.js";
@@ -63,6 +63,10 @@ function activate(e, fn) {
 export default function DashboardPage() {
   const navigate = useNavigate();
   const toast = useToast();
+  // Kukunin natin ang user context para makuha ang pangalan
+  const { user } = useOutletContext();
+  const firstName = user?.name ? user.name.split(" ")[0] : "there";
+
   const [report, setReport] = useState(null);
   const [inventory, setInventory] = useState([]);
   const [onShift, setOnShift] = useState([]);
@@ -73,9 +77,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
+
   const [sseStatus, setSseStatus] = useState("connecting");
   const [livePulse, setLivePulse] = useState(0);
-
   const token = localStorage.getItem("cartiq_token") || null;
 
   const refresh = useCallback(async () => {
@@ -90,6 +94,7 @@ export default function DashboardPage() {
         api.get("/analytics/trends?days=7").catch(() => ({ data: null })),
         api.get("/reports/daily?daysAgo=1").catch(() => ({ data: null })),
       ]);
+
       setReport(rpt.data);
       setInventory(inv.data.locations);
       setOnShift(staff.data.on_shift);
@@ -128,7 +133,7 @@ export default function DashboardPage() {
         );
         setLivePulse((n) => n + 1);
         toast(
-          `New order: P${(data.total ?? 0).toFixed(0)} @ ${data.locationCode ?? "—"}`,
+          `New order: P${(data.total ?? 0).toFixed(0)} @ ${data.locationCode ?? " "}`,
           "success"
         );
       } else if (event === "alert:new") {
@@ -149,7 +154,9 @@ export default function DashboardPage() {
     (sum, loc) => sum + loc.items.filter((i) => i.status === "critical").length,
     0
   );
+
   const lowStockAlerts = alerts.filter((a) => a.type === "LOW_STOCK");
+
   const todaySales = report?.total_sales ?? 0;
   const todayOrders = report?.orders ?? 0;
   const avgTicket = todayOrders > 0 ? todaySales / todayOrders : 0;
@@ -161,14 +168,18 @@ export default function DashboardPage() {
     return all.sort((a, b) => (b.qty ?? 0) - (a.qty ?? 0))[0];
   })();
 
-  // Real deltas vs yesterday (null = unknown, never faked).
   const pct = (today, was) =>
     was != null && was > 0 ? ((today - was) / was) * 100 : null;
+
   const dirOf = (d) => (d == null ? "flat" : d > 0 ? "up" : d < 0 ? "down" : "flat");
+  
+  // INO-MODIFIED: Pinalitan ang "Idle" ng "No prior data"
   const labelOf = (d) =>
-    d == null ? "Idle" : `${d >= 0 ? "+" : ""}${d.toFixed(1)}% vs yesterday`;
+    d == null ? "No prior data" : `${d >= 0 ? "+" : ""}${d.toFixed(1)}% vs yesterday`;
+
   const salesDelta = pct(todaySales, prev?.total_sales);
   const ordersDelta = pct(todayOrders, prev?.orders);
+
   const salesDir = dirOf(salesDelta);
   const ordersDir = dirOf(ordersDelta);
 
@@ -181,7 +192,7 @@ export default function DashboardPage() {
       <div className="page-header">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="page-header-title">Dashboard</h1>
+            <h1 className="page-header-title">Hello, {firstName}</h1>
             <span
               className={`sse-pill ${sseStatus === "open" ? "open" : sseStatus === "down" ? "down" : "connecting"}`}
               title={`Live stream: ${sseStatus}`}
@@ -207,12 +218,13 @@ export default function DashboardPage() {
           <p className="page-header-subtitle">
             {loading
               ? "Loading latest data..."
-              : `Real-time operations overview · Last updated ${
-                  lastUpdated?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) ?? "just now"
-                }`}
+              : "Stay on top of your operations, monitor progress, and track real-time status."}
           </p>
         </div>
         <div className="page-header-actions">
+          <span className="muted small" style={{ marginRight: "4px" }}>
+            Last updated {lastUpdated?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) ?? "just now"}
+          </span>
           <button
             className="ghost small-btn"
             onClick={refresh}
@@ -227,18 +239,47 @@ export default function DashboardPage() {
       </div>
 
       {loading ? (
-        <SkeletonCards />
-      ) : (
         <>
-          {/* Row 1: large KPIs */}
-          <div className="kpi-grid">
+          {/* Custom Skeleton para sa Top Row */}
+          <div className="dashboard-top-row">
+            <div className="dashboard-kpi-stack">
+              <div className="kpi-card large"><Skeleton rows={3} height={20} /></div>
+              <div className="kpi-card large"><Skeleton rows={3} height={20} /></div>
+            </div>
+            <div className="dashboard-kpi-grid-2x2">
+              <div className="kpi-card"><Skeleton rows={2} /></div>
+              <div className="kpi-card"><Skeleton rows={2} /></div>
+              <div className="kpi-card"><Skeleton rows={2} /></div>
+              <div className="kpi-card"><Skeleton rows={2} /></div>
+            </div>
+            <div className="panel dashboard-trend-panel">
+              <Skeleton rows={2} />
+              <div className="skel" style={{ flex: 1, minHeight: "140px", marginTop: "16px", borderRadius: "8px" }} />
+            </div>
+          </div>
+          
+          {/* Custom Skeleton para sa Bottom Row */}
+          <div className="dashboard-body">
+            <div className="panel widget-orders"><Skeleton rows={6} /></div>
+            <div className="panel"><Skeleton rows={4} /></div>
+            <div className="panel"><Skeleton rows={4} /></div>
+            <div className="panel"><Skeleton rows={4} /></div>
+            <div className="panel"><Skeleton rows={4} /></div>
+          </div>
+        </>
+      ) : (
+        <div className="dashboard-top-row">
+          
+          {/* COLUMN 1: Large KPIs (Stacked) */}
+          <div className="dashboard-kpi-stack">
+            {/* Sales Card - Styled as solid brand color */}
             <div
-              className="kpi-card large"
+              className="kpi-card large solid-brand"
               onClick={() => navigate("/sales")}
               onKeyDown={(e) => activate(e, () => navigate("/sales"))}
               role="button"
               tabIndex={0}
-              aria-label="Sales today — view sales"
+              aria-label="Sales today - view sales"
             >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">Sales today</span>
@@ -252,24 +293,25 @@ export default function DashboardPage() {
                     P{Number(todaySales).toLocaleString()}
                   </div>
                   <div className="kpi-card-sub">
-                    {todayOrders} order{todayOrders !== 1 ? "s" : ""} · avg P
+                    {todayOrders} order{todayOrders !== 1 ? "s" : ""} - avg P
                     {avgTicket.toFixed(0)} ticket
                   </div>
                 </div>
-                <span className={`kpi-card-trend ${salesDir}`}>
+                <span className="kpi-card-trend">
                   <TrendArrow dir={salesDir} />
                   {labelOf(salesDelta)}
                 </span>
               </div>
             </div>
 
+            {/* Orders Card */}
             <div
               className="kpi-card large"
               onClick={() => navigate("/sales")}
               onKeyDown={(e) => activate(e, () => navigate("/sales"))}
               role="button"
               tabIndex={0}
-              aria-label="Orders today — view sales"
+              aria-label="Orders today - view sales"
             >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">Orders today</span>
@@ -293,15 +335,15 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Row 2: secondary KPIs */}
-          <div className="kpi-grid">
+          {/* COLUMN 2: Secondary KPIs (2x2 Grid) */}
+          <div className="dashboard-kpi-grid-2x2">
             <div
               className="kpi-card"
               onClick={() => navigate("/sales")}
               onKeyDown={(e) => activate(e, () => navigate("/sales"))}
               role="button"
               tabIndex={0}
-              aria-label="Average ticket — view sales"
+              aria-label="Average ticket - view sales"
             >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">Avg ticket</span>
@@ -319,7 +361,7 @@ export default function DashboardPage() {
               onKeyDown={(e) => activate(e, () => navigate("/analytics"))}
               role="button"
               tabIndex={0}
-              aria-label="Top item — view analytics"
+              aria-label="Top item - view analytics"
             >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">Top item</span>
@@ -327,8 +369,8 @@ export default function DashboardPage() {
                   <BarChart2 size={20} />
                 </span>
               </div>
-              <div className="kpi-card-value" style={{ fontSize: "var(--fs-xl)" }}>
-                {topItem ? (topItem.flavor ?? topItem.name) : "—"}
+              <div className="kpi-card-value" style={{ fontSize: "var(--fs-lg)", fontWeight: "var(--fw-extrabold)" }}>
+                {topItem ? (topItem.flavor ?? topItem.name) : "-"}
               </div>
               <div className="kpi-card-sub">
                 {topItem ? `${topItem.qty ?? 0} sold (7d)` : "No data yet"}
@@ -341,7 +383,7 @@ export default function DashboardPage() {
               onKeyDown={(e) => activate(e, () => navigate("/inventory"))}
               role="button"
               tabIndex={0}
-              aria-label="Low stock — view inventory"
+              aria-label="Low stock - view inventory"
             >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">Low stock</span>
@@ -363,7 +405,7 @@ export default function DashboardPage() {
                 {lowCount}
               </div>
               <div className="kpi-card-sub">
-                {criticalCount} critical · {lowStockAlerts.length} alert
+                {criticalCount} critical - {lowStockAlerts.length} alert
                 {lowStockAlerts.length !== 1 ? "s" : ""}
               </div>
             </div>
@@ -374,7 +416,7 @@ export default function DashboardPage() {
               onKeyDown={(e) => activate(e, () => navigate("/staff"))}
               role="button"
               tabIndex={0}
-              aria-label="Staff on shift — view staff"
+              aria-label="Staff on shift - view staff"
             >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">On shift</span>
@@ -390,16 +432,52 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
-        </>
+
+          {/* COLUMN 3: Chart Widget */}
+          {trends && trends.by_weekday ? (
+            <section className="panel dashboard-trend-panel">
+              <div className="panel-head">
+                <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", margin: 0, padding: 0 }}>
+                  Weekly sales trend
+                </h3>
+                <Badge variant="brand">
+                  P{Number(trends.total_sales).toLocaleString()}
+                </Badge>
+              </div>
+              <div className="trend-bars mt-2">
+                {trends.by_weekday.map((d) => {
+                  const pct = (d.total_sales / weeklyMax) * 100;
+                  return (
+                    <div
+                      key={d.dow}
+                      className="trend-bar-col"
+                      title={`P${Number(d.total_sales).toLocaleString()} - ${d.orders ?? 0} orders`}
+                    >
+                      <div className="trend-bar" style={{ height: `${Math.max(pct, 2)}%` }} />
+                      <span className="muted small">{d.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : (
+            <div className="panel dashboard-trend-panel" style={{ display: 'grid', placeItems: 'center' }}>
+              <EmptyState icon={TrendingUp} title="No trend data" compact />
+            </div>
+          )}
+        </div>
       )}
 
-      <div className="dashboard-body">
-        <div className="flex flex-col gap-4">
-          {/* Recent orders */}
-          <section className="panel" aria-live="polite">
-            <div className="panel-head">
-              <h3 className="section-title flex items-center gap-2">
-                <ReceiptText size={16} />
+      {/* BOTTOM SECTION */}
+      {!loading && (
+        <div className="dashboard-body">
+          
+          {/* ROW 1 ================================= */}
+          
+          {/* 1. Recent Orders (Spans 2 columns) */}
+          <section className="panel widget-orders" aria-live="polite">
+            <div className="panel-head" style={{ marginBottom: "16px" }}>
+              <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
                 Recent orders
               </h3>
               <button className="ghost small-btn" onClick={() => navigate("/sales")}>
@@ -453,11 +531,16 @@ export default function DashboardPage() {
             )}
           </section>
 
-          {/* Stock alerts */}
+          {/* 2. Live Sensor (Spans 1 column naturally) */}
+          <SensorPanel code="CART-01" />
+
+
+          {/* ROW 2 ================================= */}
+
+          {/* 3. Stock Alerts (Spans 1 column) */}
           <section className="panel">
-            <div className="panel-head">
-              <h3 className="section-title flex items-center gap-2">
-                <Bell size={16} />
+            <div className="panel-head" style={{ marginBottom: "12px" }}>
+              <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
                 Stock alerts
               </h3>
               <div className="flex items-center gap-2">
@@ -515,7 +598,7 @@ export default function DashboardPage() {
                             {it.name} <span className="text-xs muted">@ {it.locationCode}</span>
                           </div>
                           <div className="alert-item-detail">
-                            {it.stock} {it.unit} remaining · threshold {it.threshold}
+                            {it.stock} {it.unit} remaining - threshold {it.threshold}
                           </div>
                         </span>
                         <Badge variant={statusClass(it.status)}>
@@ -535,35 +618,46 @@ export default function DashboardPage() {
               </div>
             )}
           </section>
-        </div>
 
-        <div className="flex flex-col gap-4">
-          {/* Live sensor first: the only real-time ops signal on this page */}
-          <SensorPanel code="CART-01" />
-
-          {/* Weekly sales trend */}
-          {trends && trends.by_weekday && (
+          {/* 4. Cart Status (Spans 1 column) */}
+          {inventory.length > 0 && (
             <section className="panel">
-              <div className="panel-head">
-                <h3 className="section-title flex items-center gap-2">
-                  <TrendingUp size={16} />
-                  Weekly sales trend
+              <div className="panel-head" style={{ marginBottom: "12px" }}>
+                <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
+                  Cart status
                 </h3>
-                <Badge variant="brand">
-                  P{Number(trends.total_sales).toLocaleString()}
-                </Badge>
+                <Badge variant="neutral">{inventory.length} carts</Badge>
               </div>
-              <div className="trend-bars">
-                {trends.by_weekday.map((d) => {
-                  const pct = (d.total_sales / weeklyMax) * 100;
+              <div>
+                {inventory.map((loc) => {
+                  const low = loc.items.filter((i) => i.status !== "ok").length;
+                  const critical = loc.items.filter((i) => i.status === "critical").length;
+                  const dotClass = critical > 0 ? "critical" : low > 0 ? "warn" : "ok";
+
                   return (
                     <div
-                      key={d.dow}
-                      className="trend-bar-col"
-                      title={`P${Number(d.total_sales).toLocaleString()} · ${d.orders ?? 0} orders`}
+                      key={loc.id}
+                      className="cart-status-item"
+                      onClick={() => navigate("/inventory")}
+                      onKeyDown={(e) => activate(e, () => navigate("/inventory"))}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${loc.code} stock status - view inventory`}
                     >
-                      <div className="trend-bar" style={{ height: `${Math.max(pct, 2)}%` }} />
-                      <span className="muted small">{d.label}</span>
+                      <span className={`status-dot ${dotClass}`} />
+                      <span className="alert-item-text">
+                        <div className="alert-item-name">{loc.code}</div>
+                        <div className="alert-item-detail">
+                          {loc.name} - {loc.items.length} items
+                        </div>
+                      </span>
+                      <Badge variant={critical > 0 ? "danger" : low > 0 ? "warn" : "ok"}>
+                        {critical > 0
+                          ? `${critical} critical`
+                          : low > 0
+                            ? `${low} low`
+                            : "OK"}
+                      </Badge>
                     </div>
                   );
                 })}
@@ -571,11 +665,10 @@ export default function DashboardPage() {
             </section>
           )}
 
-          {/* On-shift staff */}
+          {/* 5. On-shift Staff (Spans 1 column) */}
           <section className="panel">
-            <div className="panel-head">
-              <h3 className="section-title flex items-center gap-2">
-                <Users size={16} />
+            <div className="panel-head" style={{ marginBottom: "12px" }}>
+              <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
                 On-shift staff
               </h3>
               <Badge variant={onShift.length > 0 ? "ok" : "neutral"}>
@@ -595,12 +688,13 @@ export default function DashboardPage() {
                   <div
                     key={`${s.name}-${s.location_code}`}
                     className="cart-status-item"
+                    style={{ borderBottom: "none" }}
                   >
                     <span className="staff-avatar">{initials(s.name)}</span>
                     <span className="alert-item-text">
                       <div className="alert-item-name">{s.name}</div>
                       <div className="alert-item-detail">
-                        {s.location_name} · since {formatTime(s.since)}
+                        {s.location_name} - since {formatTime(s.since)}
                       </div>
                     </span>
                     <Badge variant={s.registered ? "ok" : "danger"}>
@@ -612,54 +706,8 @@ export default function DashboardPage() {
             )}
           </section>
 
-          {/* Cart status */}
-          {inventory.length > 0 && (
-            <section className="panel">
-              <div className="panel-head">
-                <h3 className="section-title flex items-center gap-2">
-                  <Boxes size={16} />
-                  Cart status
-                </h3>
-                <Badge variant="neutral">{inventory.length} carts</Badge>
-              </div>
-              <div>
-                {inventory.map((loc) => {
-                  const low = loc.items.filter((i) => i.status !== "ok").length;
-                  const critical = loc.items.filter((i) => i.status === "critical").length;
-                  const dotClass = critical > 0 ? "critical" : low > 0 ? "warn" : "ok";
-                  return (
-                    <div
-                      key={loc.id}
-                      className="cart-status-item"
-                      onClick={() => navigate("/inventory")}
-                      onKeyDown={(e) => activate(e, () => navigate("/inventory"))}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`${loc.code} stock status — view inventory`}
-                    >
-                      <span className={`status-dot ${dotClass}`} />
-                      <span className="alert-item-text">
-                        <div className="alert-item-name">{loc.code}</div>
-                        <div className="alert-item-detail">
-                          {loc.name} · {loc.items.length} items
-                        </div>
-                      </span>
-                      <Badge variant={critical > 0 ? "danger" : low > 0 ? "warn" : "ok"}>
-                        {critical > 0
-                          ? `${critical} critical`
-                          : low > 0
-                            ? `${low} low`
-                            : "OK"}
-                      </Badge>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }
-

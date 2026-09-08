@@ -1,11 +1,10 @@
 /* ============================================================
  * PART: base.css  |  SAKOP: reset, focus, body, headings, links,
  *         text helpers, form controls, error box (lahat ng page)
- * HUWAG DITO: buttons → buttons.css | layout → layout.css
+ * HUWAG DITO: buttons -> buttons.css | layout -> layout.css
  * ============================================================ */
 
-/* ----- Base: reset, focus, page (dating 'base') ----- */
-/* ================= base ================= */
+/* ----- Base: reset, focus, page ----- */
 * { box-sizing: border-box; }
 
 /* Skip to main content for keyboard users */
@@ -16,31 +15,21 @@
   background: var(--primary);
   color: white;
   padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-sm);
+  border-radius: 99px; /* Pill shape update */
   font-weight: var(--fw-bold);
   font-size: var(--fs-sm);
   z-index: 9999;
   transition: top var(--transition-fast);
   text-decoration: none;
 }
-.skip-link:focus {
-  top: var(--space-4);
-}
+
+.skip-link:focus { top: var(--space-4); }
 
 /* Visible focus states for keyboard navigation */
-:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+:focus:not(:focus-visible) { outline: none; }
 
-/* Remove default focus for mouse users */
-:focus:not(:focus-visible) {
-  outline: none;
-}
-
-/* Global motion kill-switch: every CSS animation/transition collapses.
-   (Login keeps its own stricter block. The sensor dot's SMIL <animate>
-   is unaffected by CSS — it's a 5px pulse, accepted as-is.) */
+/* Global motion kill-switch */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -51,10 +40,7 @@
 }
 
 /* Smooth scroll */
-html {
-  scroll-behavior: smooth;
-  scroll-padding-top: 80px;
-}
+html { scroll-behavior: smooth; scroll-padding-top: 80px; }
 
 body {
   margin: 0;
@@ -63,43 +49,46 @@ body {
   color: var(--text);
   font-size: var(--fs-md);
 }
+
 h1, h2, h3, h4 { margin: 0; color: var(--text); }
 a { color: inherit; text-decoration: none; }
-
 .muted { color: var(--text-muted); }
 .small { font-size: var(--fs-xs); }
 
-/* ----- Base: form controls (dating 'buttons' block, linya 114-135) ----- */
+/* ----- Base: form controls ----- */
+/* INO-MODIFIED: Mas chunky, 14px radius, at may custom focus glow */
 input, select {
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
+  background: var(--surface-alt); 
+  border-radius: 14px; 
+  padding: 12px 16px; 
   font-size: var(--fs-md);
-  background: var(--surface);
   color: var(--text);
+  transition: all 0.2s ease;
+  outline: none;
 }
-/* Keyboard ring is never removed: 2px primary outline works on both themes. */
+
 input:focus, select:focus {
-  outline: 2px solid var(--primary);
-  outline-offset: 1px;
+  background: var(--surface); /* Pumuputi pag clinick para mag-pop */
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px var(--primary-soft);
+  box-shadow: 0 4px 12px rgba(231, 54, 49, 0.1), 0 0 0 3px var(--primary-soft);
 }
 
 label.field {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
   font-size: var(--fs-sm);
-  font-weight: 600;
-  color: var(--text-muted);
+  font-weight: 700;
+  color: var(--text);
 }
 
-/* ----- Base: error box (Login, Sales, Staff, Expenses, Analytics) ----- */
+/* ----- Base: error box ----- */
 .error-box {
   background: var(--danger-bg);
   color: var(--danger);
-  border-radius: var(--radius-sm);
-  padding: 9px 12px;
+  border-radius: 14px; /* Update para sumunod sa theme */
+  padding: 12px 16px;
   font-size: var(--fs-sm);
+  font-weight: 500;
 }

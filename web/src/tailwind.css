@@ -1,8 +1,11 @@
 @import "tailwindcss";
+@source "./**/*.{js,jsx}";
 
 /* Follow the app's existing dark toggle (Layout.jsx sets
    document.documentElement.dataset.theme = "dark").
    Needed only for `dark:`-prefixed utilities. */
+/* Tailwind CSS v4 directive; not a standard CSS at-rule. */
+/* stylelint-disable-next-line at-rule-no-unknown */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 /* Brand tokens -> Tailwind theme. Values reference theme.css

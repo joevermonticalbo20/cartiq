@@ -6,6 +6,7 @@ import '../services/auth_state.dart';
 import '../theme.dart';
 import '../utils/haptics.dart';
 import '../widgets/brand_hero.dart';
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -72,7 +73,9 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       setState(() {
         _serverOk = ok;
-        _serverMsg = ok ? 'Connected: $url' : 'Saved $url but no response - is the API running?';
+        _serverMsg = ok
+            ? 'Connected: $url'
+            : 'Saved $url but no response - is the API running?';
       });
       if (ok) {
         await Haptics.success();
@@ -89,30 +92,30 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-Future<void> _submit() async {
-        if (!_formKey.currentState!.validate()) return;
-        setState(() {
-          _loading = true;
-          _error = null;
-        });
-        try {
-          await context.read<AuthState>().signIn(
-                _username.text.trim(),
-                _password.text,
-              );
-          if (!mounted) return;
-          await Haptics.success();
-          // No imperative navigation here: CartIQApp's home rebuilds from
-          // AuthState (logged in -> RootShell, logged out -> LoginScreen).
-          // A pushReplacement would strand the shell route on top after a
-          // later sign-out, so the login page would never reappear.
-        } on ApiException catch (e) {
-          setState(() => _error = e.message);
-          await Haptics.error();
-        } finally {
-          if (mounted) setState(() => _loading = false);
-        }
-      }
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      await context.read<AuthState>().signIn(
+        _username.text.trim(),
+        _password.text,
+      );
+      if (!mounted) return;
+      await Haptics.success();
+      // No imperative navigation here: CartIQApp's home rebuilds from
+      // AuthState (logged in -> RootShell, logged out -> LoginScreen).
+      // A pushReplacement would strand the shell route on top after a
+      // later sign-out, so the login page would never reappear.
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
+      await Haptics.error();
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -137,60 +140,69 @@ Future<void> _submit() async {
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                      TextFormField(
-                        controller: _username,
-                        decoration: const InputDecoration(
-                          labelText: 'Username',
-                          prefixIcon: Icon(Icons.person_outline),
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (v) =>
-                            (v == null || v.trim().isEmpty) ? 'Enter username' : null,
-                      ),
-                      const SizedBox(height: 14),
-                      TextFormField(
-                        controller: _password,
-                        obscureText: !_showPassword,
-                        decoration: InputDecoration(
-                          labelText: 'Password',
-                          prefixIcon: const Icon(Icons.lock_outline),
-                          border: const OutlineInputBorder(),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _showPassword
-                                  ? Icons.visibility_off_rounded
-                                  : Icons.visibility_rounded,
+                            TextFormField(
+                              controller: _username,
+                              decoration: const InputDecoration(
+                                labelText: 'Username',
+                                prefixIcon: Icon(Icons.person_outline),
+                                border: OutlineInputBorder(),
+                              ),
+                              validator: (v) => (v == null || v.trim().isEmpty)
+                                  ? 'Enter username'
+                                  : null,
                             ),
-                            tooltip: _showPassword ? 'Hide password' : 'Show password',
-                            onPressed: () => setState(
-                              () => _showPassword = !_showPassword,
+                            const SizedBox(height: 14),
+                            TextFormField(
+                              controller: _password,
+                              obscureText: !_showPassword,
+                              decoration: InputDecoration(
+                                labelText: 'Password',
+                                prefixIcon: const Icon(Icons.lock_outline),
+                                border: const OutlineInputBorder(),
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _showPassword
+                                        ? Icons.visibility_off_rounded
+                                        : Icons.visibility_rounded,
+                                  ),
+                                  tooltip: _showPassword
+                                      ? 'Hide password'
+                                      : 'Show password',
+                                  onPressed: () => setState(
+                                    () => _showPassword = !_showPassword,
+                                  ),
+                                ),
+                              ),
+                              validator: (v) => (v == null || v.isEmpty)
+                                  ? 'Enter password'
+                                  : null,
+                              onFieldSubmitted: (_) =>
+                                  _loading ? null : _submit(),
                             ),
-                          ),
-                        ),
-                        validator: (v) =>
-                            (v == null || v.isEmpty) ? 'Enter password' : null,
-                        onFieldSubmitted: (_) => _loading ? null : _submit(),
-                      ),
-                      const SizedBox(height: 16),
-                      if (_error != null)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Text(
-                            _error!,
-                            style: TextStyle(color: Theme.of(context).colorScheme.error),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      FilledButton(
-                        onPressed: _loading ? null : _submit,
-                        child: _loading
-                            ? const SizedBox(
-                                height: 18,
-                                width: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Text('Sign in'),
-                      ),
+                            const SizedBox(height: 16),
+                            if (_error != null)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Text(
+                                  _error!,
+                                  style: TextStyle(
+                                    color: Theme.of(context).colorScheme.error,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            FilledButton(
+                              onPressed: _loading ? null : _submit,
+                              child: _loading
+                                  ? const SizedBox(
+                                      height: 18,
+                                      width: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Text('Sign in'),
+                            ),
                           ],
                         ),
                       ),
@@ -199,8 +211,7 @@ Future<void> _submit() async {
                   const SizedBox(height: 12),
                   _ServerCard(
                     showServer: _showServer,
-                    onToggle: () =>
-                        setState(() => _showServer = !_showServer),
+                    onToggle: () => setState(() => _showServer = !_showServer),
                     scanning: _scanning,
                     onRescan: _rescanServer,
                     serverController: _serverController,
@@ -263,9 +274,9 @@ class _ServerCard extends StatelessWidget {
               SelectableText(
                 api.currentBaseUrl,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontFamily: 'monospace',
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
               ),
               if (api.isManualUrl)
                 Text(
@@ -284,8 +295,8 @@ class _ServerCard extends StatelessWidget {
                       color: serverOk == true
                           ? AppColors.ok
                           : serverOk == false
-                              ? Theme.of(context).colorScheme.error
-                              : null,
+                          ? Theme.of(context).colorScheme.error
+                          : null,
                     ),
                   ),
                 ),

@@ -45,7 +45,9 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
     final amount = 'P${((e['amount'] ?? 0) as num).toStringAsFixed(0)}';
     if (amount.toLowerCase().contains(lq)) return true;
     if ((e['vendor'] as String? ?? '').toLowerCase().contains(lq)) return true;
-    if ((e['category'] as String? ?? '').toLowerCase().contains(lq)) return true;
+    if ((e['category'] as String? ?? '').toLowerCase().contains(lq)) {
+      return true;
+    }
     if ((e['note'] as String? ?? '').toLowerCase().contains(lq)) return true;
     final loc = e['location'] as Map<String, dynamic>?;
     if (loc != null &&
@@ -88,9 +90,9 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
     if (widget.onScanReceipt != null) {
       await widget.onScanReceipt!();
     } else {
-      await Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const ScanReceiptScreen()),
-      );
+      await Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const ScanReceiptScreen()));
     }
     _loadMore(reset: true);
   }
@@ -103,14 +105,17 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
     final grouped = <String, List<Map<String, dynamic>>>{};
     for (final e in filtered) {
       final dt = DateTime.tryParse('${e['date']}');
-      final key =
-          dt == null ? 'Unknown date' : '${dt.year}/${dt.month}/${dt.day}';
+      final key = dt == null
+          ? 'Unknown date'
+          : '${dt.year}/${dt.month}/${dt.day}';
       (grouped[key] ??= []).add(e);
     }
     final rows = <Object>[];
     for (final entry in grouped.entries) {
       final dayTotal = entry.value.fold<double>(
-          0, (s, e) => s + ((e['amount'] ?? 0) as num).toDouble());
+        0,
+        (s, e) => s + ((e['amount'] ?? 0) as num).toDouble(),
+      );
       rows.add((entry.key, entry.value.length, dayTotal));
       rows.addAll(entry.value);
     }
@@ -162,23 +167,26 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
                 icon: _search.isNotEmpty
                     ? Icons.search_off_rounded
                     : Icons.receipt_long,
-                title: _error ??
+                title:
+                    _error ??
                     (_search.isNotEmpty
                         ? 'No expenses match "$_search"'
                         : 'No expenses yet'),
                 subtitle: _search.isNotEmpty
                     ? 'Try a different vendor, category, or amount.'
                     : 'Snap a receipt and CartIQ will fill in the details.',
-                actionLabel: _search.isNotEmpty ? 'Clear search' : 'Scan a receipt',
+                actionLabel: _search.isNotEmpty
+                    ? 'Clear search'
+                    : 'Scan a receipt',
                 actionIcon: _search.isNotEmpty
                     ? Icons.close
                     : Icons.camera_alt_rounded,
                 onAction: _search.isNotEmpty
                     ? () => setState(() {
-                          _search = '';
-                          _searchCtrl.clear();
-                          _searching = false;
-                        })
+                        _search = '';
+                        _searchCtrl.clear();
+                        _searching = false;
+                      })
                     : () => _scanAndReload(),
               )
             : NotificationListener<ScrollNotification>(
@@ -192,14 +200,15 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(14),
                   itemCount: rows.length + (_loading ? 1 : 0),
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (context, i) {
                     if (i >= rows.length) {
                       return const Center(
-                          child: Padding(
-                        padding: EdgeInsets.all(12),
-                        child: CircularProgressIndicator(),
-                      ));
+                        child: Padding(
+                          padding: EdgeInsets.all(12),
+                          child: CircularProgressIndicator(),
+                        ),
+                      );
                     }
                     final row = rows[i];
                     if (row is (String, int, double)) {
@@ -216,9 +225,7 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
                             ),
                             Text(
                               'P${total.toStringAsFixed(0)}',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelSmall
+                              style: Theme.of(context).textTheme.labelSmall
                                   ?.copyWith(fontWeight: FontWeight.w800),
                             ),
                           ],
@@ -235,7 +242,9 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
                       margin: EdgeInsets.zero,
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 6),
+                          horizontal: 14,
+                          vertical: 6,
+                        ),
                         leading: Container(
                           width: 42,
                           height: 42,
@@ -252,15 +261,17 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
                             size: 21,
                             color: isOcr
                                 ? AppColors.primary
-                                : Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant,
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
                           ),
                         ),
-                        title: Text(e['vendor'] ?? '',
-                            style: Theme.of(context).textTheme.titleMedium,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis),
+                        title: Text(
+                          e['vendor'] ?? '',
+                          style: Theme.of(context).textTheme.titleMedium,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                         subtitle: Text(
                           '$dateStr · ${e['category'] ?? 'Other'}'
                           '${(e['location'] as Map<String, dynamic>?)?['code'] != null ? ' · ${(e['location'] as Map<String, dynamic>)['code']}' : ''}',
@@ -273,21 +284,21 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
                           children: [
                             Text(
                               'P${((e['amount'] ?? 0) as num).toStringAsFixed(0)}',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
+                              style: Theme.of(context).textTheme.titleMedium
                                   ?.copyWith(fontWeight: FontWeight.w800),
                             ),
                             const SizedBox(height: 2),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 7, vertical: 2),
+                                horizontal: 7,
+                                vertical: 2,
+                              ),
                               decoration: BoxDecoration(
                                 color: isOcr
                                     ? AppColors.warn
-                                    : Theme.of(context)
-                                        .colorScheme
-                                        .surfaceContainerHighest,
+                                    : Theme.of(
+                                        context,
+                                      ).colorScheme.surfaceContainerHighest,
                                 borderRadius: BorderRadius.circular(99),
                               ),
                               child: Text(
@@ -297,9 +308,9 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
                                   fontWeight: FontWeight.w800,
                                   color: isOcr
                                       ? Colors.white
-                                      : Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant,
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.onSurfaceVariant,
                                 ),
                               ),
                             ),
@@ -314,4 +325,3 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
     );
   }
 }
-

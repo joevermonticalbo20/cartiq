@@ -1,44 +1,106 @@
 /* ============================================================
- * PART: inventory.css  |  SAKOP: InventoryPage lang — bulk action
- *         bar, bulk input
- * HUWAG DITO: table mismo → tables.css
+ * PART: inventory.css  |  SAKOP: InventoryPage lang
  * ============================================================ */
 
-/* ----- Inventory: bulk action bar (dating 'bulk action bar') ----- */
+/* Pangunahing panel para sa Inventory Table (mahaba) */
+.inventory-panel {
+  min-height: 65vh;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-5);
+}
+
+.inventory-panel > .table-wrap {
+  flex: 1;
+}
+.inventory-panel > .empty-state-card {
+  flex: 1;
+  justify-content: center;
+  border: none;
+}
+
+.inventory-filters-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 /* ================= bulk action bar ================= */
 .bulk-action-bar {
   position: sticky;
-  bottom: 0;
+  bottom: 24px; /* Floating toolbar effect */
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
   flex-wrap: wrap;
-  padding: 14px 18px;
-  margin-top: 14px;
+  padding: 14px 24px;
+  margin-top: 24px;
   background: var(--surface);
-  border: 2px solid var(--primary);
-  border-radius: var(--radius);
-  box-shadow: 0 -6px 20px rgba(10, 9, 8, 0.12);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(231, 54, 49, 0.15); /* Brand-tinted elegant shadow */
   z-index: 10;
 }
-.bulk-action-bar input {
-  padding: 7px 10px;
-  font-size: 16px; /* 16px stops iOS auto-zoom on focus */
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg);
-  color: var(--text);
+[data-theme="dark"] .bulk-action-bar {
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
 }
 
-/* ----- Inventory: bulk input (InventoryPage — dating 'utility' block) ----- */
-.bulk-input { width: 140px; }
+.bulk-action-bar input {
+  padding: 8px 12px;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  color: var(--text);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  outline: none;
+  height: 36px;
+}
+.bulk-action-bar input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+.bulk-input { 
+  width: 140px; 
+}
 
-/* ----- Responsive (max-width: 640px): mobile — bulk bar never covers the table ----- */
+/* ================= table checkbox ================= */
+button.table-checkbox {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+button.table-checkbox:hover {
+  background: var(--surface-alt);
+  color: var(--text);
+}
+button.table-checkbox.checked {
+  color: var(--primary);
+}
+button.table-checkbox.checked:hover {
+  background: var(--primary-tint);
+}
+[data-theme="dark"] button.table-checkbox.checked:hover {
+  background: var(--primary-soft);
+}
+
+/* Responsive (max-width: 640px): mobile */
 @media (max-width: 640px) {
   .bulk-action-bar {
-    padding: 10px 12px;
-    max-height: 38vh;
-    overflow-y: auto;
+    bottom: 0;
+    border-radius: 16px 16px 0 0;
+    padding: 12px 16px;
   }
   .bulk-input { width: 100%; }
 }

@@ -16,7 +16,10 @@ import '../widgets/empty_state.dart';
 
 String newClientRef() {
   final rnd = Random.secure();
-  final hex = List.generate(16, (_) => rnd.nextInt(16).toRadixString(16)).join();
+  final hex = List.generate(
+    16,
+    (_) => rnd.nextInt(16).toRadixString(16),
+  ).join();
   return '$hex-${DateTime.now().millisecondsSinceEpoch}';
 }
 
@@ -24,16 +27,16 @@ enum PaymentMethod { cash, gcash, card }
 
 extension PaymentMethodX on PaymentMethod {
   String get label => switch (this) {
-        PaymentMethod.cash => 'Cash',
-        PaymentMethod.gcash => 'GCash',
-        PaymentMethod.card => 'Card',
-      };
+    PaymentMethod.cash => 'Cash',
+    PaymentMethod.gcash => 'GCash',
+    PaymentMethod.card => 'Card',
+  };
 
   IconData get icon => switch (this) {
-        PaymentMethod.cash => Icons.payments_rounded,
-        PaymentMethod.gcash => Icons.phone_android_rounded,
-        PaymentMethod.card => Icons.credit_card_rounded,
-      };
+    PaymentMethod.cash => Icons.payments_rounded,
+    PaymentMethod.gcash => Icons.phone_android_rounded,
+    PaymentMethod.card => Icons.credit_card_rounded,
+  };
 }
 
 class PosScreen extends StatefulWidget {
@@ -93,10 +96,10 @@ class _PosScreenState extends State<PosScreen> {
         backgroundColor: error
             ? AppColors.danger
             : success
-                ? AppColors.ok
-                : Theme.of(context).brightness == Brightness.dark
-                    ? const Color(0xFF0A0908)
-                    : null,
+            ? AppColors.ok
+            : Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF0A0908)
+            : null,
         content: Text(message, style: const TextStyle(color: Colors.white)),
         duration: const Duration(seconds: 2),
       ),
@@ -115,8 +118,9 @@ class _PosScreenState extends State<PosScreen> {
 
   Future<void> _openItemSheet(Map<String, dynamic> product) async {
     final flavors = (product['flavors'] as List).cast<Map<String, dynamic>>();
-    String? selectedFlavor =
-        flavors.isNotEmpty ? flavors.first['name'] as String : null;
+    String? selectedFlavor = flavors.isNotEmpty
+        ? flavors.first['name'] as String
+        : null;
     var qty = 1;
 
     if (flavors.isEmpty) {
@@ -130,8 +134,9 @@ class _PosScreenState extends State<PosScreen> {
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
-            final price =
-                ((product['basePrice'] as num) * qty).toStringAsFixed(0);
+            final price = ((product['basePrice'] as num) * qty).toStringAsFixed(
+              0,
+            );
             return Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
               child: Column(
@@ -158,7 +163,10 @@ class _PosScreenState extends State<PosScreen> {
                     style: Theme.of(sheetContext).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 20),
-                  const Text('Flavor', style: TextStyle(fontWeight: FontWeight.w700)),
+                  const Text(
+                    'Flavor',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
                   const SizedBox(height: 10),
                   Wrap(
                     spacing: 8,
@@ -169,7 +177,8 @@ class _PosScreenState extends State<PosScreen> {
                           label: Text(f['name'] as String),
                           selected: selectedFlavor == f['name'],
                           onSelected: (_) => setSheetState(
-                              () => selectedFlavor = f['name'] as String),
+                            () => selectedFlavor = f['name'] as String,
+                          ),
                           showCheckmark: false,
                           selectedColor: AppColors.primary,
                           labelStyle: TextStyle(
@@ -192,13 +201,10 @@ class _PosScreenState extends State<PosScreen> {
                             : null,
                       ),
                       Padding(
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 24),
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
                         child: Text(
                           qty.toString(),
-                          style: Theme.of(sheetContext)
-                              .textTheme
-                              .headlineMedium
+                          style: Theme.of(sheetContext).textTheme.headlineMedium
                               ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                       ),
@@ -216,11 +222,10 @@ class _PosScreenState extends State<PosScreen> {
                     icon: const Icon(Icons.add_shopping_cart_rounded),
                     label: Text('Add to order · P$price'),
                     onPressed: () {
-                      _addToCart(product,
-                          flavor: selectedFlavor, qty: qty);
+                      _addToCart(product, flavor: selectedFlavor, qty: qty);
                       Navigator.pop(sheetContext);
                       _showSnack(
-                        'Added: ${product['name']}${selectedFlavor != null ? ' (${selectedFlavor})' : ''} × $qty',
+                        'Added: ${product['name']}${selectedFlavor != null ? ' ($selectedFlavor)' : ''} × $qty',
                         success: true,
                       );
                     },
@@ -275,11 +280,13 @@ class _PosScreenState extends State<PosScreen> {
 
     final snapshotTotal = cart.total;
     cart.clear();
-    await _queue.enqueue(QueuedRecord(
-      id: payload['clientRef'] as String,
-      kind: 'order',
-      payload: payload,
-    ));
+    await _queue.enqueue(
+      QueuedRecord(
+        id: payload['clientRef'] as String,
+        kind: 'order',
+        payload: payload,
+      ),
+    );
 
     if (sheetContext.mounted) Navigator.pop(sheetContext);
 
@@ -315,8 +322,9 @@ class _PosScreenState extends State<PosScreen> {
     required bool synced,
     required String? queueMessage,
   }) async {
-    final change =
-        method == PaymentMethod.cash && cashTendered != null ? cashTendered - total : 0;
+    final change = method == PaymentMethod.cash && cashTendered != null
+        ? cashTendered - total
+        : 0;
     await showModalBottomSheet<void>(
       context: context,
       builder: (ctx) => Padding(
@@ -420,8 +428,10 @@ class _PosScreenState extends State<PosScreen> {
                 prefixIcon: const Icon(Icons.search),
                 border: const OutlineInputBorder(),
                 isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 14,
+                ),
                 suffixIcon: _search.isEmpty
                     ? null
                     : IconButton(
@@ -445,15 +455,18 @@ class _PosScreenState extends State<PosScreen> {
               future: _catalogFuture,
               builder: (context, snap) {
                 if (!snap.hasData) return const SizedBox.shrink();
-                final categories = ['All', ...?snap.data
-                    ?.map((p) => p['category'] as String?)
-                    .where((c) => c != null && c.isNotEmpty)
-                    .toSet()];
+                final categories = [
+                  'All',
+                  ...?snap.data
+                      ?.map((p) => p['category'] as String?)
+                      .where((c) => c != null && c.isNotEmpty)
+                      .toSet(),
+                ];
                 return ListView.separated(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 14),
                   itemCount: categories.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  separatorBuilder: (_, _) => const SizedBox(width: 8),
                   itemBuilder: (context, i) {
                     final cat = categories[i];
                     final selected = cat == _categoryFilter;
@@ -468,8 +481,7 @@ class _PosScreenState extends State<PosScreen> {
                       selectedColor: AppColors.primary,
                       labelStyle: TextStyle(
                         fontWeight: FontWeight.w700,
-                        color:
-                            selected ? Colors.white : null,
+                        color: selected ? Colors.white : null,
                       ),
                     );
                   },
@@ -510,13 +522,15 @@ class _PosScreenState extends State<PosScreen> {
                   );
                 }
                 final products = (snap.data ?? const [])
-                    .where((p) =>
-                        (_search.isEmpty ||
-                            (p['name'] as String)
-                                .toLowerCase()
-                                .contains(_search)) &&
-                        (_categoryFilter == 'All' ||
-                            p['category'] == _categoryFilter))
+                    .where(
+                      (p) =>
+                          (_search.isEmpty ||
+                              (p['name'] as String).toLowerCase().contains(
+                                _search,
+                              )) &&
+                          (_categoryFilter == 'All' ||
+                              p['category'] == _categoryFilter),
+                    )
                     .toList();
                 if (products.isEmpty) {
                   return AppEmptyState(
@@ -530,8 +544,7 @@ class _PosScreenState extends State<PosScreen> {
                 }
                 return GridView.builder(
                   padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
-                  gridDelegate:
-                      const SliverGridDelegateWithMaxCrossAxisExtent(
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                     maxCrossAxisExtent: 190,
                     childAspectRatio: 0.95,
                     crossAxisSpacing: 12,
@@ -540,8 +553,7 @@ class _PosScreenState extends State<PosScreen> {
                   itemCount: products.length,
                   itemBuilder: (context, i) {
                     final product = products[i];
-                    final flavorCount =
-                        (product['flavors'] as List).length;
+                    final flavorCount = (product['flavors'] as List).length;
                     final cart = context.watch<CartState>();
                     final inCartQty = cart.items
                         .where((it) => it.productName == product['name'])
@@ -582,10 +594,7 @@ class _PosScreenState extends State<PosScreen> {
             ),
           ),
           // Persistent cart panel at bottom
-          _CartBar(
-            cart: cart,
-            onTap: _openCartSheet,
-          ),
+          _CartBar(cart: cart, onTap: _openCartSheet),
         ],
       ),
     );
@@ -657,10 +666,9 @@ class _ProductCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       name,
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w700),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -669,7 +677,9 @@ class _ProductCard extends StatelessWidget {
                     const SizedBox(width: 4),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 7, vertical: 2),
+                        horizontal: 7,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.primary,
                         borderRadius: BorderRadius.circular(99),
@@ -695,9 +705,7 @@ class _ProductCard extends StatelessWidget {
                   Flexible(
                     child: Text(
                       'P$price',
-                      style: Theme.of(context)
-                          .textTheme
-                          .headlineSmall
+                      style: Theme.of(context).textTheme.headlineSmall
                           ?.copyWith(
                             color: AppColors.primary,
                             fontWeight: FontWeight.w800,
@@ -709,7 +717,9 @@ class _ProductCard extends StatelessWidget {
                   if (flavorCount > 0)
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.primary.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(99),
@@ -733,11 +743,7 @@ class _ProductCard extends StatelessWidget {
                         child: const SizedBox(
                           width: 44,
                           height: 44,
-                          child: Icon(
-                            Icons.add,
-                            color: Colors.white,
-                            size: 22,
-                          ),
+                          child: Icon(Icons.add, color: Colors.white, size: 22),
                         ),
                       ),
                     ),
@@ -833,14 +839,15 @@ class _OfflineStripState extends State<_OfflineStrip> {
           decoration: BoxDecoration(
             color: AppColors.warn.withValues(alpha: 0.14),
             borderRadius: BorderRadius.circular(AppRadius.s),
-            border: Border.all(
-              color: AppColors.warn.withValues(alpha: 0.45),
-            ),
+            border: Border.all(color: AppColors.warn.withValues(alpha: 0.45)),
           ),
           child: Row(
             children: [
-              const Icon(Icons.cloud_upload_outlined,
-                  size: 18, color: AppColors.warn),
+              const Icon(
+                Icons.cloud_upload_outlined,
+                size: 18,
+                color: AppColors.warn,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -869,9 +876,7 @@ class _CartBar extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-        border: Border(
-          top: BorderSide(color: Theme.of(context).dividerColor),
-        ),
+        border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
         boxShadow: AppShadow.md(),
       ),
       child: SafeArea(
@@ -888,11 +893,12 @@ class _CartBar extends StatelessWidget {
               onTap: isEmpty ? null : onTap,
               child: Container(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 18, vertical: 14),
+                  horizontal: 18,
+                  vertical: 14,
+                ),
                 child: Row(
                   children: [
-                    const Icon(Icons.receipt_long_rounded,
-                        color: Colors.white),
+                    const Icon(Icons.receipt_long_rounded, color: Colors.white),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -924,8 +930,10 @@ class _CartBar extends StatelessWidget {
                       ),
                     ),
                     if (!isEmpty)
-                      const Icon(Icons.chevron_right_rounded,
-                          color: Colors.white),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        color: Colors.white,
+                      ),
                   ],
                 ),
               ),
@@ -960,14 +968,12 @@ class _CartSheetState extends State<_CartSheet> {
   double get _tendered => double.tryParse(_cashController.text) ?? 0;
   double get _change =>
       _method == PaymentMethod.cash ? _tendered - widget.cart.total : 0;
-  bool get _canPay => _method != PaymentMethod.cash || _tendered >= widget.cart.total;
+  bool get _canPay =>
+      _method != PaymentMethod.cash || _tendered >= widget.cart.total;
 
   void _submitIfReady() {
     if (!_canPay) return;
-    widget.onPay(
-      _method,
-      _method == PaymentMethod.cash ? _tendered : null,
-    );
+    widget.onPay(_method, _method == PaymentMethod.cash ? _tendered : null);
   }
 
   @override
@@ -1024,16 +1030,18 @@ class _CartSheetState extends State<_CartSheet> {
                       shape: BoxShape.circle,
                     ),
                     alignment: Alignment.center,
-                    child: const Icon(Icons.shopping_basket_outlined,
-                        size: 30, color: AppColors.primary),
+                    child: const Icon(
+                      Icons.shopping_basket_outlined,
+                      size: 30,
+                      color: AppColors.primary,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Text(
                     'No items yet',
-                    style: Theme.of(context)
-                        .textTheme
-                        .headlineSmall
-                        ?.copyWith(fontWeight: FontWeight.w800),
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -1049,7 +1057,7 @@ class _CartSheetState extends State<_CartSheet> {
               child: ListView.separated(
                 shrinkWrap: true,
                 itemCount: cart.items.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
+                separatorBuilder: (_, _) => const Divider(height: 1),
                 itemBuilder: (context, i) {
                   final item = cart.items[i];
                   return Padding(
@@ -1083,7 +1091,8 @@ class _CartSheetState extends State<_CartSheet> {
                                     ? item.productName
                                     : '${item.productName} (${item.flavor})',
                                 style: const TextStyle(
-                                    fontWeight: FontWeight.w700),
+                                  fontWeight: FontWeight.w700,
+                                ),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -1110,8 +1119,7 @@ class _CartSheetState extends State<_CartSheet> {
                           child: Text(
                             'P${item.lineTotal.toStringAsFixed(0)}',
                             textAlign: TextAlign.end,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w800),
+                            style: const TextStyle(fontWeight: FontWeight.w800),
                           ),
                         ),
                       ],
@@ -1126,17 +1134,13 @@ class _CartSheetState extends State<_CartSheet> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Total',
-                    style: Theme.of(context).textTheme.titleMedium),
+                Text('Total', style: Theme.of(context).textTheme.titleMedium),
                 Text(
                   'P${cart.total.toStringAsFixed(0)}',
-                  style: Theme.of(context)
-                      .textTheme
-                      .headlineSmall
-                      ?.copyWith(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w800,
-                      ),
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ],
             ),
@@ -1145,9 +1149,9 @@ class _CartSheetState extends State<_CartSheet> {
             Text(
               'Payment method',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: Theme.of(context).textTheme.bodySmall?.color,
-                  ),
+                fontWeight: FontWeight.w700,
+                color: Theme.of(context).textTheme.bodySmall?.color,
+              ),
             ),
             const SizedBox(height: 8),
             Row(
@@ -1166,8 +1170,7 @@ class _CartSheetState extends State<_CartSheet> {
                       },
                     ),
                   ),
-                  if (m != PaymentMethod.values.last)
-                    const SizedBox(width: 8),
+                  if (m != PaymentMethod.values.last) const SizedBox(width: 8),
                 ],
               ],
             ),
@@ -1176,8 +1179,9 @@ class _CartSheetState extends State<_CartSheet> {
               TextField(
                 controller: _cashController,
                 autofocus: true,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 textInputAction: TextInputAction.done,
                 inputFormatters: [
                   FilteringTextInputFormatter.allow(RegExp(r'[\d.]')),

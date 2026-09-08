@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { CheckCircle2, Info, XCircle } from "lucide-react";
+import { CheckCircle2, Info, XCircle, X } from "lucide-react";
 
 const ToastContext = createContext(() => {});
 
@@ -22,6 +22,7 @@ export function ToastProvider({ children }) {
   const push = useCallback((message, type = "info") => {
     const id = ++idRef.current;
     setToasts((t) => [...t, { id, message, type }]);
+    
     setTimeout(() => {
       setToasts((t) => t.filter((x) => x.id !== id));
     }, 5000);
@@ -37,7 +38,7 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={push}>
       {children}
-      {/* NOTE: no aria-live here — each toast announces itself once via
+      {/* NOTE: no aria-live here   each toast announces itself once via
           role=status/alert below. A live host + live items double-announces. */}
       <div className="toast-host">
         {toasts.map((t) => (
@@ -48,19 +49,21 @@ export function ToastProvider({ children }) {
             aria-atomic="true"
           >
             {t.type === "success" ? (
-              <CheckCircle2 size={17} />
+              <CheckCircle2 size={18} />
             ) : t.type === "error" ? (
-              <XCircle size={17} />
+              <XCircle size={18} />
             ) : (
-              <Info size={17} />
+              <Info size={18} />
             )}
-            <span>{t.message}</span>
+            
+            <span className="toast-msg">{t.message}</span>
+            
             <button
-              className="ghost icon-only toast-close"
+              className="toast-close"
               aria-label="Dismiss notification"
               onClick={() => dismiss(t.id)}
             >
-              ×
+              <X size={15} />
             </button>
           </div>
         ))}

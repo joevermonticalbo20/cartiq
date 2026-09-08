@@ -1,13 +1,8 @@
 /* ============================================================
- * PART: dashboard.css  |  SAKOP: DashboardPage lang — header actions,
- *         KPI trending, trend bars, cart status, SSE badge/pill,
- *         alert list, dashboard body
- * PINAGSAMA: dating dalawang "dashboard header" (867 + 1206)
- * HUWAG DITO: tables → tables.css | sensor → sensor.css
+ * PART: dashboard.css  |  SAKOP: DashboardPage lang
  * ============================================================ */
 
-/* ----- Dashboard: header actions + date picker (dating 'dashboard header' #1) ----- */
-/* ================= dashboard header ================= */
+/* ----- Dashboard: header actions + date picker ----- */
 .header-actions {
   display: flex;
   gap: 8px;
@@ -29,6 +24,7 @@
 .header-actions .small-btn:hover {
   background: var(--primary-soft);
 }
+
 .date-picker-overlay {
   position: absolute;
   top: calc(100% + 4px);
@@ -54,9 +50,6 @@
   border: none;
 }
 
-/* ----- Dashboard: KPI trending ----- */
-/* TANDAAN: kpi-trending — 0 hits sa JSX, mukhang hindi ginagamit. Huwag burahin nang walang check. */
-/* ================= kpi trending ================= */
 .kpi-trending {
   font-size: var(--fs-xs);
   font-weight: 600;
@@ -72,9 +65,6 @@
   display: none;
 }
 
-/* ----- Dashboard: refresh indicator ----- */
-/* TANDAAN: refresh-indicator — 0 hits sa JSX, mukhang hindi ginagamit. Huwag burahin nang walang check. */
-/* ================= refresh indicator ================= */
 .refresh-indicator {
   position: fixed;
   bottom: 12px;
@@ -89,8 +79,6 @@
   z-index: 40;
 }
 
-/* ----- Dashboard: trend bars (dating 'trend bars') ----- */
-/* ================= trend bars ================= */
 .trend-bars {
   display: flex;
   gap: 6px;
@@ -107,21 +95,20 @@
   height: 100%;
   justify-content: flex-end;
 }
+
+/* INO-MODIFIED: Pill-shaped top para sa chart bars */
 .trend-bar {
   width: 100%;
-  max-width: 40px;
+  max-width: 36px;
   min-height: 4px;
-  background: linear-gradient(180deg, var(--primary), var(--accent));
-  border-radius: 4px 4px 0 0;
-  transition: height 0.3s ease;
+  background: linear-gradient(180deg, var(--primary), color-mix(in srgb, var(--primary) 20%, transparent));
+  border-radius: 99px 99px 0 0;
+  transition: height 0.5s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s;
 }
 .trend-bar-col:hover .trend-bar {
   filter: brightness(1.15);
 }
 
-/* ----- Dashboard: cart list/status (dating 'cart list') ----- */
-/* TANDAAN: cart-row/cart-list — 0 hits sa JSX (cart-status-item aktibo). Huwag burahin nang walang check. */
-/* ================= cart list ================= */
 .cart-list {
   display: flex;
   flex-direction: column;
@@ -142,6 +129,7 @@
   background: var(--primary-soft);
   border-color: var(--primary);
 }
+
 .cart-status {
   display: flex;
   flex-direction: column;
@@ -149,8 +137,6 @@
   gap: 4px;
 }
 
-/* ----- Dashboard: dashboard header — PINAGSAMA #1 (867) at #2 (1206) ----- */
-/* ================= dashboard header ================= */
 .dashboard-header {
   display: flex;
   justify-content: space-between;
@@ -164,8 +150,6 @@
   font-size: var(--fs-lg);
 }
 
-/* ----- Dashboard: live SSE badge (dating 'live SSE badge') ----- */
-/* ================= live SSE badge ================= */
 .live-badge {
   display: inline-flex;
   align-items: center;
@@ -181,47 +165,199 @@
   font-weight: 700;
   animation: live-badge-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-
 @keyframes live-badge-pop {
-  from { transform: scale(0); opacity: 0; }
-  to   { transform: scale(1); opacity: 1; }
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
-/* ----- Dashboard: body, SSE pill, alert list (dating 'dashboard') ----- */
-/* ================= dashboard ================= */
+/* ============================================================
+ * NEW LAYOUT: Dashboard Modern Grid
+ * ============================================================ */
+
+/* Top row 3-column masonry-like grid */
+.dashboard-top-row {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr 1.5fr;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+  align-items: stretch;
+}
+
+/* Left col: Stacked large KPIs */
+.dashboard-kpi-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Middle col: 2x2 small KPIs */
+.dashboard-kpi-grid-2x2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+/* Make kpi cards flex grow to fill height evenly */
+.dashboard-kpi-stack .kpi-card,
+.dashboard-kpi-grid-2x2 .kpi-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* INO-MODIFIED: Premium Solid Brand Card Setup */
+.kpi-card.solid-brand {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-strong) 100%);
+  color: white;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 16px 32px rgba(231, 54, 49, 0.35); /* Glowing brand shadow */
+}
+
+/* Floating glowing orb sa itaas */
+.kpi-card.solid-brand::before {
+  content: "";
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.2) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+/* Floating glowing orb sa ibaba */
+.kpi-card.solid-brand::after {
+  content: "";
+  position: absolute;
+  bottom: -30px;
+  left: -20px;
+  width: 140px;
+  height: 140px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.12) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.kpi-card.solid-brand .kpi-card-label,
+.kpi-card.solid-brand .kpi-card-value {
+  color: white;
+  position: relative;
+  z-index: 2;
+}
+.kpi-card.solid-brand .kpi-card-sub {
+  color: rgba(255, 255, 255, 0.85);
+  position: relative;
+  z-index: 2;
+}
+.kpi-card.solid-brand .kpi-card-icon {
+  background: rgba(255, 255, 255, 0.25);
+  color: white;
+  position: relative;
+  z-index: 2;
+}
+.kpi-card.solid-brand .kpi-card-trend {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  position: relative;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+/* Dark theme specific fixes for solid card */
+[data-theme="dark"] .kpi-card.solid-brand {
+  border: none; /* Tanggalin ang border sa dark mode para solid pa rin */
+}
+
+/* Right col: Trend Chart acting as the wide widget */
+.dashboard-trend-panel {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
+}
+.dashboard-trend-panel .trend-bars {
+  flex: 1;
+  padding-bottom: 0;
+  min-height: 140px;
+}
+
+/* Bottom layout - 3 Column Grid */
 .dashboard-body {
   display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: var(--space-5);
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
   align-items: start;
 }
 
-
-/* sse pill */
-.sse-pill {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: var(--fs-xs); font-weight: var(--fw-semibold);
-  padding: 3px 8px; border-radius: 99px;
-  background: var(--surface); border: 1px solid var(--border);
+/* Papalaparin natin ang table para hindi squished */
+.widget-orders {
+  grid-column: span 2;
 }
-.sse-pill.open { border-color: var(--success); color: var(--success); background: var(--success-bg); }
-.sse-pill.down { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
-.sse-pill.connecting { color: var(--text-muted); }
 
-/* alert list compact */
+.sse-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  padding: 3px 8px;
+  border-radius: 99px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.sse-pill.open {
+  border-color: var(--success);
+  color: var(--success);
+  background: var(--success-bg);
+}
+.sse-pill.down {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+.sse-pill.connecting {
+  color: var(--text-muted);
+}
+
 .alert-item {
-  display: flex; align-items: center; gap: var(--space-3);
-  padding: var(--space-2) 0; border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
   font-size: var(--fs-sm);
 }
-.alert-item:last-child { border-bottom: none; }
-.alert-item-icon { flex-shrink: 0; }
-.alert-item-text { flex: 1; min-width: 0; }
-.alert-item-name { font-weight: var(--fw-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.alert-item-detail { font-size: var(--fs-xs); color: var(--text-muted); }
+.alert-item:last-child {
+  border-bottom: none;
+}
+.alert-item-icon {
+  flex-shrink: 0;
+}
+.alert-item-text {
+  flex: 1;
+  min-width: 0;
+}
+.alert-item-name {
+  font-weight: var(--fw-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.alert-item-detail {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
 
-/* ----- Dashboard: alert rows (dating 'chips' block, linya 428-437) ----- */
-/* TANDAAN: alert-row — 0 hits sa JSX (alert-item aktibo). Huwag burahin nang walang check. */
 .alert-row {
   display: flex;
   justify-content: space-between;
@@ -230,19 +366,76 @@
   padding: 9px 0;
   border-bottom: 1px solid var(--border);
 }
-.alert-row:last-child { border-bottom: none; }
-.alert-row.read { opacity: 0.6; }
+.alert-row:last-child {
+  border-bottom: none;
+}
+.alert-row.read {
+  opacity: 0.6;
+}
 
-/* ----- Dashboard: cart status dots (dating 'dashboard' block) ----- */
-/* cart status */
-.cart-status-item { display: flex; align-items: center; gap: var(--space-3); padding: 6px 0; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
-.cart-status-item:last-child { border-bottom: none; }
-.status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.status-dot.ok { background: var(--success); }
-.status-dot.warn { background: var(--warn); }
-.status-dot.critical { background: var(--danger); animation: pulse-critical 2s infinite; }
+.cart-status-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.cart-status-item:hover {
+  background: var(--surface-alt);
+  border-radius: var(--radius-sm);
+  padding-left: 6px;
+  margin-left: -6px;
+}
+.cart-status-item:last-child {
+  border-bottom: none;
+}
 
-/* ----- Responsive (max-width: 1200px): tablet landscape — dashboard body ----- */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot.ok {
+  background: var(--success);
+}
+.status-dot.warn {
+  background: var(--warn);
+}
+.status-dot.critical {
+  background: var(--danger);
+  animation: pulse-critical 2s infinite;
+}
+
+/* Responsive Adjustments for new layout */
 @media (max-width: 1200px) {
-.dashboard-body { grid-template-columns: 1fr; }
+  .dashboard-top-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .dashboard-trend-panel {
+    grid-column: span 2;
+  }
+  .dashboard-body {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .widget-orders {
+    grid-column: span 2;
+  }
+}
+@media (max-width: 900px) {
+  .dashboard-top-row {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-trend-panel {
+    grid-column: span 1;
+  }
+  .dashboard-body {
+    grid-template-columns: 1fr;
+  }
+  .widget-orders {
+    grid-column: span 1;
+  }
 }

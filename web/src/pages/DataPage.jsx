@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Download, FileUp, FileDown } from "lucide-react";
+import { Download, FileUp, FileDown, CheckCircle2, AlertTriangle } from "lucide-react";
 import api from "../api.js";
 import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
@@ -56,7 +56,7 @@ export default function DataPage() {
       const res = await api.post("/import/products?dry_run=true", form);
       setPreview(res.data);
       if (res.data.errors.length > 0) {
-        toast(`${res.data.errors.length} row(s) need fixing before commit`, "info");
+        toast(`${res.data.errors.length} row(s) need fixing before commit`, "warn");
       } else {
         toast(`${res.data.valid_count} valid row(s) - ready to commit`, "success");
       }
@@ -87,113 +87,183 @@ export default function DataPage() {
     }
   }
 
+  // Function para i-trigger ang download gamit ang totoong button
+  function downloadTemplate() {
+    const link = document.createElement("a");
+    link.href = "/templates/products-template.xlsx";
+    link.download = "products-template.xlsx";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
   return (
     <PageErrorBoundary>
-    <div className="page-container">
-    <PageHeader
-      eyebrow="Operations"
-      title="Data Hub"
-      sub="Excel out, product workbooks in — previewed before anything commits."
-    />
-    <div className="settings-grid">
-      <section className="panel">
-        <h3 className="section-title">Export workbooks</h3>
-        <p className="muted small">
-          Download real Excel files for the selected period. Sales include a
-          line-item sheet plus per-cart summary.
-        </p>
-        <label className="field" style={{ marginBottom: "var(--space-2)" }}>
-          Period
-          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
-        </label>
-        <div className="seg">
-          {["sales", "inventory", "expenses", "shifts"].map((ds) => (
-            <button
-              key={ds}
-              className="ghost small-btn"
-              disabled={busyExport !== null}
-              aria-busy={busyExport === ds}
-              onClick={() => doExport(ds)}
-            >
-              <Download size={14} /> {busyExport === ds ? `${ds}…` : ds}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel">
-        <h3 className="section-title">Bulk import products</h3>
-        <p className="muted small">
-          Columns: name* | category | basePrice* | flavors (&quot;Cheese;BBQ&quot;).
-          Preview validates every row first; commit stays blocked until the file
-          is error-free.
-        </p>
-        <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
-          <button
-            className="ghost"
-            disabled={busyImport}
-            onClick={() => fileRef.current?.click()}
-          >
-            <FileUp size={16} /> {busyImport ? "Reading file…" : "Choose .xlsx file"}
-          </button>
-          <a
-            className="ghost"
-            href="/templates/products-template.xlsx"
-            download
-            style={{ textDecoration: "none" }}
-          >
-            <FileDown size={16} /> Download sample template
-          </a>
-        </div>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".xlsx"
-          onChange={handleFile}
-          className="hidden"
+      <div className="page-container wide">
+        <PageHeader
+          eyebrow="Operations"
+          title="Data Hub"
+          sub="Excel out, product workbooks in - previewed before anything commits."
         />
 
-        {preview && (
-          <div style={{ marginTop: "var(--space-3)" }}>
-            <div className="table-wrap" tabIndex={0} role="region" aria-label="Import preview">
-            <table className="data">
-              <tbody>
-                {preview.errors.map((e, i) => (
-                  <tr key={`e${i}`}>
-                    <td><Badge variant="danger">ROW {e.row}</Badge></td>
-                    <td>{e.reason}</td>
-                  </tr>
-                ))}
-                {preview.errors.length === 0 && (
-                  <tr>
-                    <td><Badge variant="ok">READY</Badge></td>
-                    <td>{preview.valid_count} valid row(s), no conflicts.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+        <div 
+          className="settings-grid" 
+          style={{ 
+            gap: "var(--space-4)", 
+            gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))",
+            alignItems: "start" 
+          }}
+        >
+          
+          {/* EXPORT PANEL */}
+          <section className="panel" style={{ display: "flex", flexDirection: "column", padding: "var(--space-5)" }}>
+            <div style={{ marginBottom: "var(--space-4)" }}>
+              <h3 className="section-title" style={{ borderBottom: "none", padding: 0, margin: "0 0 var(--space-2) 0" }}>
+                Export workbooks
+              </h3>
+              <p className="muted small" style={{ margin: 0, lineHeight: 1.5 }}>
+                Download real Excel files for the selected period. Sales include a
+                line-item sheet plus per-cart summary.
+              </p>
             </div>
-            <button
-              style={{ marginTop: "var(--space-2)" }}
-              onClick={() => setConfirmOpen(true)}
-              disabled={busyImport || preview.errors.length > 0 || preview.valid_count === 0}
-            >
-              Commit {preview.valid_count} product(s)
-            </button>
-          </div>
-        )}
-      </section>
+            
+            <label className="field" style={{ marginBottom: "var(--space-4)" }}>
+              Select Period
+              <input 
+                type="month" 
+                value={month} 
+                onChange={(e) => setMonth(e.target.value)} 
+                style={{ height: "36px" }}
+              />
+            </label>
+            
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "auto" }}>
+              {["sales", "inventory", "expenses", "shifts"].map((ds) => (
+                <button
+                  key={ds}
+                  className="ghost small-btn"
+                  disabled={busyExport !== null}
+                  aria-busy={busyExport === ds}
+                  onClick={() => doExport(ds)}
+                  style={{ textTransform: "capitalize", justifyContent: "center" }}
+                >
+                  <Download size={14} /> {busyExport === ds ? `Exporting...` : ds}
+                </button>
+              ))}
+            </div>
+          </section>
 
-      <ConfirmDialog
-        open={confirmOpen}
-        title="Commit products?"
-        message={`${preview?.valid_count ?? 0} new product(s) will be added to the catalog. This cannot be undone via this screen.`}
-        confirmLabel="Commit"
-        onConfirm={commit}
-        onCancel={() => setConfirmOpen(false)}
-      />
-    </div>
-    </div>
+          {/* IMPORT PANEL */}
+          <section className="panel" style={{ display: "flex", flexDirection: "column", padding: "var(--space-5)" }}>
+            <div style={{ marginBottom: "var(--space-4)" }}>
+              <h3 className="section-title" style={{ borderBottom: "none", padding: 0, margin: "0 0 var(--space-2) 0" }}>
+                Bulk import products
+              </h3>
+              <p className="muted small" style={{ margin: 0, lineHeight: 1.5 }}>
+                Columns required: <strong style={{ color: "var(--text)" }}>name, category, basePrice, flavors</strong>.
+                Preview validates every row first; commit stays blocked until the file is error-free.
+              </p>
+            </div>
+            
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              {/* Ginawa na nating totoong <button> ito para makuha niya ang base CSS styles */}
+              <button
+                className="ghost small-btn"
+                onClick={downloadTemplate}
+                style={{ height: "36px", justifyContent: "center" }}
+              >
+                <FileDown size={14} /> Template
+              </button>
+              <button
+                className="small-btn"
+                disabled={busyImport}
+                onClick={() => fileRef.current?.click()}
+                style={{ height: "36px", justifyContent: "center" }}
+              >
+                <FileUp size={14} /> {busyImport ? "Reading..." : "Upload .xlsx"}
+              </button>
+            </div>
+            
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".xlsx"
+              onChange={handleFile}
+              className="hidden"
+            />
+            
+            {/* PREVIEW TABLE */}
+            {preview && (
+              <div style={{ marginTop: "var(--space-4)", paddingTop: "var(--space-4)", borderTop: "1px solid var(--border)" }}>
+                <div className="flex items-center justify-between" style={{ marginBottom: "var(--space-3)" }}>
+                  <h4 style={{ fontSize: "var(--fs-sm)", margin: 0, color: "var(--accent)", fontWeight: "var(--fw-bold)" }}>
+                    Validation Preview
+                  </h4>
+                  <Badge variant={preview.errors.length > 0 ? "danger" : "ok"}>
+                    {preview.errors.length > 0 ? `${preview.errors.length} Errors` : "Valid"}
+                  </Badge>
+                </div>
+
+                <div className="table-wrap" tabIndex={0} role="region" aria-label="Import preview" style={{ maxHeight: "250px", overflowY: "auto" }}>
+                  <table className="data table-fixed">
+                    <thead>
+                      <tr>
+                        <th style={{ width: 90, padding: "6px 12px" }}>Row</th>
+                        <th style={{ padding: "6px 12px" }}>Details</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.errors.map((e, i) => (
+                        <tr key={`e${i}`}>
+                          <td style={{ padding: "8px 12px" }}>
+                            <Badge variant="danger">#{e.row}</Badge>
+                          </td>
+                          <td style={{ color: "var(--danger)", padding: "8px 12px" }}>
+                            <div className="flex items-center gap-2">
+                              <AlertTriangle size={13} style={{ flexShrink: 0 }} />
+                              <span style={{ fontSize: "var(--fs-xs)" }}>{e.reason}</span>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {preview.errors.length === 0 && (
+                        <tr>
+                          <td style={{ padding: "8px 12px" }}>
+                            <Badge variant="ok">READY</Badge>
+                          </td>
+                          <td style={{ color: "var(--success)", padding: "8px 12px" }}>
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 size={13} style={{ flexShrink: 0 }} />
+                              <span style={{ fontSize: "var(--fs-xs)" }}>{preview.valid_count} valid row(s), no conflicts found.</span>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                
+                <button
+                  style={{ marginTop: "var(--space-3)", width: "100%" }}
+                  onClick={() => setConfirmOpen(true)}
+                  disabled={busyImport || preview.errors.length > 0 || preview.valid_count === 0}
+                >
+                  Commit {preview.valid_count} product(s)
+                </button>
+              </div>
+            )}
+          </section>
+
+          <ConfirmDialog
+            open={confirmOpen}
+            title="Commit products?"
+            message={`${preview?.valid_count ?? 0} new product(s) will be added to the catalog. This action cannot be undone here.`}
+            confirmLabel="Commit Data"
+            onConfirm={commit}
+            onCancel={() => setConfirmOpen(false)}
+          />
+        </div>
+      </div>
     </PageErrorBoundary>
   );
 }

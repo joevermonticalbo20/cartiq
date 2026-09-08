@@ -1,73 +1,113 @@
 /* ============================================================
  * PART: buttons.css  |  SAKOP: lahat ng button variant (primary,
  *         ghost, danger, icon-only, small-btn)
- * HUWAG DITO: form inputs → base.css | login submit → login.css
+ * HUWAG DITO: form inputs -> base.css | login submit -> login.css
  * ============================================================ */
 
-/* ----- Buttons: lahat ng variant (dating 'buttons') ----- */
 /* ================= buttons ================= */
 button {
   background: var(--primary);
   color: #fff;
   border: none;
-  border-radius: var(--radius-sm);
-  padding: 10px 14px;
+  /* INO-MODIFIED: Pill-shaped at mas chunky na padding */
+  border-radius: 99px;
+  padding: 12px 20px;
   font-size: var(--fs-md);
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
-  transition: background 0.15s, opacity 0.15s, transform 0.08s;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   justify-content: center;
   user-select: none;
   -webkit-user-select: none;
+  /* INO-MODIFIED: Soft shadow para lumutang */
+  box-shadow: 0 4px 12px rgba(231, 54, 49, 0.25);
 }
+
 button:active:not(:disabled) {
   transform: scale(0.96);
 }
-button:hover:not(:disabled) { background: var(--primary-strong); }
-button:disabled { opacity: 0.55; cursor: default; }
+
+button:hover:not(:disabled) { 
+  background: var(--primary-strong); 
+  box-shadow: 0 6px 16px rgba(231, 54, 49, 0.35);
+  transform: translateY(-1px);
+}
+
+button:disabled { 
+  opacity: 0.55; 
+  cursor: default; 
+  box-shadow: none; 
+}
+
+/* INO-MODIFIED: Premium clean look para sa Ghost buttons */
 button.ghost {
   background: transparent;
-  color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent);
+  color: var(--text); 
+  border: 1px solid var(--border);
+  box-shadow: none;
 }
-button.ghost:hover:not(:disabled) { background: var(--primary-soft); }
-a.ghost:active {
-  transform: scale(0.96);
+
+button.ghost:hover:not(:disabled) { 
+  background: var(--surface-alt); 
+  border-color: var(--border-strong);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
 }
+
 a.ghost {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  border-radius: var(--radius-sm);
-  padding: 10px 14px;
-  transition: background 0.15s, transform 0.08s;
+  gap: 8px;
+  border-radius: 99px;
+  padding: 12px 20px;
+  transition: all 0.2s ease;
   user-select: none;
 }
-button.ghost.active,
-button.active {
+a.ghost:active { transform: scale(0.96); }
+
+button.ghost.active, button.active {
   background: var(--primary-soft);
-  color: var(--accent);
-  border-color: var(--primary);
+  color: var(--primary-strong);
+  border-color: transparent;
 }
+
 button.danger-ghost {
   background: transparent;
   color: var(--danger);
-  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  box-shadow: none;
 }
-button.danger-ghost:hover:not(:disabled) { background: var(--danger-bg); }
+
+button.danger-ghost:hover:not(:disabled) { 
+  background: var(--danger-bg); 
+  border-color: transparent;
+}
+
 button.danger {
   background: var(--danger);
   color: #fff;
   border: none;
+  box-shadow: 0 4px 12px rgba(153, 27, 27, 0.2);
 }
-button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 85%, #000); }
-/* Dark: --danger turns light red, unreadable as a solid bg — use red-700 instead (white text ~5.9:1). */
+
+button.danger:hover:not(:disabled) { 
+  background: color-mix(in srgb, var(--danger) 85%, #000); 
+}
+
 [data-theme="dark"] button.danger { background: #B91C1C; }
 [data-theme="dark"] button.danger:hover:not(:disabled) { background: #991B1B; }
-button.icon-only { padding: 12px; }
 
-/* ----- Buttons: small button (dating 'chips' block, linya 438) ----- */
-.small-btn { padding: 5px 10px; font-size: var(--fs-xs); }
+/* INO-MODIFIED: Gawing perfect circle ang icon-only buttons */
+button.icon-only { 
+  padding: 12px; 
+  border-radius: 50%; 
+}
+
+/* ----- Buttons: small button ----- */
+.small-btn { 
+  padding: 6px 14px; 
+  font-size: var(--fs-sm); 
+  font-weight: 600;
+}

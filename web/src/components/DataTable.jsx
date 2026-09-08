@@ -13,35 +13,49 @@ export default function DataTable({
   onSort,
   pagination,
   compact = false,
+  fixedLayout = false,
 }) {
   const [sortKey, setSortKey] = useState(null);
   const [sortDir, setSortDir] = useState("asc");
 
   if (loading) {
-    // NOTE: intentionally not <Skeleton/> — the placeholder must keep real
-    // table markup (columns align with headers while loading).
     return (
       <div className="table-wrap" tabIndex={0} role="region" aria-label="Loading table">
-        <table className={`data${compact ? " compact" : ""}`}>
+        <table className={["data", compact ? "compact" : "", fixedLayout ? "table-fixed" : ""].filter(Boolean).join(" ")}>
           <thead>
             <tr>
               {columns.map((col) => (
                 <th
                   key={col.key}
                   style={col.width ? { width: col.width } : undefined}
-                  className={col.align ? `t-${col.align}` : undefined}
+                  className={[
+                    col.align ? `t-${col.align}` : undefined,
+                    compact ? "compact-th" : "",
+                  ].filter(Boolean).join(" ")}
                 >
-                  {col.label}
+                  <span className="th-inner">
+                    {col.label}
+                  </span>
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
+            {/* Binalik natin sa 5 rows para hindi sobrang haba pababa */}
             {Array.from({ length: 5 }).map((_, i) => (
               <tr key={i}>
                 {columns.map((col) => (
                   <td key={col.key} className={col.align ? `t-${col.align}` : undefined}>
-                    <div className="skel" style={{ width: `${90 - (i * 11) % 50}%`, height: 14 }} />
+                    <div 
+                      className="skel" 
+                      style={{ 
+                        /* Pinaikli natin ang gray bars para magmukhang totoong text data */
+                        width: col.align === "right" ? "40%" : `${40 + (i * 17) % 30}%`, 
+                        height: 14,
+                        display: "inline-block", /* Para gumana ang right-alignment sa number columns */
+                        margin: "4px 0"
+                      }} 
+                    />
                   </td>
                 ))}
               </tr>
@@ -80,7 +94,7 @@ export default function DataTable({
   return (
     <>
       <div className="table-wrap" tabIndex={0} role="region" aria-label="Scrollable data table">
-        <table className={`data${compact ? " compact" : ""}`}>
+        <table className={["data", compact ? "compact" : "", fixedLayout ? "table-fixed" : ""].filter(Boolean).join(" ")}>
           <thead>
             <tr>
               {columns.map((col) => {

@@ -11,11 +11,12 @@ import '../state/theme_controller.dart';
 import '../theme.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen(
-      {super.key,
-      required this.onScanReceipt,
-      required this.onGoPos,
-      required this.onGoHistory});
+  const HomeScreen({
+    super.key,
+    required this.onScanReceipt,
+    required this.onGoPos,
+    required this.onGoHistory,
+  });
 
   final VoidCallback onScanReceipt;
   final VoidCallback onGoPos;
@@ -63,7 +64,8 @@ class _HomeScreenState extends State<HomeScreen> {
         auth.api.inventory(auth.token!, locationCode: code),
         auth.api.staffOnShift(auth.token!),
         auth.api.orders(auth.token!, page: 1, pageSize: 3, locationCode: code),
-        auth.api.dailyReport(auth.token!, locationCode: code, daysAgo: 1)
+        auth.api
+            .dailyReport(auth.token!, locationCode: code, daysAgo: 1)
             .catchError((_) => <String, dynamic>{}),
         auth.api.salesSeries(auth.token!, locationCode: code),
       ]);
@@ -78,7 +80,8 @@ class _HomeScreenState extends State<HomeScreen> {
       List<Map<String, dynamic>> low = [];
       if (inv != null && inv.isNotEmpty) {
         final loc = inv.first as Map<String, dynamic>?;
-        final items = (loc?['items'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+        final items =
+            (loc?['items'] as List?)?.cast<Map<String, dynamic>>() ?? [];
         low = items.where((i) => i['status'] != 'ok').take(5).toList();
       }
 
@@ -87,7 +90,8 @@ class _HomeScreenState extends State<HomeScreen> {
         _todaySales = ((report?['total_sales'] ?? 0) as num).toDouble();
         _todayOrders = (report?['orders'] ?? 0) as int;
         _lowItems = low;
-        _onShift = (onShift['on_shift'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+        _onShift =
+            (onShift['on_shift'] as List?)?.cast<Map<String, dynamic>>() ?? [];
         _recentOrders = recentOrders.cast<Map<String, dynamic>>();
         _prevReport = prevReport;
         _weekSales = weekSales;
@@ -107,7 +111,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _manualSync() async {
     final result = await context.read<SyncService>().syncAll();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result.message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(result.message)));
     _refresh();
   }
 
@@ -138,8 +144,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Kumusta, ${_firstName(auth.displayName)}',
-                        style: Theme.of(context).textTheme.headlineSmall),
+                    Text(
+                      'Kumusta, ${_firstName(auth.displayName)}',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
                     const SizedBox(height: 2),
                     Text(
                       '${auth.locationCode ?? "No cart"} · ${auth.roleDisplay}',
@@ -150,7 +158,10 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               IconButton.filledTonal(
                 onPressed: () => context.read<ThemeController>().toggle(),
-                icon: Icon(_isDark ? Icons.light_mode : Icons.dark_mode, size: 20),
+                icon: Icon(
+                  _isDark ? Icons.light_mode : Icons.dark_mode,
+                  size: 20,
+                ),
                 tooltip: 'Toggle theme',
               ),
               const SizedBox(width: 8),
@@ -161,14 +172,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     builder: (dialogContext) => AlertDialog(
                       title: const Text('Log out?'),
                       content: const Text(
-                          'Queued offline sales stay saved on this device.'),
+                        'Queued offline sales stay saved on this device.',
+                      ),
                       actions: [
                         TextButton(
-                            onPressed: () => Navigator.pop(dialogContext, false),
-                            child: const Text('Cancel')),
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          child: const Text('Cancel'),
+                        ),
                         FilledButton(
-                            onPressed: () => Navigator.pop(dialogContext, true),
-                            child: const Text('Log out')),
+                          onPressed: () => Navigator.pop(dialogContext, true),
+                          child: const Text('Log out'),
+                        ),
                       ],
                     ),
                   );
@@ -243,10 +257,13 @@ class _HomeScreenState extends State<HomeScreen> {
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: _onShift.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 10),
+                separatorBuilder: (_, _) => const SizedBox(width: 10),
                 itemBuilder: (context, i) {
                   final s = _onShift[i];
-                  return _StaffChip(name: s['name'] ?? 'Unknown', location: s['location_name'] ?? '');
+                  return _StaffChip(
+                    name: s['name'] ?? 'Unknown',
+                    location: s['location_name'] ?? '',
+                  );
                 },
               ),
             ),
@@ -273,16 +290,19 @@ class _HomeScreenState extends State<HomeScreen> {
               final syncing = sync.isSyncing;
               return Card(
                 child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 4,
+                  ),
                   leading: Badge(
                     isLabelVisible: _queueCount > 0,
                     label: Text('$_queueCount'),
                     backgroundColor: AppColors.warn,
                     child: CircleAvatar(
                       radius: 19,
-                      backgroundColor: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest,
+                      backgroundColor: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
                       child: syncing
                           ? const SizedBox(
                               width: 16,
@@ -300,8 +320,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     syncing
                         ? 'Syncing…'
                         : _queueCount > 0
-                            ? '$_queueCount sale${_queueCount != 1 ? 's' : ''} waiting to sync'
-                            : 'Everything synced',
+                        ? '$_queueCount sale${_queueCount != 1 ? 's' : ''} waiting to sync'
+                        : 'Everything synced',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   subtitle: Text(
@@ -327,11 +347,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Stock alerts',
-                          style: Theme.of(context).textTheme.titleMedium),
+                      Text(
+                        'Stock alerts',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
                       if (_lowItems.isNotEmpty)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 9,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
                             color: AppColors.danger.withValues(alpha: 0.10),
                             borderRadius: BorderRadius.circular(99),
@@ -358,11 +383,16 @@ class _HomeScreenState extends State<HomeScreen> {
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Row(
                         children: [
-                          Icon(Icons.check_circle_rounded,
-                              color: AppColors.ok, size: 20),
+                          Icon(
+                            Icons.check_circle_rounded,
+                            color: AppColors.ok,
+                            size: 20,
+                          ),
                           const SizedBox(width: 8),
-                          Text('All stocks healthy',
-                              style: Theme.of(context).textTheme.bodyMedium),
+                          Text(
+                            'All stocks healthy',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
                         ],
                       ),
                     )
@@ -388,10 +418,13 @@ class _HomeScreenState extends State<HomeScreen> {
                             color: c,
                           ),
                         ),
-                        title: Text(item['name'] ?? '',
-                            style: Theme.of(context).textTheme.titleSmall),
+                        title: Text(
+                          item['name'] ?? '',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
                         subtitle: Text(
-                            '${item['stock']} ${item['unit']} left · threshold ${item['threshold']}'),
+                          '${item['stock']} ${item['unit']} left · threshold ${item['threshold']}',
+                        ),
                         trailing: Text(
                           critical ? 'CRITICAL' : 'LOW',
                           style: TextStyle(
@@ -454,10 +487,7 @@ class _KpiRow extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: isDark
-              ? [
-                  const Color(0xFF3B1513),
-                  Theme.of(context).colorScheme.surface
-                ]
+              ? [const Color(0xFF3B1513), Theme.of(context).colorScheme.surface]
               : [AppColors.primarySoft, Colors.white],
         ),
         border: Border.all(
@@ -476,17 +506,17 @@ class _KpiRow extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('SALES TODAY',
-                        style: Theme.of(context).textTheme.labelSmall),
+                    Text(
+                      'SALES TODAY',
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
                     const SizedBox(height: 4),
                     FittedBox(
                       fit: BoxFit.scaleDown,
                       alignment: Alignment.centerLeft,
                       child: Text(
                         'P${todaySales.toStringAsFixed(0)}',
-                        style: Theme.of(context)
-                            .textTheme
-                            .headlineMedium
+                        style: Theme.of(context).textTheme.headlineMedium
                             ?.copyWith(color: AppColors.primary),
                       ),
                     ),
@@ -499,7 +529,9 @@ class _KpiRow extends StatelessWidget {
                                 ? Icons.trending_up_rounded
                                 : Icons.trending_down_rounded,
                             size: 14,
-                            color: vsYesterday >= 0 ? AppColors.ok : AppColors.danger,
+                            color: vsYesterday >= 0
+                                ? AppColors.ok
+                                : AppColors.danger,
                           ),
                           const SizedBox(width: 3),
                           Text(
@@ -507,7 +539,9 @@ class _KpiRow extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
-                              color: vsYesterday >= 0 ? AppColors.ok : AppColors.danger,
+                              color: vsYesterday >= 0
+                                  ? AppColors.ok
+                                  : AppColors.danger,
                             ),
                           ),
                         ],
@@ -527,8 +561,11 @@ class _KpiRow extends StatelessWidget {
                     color: AppColors.primary.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Icon(Icons.storefront_rounded,
-                      size: 28, color: AppColors.primary),
+                  child: Icon(
+                    Icons.storefront_rounded,
+                    size: 28,
+                    color: AppColors.primary,
+                  ),
                 ),
             ],
           ),
@@ -593,7 +630,8 @@ class _SparklinePainter extends CustomPainter {
     const pad = 4.0;
     final pts = List<Offset>.generate(values.length, (i) {
       final x = pad + (size.width - pad * 2) * (i / (values.length - 1));
-      final y = size.height -
+      final y =
+          size.height -
           pad -
           (size.height - pad * 2) * ((values[i] - min) / span);
       return Offset(x, y);
@@ -613,8 +651,7 @@ class _SparklinePainter extends CustomPainter {
       Paint()..color = AppColors.primary.withValues(alpha: 0.15),
     );
 
-    final line = Path()
-      ..moveTo(pts.first.dx, pts.first.dy);
+    final line = Path()..moveTo(pts.first.dx, pts.first.dy);
     for (final p in pts.skip(1)) {
       line.lineTo(p.dx, p.dy);
     }
@@ -635,8 +672,7 @@ class _SparklinePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _SparklinePainter old) =>
-      old.values != values;
+  bool shouldRepaint(covariant _SparklinePainter old) => old.values != values;
 }
 
 class _MiniKpi extends StatelessWidget {
@@ -677,7 +713,9 @@ class _MiniKpi extends StatelessWidget {
                 children: [
                   Text(
                     label,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(fontSize: 11),
                   ),
                   Text(
                     value,
@@ -709,7 +747,7 @@ class _SectionHeader extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(title, style: Theme.of(context).textTheme.titleMedium),
-        if (trailing != null) trailing!,
+        ?trailing,
       ],
     );
   }
@@ -752,13 +790,12 @@ class _StaffChip extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                name,
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
+              Text(name, style: Theme.of(context).textTheme.titleSmall),
               Text(
                 location,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(fontSize: 11),
               ),
             ],
           ),
@@ -778,7 +815,10 @@ class _RecentOrderTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = (order['items'] as List?) ?? [];
     final first = items.isNotEmpty ? items.first : null;
-    final itemCount = items.fold<int>(0, (sum, i) => sum + ((i['qty'] ?? 1) as int));
+    final itemCount = items.fold<int>(
+      0,
+      (sum, i) => sum + ((i['qty'] ?? 1) as int),
+    );
     final total = (order['total'] ?? 0) as num;
     final time = order['createdAt'] != null
         ? DateTime.tryParse(order['createdAt'])?.toLocal()
@@ -801,7 +841,11 @@ class _RecentOrderTile extends StatelessWidget {
               color: AppColors.primary.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(9),
             ),
-            child: Icon(Icons.receipt_rounded, size: 18, color: AppColors.primary),
+            child: Icon(
+              Icons.receipt_rounded,
+              size: 18,
+              color: AppColors.primary,
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -828,12 +872,17 @@ class _RecentOrderTile extends StatelessWidget {
             children: [
               Text(
                 'P${total.toStringAsFixed(0)}',
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                ),
               ),
               if (time != null)
                 Text(
                   _formatTime(time),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(fontSize: 11),
                 ),
             ],
           ),

@@ -16,15 +16,30 @@ import {
 } from "lucide-react";
 import api from "../api.js";
 
-const NAV = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/sales", label: "Sales", icon: ReceiptText },
-  { to: "/inventory", label: "Inventory", icon: Boxes },
-  { to: "/staff", label: "Staff & Shifts", icon: Users },
-  { to: "/analytics", label: "Analytics", icon: TrendingUp },
-  { to: "/expenses", label: "Expenses", icon: Wallet },
-  { to: "/data", label: "Data Hub", icon: FileSpreadsheet },
-  { to: "/settings", label: "Settings", icon: SettingsIcon },
+const NAV_GROUPS = [
+  {
+    label: "Menu",
+    items: [
+      { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { to: "/sales", label: "Sales", icon: ReceiptText },
+      { to: "/inventory", label: "Inventory", icon: Boxes },
+      { to: "/staff", label: "Staff & Shifts", icon: Users },
+    ]
+  },
+  {
+    label: "Financial",
+    items: [
+      { to: "/analytics", label: "Analytics", icon: TrendingUp },
+      { to: "/expenses", label: "Expenses", icon: Wallet },
+    ]
+  },
+  {
+    label: "Tools",
+    items: [
+      { to: "/data", label: "Data Hub", icon: FileSpreadsheet },
+      { to: "/settings", label: "Settings", icon: SettingsIcon },
+    ]
+  }
 ];
 
 export default function Layout() {
@@ -81,8 +96,8 @@ export default function Layout() {
     navigate("/login");
   }
 
-  const current = NAV.find((n) => location.pathname.startsWith(n.to));
   const initial = user?.name?.[0]?.toUpperCase() ?? "?";
+  
   // Drawer labels always show when open on mobile, even if desktop is collapsed.
   const showLabels = !collapsed || mobileOpen;
 
@@ -91,14 +106,14 @@ export default function Layout() {
       {mobileOpen && (
         <div className="backdrop show" onClick={() => setMobileOpen(false)} />
       )}
-
+      
       <aside
         id="cartiq-sidebar"
         aria-label="Primary navigation"
         className={`sidebar ${collapsed ? "collapsed" : ""} ${mobileOpen ? "mobile-open" : ""}`}
       >
         <div className="side-logo">
-          <div className="logo-mark">CQ</div>
+          <img src="/logo.png" alt="CartIQ Logo" className="logo-icon" />
           {showLabels && (
             <div className="logo-text">
               <strong>CartIQ</strong>
@@ -106,18 +121,23 @@ export default function Layout() {
             </div>
           )}
         </div>
-
+        
         <nav className="side-nav">
-          {NAV.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
-              title={label}
-            >
-              <Icon size={19} strokeWidth={2.2} />
-              {showLabels && <span>{label}</span>}
-            </NavLink>
+          {NAV_GROUPS.map((group, idx) => (
+            <div key={idx} className="nav-group">
+              {showLabels && <div className="nav-group-label">{group.label}</div>}
+              {group.items.map(({ to, label, icon: Icon }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+                  title={label}
+                >
+                  <Icon size={19} strokeWidth={2.2} />
+                  {showLabels && <span>{label}</span>}
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
 
@@ -141,15 +161,15 @@ export default function Layout() {
             >
               <Menu size={20} />
             </button>
-            <span className="topbar-title">{current?.label ?? "CartIQ"}</span>
+            {/* IBINALIK: Lalabas lang ang title kapag nasa Dashboard */}
+            {location.pathname === "/dashboard" && (
+              <span className="topbar-title">Dashboard</span>
+            )}
           </div>
+          
           <div className="user-chip">
-            <span>
-              {user ? `${user.name}${user.location ? ` · ${user.location.code}` : ""}` : "..."}
-            </span>
-            <div className="avatar">{initial}</div>
             <button
-              className="ghost icon-only"
+              className="ghost icon-only theme-toggle"
               title={dark ? "Switch to light mode" : "Switch to dark mode"}
               aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
               aria-pressed={dark}
@@ -158,16 +178,26 @@ export default function Layout() {
               {dark ? <Sun size={18} /> : <Moon size={18} />}
             </button>
             <button
-              className="ghost icon-only"
+              className="ghost icon-only logout-btn"
               title="Log out"
               aria-label="Log out"
               onClick={logout}
             >
               <LogOut size={18} />
             </button>
+            
+            <div className="user-profile-wrapper">
+              <div className="user-chip-info">
+                <span className="user-chip-name">{user ? user.name : "Loading..."}</span>
+                <span className="user-chip-role">
+                  {user ? (user.location ? user.location.name : "Administrator") : "..."}
+                </span>
+              </div>
+              <div className="avatar">{initial}</div>
+            </div>
           </div>
         </header>
-
+        
         <main className="page-body" id="main-content">
           <Outlet context={{ user }} />
         </main>

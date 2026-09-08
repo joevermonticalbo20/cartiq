@@ -40,7 +40,7 @@ class ApiClient {
   bool _isManual = false;
 
   ApiClient({FlutterSecureStorage? secureStorage})
-      : storage = secureStorage ?? const FlutterSecureStorage();
+    : storage = secureStorage ?? const FlutterSecureStorage();
 
   Future<void> ensureResolved() async {
     if (_resolvedBaseUrl != null) return;
@@ -92,12 +92,13 @@ class ApiClient {
   /// Quick reachability probe used by the login server row and boot splash.
   Future<bool> testConnection() => health();
 
-  Uri _uri(String path) => Uri.parse('${_resolvedBaseUrl ?? AppConfig.apiBaseUrl}$path');
+  Uri _uri(String path) =>
+      Uri.parse('${_resolvedBaseUrl ?? AppConfig.apiBaseUrl}$path');
 
   Map<String, String> _headers({String? token}) => {
-        'Content-Type': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
-      };
+    'Content-Type': 'application/json',
+    if (token != null) 'Authorization': 'Bearer $token',
+  };
 
   Future<http.Response> _send(Future<http.Response> Function() action) async {
     try {
@@ -126,22 +127,28 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> login(String username, String password) async {
-    final res = await _send(() => _http.post(
-          _uri('/auth/login'),
-          headers: _headers(),
-          body: jsonEncode({'username': username, 'password': password}),
-        ));
+    final res = await _send(
+      () => _http.post(
+        _uri('/auth/login'),
+        headers: _headers(),
+        body: jsonEncode({'username': username, 'password': password}),
+      ),
+    );
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   Future<Map<String, dynamic>> me(String token) async {
-    final res = await _send(() => _http.get(_uri('/auth/me'), headers: _headers(token: token)));
+    final res = await _send(
+      () => _http.get(_uri('/auth/me'), headers: _headers(token: token)),
+    );
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   Future<bool> health() async {
     try {
-      final res = await _http.get(_uri('/health')).timeout(const Duration(seconds: 5));
+      final res = await _http
+          .get(_uri('/health'))
+          .timeout(const Duration(seconds: 5));
       return res.statusCode == 200;
     } catch (_) {
       return false;
@@ -149,13 +156,19 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> catalog(String token) async {
-    final res = await _send(() => _http.get(_uri('/catalog'), headers: _headers(token: token)));
+    final res = await _send(
+      () => _http.get(_uri('/catalog'), headers: _headers(token: token)),
+    );
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   Future<List<dynamic>> inventory(String token, {String? locationCode}) async {
-    final path = locationCode == null ? '/inventory' : '/inventory?code=$locationCode';
-    final res = await _send(() => _http.get(_uri(path), headers: _headers(token: token)));
+    final path = locationCode == null
+        ? '/inventory'
+        : '/inventory?code=$locationCode';
+    final res = await _send(
+      () => _http.get(_uri(path), headers: _headers(token: token)),
+    );
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return body['locations'] as List<dynamic>;
   }
@@ -164,11 +177,13 @@ class ApiClient {
     Map<String, dynamic> payload,
     String token,
   ) async {
-    final res = await _send(() => _http.post(
-          _uri('/orders'),
-          headers: _headers(token: token),
-          body: jsonEncode(payload),
-        ));
+    final res = await _send(
+      () => _http.post(
+        _uri('/orders'),
+        headers: _headers(token: token),
+        body: jsonEncode(payload),
+      ),
+    );
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
@@ -176,11 +191,13 @@ class ApiClient {
     String token,
     Map<String, dynamic> payload,
   ) async {
-    final res = await _send(() => _http.post(
-          _uri('/expenses'),
-          headers: _headers(token: token),
-          body: jsonEncode(payload),
-        ));
+    final res = await _send(
+      () => _http.post(
+        _uri('/expenses'),
+        headers: _headers(token: token),
+        body: jsonEncode(payload),
+      ),
+    );
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
@@ -191,14 +208,20 @@ class ApiClient {
     int days = 7,
   }) async {
     try {
-      final params = 'days=$days${locationCode != null ? '&code=$locationCode' : ''}';
-      final res = await _send(() => _http
-          .get(_uri('/analytics/trends?$params'), headers: _headers(token: token)));
+      final params =
+          'days=$days${locationCode != null ? '&code=$locationCode' : ''}';
+      final res = await _send(
+        () => _http.get(
+          _uri('/analytics/trends?$params'),
+          headers: _headers(token: token),
+        ),
+      );
       final body = jsonDecode(res.body) as Map<String, dynamic>;
       final series = (body['daily_series'] as List?) ?? [];
       return series
           .map<double>(
-              (e) => (((e as Map?)?['total_sales'] ?? 0) as num).toDouble())
+            (e) => (((e as Map?)?['total_sales'] ?? 0) as num).toDouble(),
+          )
           .toList();
     } catch (_) {
       return [];
@@ -213,8 +236,15 @@ class ApiClient {
     final params = <String, String>{};
     if (locationCode != null) params['code'] = locationCode;
     if (daysAgo != null) params['daysAgo'] = daysAgo.toString();
-    final query = params.isEmpty ? '' : '?${params.entries.map((e) => '${e.key}=${e.value}').join('&')}';
-    final res = await _send(() => _http.get(_uri('/reports/daily$query'), headers: _headers(token: token)));
+    final query = params.isEmpty
+        ? ''
+        : '?${params.entries.map((e) => '${e.key}=${e.value}').join('&')}';
+    final res = await _send(
+      () => _http.get(
+        _uri('/reports/daily$query'),
+        headers: _headers(token: token),
+      ),
+    );
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
@@ -225,9 +255,10 @@ class ApiClient {
     String? locationCode,
   }) async {
     final path =
-        '/orders?page=$page&pageSize=$pageSize' +
-            (locationCode != null ? '&location_code=$locationCode' : '');
-    final res = await _send(() => _http.get(_uri(path), headers: _headers(token: token)));
+        '/orders?page=$page&pageSize=$pageSize${locationCode != null ? '&location_code=$locationCode' : ''}';
+    final res = await _send(
+      () => _http.get(_uri(path), headers: _headers(token: token)),
+    );
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
@@ -238,24 +269,39 @@ class ApiClient {
     int pageSize = 10,
     String? locationCode,
   }) async {
-    final r = await ordersPaged(token, page: page, pageSize: pageSize, locationCode: locationCode);
+    final r = await ordersPaged(
+      token,
+      page: page,
+      pageSize: pageSize,
+      locationCode: locationCode,
+    );
     return (r['data'] as List?) ?? [];
   }
 
-  Future<Map<String, dynamic>> stockAlerts(String token, {bool unreadOnly = true}) async {
+  Future<Map<String, dynamic>> stockAlerts(
+    String token, {
+    bool unreadOnly = true,
+  }) async {
     final path = unreadOnly ? '/alerts?unread_only=true' : '/alerts';
-    final res = await _send(() => _http.get(_uri(path), headers: _headers(token: token)));
+    final res = await _send(
+      () => _http.get(_uri(path), headers: _headers(token: token)),
+    );
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return body;
   }
 
-  Future<List<dynamic>> stockAlertsList(String token, {bool unreadOnly = true}) async {
+  Future<List<dynamic>> stockAlertsList(
+    String token, {
+    bool unreadOnly = true,
+  }) async {
     final r = await stockAlerts(token, unreadOnly: unreadOnly);
     return (r['data'] as List?) ?? [];
   }
 
   Future<Map<String, dynamic>> staffOnShift(String token) async {
-    final res = await _send(() => _http.get(_uri('/staff/on-shift'), headers: _headers(token: token)));
+    final res = await _send(
+      () => _http.get(_uri('/staff/on-shift'), headers: _headers(token: token)),
+    );
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
@@ -266,9 +312,10 @@ class ApiClient {
     String? locationCode,
   }) async {
     final path =
-        '/expenses?page=$page&pageSize=$pageSize' +
-            (locationCode != null ? '&code=$locationCode' : '');
-    final res = await _send(() => _http.get(_uri(path), headers: _headers(token: token)));
+        '/expenses?page=$page&pageSize=$pageSize${locationCode != null ? '&code=$locationCode' : ''}';
+    final res = await _send(
+      () => _http.get(_uri(path), headers: _headers(token: token)),
+    );
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 }

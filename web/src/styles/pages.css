@@ -1,16 +1,17 @@
 /* ============================================================
- * PART: pages.css  |  SAKOP: maliliit na page — settings grid,
- *         password meter (Settings), staff chips/perf (Staff),
- *         expense list/charts (Expenses). Pag lumampas ng ~100
- *         lines ang isang page, bigyan ng sariling file.
- * HUWAG DITO: malalaking page → sariling file (login, dashboard…)
+ * PART: pages.css  |  SAKOP: maliliit na page (settings grid,
+ *         password meter, expense list/charts, Sales Page, Staff Page)
  * ============================================================ */
 
-/* ----- Pages: settings grid — Data + Settings (dating 'misc' block) ----- */
-.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; align-items: start; }
+/* ----- Pages: settings grid (Data + Settings) ----- */
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
 
-/* ----- Pages: password meter — SettingsPage (dating 'password strength meter') ----- */
-/* ================= password strength meter ================= */
+/* ----- Pages: password meter - SettingsPage ----- */
 .pw-strength {
   margin-top: var(--space-1);
   display: flex;
@@ -28,14 +29,11 @@
   border-radius: 99px;
   transition: background var(--transition-fast);
 }
-.pw-strength[data-level="empty"] .pw-strength-bar > span { background: var(--border); }
-.pw-strength[data-level="weak"] .pw-strength-bar > span:nth-child(-n+1),
-.pw-strength[data-level="fair"] .pw-strength-bar > span:nth-child(-n+2),
-.pw-strength[data-level="good"] .pw-strength-bar > span:nth-child(-n+3),
-.pw-strength[data-level="strong"] .pw-strength-bar > span { background: var(--danger); }
-.pw-strength[data-level="fair"] .pw-strength-bar > span { background: var(--warn); }
-.pw-strength[data-level="good"] .pw-strength-bar > span { background: var(--info); }
+.pw-strength[data-level="weak"] .pw-strength-bar > span:nth-child(1) { background: var(--danger); }
+.pw-strength[data-level="fair"] .pw-strength-bar > span:nth-child(-n+2) { background: var(--warn); }
+.pw-strength[data-level="good"] .pw-strength-bar > span:nth-child(-n+3) { background: var(--warn); }
 .pw-strength[data-level="strong"] .pw-strength-bar > span { background: var(--success); }
+
 .pw-strength-meta {
   display: flex;
   align-items: center;
@@ -49,12 +47,14 @@
 }
 .pw-strength[data-level="weak"] .pw-strength-label { color: var(--danger); }
 .pw-strength[data-level="fair"] .pw-strength-label { color: var(--warn); }
-.pw-strength[data-level="good"] .pw-strength-label { color: var(--info); }
+.pw-strength[data-level="good"] .pw-strength-label { color: var(--warn); }
 .pw-strength[data-level="strong"] .pw-strength-label { color: var(--success); }
+
 .pw-strength-warn {
   color: var(--warn);
   font-weight: var(--fw-semibold);
 }
+
 .pw-strength-checks {
   list-style: none;
   margin: 0;
@@ -80,18 +80,7 @@
   justify-content: center;
 }
 
-/* ----- Pages: staff chips — StaffPage (dating 'dashboard' block) ----- */
-.staff-chip {
-  display: inline-flex; align-items: center; gap: var(--space-2);
-  padding: 4px 10px; border-radius: var(--radius); border: 1px solid var(--border);
-  background: var(--surface); font-size: var(--fs-sm);
-}
-
-/* ----- Pages: staff performance card — StaffPage ----- */
-.staff-perf-card { padding: var(--space-3); }
-
-/* ----- Pages: expense list/charts — ExpensesPage (dating 'profit & expense analytics') ----- */
-/* TANDAAN: expense-list-* — 0 hits sa JSX, mukhang hindi ginagamit. Huwag burahin nang walang check. */
+/* ----- Pages: expense list/charts (ExpensesPage) ----- */
 .expense-list-bar {
   height: 5px;
   border-radius: 3px;
@@ -146,3 +135,199 @@
   display: inline-block;
 }
 
+/* ============================================================
+ * NEW LAYOUT: Sales Page Modernization
+ * ============================================================ */
+.sales-panel {
+  padding: var(--space-5);
+  background: var(--surface);
+  min-height: 65vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.sales-panel > .empty-state-card {
+  flex: 1;
+  justify-content: center;
+  border: none;
+}
+.sales-panel > .table-wrap {
+  flex: 1;
+}
+
+.sales-filters-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-5);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.sales-filters-left {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.sales-filters-left input[type="date"] {
+  border: 1px solid var(--border);
+  border-radius: 14px; /* Sinabay sa modern inputs */
+  padding: 12px 16px;
+  font-size: 14px;
+  background: var(--surface-alt);
+  color: var(--text);
+  height: 48px;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  outline: none;
+}
+.sales-filters-left input[type="date"]:focus {
+  background: var(--surface);
+  border-color: var(--primary);
+  box-shadow: 0 4px 12px rgba(231, 54, 49, 0.1), 0 0 0 3px var(--primary-soft);
+}
+
+/* ============================================================
+ * CUSTOM SELECT DROPDOWN (Reusable)
+ * ============================================================ */
+.custom-select-wrapper {
+  position: relative;
+  min-width: 160px;
+  user-select: none;
+}
+
+/* INO-MODIFIED: Pinantay sa text inputs (14px radius, chunky padding, gray background) */
+button.custom-select-trigger {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 16px;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  height: auto;
+}
+button.custom-select-trigger:hover {
+  background: var(--surface);
+  border-color: var(--primary-soft);
+}
+button.custom-select-trigger.active {
+  background: var(--surface);
+  border-color: var(--primary);
+  box-shadow: 0 4px 12px rgba(231, 54, 49, 0.1), 0 0 0 3px var(--primary-soft);
+}
+
+.custom-select-icon {
+  color: var(--text-muted);
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.custom-select-icon.open {
+  transform: rotate(180deg);
+}
+
+.custom-select-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 100%;
+  margin: 0;
+  padding: 8px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  max-height: 220px;
+  overflow-y: auto;
+  transform-origin: top;
+  animation: dropdown-pop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes dropdown-pop {
+  from { opacity: 0; transform: translateY(-8px) scaleY(0.95); }
+  to { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+
+.custom-select-option {
+  padding: 10px 14px;
+  font-size: var(--fs-md);
+  color: var(--text);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.custom-select-option:hover {
+  background: var(--surface-alt);
+}
+.custom-select-option.selected {
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+  font-weight: 700;
+}
+
+/* ============================================================
+ * NEW LAYOUT: Staff Page Modernization
+ * ============================================================ */
+
+/* Modernized Staff Performance Cards (in-sync with kpi-card radius) */
+.staff-perf-card {
+  background: var(--surface);
+  padding: var(--space-4);
+  flex: 1;
+  min-width: 240px;
+  border-radius: 20px;
+  border: none;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
+}
+
+/* Modernized On-shift Chips (Pill shape) */
+.staff-chip {
+  border-radius: 99px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border: none;
+  padding: 6px 16px 6px 6px;
+  display: inline-flex; 
+  align-items: center; 
+  gap: var(--space-2);
+  background: var(--surface); 
+  font-size: var(--fs-sm);
+}
+
+[data-theme="dark"] .staff-chip {
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+
+/* Pangunahing panel para sa Shift History Table (mahaba) */
+.staff-panel {
+  min-height: 65vh;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-5);
+}
+
+.staff-panel > .table-wrap {
+  flex: 1;
+}
+.staff-panel > .empty-state-card {
+  flex: 1;
+  justify-content: center;
+  border: none;
+}
+
+.staff-filters-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-5);
+  flex-wrap: wrap;
+  gap: 12px;
+}

@@ -1,11 +1,11 @@
-import { useEffect, useState, useMemo, Fragment } from "react";
-import {
-  AreaChart, Area, BarChart, Bar, XAxis, YAxis,
-  Tooltip, ResponsiveContainer, CartesianGrid, Cell, LabelList,
+import { useEffect, useState, useCallback, useMemo, Fragment } from "react";
+import { 
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, 
+  Tooltip, ResponsiveContainer, CartesianGrid, Cell, LabelList, 
 } from "recharts";
-import {
-  TrendingUp, TrendingDown, ShoppingBag,
-  DollarSign, BarChart2, PackageSearch,
+import { 
+  TrendingUp, TrendingDown, ShoppingBag, 
+  DollarSign, BarChart2, PackageSearch, RefreshCw, X, Clock, PieChart as PieChartIcon, Activity, Sparkles 
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api.js";
@@ -13,18 +13,17 @@ import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import { SkeletonCards, SkeletonChart } from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
+import PageHeader from "../components/PageHeader.jsx";
+import Select from "../components/Select.jsx";
 import ProfitSection from "../components/analytics/ProfitSection.jsx";
 import AnalyticsTooltip, { TooltipItem } from "../components/analytics/AnalyticsTooltip.jsx";
 import { fmtMoneyAxis, fmtShortDate } from "../utils/format.js";
 
-// API risk level -> badge variant: high red, medium amber, low green.
+// API risk level -> badge variant
 const RISK_CHIP = { high: "danger", medium: "warn", low: "ok", unknown: "neutral" };
-
 const HEAT_HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 const HEAT_DAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
-// CSS-grid rush-hour heatmap: rows = weekday, columns = hour of day.
-// Color intensity scales with revenue; title tooltips carry exact numbers.
 function HeatmapGrid({ matrix }) {
   const byKey = new Map((matrix ?? []).map((c) => [`${c.dow}:${c.hour}`, c]));
   const max = Math.max(1, ...(matrix ?? []).map((c) => c.total_sales));
@@ -45,7 +44,7 @@ function HeatmapGrid({ matrix }) {
               <span
                 key={`${dow}:${h}`}
                 className="heat-cell"
-                title={`${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dow]} ${h}:00 — P${v.toLocaleString()} (${c?.orders ?? 0} orders)`}
+                title={`${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dow]} ${h}:00 - P${v.toLocaleString()} (${c?.orders ?? 0} orders)`}
                 style={{
                   backgroundColor: v > 0 ? "var(--primary)" : "var(--surface-alt)",
                   opacity: v > 0 ? 0.15 + 0.85 * t : 1,
@@ -77,6 +76,7 @@ export default function AnalyticsPage() {
   const [carts, setCarts] = useState([]);
   const [cartCode, setCartCode] = useState("");
   const [range, setRange] = useState("30");
+  
   const [trends, setTrends] = useState(null);
   const [prevTrends, setPrevTrends] = useState(null);
   const [forecast, setForecast] = useState(null);
@@ -84,19 +84,20 @@ export default function AnalyticsPage() {
   const [hourly, setHourly] = useState(null);
   const [basket, setBasket] = useState(null);
   const [salesFc, setSalesFc] = useState(null);
+  
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
   const [sortCol, setSortCol] = useState("sales");
   const [sortDir, setSortDir] = useState("desc");
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  const [summaryLang, setSummaryLang] = useState("en");
 
   useEffect(() => {
     api.get("/catalog").then(({ data }) => setCarts(data.locations ?? [])).catch(() => {});
   }, []);
 
-  // Note: setLoading(true) lives in the filter/retry handlers below, not
-  // here - calling setState synchronously inside the effect trips
-  // react-hooks/set-state-in-effect.
   useEffect(() => {
     let alive = true;
     const days = Number(range) || 30;
@@ -128,6 +129,7 @@ export default function AnalyticsPage() {
         setBasket(bk.data);
         setSalesFc(sf.data);
         setError("");
+        setLastUpdated(new Date());
       })
       .catch((err) => {
         if (!alive) return;
@@ -151,6 +153,7 @@ export default function AnalyticsPage() {
   const totalRevenue = trends?.total_sales ?? 0;
   const totalOrders = trends?.orders ?? 0;
   const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
   const avgTrend = useMemo(() => {
     if (!trends || !prevTrends) return null;
     const curAvg = totalOrders > 0 ? totalRevenue / totalOrders : 0;
@@ -160,11 +163,9 @@ export default function AnalyticsPage() {
     return ((curAvg - prevAvg) / prevAvg) * 100;
   }, [trends, prevTrends, totalRevenue, totalOrders]);
 
-  // Top-selling item + its prior-period delta (matched by name; null
-  // when the item is new or history is missing — never faked).
   const topItemStat = useMemo(() => {
     const cur = trends?.top_items?.[0];
-    if (!cur) return { name: "—", qty: null, trend: null };
+    if (!cur) return { name: " ", qty: null, trend: null };
     const prevMatch = prevTrends?.top_items?.find((t) => t.name === cur.name);
     const trend =
       prevMatch && prevMatch.qty > 0
@@ -173,7 +174,6 @@ export default function AnalyticsPage() {
     return { name: cur.name, qty: cur.qty, trend };
   }, [trends, prevTrends]);
 
-  // Takeaway chips pinned under the KPIs: short, linked to the evidence.
   const insights = useMemo(() => {
     const list = [];
     if (revenueTrend !== null && revenueTrend > 10) {
@@ -189,7 +189,7 @@ export default function AnalyticsPage() {
     if (byWeekday.length) {
       const best = byWeekday.reduce((a, b) => (a.total_sales > b.total_sales ? a : b));
       if (best.total_sales > 0) {
-        list.push({ icon: BarChart2, short: `${best.label} peaks — staff it`, href: "#section-dow", type: "info" });
+        list.push({ icon: BarChart2, short: `${best.label} peaks - staff it`, href: "#section-dow", type: "info" });
       }
     }
     if (totalOrders > 0) {
@@ -222,8 +222,6 @@ export default function AnalyticsPage() {
 
   const maxDow = Math.max(...(dowData.map((w) => w.total_sales) ?? [1]), 1);
 
-  // Use brand red for the strongest day and a subtle neutral gradient for the rest
-  // (so the bar chart is readable for color-blind users and high-contrast B/W prints).
   function dowCellFill(entry) {
     if (entry.total_sales <= 0) return "var(--border)";
     if (entry.total_sales === maxDow) return "var(--primary)";
@@ -249,47 +247,148 @@ export default function AnalyticsPage() {
   }
 
   function sortIcon(col) {
-    if (sortCol !== col) return <span className="sort-icon">↕</span>;
-    return <span className="sort-icon active">{sortDir === "desc" ? "↓" : "↑"}</span>;
+    if (sortCol !== col) return <span className="sort-icon"> </span>;
+    return <span className="sort-icon active">{sortDir === "desc" ? " ↓ " : " ↑ "}</span>;
   }
+
+  const locationOptions = [
+    { value: "", label: "All carts" },
+    ...carts.map((c) => ({ value: c.code, label: `${c.code} - ${c.name}` }))
+  ];
+
+  const rangeOptions = [
+    { value: "7", label: "Last 7 days" },
+    { value: "14", label: "Last 14 days" },
+    { value: "30", label: "Last 30 days" },
+    { value: "90", label: "Last 90 days" },
+  ];
+
+  // ==========================================================
+  // SMART SUMMARY GENERATOR (FIXED SPACING)
+  // ==========================================================
+  const renderSmartSummary = () => {
+    const rev = Number(totalRevenue).toLocaleString();
+    const ord = totalOrders;
+    
+    const hasTrend = revenueTrend !== null;
+    const isUp = revenueTrend >= 0;
+    const trn = hasTrend ? Math.abs(revenueTrend).toFixed(1) : "0";
+    
+    const top = topItemStat?.name && topItemStat.name.trim() !== "" ? topItemStat.name : null;
+    
+    const pDow = hourly?.peak?.dow;
+    const pHour = hourly?.peak?.hour;
+    const daysEN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const daysTL = ["Linggo", "Lunes", "Martes", "Miyerkules", "Huwebes", "Biyernes", "Sabado"];
+    
+    const peakDayEN = pDow !== undefined ? daysEN[pDow] : null;
+    const peakDayTL = pDow !== undefined ? daysTL[pDow] : null;
+    
+    let peakTime = null;
+    if (pHour !== undefined) {
+      const h = pHour > 12 ? pHour - 12 : pHour === 0 ? 12 : pHour;
+      const ampm = pHour >= 12 ? 'PM' : 'AM';
+      peakTime = `${h}:00 ${ampm}`;
+    }
+
+    const riskItems = forecast?.items?.filter(i => i.risk === "high" || i.risk === "medium").length || 0;
+
+    const highlightStyle = { color: "var(--primary-strong)", fontWeight: "800", fontSize: "1.05em" };
+
+    if (summaryLang === "en") {
+      return (
+        <span>
+          Over the selected period, your operations generated <strong style={highlightStyle}>P{rev}</strong> across <strong style={highlightStyle}>{ord}</strong> orders
+          {hasTrend ? `, marking a ${isUp ? "positive" : "negative"} trend of ` : ". "}
+          {hasTrend && <strong style={{...highlightStyle, color: isUp ? "var(--success)" : "var(--danger)"}}>{trn}% {isUp ? "increase" : "decrease"}</strong>}
+          {hasTrend && " from the previous period. "}
+          {top && <>Your best-selling product was <strong style={highlightStyle}>{top}</strong>. </>}
+          {peakDayEN && peakTime && <>Foot traffic peaked on <strong style={highlightStyle}>{peakDayEN}s around {peakTime}</strong>, so prepare your staff accordingly. </>}
+          {riskItems > 0 
+            ? <>Lastly, <strong style={{...highlightStyle, color: "var(--danger)"}}>{riskItems} item(s)</strong> are projected to run critically low soon and need your attention.</>
+            : <>Inventory levels look healthy for now.</>}
+        </span>
+      );
+    } else {
+      return (
+        <span>
+          Sa napiling panahon, kumita ang iyong operasyon ng <strong style={highlightStyle}>P{rev}</strong> mula sa <strong style={highlightStyle}>{ord}</strong> na benta
+          {hasTrend ? ", na may " : ". "}
+          {hasTrend && <strong style={{...highlightStyle, color: isUp ? "var(--success)" : "var(--danger)"}}>{trn}% na {isUp ? "pagtaas" : "pagbaba"}</strong>}
+          {hasTrend && " kumpara sa nakaraang period. "}
+          {top && <>Ang pinakamabenta mong produkto ay <strong style={highlightStyle}>{top}</strong>. </>}
+          {peakDayTL && peakTime && <>Inaasahan ang pinakamaraming bibili tuwing <strong style={highlightStyle}>{peakDayTL} bandang {peakTime}</strong>, kaya siguraduhing sapat ang iyong staff. </>}
+          {riskItems > 0 
+            ? <>Para sa imbentaryo, <strong style={{...highlightStyle, color: "var(--danger)"}}>{riskItems} na item</strong> ang malapit nang maubos at kailangan nang i-reorder agad.</>
+            : <>Sa ngayon, sapat pa at ligtas ang iyong imbentaryo.</>}
+        </span>
+      );
+    }
+  };
 
   return (
     <PageErrorBoundary>
-      <div className="page-container" aria-busy={loading}>
-        <div className="page-header analytics-sticky">
-          <div>
-            <h1 className="page-header-title">Analytics</h1>
-            <p className="page-header-subtitle">Sales performance and inventory insights</p>
+      <div className="page-container wide" aria-busy={loading}>
+        
+        <PageHeader
+          eyebrow="Insights"
+          title="Analytics"
+          sub="Performance metrics, sales trends, and top items."
+          actions={
+            <>
+              <span className="muted small" style={{ marginRight: "4px" }}>
+                Last updated {lastUpdated?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) ?? "just now"}
+              </span>
+              <button
+                className="ghost small-btn"
+                onClick={() => {
+                  setLoading(true);
+                  setReload((n) => n + 1);
+                }}
+                disabled={loading}
+                title="Refresh analytics"
+              >
+                <RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh
+              </button>
+            </>
+          }
+        />
+
+        <section className="panel" style={{ padding: "var(--space-4)", marginBottom: "var(--space-5)" }}>
+          <div className="sales-filters-row" style={{ marginBottom: 0 }}>
+            <div className="sales-filters-left">
+              <Select
+                value={cartCode}
+                onChange={(val) => {
+                  setLoading(true);
+                  setCartCode(val);
+                }}
+                options={locationOptions}
+                placeholder="All carts"
+              />
+              <Select
+                value={range}
+                onChange={(val) => {
+                  setLoading(true);
+                  setRange(val);
+                }}
+                options={rangeOptions}
+                placeholder="Select range..."
+              />
+            </div>
+            {(cartCode || range !== "30") && (
+              <button 
+                className="danger-ghost small-btn" 
+                onClick={() => { setCartCode(""); setRange("30"); setLoading(true); }}
+              >
+                <X size={14} /> Clear filters
+              </button>
+            )}
           </div>
-          <div className="page-header-actions">
-            <select
-              className="cart-select"
-              value={cartCode}
-              onChange={(e) => {
-                setLoading(true);
-                setCartCode(e.target.value);
-              }}
-            >
-              <option value="">All carts</option>
-              {carts.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
-            </select>
-            <select
-              value={range}
-              onChange={(e) => {
-                setLoading(true);
-                setRange(e.target.value);
-              }}
-            >
-              <option value="7">Last 7 days</option>
-              <option value="14">Last 14 days</option>
-              <option value="30">Last 30 days</option>
-              <option value="90">Last 90 days</option>
-            </select>
-          </div>
-        </div>
+        </section>
 
         {error && (
-          <div className="error-box" role="alert">
+          <div className="error-box" role="alert" style={{ marginBottom: "var(--space-4)" }}>
             <span>{error}</span>
             <button
               className="ghost"
@@ -304,7 +403,60 @@ export default function AnalyticsPage() {
         )}
 
         {trends && (
-          <>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
+            
+            <section 
+              className="panel" 
+              style={{ 
+                padding: "var(--space-5) var(--space-6)", 
+                background: "linear-gradient(135deg, var(--primary-soft) 0%, var(--surface) 100%)",
+                border: "1px solid var(--primary-tint)",
+                boxShadow: "0 12px 32px rgba(231, 54, 49, 0.12)",
+                position: "relative",
+                overflow: "hidden"
+              }}
+            >
+              <Sparkles 
+                size={200} 
+                color="var(--primary)" 
+                style={{ 
+                  position: "absolute", 
+                  right: "-20px", 
+                  top: "-40px", 
+                  opacity: 0.04, 
+                  transform: "rotate(15deg)",
+                  pointerEvents: "none"
+                }} 
+              />
+              
+              <div className="flex items-center justify-between" style={{ marginBottom: "var(--space-4)", position: "relative", zIndex: 10 }}>
+                <h3 className="flex items-center gap-2 m-0 p-0" style={{ fontSize: 'var(--fs-xl)', fontWeight: 'var(--fw-extrabold)', color: 'var(--primary-strong)' }}>
+                  <Sparkles size={22} fill="var(--primary-strong)" /> 
+                  Executive Summary
+                </h3>
+                <div className="seg" style={{ background: "var(--surface)", padding: "4px", borderRadius: "8px", border: "1px solid var(--border)" }}>
+                  <button 
+                    className={`ghost small-btn ${summaryLang === "en" ? "active" : ""}`} 
+                    onClick={() => setSummaryLang("en")}
+                    style={{ border: "none", boxShadow: summaryLang === "en" ? "var(--shadow-sm)" : "none" }}
+                  >
+                    EN
+                  </button>
+                  <button 
+                    className={`ghost small-btn ${summaryLang === "tl" ? "active" : ""}`} 
+                    onClick={() => setSummaryLang("tl")}
+                    style={{ border: "none", boxShadow: summaryLang === "tl" ? "var(--shadow-sm)" : "none" }}
+                  >
+                    TL
+                  </button>
+                </div>
+              </div>
+              
+              <p style={{ margin: 0, lineHeight: 1.7, color: "var(--text)", fontSize: "var(--fs-lg)", position: "relative", zIndex: 10 }}>
+                {renderSmartSummary()}
+              </p>
+            </section>
+
             <div className="analytics-kpis">
               {[
                 { label: "Total Revenue", value: `P${totalRevenue.toLocaleString()}`, trend: revenueTrend, icon: DollarSign },
@@ -346,11 +498,11 @@ export default function AnalyticsPage() {
               </div>
             )}
 
-            <div className="analytics-section" id="section-sales">
+            <div className="analytics-section panel" id="section-sales">
               <div className="analytics-section-header">
                 <div>
                   <h2 className="analytics-section-title"><span className="section-num" aria-hidden="true">1</span> Sales Trend</h2>
-                  <p className="analytics-section-sub">Daily revenue — when money comes in</p>
+                  <p className="analytics-section-sub">Daily revenue - when money comes in</p>
                 </div>
               </div>
               <div
@@ -399,7 +551,7 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            <div className="analytics-section" id="section-dow">
+            <div className="analytics-section panel" id="section-dow">
               <div className="analytics-section-header">
                 <div>
                   <h2 className="analytics-section-title"><span className="section-num" aria-hidden="true">2</span> Day-of-Week Performance</h2>
@@ -452,16 +604,16 @@ export default function AnalyticsPage() {
                   <h3 className="profit-chart-title">Peak hours</h3>
                   <p className="muted small" style={{ marginBottom: "var(--space-2)" }}>
                     {hourly.peak.total_sales > 0 ? (
-                      <>Busiest: <strong>{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hourly.peak.dow]} {hourly.peak.hour}:00</strong> — staff the rush, prep before it.</>
+                      <>Busiest: <strong>{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hourly.peak.dow]} {hourly.peak.hour}:00</strong> - staff the rush, prep before it.</>
                     ) : (
-                      <>No hourly pattern yet — it appears once sales accumulate.</>
+                      <>No hourly pattern yet - it appears once sales accumulate.</>
                     )}
                   </p>
                   <HeatmapGrid matrix={hourly.matrix} />
                   <details className="muted small" style={{ marginTop: "var(--space-2)" }}>
                     <summary>View as a table</summary>
                     <div className="table-wrap" style={{ marginTop: "var(--space-2)" }}>
-                      <table className="data compact">
+                      <table className="data compact table-fixed">
                         <caption className="muted small">Revenue by weekday and hour (PHP)</caption>
                         <thead>
                           <tr>
@@ -494,26 +646,26 @@ export default function AnalyticsPage() {
             </div>
 
             {categoryData.length > 0 && (
-              <div className="analytics-section" id="section-category">
+              <div className="analytics-section panel" id="section-category">
                 <div className="analytics-section-header">
                   <div>
                     <h2 className="analytics-section-title"><span className="section-num" aria-hidden="true">3</span> Category Breakdown</h2>
                     <p className="analytics-section-sub">What sells, by product family</p>
                   </div>
                 </div>
-              <div
-                className="chart-container"
-                role="img"
-                aria-label={`Horizontal bar chart of revenue by category. Top category: ${
-                  categoryData[0]?.name ?? "n/a"
-                } at P${categoryData[0]?.sales?.toLocaleString() ?? 0}.`}
-              >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={categoryData}
-                    layout="vertical"
-                    margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
-                  >
+                <div
+                  className="chart-container"
+                  role="img"
+                  aria-label={`Horizontal bar chart of revenue by category. Top category: ${
+                    categoryData[0]?.name ?? "n/a"
+                  } at P${categoryData[0]?.sales?.toLocaleString() ?? 0}.`}
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={categoryData}
+                      layout="vertical"
+                      margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+                    >
                       <XAxis
                         type="number"
                         tick={{ fontSize: 11, fill: "var(--text-muted)" }}
@@ -540,7 +692,7 @@ export default function AnalyticsPage() {
               </div>
             )}
 
-            <div className="analytics-section" id="section-items">
+            <div className="analytics-section panel" id="section-items">
               <div className="analytics-section-header">
                 <div>
                   <h2 className="analytics-section-title"><span className="section-num" aria-hidden="true">4</span> Top Items</h2>
@@ -548,14 +700,14 @@ export default function AnalyticsPage() {
                 </div>
               </div>
               <div className="table-wrap">
-                <table className="data top-items-table">
+                <table className="data top-items-table table-fixed">
                   <thead>
                     <tr>
-                      <th>#</th>
+                      <th style={{ width: 60 }}>#</th>
                       <th onClick={() => handleSort("name")}>Item {sortIcon("name")}</th>
-                      <th onClick={() => handleSort("qty")} className="t-right">Qty Sold {sortIcon("qty")}</th>
-                      <th onClick={() => handleSort("sales")} className="t-right">Revenue {sortIcon("sales")}</th>
-                      <th onClick={() => handleSort("pct")} className="t-right">% of Total {sortIcon("pct")}</th>
+                      <th onClick={() => handleSort("qty")} className="t-right" style={{ width: 120 }}>Qty Sold {sortIcon("qty")}</th>
+                      <th onClick={() => handleSort("sales")} className="t-right" style={{ width: 140 }}>Revenue {sortIcon("sales")}</th>
+                      <th onClick={() => handleSort("pct")} className="t-right" style={{ width: 140 }}>% of Total {sortIcon("pct")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -598,18 +750,18 @@ export default function AnalyticsPage() {
                             <span style={{ width: `${Math.min(100, p.pct * 4)}%` }} />
                           </span>
                           <strong style={{ color: "var(--text)" }}>{p.pair.join(" + ")}</strong>
-                          {" "}· {p.orders} orders ({p.pct}%)
+                          {" "} - {p.orders} orders ({p.pct}%)
                         </li>
                       ))}
                     </ul>
                   ) : (
-                    <p className="muted small">Single-item tickets so far — no pairs to show yet.</p>
+                    <p className="muted small">Single-item tickets so far - no pairs to show yet.</p>
                   )}
                 </div>
               )}
             </div>
 
-            <div className="analytics-section" id="section-forecast">
+            <div className="analytics-section panel" id="section-forecast">
               <div className="analytics-section-header">
                 <div>
                   <h2 className="analytics-section-title"><span className="section-num" aria-hidden="true">5</span> Inventory Forecast</h2>
@@ -672,7 +824,7 @@ export default function AnalyticsPage() {
                       )}
                     </p>
                     <div className="table-wrap">
-                      <table className="data">
+                      <table className="data table-fixed">
                         <thead>
                           <tr>
                             <th>Item</th>
@@ -689,8 +841,8 @@ export default function AnalyticsPage() {
                               <td><strong>{i.name}</strong></td>
                               <td>{i.current_stock} {i.unit}</td>
                               <td>{i.avg_daily_use} {i.unit}</td>
-                              <td>{i.depletion_date ?? "—"}</td>
-                              <td className="muted">{i.mape_pct != null ? `${i.mape_pct}%` : "—"}</td>
+                              <td>{i.depletion_date ?? "-"}</td>
+                              <td className="muted">{i.mape_pct != null ? `${i.mape_pct}%` : "-"}</td>
                               <td><Badge variant={RISK_CHIP[i.risk] ?? "neutral"}>{String(i.risk ?? "unknown").toUpperCase()}</Badge></td>
                             </tr>
                           ))}
@@ -716,7 +868,7 @@ export default function AnalyticsPage() {
               })()}
             </div>
 
-            <div className="analytics-section" id="section-revenue-fc">
+            <div className="analytics-section panel" id="section-revenue-fc">
               <div className="analytics-section-header">
                 <div>
                   <h2 className="analytics-section-title"><span className="section-num" aria-hidden="true">6</span> Revenue Forecast</h2>
@@ -727,8 +879,8 @@ export default function AnalyticsPage() {
                 <>
                   <p className="muted small" style={{ marginBottom: "var(--space-2)" }}>
                     Same engine as inventory forecasts
-                    {salesFc.mape != null && <> · backtest MAPE <strong>{salesFc.mape}%</strong></>}.
-                    {" "}<span aria-hidden="true">┄┄</span> dashed line = forecast, not history.
+                    {salesFc.mape != null && <> - backtest MAPE <strong>{salesFc.mape}%</strong></>}.
+                    {" "}<span aria-hidden="true">-</span> dashed line = forecast, not history.
                   </p>
                   <div
                     className="chart-container"
@@ -778,13 +930,13 @@ export default function AnalyticsPage() {
                 <p className="muted forecast-empty">
                   {salesFc && !salesFc.data_sufficient
                     ? `Revenue forecast activates after 14 days of sales history${salesFc.reason ? ` (${salesFc.reason})` : ""}.`
-                    : "Collecting sales history…"}
+                    : "Collecting sales history..."}
                 </p>
               )}
             </div>
 
             {profit && <ProfitSection profit={profit} />}
-          </>
+          </div>
         )}
 
         {loading && !trends && (
@@ -793,7 +945,7 @@ export default function AnalyticsPage() {
             <div style={{ marginTop: "var(--space-4)" }}>
               <SkeletonChart />
             </div>
-            <span className="muted small">Loading analytics…</span>
+            <span className="muted small">Loading analytics...</span>
           </div>
         )}
       </div>

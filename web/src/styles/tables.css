@@ -2,47 +2,67 @@
  * PART: tables.css  |  SAKOP: DataTable, pagination, filter bar,
  *         cart-select, row states (Sales, Inventory, Staff,
  *         Expenses, Data Hub)
- * PINAGSAMA: dating dalawang "data table" (line 335 stub + 945)
- * HUWAG DITO: bulk bar → inventory.css
  * ============================================================ */
 
-/* ----- Tables: filter bar (dating 'cards & panels' block) ----- */
-.filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+/* ----- Tables: filter bar ----- */
+.filters {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 16px;
+}
 
-/* ----- Tables: DataTable — PINAGSAMA ang stub (335) at buong table (945-997) ----- */
-/* ================= data table ================= */
-/* .table-wrap styles consolidated below */
 /* ================= data table ================= */
 .table-wrap {
   overflow-x: auto;
-  border-radius: var(--radius-sm);
 }
+
 .table-wrap .data {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: collapse; /* Balik sa collapse para seamless */
 }
+
+/* Ultra-clean SaaS headers */
 .table-wrap .data th {
-  background: var(--bg);
-  padding: 8px 12px;
+  background: transparent;
+  padding: 16px 12px;
   text-align: left;
-  font-size: var(--fs-sm);
-  font-weight: 600;
+  font-size: 11px; 
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--text-muted);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-strong); /* Crisp dividing line */
 }
+
+/* Breathable cells */
 .table-wrap .data td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
+  padding: 16px 12px;
+  background: transparent;
+  border-bottom: 1px solid var(--border); /* Light bottom line lang */
   font-size: var(--fs-sm);
+  color: var(--text);
+  transition: background 0.15s ease;
 }
-.table-wrap .data tr:hover {
-  background: var(--primary-soft);
+
+/* Alisin ang border sa pinakahuling row para malinis tignan sa loob ng card */
+.table-wrap .data tr:last-child td {
+  border-bottom: none;
+}
+
+/* Seamless highlight lang, walang rounded corners sa rows */
+.table-wrap .data tr:hover td {
+  background: var(--surface-alt);
   cursor: pointer;
 }
-.t-left { text-align: left; }
-.t-center { text-align: center; }
-.t-right { text-align: right; white-space: nowrap; }
 
+/* Alignment helpers */
+.t-left { text-align: left !important; }
+.t-center { text-align: center !important; }
+.t-right { text-align: right !important; white-space: nowrap; }
+
+/* Sortable headers */
 .table-wrap .data th.sortable-th {
   cursor: pointer;
   user-select: none;
@@ -50,68 +70,129 @@
   top: 0;
   z-index: 2;
 }
-.table-wrap .data th.sortable-th:hover { color: var(--text); }
+
+.table-wrap .data th.sortable-th:hover {
+  color: var(--text);
+}
+
 .table-wrap .data .th-inner {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
+
 .table-wrap .data .sort-icon {
   display: inline-flex;
   align-items: center;
   color: var(--text-muted);
   opacity: 0.6;
 }
-.table-wrap .data th.sortable-th:hover .sort-icon { opacity: 1; }
-.table-wrap .data .compact-th { padding: 4px 8px; }
-.table-wrap .data .compact-td { padding: 4px 8px; }
 
-/* ----- Tables: cart-select — filter dropdown (Sales, Inventory, Staff, Expenses, Analytics) ----- */
-.cart-select { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 10px; font-size: 16px; background: var(--surface); }
-/* 16px stops iOS auto-zoom on focus; visual size unchanged via padding. */
+.table-wrap .data th.sortable-th:hover .sort-icon {
+  opacity: 1;
+}
 
-/* ----- Tables: pagination (dating 'pagination') ----- */
+.table-wrap .data .compact-th { padding: 10px 12px; }
+.table-wrap .data .compact-td { padding: 10px 12px; }
+
+/* ----- Tables: cart-select filter dropdown ----- */
+.cart-select {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 14px;
+  font-size: 14px;
+  background: var(--surface);
+  color: var(--text);
+}
+
 /* ================= pagination ================= */
 .pagination {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
-  padding-top: 12px;
+  gap: 12px;
+  padding-top: 20px;
   color: var(--text-muted);
   font-size: var(--fs-sm);
+  font-weight: 500;
 }
-.page-btns { display: flex; gap: 4px; }
+
+.page-btns {
+  display: flex;
+  gap: 6px;
+}
+
 .page-btn {
-  min-width: 32px;
-  height: 32px;
-  padding: 0 8px;
-  background: var(--surface);
+  min-width: 36px;
+  height: 36px;
+  padding: 0 10px;
+  background: transparent;
   color: var(--text-muted);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 10px;
   font-weight: 600;
+  transition: all 0.2s ease;
 }
-.page-btn:hover:not(:disabled) { background: var(--surface-alt); }
-.page-btn.current { background: var(--primary); color: var(--surface); border-color: var(--primary); }
 
-/* ----- Tables: row states — InventoryPage (dating 'utility' block) ----- */
-.row-selected { background: var(--primary-soft); }
-.sort-icon { margin-left: 4px; opacity: 0.3; }
-.sort-icon.active { opacity: 1; }
+.page-btn:hover:not(:disabled) {
+  background: var(--surface-alt);
+  color: var(--text);
+}
 
-/* ----- Tables: tabular numbers + sortable headers (dating 'utility'/'analytics' block) ----- */
-.data td.t-right { font-variant-numeric: tabular-nums; }
-.top-items-table th { cursor: pointer; }
-.top-items-table th:hover { color: var(--text); }
+/* Premium active state (Dark imbes na Red para mag-blend sa modern UI) */
+.page-btn.current {
+  background: var(--text);
+  color: var(--surface);
+  border-color: var(--text);
+}
 
-/* ----- Responsive (max-width: 640px): mobile — data table density ----- */
+/* ----- Tables: row states ----- */
+.row-selected td {
+  background: var(--primary-soft) !important;
+}
+
+.sort-icon {
+  margin-left: 4px;
+  opacity: 0.3;
+}
+.sort-icon.active {
+  opacity: 1;
+  color: var(--primary);
+}
+
+.data td.t-right {
+  font-variant-numeric: tabular-nums;
+}
+
+.top-items-table th {
+  cursor: pointer;
+}
+.top-items-table th:hover {
+  color: var(--text);
+}
+
+/* ----- Responsive ----- */
 @media (max-width: 640px) {
-table.data th, table.data td { padding: 8px; font-size: var(--fs-xs); }
+  table.data th, table.data td {
+    padding: 12px 8px;
+    font-size: var(--fs-xs);
+  }
 }
 
-/* ----- Responsive (max-width: 480px): small phones — pagination wraps ----- */
 @media (max-width: 480px) {
   .pagination { flex-wrap: wrap; justify-content: center; }
   .page-btns { flex-wrap: wrap; justify-content: center; }
+}
+
+/* ============================================================
+ * FIXED TABLE LAYOUT
+ * ============================================================ */
+.table-fixed {
+  table-layout: fixed;
+  width: 100%;
+  /* Tinanggal na natin ang min-width: 900px dito */
+}
+.table-fixed td, .table-fixed th {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }

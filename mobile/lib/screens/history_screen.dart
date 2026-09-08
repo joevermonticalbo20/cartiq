@@ -45,8 +45,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
     if (total.toLowerCase().contains(lq)) return true;
     final items = (order['items'] as List?) ?? [];
     for (final it in items) {
-      if ((it['productName'] as String? ?? '').toLowerCase().contains(lq)) return true;
-      if ((it['flavor'] as String? ?? '').toLowerCase().contains(lq)) return true;
+      if ((it['productName'] as String? ?? '').toLowerCase().contains(lq)) {
+        return true;
+      }
+      if ((it['flavor'] as String? ?? '').toLowerCase().contains(lq)) {
+        return true;
+      }
     }
     return false;
   }
@@ -88,14 +92,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final grouped = <String, List<Map<String, dynamic>>>{};
     for (final o in filtered) {
       final dt = DateTime.tryParse('${o['createdAt']}');
-      final key =
-          dt == null ? 'Unknown date' : '${dt.year}/${dt.month}/${dt.day}';
+      final key = dt == null
+          ? 'Unknown date'
+          : '${dt.year}/${dt.month}/${dt.day}';
       (grouped[key] ??= []).add(o);
     }
     final rows = <Object>[];
     for (final entry in grouped.entries) {
       final dayTotal = entry.value.fold<double>(
-          0, (s, o) => s + ((o['total'] ?? 0) as num).toDouble());
+        0,
+        (s, o) => s + ((o['total'] ?? 0) as num).toDouble(),
+      );
       rows.add((entry.key, entry.value.length, dayTotal));
       rows.addAll(entry.value);
     }
@@ -141,15 +148,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 icon: _search.isNotEmpty
                     ? Icons.search_off_rounded
                     : Icons.receipt_long_rounded,
-                title: _error ??
+                title:
+                    _error ??
                     (_search.isNotEmpty
                         ? 'No sales match "$_search"'
                         : 'No sales recorded yet'),
                 subtitle: _search.isNotEmpty
                     ? 'Try a different product, flavor, or amount.'
                     : (widget.onNewSale != null
-                        ? 'Record a sale on the POS tab to see it appear here.'
-                        : null),
+                          ? 'Record a sale on the POS tab to see it appear here.'
+                          : null),
                 actionLabel: _search.isNotEmpty
                     ? 'Clear search'
                     : (widget.onNewSale != null ? 'Open POS' : null),
@@ -158,10 +166,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     : Icons.point_of_sale_rounded,
                 onAction: _search.isNotEmpty
                     ? () => setState(() {
-                          _search = '';
-                          _searchCtrl.clear();
-                          _searching = false;
-                        })
+                        _search = '';
+                        _searchCtrl.clear();
+                        _searching = false;
+                      })
                     : widget.onNewSale,
               )
             : NotificationListener<ScrollNotification>(
@@ -175,14 +183,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(14),
                   itemCount: rows.length + (_loading ? 1 : 0),
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (context, i) {
                     if (i >= rows.length) {
                       return const Center(
-                          child: Padding(
-                        padding: EdgeInsets.all(12),
-                        child: CircularProgressIndicator(),
-                      ));
+                        child: Padding(
+                          padding: EdgeInsets.all(12),
+                          child: CircularProgressIndicator(),
+                        ),
+                      );
                     }
                     final row = rows[i];
                     if (row is (String, int, double)) {
@@ -199,9 +208,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             ),
                             Text(
                               'P${total.toStringAsFixed(0)}',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelSmall
+                              style: Theme.of(context).textTheme.labelSmall
                                   ?.copyWith(fontWeight: FontWeight.w800),
                             ),
                           ],
@@ -210,8 +217,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     }
                     final o = row as Map<String, dynamic>;
                     final items = (o['items'] as List)
-                        .map((it) =>
-                            '${it['qty']}x ${it['productName']}${it['flavor'] != null ? ' (${it['flavor']})' : ''}')
+                        .map(
+                          (it) =>
+                              '${it['qty']}x ${it['productName']}${it['flavor'] != null ? ' (${it['flavor']})' : ''}',
+                        )
                         .join(', ');
                     final dt = DateTime.tryParse('${o['createdAt']}');
                     final dateStr = dt == null
@@ -221,7 +230,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       margin: EdgeInsets.zero,
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 6),
+                          horizontal: 14,
+                          vertical: 6,
+                        ),
                         leading: Container(
                           width: 42,
                           height: 42,
@@ -229,27 +240,36 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             color: AppColors.ok.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(AppRadius.s),
                           ),
-                          child: const Icon(Icons.payments_rounded,
-                              size: 21, color: AppColors.ok),
+                          child: const Icon(
+                            Icons.payments_rounded,
+                            size: 21,
+                            color: AppColors.ok,
+                          ),
                         ),
                         title: Row(
                           children: [
                             Text(
                               'P${((o['total'] ?? 0) as num).toStringAsFixed(0)}',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w800)),
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w800),
+                            ),
                             const SizedBox(width: 8),
-                            Text('${(o['items'] as List).length} item(s)',
-                                style: Theme.of(context).textTheme.bodySmall),
+                            Text(
+                              '${(o['items'] as List).length} item(s)',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
                           ],
                         ),
-                        subtitle: Text(items,
-                            maxLines: 2, overflow: TextOverflow.ellipsis),
+                        subtitle: Text(
+                          items,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                         isThreeLine: false,
-                        trailing: Text(dateStr,
-                            style: Theme.of(context).textTheme.labelSmall),
+                        trailing: Text(
+                          dateStr,
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
                       ),
                     );
                   },
