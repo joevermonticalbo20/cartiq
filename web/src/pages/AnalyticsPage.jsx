@@ -1,11 +1,11 @@
-import { useEffect, useState, useCallback, useMemo, Fragment } from "react";
+import { useEffect, useState, useMemo, Fragment } from "react";
 import { 
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, 
   Tooltip, ResponsiveContainer, CartesianGrid, Cell, LabelList, 
 } from "recharts";
 import { 
   TrendingUp, TrendingDown, ShoppingBag, 
-  DollarSign, BarChart2, PackageSearch, RefreshCw, X, Clock, PieChart as PieChartIcon, Activity, Sparkles 
+  DollarSign, BarChart2, PackageSearch, RefreshCw, X, Sparkles 
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api.js";

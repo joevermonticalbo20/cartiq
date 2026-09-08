@@ -19,7 +19,7 @@ export default function SalesPage() {
     api.get("/catalog").then(({ data }) => setLocations(data.locations)).catch(() => {});
   }, []);
 
-  const { rows, meta, loading, error, page, gotoPage, refresh } = usePagedData(
+  const { rows, meta, loading, error, gotoPage, refresh } = usePagedData(
     (p) =>
       `/orders?page=${p}&pageSize=10` +
       (loc ? `&location_code=${loc}` : "") +

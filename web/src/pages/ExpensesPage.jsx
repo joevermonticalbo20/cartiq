@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { Trash2, ReceiptText, RefreshCw, X } from "lucide-react";
 import api from "../api.js";
@@ -45,7 +45,7 @@ export default function ExpensesPage() {
     (month ? `&month=${month}` : "") +
     (category ? `&category=${encodeURIComponent(category)}` : "");
 
-  const { rows, meta, loading, error, page, gotoPage, refresh } = usePagedData(path, [
+  const { rows, meta, loading, error, gotoPage, refresh } = usePagedData(path, [
     code,
     month,
     category,
@@ -62,7 +62,7 @@ export default function ExpensesPage() {
   // summary (totals + by_category) comes with every response; use the first
   // page's payload to render the breakdown strip. Includes the category
   // filter so the strip never disagrees with the table.
-  async function loadSummary() {
+  const loadSummary = useCallback(async () => {
     try {
       const res = await api.get(
         `/expenses?page=1&pageSize=1` +
@@ -74,12 +74,12 @@ export default function ExpensesPage() {
     } catch {
       /* non-critical */
     }
-  }
+  }, [code, month, category]);
 
   useEffect(() => {
     const timer = setTimeout(loadSummary, 0);
     return () => clearTimeout(timer);
-  }, [code, month, category]);
+  }, [loadSummary]);
 
   function handleRefresh() {
     refresh();
@@ -198,7 +198,7 @@ export default function ExpensesPage() {
             <EmptyState
               icon={ReceiptText}
               title="No expenses in this period"
-              subtitle="Scan vendor receipts from the mobile POS app and they'll appear here automatically."
+              subtitle="Scan vendor receipts from the mobile POS app and they&apos;ll appear here automatically."
             />
           ) : (
             <DataTable

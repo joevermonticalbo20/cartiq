@@ -36,9 +36,12 @@ export default function PasswordStrengthMeter({ value = "", minLevel = null }) {
   const { checks, level } = evaluatePassword(value);
   const showChecks = value.length > 0;
   
-  const meetsMin = !minLevel || level === "strong" || level === "good" ||
+  const meetsMin =
+    !minLevel ||
+    (minLevel === "weak" && ["weak", "fair", "good", "strong"].includes(level)) ||
     (minLevel === "fair" && ["fair", "good", "strong"].includes(level)) ||
-    (minLevel === "weak" && ["weak", "fair", "good", "strong"].includes(level));
+    (minLevel === "good" && ["good", "strong"].includes(level)) ||
+    (minLevel === "strong" && level === "strong");
 
   return (
     <div className="pw-strength" data-level={level}>

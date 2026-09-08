@@ -54,7 +54,6 @@ class AppTheme {
     final surface  = isDark ? const Color(0xFF1E1E1E)  : Colors.white;
     final surfaceAlt = isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5);
     final border   = isDark ? const Color(0xFF2A2A2A)  : const Color(0xFFE5E7EB);
-    final borderStrong = isDark ? const Color(0xFF3A3A3A) : const Color(0xFFD1D5DB);
     final text     = isDark ? const Color(0xFFF8F9FA)  : const Color(0xFF0A0908);
     final muted    = isDark ? const Color(0xFFA1A1AA)  : const Color(0xFF6B7280);
     final primarySoft = isDark ? const Color(0xFF3B1513) : AppColors.primarySoft;

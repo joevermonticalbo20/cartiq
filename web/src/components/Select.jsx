@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { ChevronDown } from "lucide-react";
 
-export default function Select({ value, onChange, options, placeholder = "Select...", className = "" }) {
+export default function Select({ value, onChange, options = [], placeholder = "Select...", className = "" }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 

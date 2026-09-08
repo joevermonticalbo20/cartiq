@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import api from "../api.js";
 
 /**
@@ -8,6 +8,12 @@ import api from "../api.js";
  */
 export function useApiData(endpoint, options = {}) {
   const { immediate = true, onSuccess, onError } = options;
+
+  // Latest callbacks via ref so `fetch` stays stable on `endpoint` only.
+  const callbacks = useRef({ onSuccess, onError });
+  useEffect(() => {
+    callbacks.current = { onSuccess, onError };
+  }, [onSuccess, onError]);
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(immediate);
@@ -20,12 +26,12 @@ export function useApiData(endpoint, options = {}) {
       const response = await api.get(endpoint);
       const result = response.data;
       setData(result);
-      onSuccess?.(result);
+      callbacks.current.onSuccess?.(result);
       return result;
     } catch (err) {
       const message = err.message || "Failed to fetch data";
       setError(message);
-      onError?.(err);
+      callbacks.current.onError?.(err);
       return null;
     } finally {
       setLoading(false);

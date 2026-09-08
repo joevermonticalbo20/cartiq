@@ -43,7 +43,9 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
     super.initState();
     final auth = context.read<AuthState>();
     _locationCode = auth.locationCode;
-    auth.api.catalog(auth.token!).then((data) {
+    final token = auth.token;
+    if (token == null) return;
+    auth.api.catalog(token).then((data) {
       if (!mounted) return;
       setState(() {
         _locations = (data['locations'] as List).cast<Map<String, dynamic>>();
@@ -71,6 +73,7 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
       final xfile = await picker.pickImage(source: source, imageQuality: 85);
       if (xfile == null) return;
       final parsed = await _scanner.scanFromFile(xfile.path);
+      if (!mounted) return;
       setState(() {
         _vendor.text = parsed.vendor;
         if (parsed.amount != null) _amount.text = parsed.amount.toString();
@@ -80,6 +83,7 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
         _message = 'Receipt scanned - review the fields below before saving.';
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _message = 'Scan failed: $e');
     } finally {
       if (mounted) setState(() => _busy = false);

@@ -14,10 +14,20 @@ export const EXPENSE_CATEGORIES = [
 ];
 
 function decorate(expense) {
-  return {
-    ...expense,
-    lines: expense.lines ? JSON.parse(expense.lines) : null,
-  };
+  let lines = null;
+  if (expense.lines) {
+    try {
+      lines = JSON.parse(expense.lines);
+    } catch {
+      lines = null;
+    }
+  }
+  return { ...expense, lines };
+}
+
+function parseExpenseDate(value) {
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
 }
 
 // POST /api/expenses - record an expense (OCR-confirmed or manual)
@@ -35,6 +45,10 @@ router.post("/expenses", requireAuth, async (req, res, next) => {
         error: `category must be one of: ${EXPENSE_CATEGORIES.join(", ")}`,
       });
     }
+    const parsedDate = date ? parseExpenseDate(date) : new Date();
+    if (parsedDate === null) {
+      return res.status(400).json({ error: "date must be a valid date" });
+    }
 
     let locationId = null;
     if (locationCode) {
@@ -48,7 +62,7 @@ router.post("/expenses", requireAuth, async (req, res, next) => {
         vendor: String(vendor).slice(0, 120),
         locationId,
         amount: +amount,
-        date: date ? new Date(date) : new Date(),
+        date: date ? parsedDate : new Date(),
         source: src,
         category: cat,
         note: note ? String(note).slice(0, 500) : null,
@@ -132,8 +146,8 @@ router.get("/expenses", requireAuth, async (req, res, next) => {
   }
 });
 
-// PATCH /api/expenses/:id - correct OCR-parsed fields after review
-router.patch("/expenses/:id", requireAuth, async (req, res, next) => {
+// PATCH /api/expenses/:id - correct OCR-parsed fields after review (owner only)
+router.patch("/expenses/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
     const { vendor, amount, date, note, category } = req.body ?? {};
     const data = {};
@@ -150,7 +164,13 @@ router.patch("/expenses/:id", requireAuth, async (req, res, next) => {
       }
       data.amount = +amount;
     }
-    if (date !== undefined) data.date = new Date(date);
+    if (date !== undefined && date !== "") {
+      const parsedDate = parseExpenseDate(date);
+      if (parsedDate === null) {
+        return res.status(400).json({ error: "date must be a valid date" });
+      }
+      data.date = parsedDate;
+    }
     if (note !== undefined) data.note = String(note).slice(0, 500);
 
     const existing = await prisma.expense.findUnique({ where: { id: Number(req.params.id) } });

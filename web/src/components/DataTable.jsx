@@ -9,7 +9,6 @@ export default function DataTable({
   onRowClick,
   emptyMessage = "Nothing to display here",
   loading = false,
-  sortable = false,
   onSort,
   pagination,
   compact = false,

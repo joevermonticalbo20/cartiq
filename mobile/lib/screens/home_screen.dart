@@ -38,14 +38,21 @@ class _HomeScreenState extends State<HomeScreen> {
   List<double> _weekSales = const [];
 
   OfflineQueue get _queue => PersistedOfflineQueue.instance;
+  StreamSubscription<int>? _queueSub;
 
   @override
   void initState() {
     super.initState();
     _refresh();
-    _queue.changes.listen((c) {
+    _queueSub = _queue.changes.listen((c) {
       if (mounted) setState(() => _queueCount = c);
     });
+  }
+
+  @override
+  void dispose() {
+    _queueSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _refresh() async {
@@ -58,16 +65,23 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     try {
       // Trigger a sync in the background while we load the dashboard.
-      unawaited(sync.syncAll());
+      // Errors are swallowed here: manual sync surfaces them, and the
+      // dashboard below degrades to cached info on failure.
+      unawaited(sync.syncAll().then((_) {}).catchError((_) {}));
+      final token = auth.token;
+      if (token == null) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
       final results = await Future.wait([
-        auth.api.dailyReport(auth.token!, locationCode: code),
-        auth.api.inventory(auth.token!, locationCode: code),
-        auth.api.staffOnShift(auth.token!),
-        auth.api.orders(auth.token!, page: 1, pageSize: 3, locationCode: code),
+        auth.api.dailyReport(token, locationCode: code),
+        auth.api.inventory(token, locationCode: code),
+        auth.api.staffOnShift(token),
+        auth.api.orders(token, page: 1, pageSize: 3, locationCode: code),
         auth.api
-            .dailyReport(auth.token!, locationCode: code, daysAgo: 1)
+            .dailyReport(token, locationCode: code, daysAgo: 1)
             .catchError((_) => <String, dynamic>{}),
-        auth.api.salesSeries(auth.token!, locationCode: code),
+        auth.api.salesSeries(token, locationCode: code),
       ]);
 
       final report = results[0] as Map<String, dynamic>?;

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../services/auth_state.dart';
+import '../services/api_client.dart';
 import '../services/offline_queue.dart';
 import '../services/persisted_queue.dart';
 import '../services/sync_service.dart';
@@ -82,7 +83,11 @@ class _PosScreenState extends State<PosScreen> {
 
   Future<List<Map<String, dynamic>>> _loadCatalog() async {
     final auth = context.read<AuthState>();
-    final data = await auth.api.catalog(auth.token!);
+    final token = auth.token;
+    if (token == null) {
+      throw ApiException('Session expired. Please log in again.');
+    }
+    final data = await auth.api.catalog(token);
     return (data['products'] as List).cast<Map<String, dynamic>>();
   }
 

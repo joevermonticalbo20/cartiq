@@ -5,7 +5,6 @@ import {
   ArrowDown,
   ArrowUp,
   BarChart2,
-  Bell,
   Boxes,
   CheckCircle,
   Clock,

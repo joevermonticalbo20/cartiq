@@ -1,0 +1,43 @@
+name: API CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "api/**"
+      - ".github/workflows/api-ci.yml"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "api/**"
+      - ".github/workflows/api-ci.yml"
+
+defaults:
+  run:
+    working-directory: api
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Prisma schema
+        run: npx prisma validate
+
+      - name: Syntax check
+        run: |
+          node --check src/server.js
+          node --check src/prisma.js
+          for f in src/middleware/*.js src/routes/*.js src/services/*.js; do node --check "$f"; done

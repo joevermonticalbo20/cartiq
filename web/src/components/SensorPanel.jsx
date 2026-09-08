@@ -1,9 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import {
   Activity,
-  AlertCircle,
   Droplet,
-  Thermometer,
   Wifi,
   WifiOff,
   TrendingDown,
@@ -26,7 +24,6 @@ export default function SensorPanel({ code = "CART-01" }) {
   const [channel, setChannel] = useState("LPG_TANK");
   const [error, setError] = useState("");
   const [isLive, setIsLive] = useState(true);
-  const [lastFetch, setLastFetch] = useState(null);
   const intervalRef = useRef(null);
 
   const fetchData = useCallback(async () => {
@@ -36,7 +33,6 @@ export default function SensorPanel({ code = "CART-01" }) {
       );
       setSeries(data.readings);
       setError("");
-      setLastFetch(new Date());
     } catch (err) {
       setError(err.response?.data?.error || "No readings yet");
       setIsLive(false);

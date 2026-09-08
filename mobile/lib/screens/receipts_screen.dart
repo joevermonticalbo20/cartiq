@@ -65,8 +65,14 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
     });
     try {
       final auth = context.read<AuthState>();
+      final token = auth.token;
+      if (token == null) {
+        if (!mounted) return;
+        setState(() => _error = 'Session expired. Please log in again.');
+        return;
+      }
       final data = await auth.api.expensesPaged(
-        auth.token!,
+        token,
         page: reset ? 1 : _page,
         locationCode: auth.locationCode,
       );
@@ -81,6 +87,12 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _error = e.message);
+    } on FormatException {
+      if (!mounted) return;
+      setState(() => _error = 'Server returned an unexpected response.');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Unexpected error: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }

@@ -18,7 +18,7 @@ export default function StaffPage() {
   const [perfLoading, setPerfLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
 
-  const { rows, meta, loading: tableLoading, error, page, gotoPage, refresh: refreshTable } = usePagedData(
+  const { rows, meta, loading: tableLoading, error, gotoPage, refresh: refreshTable } = usePagedData(
     (p) => `/shifts/history?page=${p}&pageSize=10` + (loc ? `&code=${loc}` : ""),
     [loc]
   );

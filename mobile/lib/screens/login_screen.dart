@@ -89,6 +89,13 @@ class _LoginScreenState extends State<LoginScreen> {
         _serverMsg = e.message;
       });
       await Haptics.error();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _serverOk = false;
+        _serverMsg = 'Connection failed: $e';
+      });
+      await Haptics.error();
     }
   }
 
@@ -110,7 +117,12 @@ class _LoginScreenState extends State<LoginScreen> {
       // A pushReplacement would strand the shell route on top after a
       // later sign-out, so the login page would never reappear.
     } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() => _error = e.message);
+      await Haptics.error();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Login failed: $e');
       await Haptics.error();
     } finally {
       if (mounted) setState(() => _loading = false);
