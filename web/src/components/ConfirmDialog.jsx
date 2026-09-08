@@ -7,6 +7,8 @@ export default function ConfirmDialog({
   message,
   confirmLabel = "Confirm",
   danger = false,
+  icon = null,
+  children = null,
   onConfirm,
   onCancel,
 }) {
@@ -34,8 +36,16 @@ export default function ConfirmDialog({
         aria-labelledby="confirm-dialog-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 id="confirm-dialog-title">{title}</h3>
-        <p className="muted">{message}</p>
+        <h3 id="confirm-dialog-title">
+          {icon && (
+            <span className={`confirm-icon-badge${danger ? " danger" : ""}`} aria-hidden="true">
+              {icon}
+            </span>
+          )}
+          {title}
+        </h3>
+        {message && <p className="muted">{message}</p>}
+        {children}
         <div className="modal-actions">
           <Button ref={cancelRef} variant="ghost" onClick={onCancel}>Cancel</Button>
           <Button

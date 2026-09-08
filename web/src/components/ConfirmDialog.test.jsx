@@ -43,4 +43,22 @@ describe("ConfirmDialog", () => {
     fireEvent.click(modal);
     expect(onCancel).not.toHaveBeenCalled();
   });
+
+  it("renders an icon badge when icon is provided", () => {
+    const { container } = render(
+      <ConfirmDialog open={true} title="Log out?" icon={<span data-testid="dlg-icon" />} />
+    );
+    expect(container.querySelector(".confirm-icon-badge")).not.toBeNull();
+    expect(screen.getByTestId("dlg-icon")).toBeInTheDocument();
+  });
+
+  it("renders children below the message", () => {
+    render(
+      <ConfirmDialog open={true} message="You will be signed out.">
+        <div data-testid="dlg-child" />
+      </ConfirmDialog>
+    );
+    expect(screen.getByText("You will be signed out.")).toBeInTheDocument();
+    expect(screen.getByTestId("dlg-child")).toBeInTheDocument();
+  });
 });
