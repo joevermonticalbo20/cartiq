@@ -17,6 +17,9 @@ let navigateFn = null;
 let interceptorInstalled = false;
 
 // Called once at app startup to wire up the navigate function and response interceptor
+// Prevent duplicate redirects when multiple concurrent 401s occur.
+let redirecting = false;
+
 export function setupAuthInterceptor(navigate) {
   navigateFn = navigate;
   if (interceptorInstalled) return;
@@ -31,8 +34,10 @@ export function setupAuthInterceptor(navigate) {
       // No refresh-token flow exists, so fail fast instead of queueing.
       if (error.response?.status === 401 && !originalRequest?.url?.startsWith("/login")) {
         localStorage.removeItem("cartiq_token");
-        if (navigateFn) {
+        if (!redirecting && navigateFn) {
+          redirecting = true;
           navigateFn("/login", { replace: true });
+          setTimeout(() => (redirecting = false), 2000);
         }
       }
 
@@ -82,7 +87,7 @@ export function post(endpoint, body, config = {}) {
   return fetchApi({
     method: "POST",
     url: endpoint,
-    data: body !== undefined ? JSON.stringify(body) : undefined,
+    data: body,
     ...config,
   });
 }
@@ -94,7 +99,7 @@ export function put(endpoint, body, config = {}) {
   return fetchApi({
     method: "PUT",
     url: endpoint,
-    data: body !== undefined ? JSON.stringify(body) : undefined,
+    data: body,
     ...config,
   });
 }
@@ -106,7 +111,7 @@ export function patch(endpoint, body, config = {}) {
   return fetchApi({
     method: "PATCH",
     url: endpoint,
-    data: body !== undefined ? JSON.stringify(body) : undefined,
+    data: body,
     ...config,
   });
 }

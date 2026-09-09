@@ -8,6 +8,7 @@ class AuthState extends ChangeNotifier {
   final FlutterSecureStorage storage;
 
   String? token;
+  String? refreshToken;
   Map<String, dynamic>? user;
 
   AuthState({ApiClient? apiClient, FlutterSecureStorage? secureStorage})
@@ -18,35 +19,66 @@ class AuthState extends ChangeNotifier {
 
   Future<void> restoreSession() async {
     token = await storage.read(key: 'cartiq_token');
+    refreshToken = await storage.read(key: 'cartiq_refresh_token');
     if (token != null) {
       try {
         final data = await api.me(token!);
         user = data['user'] as Map<String, dynamic>?;
       } on ApiException catch (e) {
-        // Only drop the session when the server rejects the token (401/403).
-        // Network errors (offline cold-start) must keep the staff signed in.
+        // Only drop on explicit server rejection (401/403) — NOT on
+        // network failures (offline cold-start) to preserve session.
         if (e.statusCode == 401 || e.statusCode == 403) {
-          await signOut();
+          // An expired access token with a valid refresh token can be
+          // recovered silently; only sign out when refresh also fails.
+          final recovered = await _tryRefresh();
+          if (!recovered) await signOut();
         }
       }
     }
     notifyListeners();
   }
 
+  /// Attempt to obtain a fresh access token from the stored refresh token.
+  /// Returns true and persists new tokens on success.
+  Future<bool> _tryRefresh() async {
+    final rt = refreshToken;
+    if (rt == null) return false;
+    try {
+      final data = await api.refresh(rt);
+      token = data['token'] as String?;
+      refreshToken = data['refreshToken'] as String?;
+      user = data['user'] as Map<String, dynamic>?;
+      if (token != null) {
+        await storage.write(key: 'cartiq_token', value: token);
+      }
+      if (refreshToken != null) {
+        await storage.write(key: 'cartiq_refresh_token', value: refreshToken!);
+      }
+      return true;
+    } on ApiException {
+      return false;
+    }
+  }
+
   Future<void> signIn(String username, String password) async {
     final data = await api.login(username, password);
     token = data['token'] as String?;
+    refreshToken = data['refreshToken'] as String?;
     user = data['user'] as Map<String, dynamic>?;
     if (token != null) {
       await storage.write(key: 'cartiq_token', value: token);
+    }
+    if (refreshToken != null) {
+      await storage.write(key: 'cartiq_refresh_token', value: refreshToken!);
     }
     notifyListeners();
   }
 
   Future<void> signOut() async {
     token = null;
-    user = null;
+    refreshToken = null;
     await storage.delete(key: 'cartiq_token');
+    await storage.delete(key: 'cartiq_refresh_token');
     notifyListeners();
   }
 

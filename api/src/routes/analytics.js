@@ -12,6 +12,7 @@ import {
   weekdayFactors,
   movingAverage,
 } from "../services/analytics_engine.js";
+import { EXPENSE_CATEGORIES } from "./expenses.js";
 
 const router = Router();
 
@@ -556,7 +557,7 @@ router.get("/analytics/profit", requireAuth, async (req, res, next) => {
       select: { category: true, amount: true, date: true },
     });
 
-    const categories = ["Supplies", "LPG/Gas", "Maintenance", "Fees/Rent", "Other"];
+    const categories = EXPENSE_CATEGORIES;
     const categoryMap = new Map();
     categories.forEach(c => categoryMap.set(c, 0));
     let totalExpenses = 0;

@@ -144,6 +144,18 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  /// Exchange a refresh token for a fresh access + rotated refresh token.
+  Future<Map<String, dynamic>> refresh(String refreshToken) async {
+    final res = await _send(
+      () => _http.post(
+        _uri('/auth/refresh'),
+        headers: _headers(),
+        body: jsonEncode({'refreshToken': refreshToken}),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
   Future<bool> health() async {
     try {
       final res = await _http

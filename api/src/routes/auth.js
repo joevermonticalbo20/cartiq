@@ -1,8 +1,16 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import rateLimit from "express-rate-limit";
 import { prisma } from "../prisma.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+
+// Rate limiter: 5 attempts per 15 min per IP
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: "Too many login attempts - please try again in 15 minutes" },
+});
 
 const router = Router();
 
@@ -18,7 +26,7 @@ function publicUser(user) {
   };
 }
 
-router.post("/login", async (req, res, next) => {
+router.post("/login", loginLimiter, async (req, res, next) => {
   try {
     const { username, password } = req.body ?? {};
     if (!username || !password) {
@@ -34,12 +42,24 @@ router.post("/login", async (req, res, next) => {
     if (!(await bcrypt.compare(password, user.passwordHash))) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
-    const token = jwt.sign(
+    const accessToken = jwt.sign(
       { sub: user.id, username: user.username, role: user.role, name: user.name },
       process.env.JWT_SECRET,
       { expiresIn: "12h" }
     );
-    return res.json({ token, user: publicUser(user) });
+    const refreshToken = jwt.sign(
+      { sub: user.id, username: user.username, role: user.role, name: user.name },
+      process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
+      { expiresIn: "30d" }
+    );
+    await prisma.refreshToken.create({
+      data: {
+        token: refreshToken,
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        userId: user.id,
+      },
+    });
+    return res.json({ token: accessToken, refreshToken, user: publicUser(user) });
   } catch (err) {
     return next(err);
   }
@@ -53,6 +73,61 @@ router.get("/me", requireAuth, async (req, res, next) => {
     });
     if (!user) return res.status(404).json({ error: "User not found" });
     return res.json({ user: publicUser(user) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post("/refresh", async (req, res, next) => {
+  try {
+    const { refreshToken } = req.body ?? {};
+    if (!refreshToken) {
+      return res.status(400).json({ error: "Refresh token is required" });
+    }
+    let payload;
+    try {
+      payload = jwt.verify(
+        refreshToken,
+        process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET
+      );
+    } catch {
+      return res.status(401).json({ error: "Invalid or expired refresh token" });
+    }
+    const tokenRecord = await prisma.refreshToken.findUnique({
+      where: { token: refreshToken },
+    });
+    if (!tokenRecord) return res.status(401).json({ error: "Invalid refresh token record" });
+    if (new Date() > tokenRecord.expiresAt) {
+      return res.status(401).json({ error: "Refresh token expired" });
+    }
+    // Rotate token: revoke old one, issue new one
+    await prisma.refreshToken.delete({ where: { id: tokenRecord.id } });
+
+    const user = await prisma.user.findUnique({
+      where: { id: tokenRecord.userId },
+      include: { location: true },
+    });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const newAccessToken = jwt.sign(
+      { sub: user.id, username: user.username, role: user.role, name: user.name },
+      process.env.JWT_SECRET,
+      { expiresIn: "12h" }
+    );
+    const newRefreshToken = jwt.sign(
+      { sub: user.id, username: user.username, role: user.role, name: user.name },
+      process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
+      { expiresIn: "30d" }
+    );
+    await prisma.refreshToken.create({
+      data: {
+        token: newRefreshToken,
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        userId: user.id,
+      },
+    });
+
+    return res.json({ token: newAccessToken, refreshToken: newRefreshToken, user: publicUser(user) });
   } catch (err) {
     return next(err);
   }
