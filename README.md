@@ -10,7 +10,7 @@ pending hardware pilot and faculty approval.
 
 | Component | Path | Stack | Status |
 |---|---|---|---|
-| REST API | `api/` | Node.js 24, Express 5, Prisma ORM, SQLite (local file), JWT, ExcelJS, Bonjour/mDNS advertise | done, tested |
+| REST API | `api/` | Node.js 24, Express 5, Prisma ORM, SQLite (local file), JWT + rotating refresh tokens, login rate limiting, ExcelJS, Bonjour/mDNS advertise | done, tested |
 | Web admin dashboard | `web/` | React 19, Vite, React Router, Axios | done, builds (lint 0 errors, P1-P4 UX polish) |
 | Mobile POS app | `mobile/` | Flutter (Android/Windows), offline-first sqflite queue, ML Kit OCR, subnet auto-discovery | done, analyzes clean (0 errors) |
 | ESP32 IoT node | `iot/` | Arduino C++ firmware + **Node simulator** (`iot/simulator.mjs`) | code complete; hardware pending |
@@ -20,7 +20,7 @@ pending hardware pilot and faculty approval.
 ```bash
 # 1) API  (terminal 1)
 cd api
-npm install
+npm install              # postinstall auto-runs `prisma generate`
 npm run db:push        # creates the SQLite database (api/prisma/dev.db)
 npm run db:seed        # users, locations, products, recipes, IoT device tokens
 npm run dev            # http://127.0.0.1:4000/api/health
@@ -139,6 +139,10 @@ IPv4 address (e.g. `192.168.100.217`). The API must be running with
   ignored. Replays with the same `clientRef` return `duplicate: true`.
 - **Errors carry `correlationId`:** Prisma P2002 → 409, P2025 → 404, 404s
   include an id — quote it when reporting a failure.
+- **Auth:** short-lived access JWT + rotating refresh tokens
+  (`POST /auth/refresh`, `RefreshToken` table). Set `JWT_REFRESH_SECRET` in
+  `api/.env` (falls back to `JWT_SECRET` if omitted). `/auth/login` is rate
+  limited to 5 attempts per 15 minutes per IP.
 - **LAN origins:** browser dashboard on a phone/laptop needs its origin in
   `CORS_ORIGINS` plus `HOST=0.0.0.0` and the Windows Firewall TCP 4000 rule.
 
@@ -193,11 +197,15 @@ React+Vite setup:
 
 - **Centralized API client** (`web/src/api.js`) with axios interceptors for
   automatic Bearer token attachment and 401-driven logout redirect.
-- **Token expiry utilities** (`isTokenExpired`, `getTokenExpiry`) for future
-  refresh-token flow integration.
+- **Token expiry utilities** (`isTokenExpired`, `getTokenExpiry`) support the
+  refresh-token flow (`POST /auth/refresh`); the mobile app recovers its
+  session without forcing a re-login.
 - **Error boundary** (`web/src/components/ErrorBoundary.jsx`) wrapping the
   entire app to surface unhandled errors gracefully.
-- **Toast notifications** for non-401 API failures with `useToast` hook.
+- **Toast notifications** — each page owns its error UI (error boxes, empty
+  states, or an explicit toast for user actions like delete/export); the API
+  client only handles the 401 logout redirect, so background reads stay
+  silent (`useToast` hook).
 - **Reusable components**: `DataTable`, `Card`, plus the existing
   `Pagination`, `ConfirmDialog`, and `Skeleton` building blocks.
 - **Custom hooks** (`web/src/hooks/useApi.js`): `useApiData` for GETs,
@@ -224,13 +232,15 @@ React+Vite setup:
   crash on one screen doesn't take the app down.
 - **Quick cart switcher** on the dashboard — shows each cart with its
   current low-stock count, links to the Inventory page.
-- **Vitest test suite** — `npm run test` (56 unit tests covering api utils,
+- **Vitest test suite** — `npm run test` (86 unit tests covering api utils,
   DataTable, ConfirmDialog, Pagination, EmptyState, PasswordStrengthMeter,
   and custom hooks); `npm run lint`
   (ESLint + React plugin + react-hooks rules); `npm run coverage` (text +
   HTML coverage reports). CI-ready: fails build on test or lint errors.
-- **GitHub Actions CI** — `.github/workflows/web-ci.yml` runs lint + test +
-  build on every push and PR to the web frontend.
+- **GitHub Actions CI** — `web-ci.yml` (web lint + test + build),
+  `api-ci.yml` (`npm ci` + Prisma validate + syntax check), and
+  `mobile-ci.yml` (`flutter analyze` + `flutter test`) run on every push and
+  PR touching their paths.
 - **Tailwind CSS v4** — `@tailwindcss/vite` plugin with a token-mapped
   `src/tailwind.css` (`@theme` references `theme.css` vars, `dark:` variant
   follows the `data-theme` toggle); sits alongside the legacy stylesheet,
@@ -280,6 +290,9 @@ React+Vite setup:
 - **Loading + honesty (web)** — Analytics skeleton blocks + `aria-busy` +
   error Retry; Expenses summary respects the category filter; Data Hub
   exports show per-dataset progress with independent import busy state.
+- **Logout confirmation** — web asks "Log out \<name\>?" with session
+  validation (no-op when already logged out); mobile shows the pending
+  offline-queue count in the dialog before signing out.
 - **Logout that actually logs out (mobile)** — sign-in/out is fully
   auth-state driven (`main.dart` home rebuilds from `AuthState`); the old
   `pushReplacement` that stranded the shell on top after sign-out is gone,
