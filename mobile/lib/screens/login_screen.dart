@@ -5,6 +5,7 @@ import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../theme.dart';
 import '../utils/haptics.dart';
+import '../widgets/app_badge.dart';
 import '../widgets/brand_hero.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -291,10 +292,14 @@ class _ServerCard extends StatelessWidget {
                 ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
               ),
               if (api.isManualUrl)
-                Text(
-                  'manual override',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.only(top: 2),
+                    child: AppBadge(
+                      label: 'manual override',
+                      variant: AppBadgeVariant.neutral,
+                    ),
+                  ),
                 ),
               const SizedBox(height: 8),
               if (serverMsg != null)
