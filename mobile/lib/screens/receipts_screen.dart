@@ -4,7 +4,10 @@ import 'package:provider/provider.dart';
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../theme.dart';
+import '../widgets/app_badge.dart';
+import '../widgets/app_skeleton.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/section_header.dart';
 import 'scan_receipt_screen.dart';
 
 class ReceiptsScreen extends StatefulWidget {
@@ -174,7 +177,13 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: () async => _loadMore(reset: true),
-        child: !hasResults && !_loading
+        child: _rows.isEmpty && _loading && _error == null
+            ? ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(14),
+                children: const [AppSkeleton(rows: 6)],
+              )
+            : !hasResults && !_loading
             ? AppEmptyState(
                 icon: _search.isNotEmpty
                     ? Icons.search_off_rounded
@@ -227,20 +236,15 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
                       final (date, count, total) = row;
                       return Padding(
                         padding: const EdgeInsets.only(top: 6, bottom: 2),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '$date · $count receipt${count != 1 ? 's' : ''}',
-                                style: Theme.of(context).textTheme.labelSmall,
-                              ),
-                            ),
-                            Text(
-                              'P${total.toStringAsFixed(0)}',
-                              style: Theme.of(context).textTheme.labelSmall
-                                  ?.copyWith(fontWeight: FontWeight.w800),
-                            ),
-                          ],
+                        child: SectionHeader(
+                          title: date,
+                          eyebrow:
+                              '$count receipt${count != 1 ? 's' : ''}',
+                          trailing: Text(
+                            'P${total.toStringAsFixed(0)}',
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
                         ),
                       );
                     }
@@ -300,31 +304,11 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
                                   ?.copyWith(fontWeight: FontWeight.w800),
                             ),
                             const SizedBox(height: 2),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 7,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isOcr
-                                    ? AppColors.warn
-                                    : Theme.of(
-                                        context,
-                                      ).colorScheme.surfaceContainerHighest,
-                                borderRadius: BorderRadius.circular(99),
-                              ),
-                              child: Text(
-                                e['source'] ?? 'MANUAL',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w800,
-                                  color: isOcr
-                                      ? Colors.white
-                                      : Theme.of(
-                                          context,
-                                        ).colorScheme.onSurfaceVariant,
-                                ),
-                              ),
+                            AppBadge(
+                              label: e['source'] ?? 'MANUAL',
+                              variant: isOcr
+                                  ? AppBadgeVariant.warn
+                                  : AppBadgeVariant.neutral,
                             ),
                           ],
                         ),

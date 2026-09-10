@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 import '../services/auth_state.dart';
 import '../services/api_client.dart';
 import '../theme.dart';
+import '../widgets/app_skeleton.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/section_header.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key, this.onNewSale});
@@ -155,7 +157,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: () async => _loadMore(reset: true),
-        child: !hasResults && !_loading
+        child: _rows.isEmpty && _loading && _error == null
+            ? ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(14),
+                children: const [AppSkeleton(rows: 6)],
+              )
+            : !hasResults && !_loading
             ? AppEmptyState(
                 icon: _search.isNotEmpty
                     ? Icons.search_off_rounded
@@ -210,20 +218,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       final (date, count, total) = row;
                       return Padding(
                         padding: const EdgeInsets.only(top: 6, bottom: 2),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '$date · $count sale${count != 1 ? 's' : ''}',
-                                style: Theme.of(context).textTheme.labelSmall,
-                              ),
-                            ),
-                            Text(
-                              'P${total.toStringAsFixed(0)}',
-                              style: Theme.of(context).textTheme.labelSmall
-                                  ?.copyWith(fontWeight: FontWeight.w800),
-                            ),
-                          ],
+                        child: SectionHeader(
+                          title: date,
+                          eyebrow: '$count sale${count != 1 ? 's' : ''}',
+                          trailing: Text(
+                            'P${total.toStringAsFixed(0)}',
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
                         ),
                       );
                     }
