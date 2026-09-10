@@ -7,6 +7,10 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
+// Safety bound for history-growth exports (sales/expenses/shifts): newest
+// rows win, and the response carries X-Export-Truncated when capped.
+const MAX_EXPORT_ROWS = 5000;
+
 function monthRange(month) {
   if (!month || !/^\d{4}-\d{2}$/.test(String(month))) return null;
   const start = new Date(`${month}-01T00:00:00`);
@@ -27,7 +31,7 @@ function styleHeader(sheet) {
 
 async function buildSalesSheet(wb, month) {
   const range = monthRange(month);
-  const orders = await prisma.order.findMany({
+  const newest = await prisma.order.findMany({
     where: {
       status: "PAID",
       ...(range ? { createdAt: { gte: range.start, lt: range.end } } : {}),
@@ -37,8 +41,12 @@ async function buildSalesSheet(wb, month) {
       location: { select: { code: true, name: true } },
       staff: { select: { name: true } },
     },
-    orderBy: { createdAt: "asc" },
+    orderBy: { createdAt: "desc" },
+    take: MAX_EXPORT_ROWS + 1,
   });
+  const truncated = newest.length > MAX_EXPORT_ROWS;
+  // File stays chronological (oldest first) even though we fetched newest.
+  const orders = newest.slice(0, MAX_EXPORT_ROWS).reverse();
 
   const lines = wb.addWorksheet("Sales Lines");
   lines.columns = [
@@ -90,6 +98,7 @@ async function buildSalesSheet(wb, month) {
   summary.addRow({});
   summary.addRow({ cart: "TOTAL", orders: totalOrders, sales: Number(totalSales.toFixed(2)) });
   styleHeader(summary);
+  return truncated;
 }
 
 async function buildInventorySheet(wb) {
@@ -125,11 +134,14 @@ async function buildInventorySheet(wb) {
 
 async function buildExpensesSheet(wb, month) {
   const range = monthRange(month);
-  const expenses = await prisma.expense.findMany({
+  const newest = await prisma.expense.findMany({
     where: range ? { date: { gte: range.start, lt: range.end } } : {},
     include: { location: { select: { code: true } } },
-    orderBy: { date: "asc" },
+    orderBy: { date: "desc" },
+    take: MAX_EXPORT_ROWS + 1,
   });
+  const truncated = newest.length > MAX_EXPORT_ROWS;
+  const expenses = newest.slice(0, MAX_EXPORT_ROWS).reverse();
   const sheet = wb.addWorksheet("Expenses");
   sheet.columns = [
     { header: "Date", key: "date", width: 12 },
@@ -154,15 +166,19 @@ async function buildExpensesSheet(wb, month) {
   sheet.addRow({});
   sheet.addRow({ vendor: "TOTAL", amount: Number(sum.toFixed(2)) });
   styleHeader(sheet);
+  return truncated;
 }
 
 async function buildShiftsSheet(wb, month) {
   const range = monthRange(month);
-  const shifts = await prisma.shift.findMany({
+  const newest = await prisma.shift.findMany({
     where: range ? { ts: { gte: range.start, lt: range.end } } : {},
     include: { location: { select: { code: true } } },
-    orderBy: { ts: "asc" },
+    orderBy: { ts: "desc" },
+    take: MAX_EXPORT_ROWS + 1,
   });
+  const truncated = newest.length > MAX_EXPORT_ROWS;
+  const shifts = newest.slice(0, MAX_EXPORT_ROWS).reverse();
   const sheet = wb.addWorksheet("Shifts");
   sheet.columns = [
     { header: "Date/Time", key: "ts", width: 20 },
@@ -181,6 +197,7 @@ async function buildShiftsSheet(wb, month) {
     });
   }
   styleHeader(sheet);
+  return truncated;
 }
 
 // GET /api/export/:dataset?month=YYYY-MM
@@ -194,19 +211,20 @@ router.get(
     const month = req.query.month ? String(req.query.month) : undefined;
     const wb = new ExcelJS.Workbook();
     wb.creator = "CartIQ";
+    let truncated = false;
 
     switch (dataset) {
       case "sales":
-        await buildSalesSheet(wb, month);
+        truncated = await buildSalesSheet(wb, month);
         break;
       case "inventory":
         await buildInventorySheet(wb);
         break;
       case "expenses":
-        await buildExpensesSheet(wb, month);
+        truncated = await buildExpensesSheet(wb, month);
         break;
       case "shifts":
-        await buildShiftsSheet(wb, month);
+        truncated = await buildShiftsSheet(wb, month);
         break;
       default:
         return res.status(404).json({ error: `Unknown dataset "${dataset}" (sales|inventory|expenses|shifts)` });
@@ -221,6 +239,9 @@ router.get(
       "Content-Disposition",
       `attachment; filename="cartiq-${dataset}${suffix}.xlsx"`
     );
+    if (truncated) {
+      res.setHeader("X-Export-Truncated", "true");
+    }
     const buffer = await wb.xlsx.writeBuffer();
     return res.send(Buffer.from(buffer));
   } catch (err) {
