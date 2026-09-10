@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, XCircle, User, Lock, ArrowRight, Shield, Zap } from "lucide-react";
-import api from "../api.js";
+import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.1.0";
@@ -75,7 +75,7 @@ export default function Login() {
       }
       navigate("/dashboard");
     } catch (err) {
-      setError(err.response?.data?.error || "Login failed. Is the API running?");
+      setError(getErrorMessage(err, "Login failed. Is the API running?"));
       passwordRef.current?.focus();
     } finally {
       setLoading(false);

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../prisma.js";
-import { requireAuth } from "../middleware/auth.js";
-import { applyStockChange } from "../services/inventory_rules.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
+import { applyStockChange, fmtStock, oversellShortage } from "../services/inventory_rules.js";
 import { emit } from "./events.js";
 
 const router = Router();
@@ -14,7 +14,7 @@ router.post("/orders", requireAuth, async (req, res, next) => {
   try {
     // Note: client-supplied `total` is intentionally ignored - the server
     // recomputes it from items (see below).
-    const { clientRef, locationCode, locationId, items } = req.body ?? {};
+    const { clientRef, locationCode, locationId, items, paymentMethod } = req.body ?? {};
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: "items must be a non-empty array" });
     }
@@ -39,6 +39,14 @@ router.post("/orders", requireAuth, async (req, res, next) => {
     if (clientRef !== undefined && String(clientRef).length > 200) {
       return res.status(400).json({ error: "clientRef is too long (max 200 chars)" });
     }
+    const PAYMENT_METHODS = ["CASH", "GCASH", "CARD"];
+    const payMethod =
+      paymentMethod === undefined || paymentMethod === null || paymentMethod === ""
+        ? null
+        : String(paymentMethod).toUpperCase();
+    if (payMethod !== null && !PAYMENT_METHODS.includes(payMethod)) {
+      return res.status(400).json({ error: "paymentMethod must be one of: CASH, GCASH, CARD" });
+    }
     const location = await prisma.location.findFirst({
       where: locationId !== undefined ? { id: +locationId } : { code: locationCode },
     });
@@ -55,7 +63,9 @@ router.post("/orders", requireAuth, async (req, res, next) => {
       return res.json({ duplicate: true, order: existing, warnings: [] });
     }
 
-    const result = await prisma.$transaction(async (tx) => {
+    let result;
+    try {
+      result = await prisma.$transaction(async (tx) => {
       // Server is the source of truth for the total - never trust the client.
       const orderTotal = items.reduce((sum, it) => sum + +it.qty * +it.unitPrice, 0);
 
@@ -66,6 +76,7 @@ router.post("/orders", requireAuth, async (req, res, next) => {
           staffId: req.user.sub,
           total: orderTotal,
           status: "PAID",
+          paymentMethod: payMethod,
           items: {
             create: items.map((it) => ({
               productName: String(it.productName).trim().slice(0, 120),
@@ -101,12 +112,35 @@ router.post("/orders", requireAuth, async (req, res, next) => {
             warnings.push(`no inventory row "${map.itemName}" at ${location.code}`);
             continue;
           }
-          const newStock = Math.max(0, inv.stock - map.amountPerUnit * it.qty);
+          const deduction = map.amountPerUnit * it.qty;
+          const newStock = Math.max(0, inv.stock - deduction);
+          const shortage = oversellShortage(inv.stock, map.amountPerUnit, it.qty);
+          if (shortage > 0) {
+            warnings.push(
+              `OVERSOLD "${map.itemName}" at ${location.code}: requested ${fmtStock(deduction)} ${inv.unit}, had ${fmtStock(inv.stock)}, short ${fmtStock(shortage)}`
+            );
+          }
           await applyStockChange(tx, { inv, newStock, location });
         }
       }
       return { order, warnings };
-    });
+      });
+    } catch (err) {
+      // Lost a same-clientRef race: the pre-check above passed for both
+      // requests, then the winner committed first. clientRef UNIQUE stays
+      // authoritative - return the winner as a duplicate, never raw P2002.
+      // (clientRef is the only unique field written in this transaction.)
+      if (err?.code === "P2002") {
+        const winner = await prisma.order.findUnique({
+          where: { clientRef: ref },
+          include: { items: true },
+        });
+        if (winner) {
+          return res.json({ duplicate: true, order: winner, warnings: [] });
+        }
+      }
+      return next(err);
+    }
 
     emit("order:new", {
       id: result.order.id,
@@ -168,5 +202,34 @@ router.get("/orders", requireAuth, async (req, res, next) => {
 function emptyMeta(page, pageSize) {
   return { total: 0, page, pageSize, totalPages: 1 };
 }
+
+// PATCH /orders/:id - void a mis-tapped sale (OWNER only). Record-only:
+// the row stays in history with actor + timestamp, stock is NOT reversed.
+router.patch("/orders/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
+  try {
+    const { status, reason } = req.body ?? {};
+    if (status !== "VOID") {
+      return res.status(400).json({ error: 'only status "VOID" is supported' });
+    }
+    const existing = await prisma.order.findUnique({ where: { id: Number(req.params.id) } });
+    if (!existing) return res.status(404).json({ error: "Order not found" });
+    if (existing.status === "VOID") {
+      return res.status(400).json({ error: "Order is already void" });
+    }
+    const updated = await prisma.order.update({
+      where: { id: existing.id },
+      data: {
+        status: "VOID",
+        voidedBy: req.user.sub,
+        voidedAt: new Date(),
+        voidReason: reason ? String(reason).slice(0, 500) : null,
+      },
+      include: { items: true },
+    });
+    return res.json({ order: updated });
+  } catch (err) {
+    return next(err);
+  }
+});
 
 export default router;

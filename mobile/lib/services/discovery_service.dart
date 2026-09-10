@@ -9,15 +9,19 @@ class DiscoveryService {
   static const Duration _scanTimeout = Duration(milliseconds: 500);
   static const int _concurrency = 30;
 
-  final Map<String, String> _ssidCache = {};
-  String? _lastFoundUrl;
-  String? _lastSsid;
-
   static final DiscoveryService _instance = DiscoveryService._internal();
   factory DiscoveryService() => _instance;
   DiscoveryService._internal();
 
-  /// Get the device's WiFi IP address.
+  /// Interface names that never carry LAN traffic to the API host:
+  /// mobile data, VPN tunnels, virtual adapters.
+  static final _nonLanIface = RegExp(
+    r'rmnet|wwan|pdp_ip|ccmni|tun|tap|ppp|clat|vpn|ipsec',
+    caseSensitive: false,
+  );
+
+  /// Get the device's LAN IP address. Returns null on mobile data, VPN-only,
+  /// or airplane mode so callers fall back instead of scanning the wrong net.
   Future<String?> getWifiIp() async {
     try {
       final interfaces = await NetworkInterface.list(
@@ -25,6 +29,7 @@ class DiscoveryService {
         includeLoopback: false,
       );
       for (final interface in interfaces) {
+        if (_nonLanIface.hasMatch(interface.name)) continue;
         for (final addr in interface.addresses) {
           final ip = addr.address;
           if (_isPrivateIp(ip)) {
@@ -43,15 +48,13 @@ class DiscoveryService {
   }
 
   bool _isPrivateIp(String ip) {
-    return ip.startsWith('192.168.') ||
-        ip.startsWith('10.') ||
-        ip.startsWith('172.16.') ||
-        ip.startsWith('172.17.') ||
-        ip.startsWith('172.18.') ||
-        ip.startsWith('172.19.') ||
-        ip.startsWith('172.2') ||
-        ip.startsWith('172.30.') ||
-        ip.startsWith('172.31.');
+    if (ip.startsWith('192.168.') || ip.startsWith('10.')) return true;
+    // 172.16.0.0/12 (note: a plain startsWith('172.2') would also match
+    // public 172.200.x.x, so parse the second octet properly).
+    final parts = ip.split('.');
+    if (parts.length < 2 || parts[0] != '172') return false;
+    final second = int.tryParse(parts[1]);
+    return second != null && second >= 16 && second <= 31;
   }
 
   /// Scan the local subnet for a CartIQ API server on port 4000.
@@ -112,72 +115,28 @@ class DiscoveryService {
 
   /// Attempt to auto-discover the API server.
   /// Strategy:
-  /// 1. Check if we're on a known SSID → use cached IP
+  /// 1. Read the LAN IP (null on mobile data / VPN-only / airplane mode)
   /// 2. Scan the subnet for port 4000
   /// 3. Fall back to the provided default URL
   Future<String> discoverApiUrl(String defaultUrl) async {
     final wifiIp = await getWifiIp();
     if (wifiIp == null) {
-      debugPrint('[discovery] no wifi IP, fallback $defaultUrl');
+      debugPrint('[discovery] no LAN IP (mobile data/VPN/offline?), fallback $defaultUrl');
       return defaultUrl;
     }
 
     final subnet = _subnet(wifiIp);
-    final ssid = await _getCurrentSsid();
 
-    // Step 1: Check cache (SSID → IP mapping)
-    if (ssid != null && _ssidCache.containsKey(ssid)) {
-      final cached = _ssidCache[ssid]!;
-      if (await _isReachable(cached)) {
-        _lastFoundUrl = cached;
-        _lastSsid = ssid;
-        return cached;
-      }
-      _ssidCache.remove(ssid);
-    }
-
-    // Step 2: Scan subnet
+    // Scan subnet
     debugPrint('[discovery] scanning $subnet.1-254 for :$_apiPort…');
     final found = await scanSubnet(subnet);
     if (found != null) {
-      if (ssid != null) {
-        _ssidCache[ssid] = found;
-      }
-      _lastFoundUrl = found;
-      _lastSsid = ssid;
       debugPrint('[discovery] found API at $found');
       return found;
     }
     debugPrint('[discovery] nothing on $subnet, fallback $defaultUrl');
 
-    // Step 3: Fall back
+    // Fall back
     return defaultUrl;
-  }
-
-  Future<bool> _isReachable(String url) async {
-    try {
-      final uri = Uri.parse('$url/health');
-      final client = HttpClient();
-      final request = await client.getUrl(uri).timeout(Duration(seconds: 2));
-      final response = await request.close().timeout(Duration(seconds: 2));
-      client.close();
-      return response.statusCode == 200;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<String?> _getCurrentSsid() async {
-    // Note: Getting SSID on Android requires location permission and is not
-    // always reliable. We'll use a simplified approach without SSID detection.
-    return null;
-  }
-
-  String? get lastFoundUrl => _lastFoundUrl;
-  String? get lastSsid => _lastSsid;
-
-  /// Clear the SSID cache (useful for debugging).
-  void clearCache() {
-    _ssidCache.clear();
   }
 }

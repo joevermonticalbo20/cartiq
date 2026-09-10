@@ -11,23 +11,48 @@ export default function ConfirmDialog({
   onCancel,
 }) {
   const cancelRef = useRef(null);
+  const modalRef = useRef(null);
+  const previouslyFocused = useRef(null);
 
   useEffect(() => {
     if (!open) return;
-    // Focus Cancel on open; Esc cancels. Focus returns to the invoker on
-    // unmount because the trigger button regains focus naturally.
+    // Remember the invoker so focus returns to it on close.
+    previouslyFocused.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     cancelRef.current?.focus();
     const onKey = (e) => {
-      if (e.key === "Escape") onCancel?.();
+      if (e.key === "Escape") {
+        onCancel?.();
+        return;
+      }
+      // Trap Tab inside the dialog while it is open.
+      if (e.key !== "Tab") return;
+      const root = modalRef.current;
+      if (!root) return;
+      const focusables = root.querySelectorAll("button:not([disabled])");
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      previouslyFocused.current?.focus?.();
+    };
   }, [open, onCancel]);
 
   if (!open) return null;
   return (
     <div className="modal-backdrop" onClick={onCancel}>
       <div
+        ref={modalRef}
         className="modal"
         role="dialog"
         aria-modal="true"

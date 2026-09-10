@@ -1,7 +1,9 @@
 export default function Pagination({ meta, onPage }) {
   if (!meta || meta.totalPages <= 1) {
     return meta?.total > 0 ? (
-      <div className="pagination">{meta.total} record(s)</div>
+      <div className="pagination">
+        {meta.total} record{meta.total === 1 ? "" : "s"}
+      </div>
     ) : null;
   }
   const { page, totalPages, total } = meta;

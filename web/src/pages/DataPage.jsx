@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import { Download, FileUp, FileDown, CheckCircle2, AlertTriangle } from "lucide-react";
-import api from "../api.js";
+import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
@@ -24,6 +25,8 @@ async function downloadExport(dataset, month) {
 
 export default function DataPage() {
   const toast = useToast();
+  const { user } = useOutletContext();
+  const isOwner = user?.role === "OWNER";
   const nowMonth = new Date().toISOString().slice(0, 7);
   const [month, setMonth] = useState(nowMonth);
   const [busyExport, setBusyExport] = useState(null);
@@ -39,7 +42,7 @@ export default function DataPage() {
       await downloadExport(dataset, month);
       toast(`Downloaded cartiq-${dataset}-${month || "all"}.xlsx`, "success");
     } catch (err) {
-      toast(err.response?.data?.error || "Export failed", "error");
+      toast(getErrorMessage(err, "Export failed"), "error");
     } finally {
       setBusyExport(null);
     }
@@ -61,7 +64,7 @@ export default function DataPage() {
         toast(`${res.data.valid_count} valid row(s) - ready to commit`, "success");
       }
     } catch (err) {
-      toast(err.response?.data?.error || "Import preview failed", "error");
+      toast(getErrorMessage(err, "Import preview failed"), "error");
       setPreview(null);
     } finally {
       setBusyImport(false);
@@ -80,7 +83,7 @@ export default function DataPage() {
       setPreview(null);
       pendingFile.current = null;
     } catch (err) {
-      toast(err.response?.data?.error || "Commit failed", "error");
+      toast(getErrorMessage(err, "Commit failed"), "error");
     } finally {
       setBusyImport(false);
       setConfirmOpen(false);
@@ -115,7 +118,8 @@ export default function DataPage() {
           }}
         >
           
-          {/* EXPORT PANEL */}
+          {/* EXPORT PANEL (owner-only: financial datasets) */}
+          {isOwner && (
           <section className="panel" style={{ display: "flex", flexDirection: "column", padding: "var(--space-5)" }}>
             <div style={{ marginBottom: "var(--space-4)" }}>
               <h3 className="section-title" style={{ borderBottom: "none", padding: 0, margin: "0 0 var(--space-2) 0" }}>
@@ -152,6 +156,7 @@ export default function DataPage() {
               ))}
             </div>
           </section>
+          )}
 
           {/* IMPORT PANEL */}
           <section className="panel" style={{ display: "flex", flexDirection: "column", padding: "var(--space-5)" }}>

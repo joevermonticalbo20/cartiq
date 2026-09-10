@@ -18,7 +18,7 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react";
-import api, { API_BASE } from "../api.js";
+import api, { API_BASE, getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import Skeleton from "../components/Skeleton.jsx";
@@ -64,6 +64,7 @@ export default function DashboardPage() {
   const toast = useToast();
   // Kukunin natin ang user context para makuha ang pangalan
   const { user } = useOutletContext();
+  const isOwner = user?.role === "OWNER";
   const firstName = user?.name ? user.name.split(" ")[0] : "there";
 
   const [report, setReport] = useState(null);
@@ -76,39 +77,59 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
+  // Per-section fetch failures: { report?: msg, inventory?: msg, ... }.
+  // Failed sections keep their previous data (never zeroed) and are listed
+  // in the banner below instead of blanking the whole dashboard.
+  const [sectionErrors, setSectionErrors] = useState({});
+
+  const sectionLabels = {
+    report: "Sales",
+    inventory: "Inventory",
+    staff: "Staff",
+    sales: "Orders",
+    alerts: "Alerts",
+    trends: "Trends",
+  };
 
   const [sseStatus, setSseStatus] = useState("connecting");
   const [livePulse, setLivePulse] = useState(0);
-  const token = localStorage.getItem("cartiq_token") || null;
+
+  // Fresh stream ticket per (re)connect: the JWT travels in a POST body,
+  // never in the EventSource URL.
+  const getStreamTicket = useCallback(async () => {
+    try {
+      const { data } = await api.post("/events/ticket", {});
+      return data?.ticket ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
-    try {
-      const [rpt, inv, staff, sales, alr, trend, yday] = await Promise.all([
-        api.get("/reports/daily"),
-        api.get("/inventory"),
-        api.get("/staff/on-shift"),
-        api.get("/orders?page=1&pageSize=8"),
-        api.get("/alerts?unread_only=true&page=1&pageSize=6"),
-        api.get("/analytics/trends?days=7").catch(() => ({ data: null })),
-        api.get("/reports/daily?daysAgo=1").catch(() => ({ data: null })),
-      ]);
-
-      setReport(rpt.data);
-      setInventory(inv.data.locations);
-      setOnShift(staff.data.on_shift);
-      setLatestSales(sales.data.data);
-      setAlerts(alr.data.data);
-      setTrends(trend.data);
-      setPrev(yday.data);
-      setLastUpdated(new Date());
-    } catch {
-      toast("Failed to refresh dashboard data", "error");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [toast]);
+    const errs = {};
+    const settle = async (key, promise, apply) => {
+      try {
+        apply(await promise);
+      } catch (err) {
+        errs[key] = getErrorMessage(err, "Couldn't load this section.");
+      }
+    };
+    await Promise.all([
+      settle("report", api.get("/reports/daily"), (r) => setReport(r.data)),
+      settle("inventory", api.get("/inventory"), (r) => setInventory(r.data.locations)),
+      settle("staff", api.get("/staff/on-shift"), (r) => setOnShift(r.data.on_shift)),
+      settle("sales", api.get("/orders?page=1&pageSize=8"), (r) => setLatestSales(r.data.data)),
+      settle("alerts", api.get("/alerts?unread_only=true&page=1&pageSize=6"), (r) => setAlerts(r.data.data)),
+      settle("trends", api.get("/analytics/trends?days=7").catch(() => ({ data: null })), (r) => setTrends(r.data)),
+      settle("prev", api.get("/reports/daily?daysAgo=1").catch(() => ({ data: null })), (r) => setPrev(r.data)),
+    ]);
+    setSectionErrors(errs);
+    // "Last updated" only moves when something actually refreshed.
+    if (Object.keys(errs).length < 7) setLastUpdated(new Date());
+    setLoading(false);
+    setRefreshing(false);
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(refresh, 0);
@@ -117,7 +138,7 @@ export default function DashboardPage() {
   }, [refresh]);
 
   useSSE(`${API_BASE}/events`, {
-    token,
+    getTicket: getStreamTicket,
     onStatus: setSseStatus,
     onEvent: (event, data) => {
       if (event === "order:new") {
@@ -237,6 +258,19 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {Object.keys(sectionErrors).length > 0 && !loading && (
+        <div className="error-box" role="alert" style={{ marginBottom: "var(--space-4)" }}>
+          Couldn&apos;t refresh:{" "}
+          {Object.keys(sectionErrors)
+            .map((k) => sectionLabels[k] ?? k)
+            .join(", ")}
+          . Showing available data.{" "}
+          <button type="button" className="linklike" onClick={refresh}>
+            Retry
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <>
           {/* Custom Skeleton para sa Top Row */}
@@ -289,11 +323,17 @@ export default function DashboardPage() {
               <div className="kpi-card-body">
                 <div>
                   <div className="kpi-card-value">
-                    P{Number(todaySales).toLocaleString()}
+                    {report ? <>P{Number(todaySales).toLocaleString()}</> : "—"}
                   </div>
                   <div className="kpi-card-sub">
-                    {todayOrders} order{todayOrders !== 1 ? "s" : ""} - avg P
-                    {avgTicket.toFixed(0)} ticket
+                    {report ? (
+                      <>
+                        {todayOrders} order{todayOrders !== 1 ? "s" : ""} - avg P
+                        {avgTicket.toFixed(0)} ticket
+                      </>
+                    ) : (
+                      "Sales unavailable"
+                    )}
                   </div>
                 </div>
                 <span className="kpi-card-trend">
@@ -320,7 +360,7 @@ export default function DashboardPage() {
               </div>
               <div className="kpi-card-body">
                 <div>
-                  <div className="kpi-card-value">{todayOrders}</div>
+                  <div className="kpi-card-value">{report ? todayOrders : "—"}</div>
                   <div className="kpi-card-sub">
                     Across {inventory.length} active cart
                     {inventory.length !== 1 ? "s" : ""}
@@ -543,7 +583,7 @@ export default function DashboardPage() {
                 Stock alerts
               </h3>
               <div className="flex items-center gap-2">
-                {alerts.length > 0 && (
+                {isOwner && alerts.length > 0 && (
                   <button
                     className="ghost small-btn"
                     onClick={async () => {

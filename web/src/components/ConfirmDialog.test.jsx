@@ -43,4 +43,55 @@ describe("ConfirmDialog", () => {
     fireEvent.click(modal);
     expect(onCancel).not.toHaveBeenCalled();
   });
+
+  it("focuses Cancel on open", () => {
+    render(<ConfirmDialog open={true} onCancel={() => {}} />);
+    expect(screen.getByText("Cancel")).toHaveFocus();
+  });
+
+  it("traps Tab inside the dialog", () => {
+    render(
+      <ConfirmDialog open={true} onCancel={() => {}} onConfirm={() => {}} confirmLabel="Delete" />
+    );
+    const cancel = screen.getByText("Cancel");
+    const confirm = screen.getByText("Delete");
+    confirm.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(cancel).toHaveFocus();
+    cancel.focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(confirm).toHaveFocus();
+  });
+
+  it("calls onCancel on Escape", () => {
+    const onCancel = vi.fn();
+    render(<ConfirmDialog open={true} onCancel={onCancel} />);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns focus to the invoker on close", () => {
+    const onCancel = vi.fn();
+    const { rerender } = render(
+      <div>
+        <button>Invoker</button>
+        <ConfirmDialog open={false} onCancel={onCancel} />
+      </div>
+    );
+    screen.getByText("Invoker").focus();
+    rerender(
+      <div>
+        <button>Invoker</button>
+        <ConfirmDialog open={true} onCancel={onCancel} />
+      </div>
+    );
+    expect(screen.getByText("Cancel")).toHaveFocus();
+    rerender(
+      <div>
+        <button>Invoker</button>
+        <ConfirmDialog open={false} onCancel={onCancel} />
+      </div>
+    );
+    expect(screen.getByText("Invoker")).toHaveFocus();
+  });
 });

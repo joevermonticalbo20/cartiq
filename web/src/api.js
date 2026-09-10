@@ -37,26 +37,34 @@ function redirectToLogin() {
   }
 }
 
-// Silent access-token refresh. Resolves the fresh token, or null when the
-// session is unrecoverable (no/expired refresh token, network down).
+// Silent access-token refresh. Resolves one of:
+//   { token }        - recovered; caller should retry once
+//   { fatal: true }  - server explicitly rejected the session (400/401/403/404
+//                      or no stored token): caller must log out
+//   { fatal: false } - network/timeout/5xx: transient, stay logged in and
+//                      let the caller surface its own error
 function refreshAccessToken() {
   if (!refreshPromise) {
     refreshPromise = (async () => {
       try {
         const stored = localStorage.getItem("cartiq_refresh_token");
-        if (!stored) return null;
+        if (!stored) return { fatal: true };
         // Bare axios (not the api instance) to avoid interceptor recursion.
         const { data } = await axios.post(`${API_BASE}/auth/refresh`, {
           refreshToken: stored,
         });
-        if (!data?.token) return null;
+        if (!data?.token) return { fatal: true };
         localStorage.setItem("cartiq_token", data.token);
         if (data.refreshToken) {
           localStorage.setItem("cartiq_refresh_token", data.refreshToken);
         }
-        return data.token;
-      } catch {
-        return null;
+        return { token: data.token };
+      } catch (err) {
+        const status = err.response?.status;
+        if (status === 400 || status === 401 || status === 403 || status === 404) {
+          return { fatal: true };
+        }
+        return { fatal: false };
       } finally {
         refreshPromise = null;
       }
@@ -83,19 +91,23 @@ export function setupAuthInterceptor(navigate) {
         originalRequest?.url?.includes("/auth/refresh");
 
       // 401 on an app request: try one silent refresh, then retry once.
-      // Only a dead refresh (or no refresh token) logs out, like mobile.
+      // Logout happens ONLY on explicit session rejection. Transient
+      // refresh failures (offline/timeout/5xx) keep the session and let
+      // the caller show its own error, like mobile.
       if (error.response?.status === 401 && !isAuthCall && !originalRequest?._retry) {
         if (originalRequest) originalRequest._retry = true;
-        const fresh = await refreshAccessToken().catch(() => null);
-        if (fresh && originalRequest) {
+        const outcome = await refreshAccessToken().catch(() => ({ fatal: false }));
+        if (outcome?.token && originalRequest) {
           originalRequest.headers = {
             ...originalRequest.headers,
-            Authorization: `Bearer ${fresh}`,
+            Authorization: `Bearer ${outcome.token}`,
           };
           return api(originalRequest);
         }
-        clearSession();
-        redirectToLogin();
+        if (outcome?.fatal) {
+          clearSession();
+          redirectToLogin();
+        }
       } else if (error.response?.status === 401 && !isAuthCall) {
         clearSession();
         redirectToLogin();
@@ -121,6 +133,30 @@ api.interceptors.request.use((config) => {
 // --- API Methods ---
 
 /**
+ * Normalized API error. Carries the server's message plus the status,
+ * code, and raw body so callers never have to dig through axios shapes.
+ * Use getErrorMessage() to render it with a fallback.
+ */
+export class ApiError extends Error {
+  constructor(message, { status = null, code = null, data = null, cause = null } = {}) {
+    super(message, { cause });
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.data = data;
+  }
+}
+
+/**
+ * Safe display text for a caught request error. Server-provided messages
+ * surface verbatim; anything else falls back (never raw internals).
+ */
+export function getErrorMessage(err, fallback = "Request failed") {
+  if (err instanceof ApiError) return err.message || fallback;
+  return fallback;
+}
+
+/**
  * Generic fetch wrapper
  */
 export async function fetchApi(options) {
@@ -128,8 +164,13 @@ export async function fetchApi(options) {
     const response = await api.request(options);
     return { success: true, data: response.data };
   } catch (err) {
-    const errMsg = err.response?.data?.message || err.message || "Request failed";
-    throw new Error(errMsg, { cause: err });
+    if (err instanceof ApiError) throw err;
+    const status = err.response?.status ?? null;
+    const data = err.response?.data ?? null;
+    const code = data?.code ?? data?.error ?? null;
+    const errMsg =
+      data?.error || data?.message || err.message || "Request failed";
+    throw new ApiError(errMsg, { status, code, data, cause: err });
   }
 }
 

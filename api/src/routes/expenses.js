@@ -31,6 +31,9 @@ function parseExpenseDate(value) {
 }
 
 // POST /api/expenses - record an expense (OCR-confirmed or manual)
+// Permission split (deliberate): any authenticated staff may SUBMIT
+// (the mobile OCR flow is staff-operated), but only OWNER may correct
+// (PATCH) or delete. There is no approval queue by design.
 router.post("/expenses", requireAuth, async (req, res, next) => {
   try {
     const { vendor, locationCode, amount, date, source, note, lines, category } =

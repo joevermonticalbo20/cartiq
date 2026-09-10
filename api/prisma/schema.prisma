@@ -24,6 +24,7 @@ model User {
   shifts       Shift[]
   orders       Order[]
   refreshTokens RefreshToken[]
+  adjustments  StockAdjustment[]
   createdAt    DateTime  @default(now())
 }
 
@@ -52,6 +53,7 @@ model Location {
   sensorReadings SensorReading[]
   expenses       Expense[]
   devices        Device[]
+  adjustments    StockAdjustment[]
 }
 
 // One ESP32 IoT node per cart. Dev tokens are bcrypt-hashed at rest.
@@ -104,8 +106,27 @@ model InventoryItem {
   // source: "MANUAL" | "SENSOR"
   source     String   @default("MANUAL")
   updatedAt  DateTime @updatedAt
+  adjustments StockAdjustment[]
 
   @@unique([locationId, name])
+}
+
+// Audit trail for manual stock corrections (POST /inventory/adjustments).
+// Every staff adjustment records actor + before/after; owner rows too.
+model StockAdjustment {
+  id              Int      @id @default(autoincrement())
+  inventoryItemId Int
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  locationId      Int
+  location        Location @relation(fields: [locationId], references: [id])
+  actorId         Int
+  actor           User     @relation(fields: [actorId], references: [id])
+  before          Float
+  after           Float
+  reason          String?
+  createdAt       DateTime @default(now())
+
+  @@index([inventoryItemId, createdAt])
 }
 
 model Order {
@@ -118,6 +139,12 @@ model Order {
   total      Float
   // status: "PAID" | "VOID"
   status     String      @default("PAID")
+  // paymentMethod: "CASH" | "GCASH" | "CARD" (nullable for legacy rows)
+  paymentMethod String?
+  // VOID audit (record-only; stock is NOT reversed on void)
+  voidedBy   Int?
+  voidedAt   DateTime?
+  voidReason String?
   items      OrderItem[]
   createdAt  DateTime    @default(now())
   syncedAt   DateTime    @default(now())
@@ -197,5 +224,9 @@ model Alert {
   message   String
   payload   String?
   isRead    Boolean  @default(false)
+  // Staff acknowledgement (detected -> acknowledged -> resolved via isRead).
+  ackedBy     Int?
+  ackedAt     DateTime?
+  ackedByName String?
   createdAt DateTime @default(now())
 }

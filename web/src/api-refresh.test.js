@@ -118,6 +118,58 @@ describe("auth interceptor refresh flow", () => {
     expect(navigate).toHaveBeenCalledWith("/login", { replace: true });
   });
 
+  it.each([500, 502, 503])(
+    "stays logged in when refresh fails with %i",
+    async (status) => {
+      const { setupAuthInterceptor } = await loadApi();
+      setupAuthInterceptor(navigate);
+      const store = useBackingStore({
+        cartiq_token: "expired-access",
+        cartiq_refresh_token: "stored-refresh",
+      });
+      inst.h.postMock.mockRejectedValue({
+        response: { status, data: {} },
+      });
+
+      await expect(inst.h.responseError(fail401())).rejects.toBeDefined();
+      expect(store.cartiq_token).toBe("expired-access");
+      expect(store.cartiq_refresh_token).toBe("stored-refresh");
+      expect(navigate).not.toHaveBeenCalled();
+      expect(inst.h.requestMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it("stays logged in when refresh hits a network error", async () => {
+    const { setupAuthInterceptor } = await loadApi();
+    setupAuthInterceptor(navigate);
+    const store = useBackingStore({
+      cartiq_token: "expired-access",
+      cartiq_refresh_token: "stored-refresh",
+    });
+    inst.h.postMock.mockRejectedValue(new Error("socket hang up"));
+
+    await expect(inst.h.responseError(fail401())).rejects.toBeDefined();
+    expect(store.cartiq_token).toBe("expired-access");
+    expect(store.cartiq_refresh_token).toBe("stored-refresh");
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("logs out when refresh is explicitly forbidden (403)", async () => {
+    const { setupAuthInterceptor } = await loadApi();
+    setupAuthInterceptor(navigate);
+    const store = useBackingStore({
+      cartiq_token: "expired-access",
+      cartiq_refresh_token: "revoked-refresh",
+    });
+    inst.h.postMock.mockRejectedValue({
+      response: { status: 403, data: {} },
+    });
+
+    await expect(inst.h.responseError(fail401())).rejects.toBeDefined();
+    expect(store.cartiq_token).toBeUndefined();
+    expect(navigate).toHaveBeenCalledWith("/login", { replace: true });
+  });
+
   it("shares one refresh across concurrent 401s", async () => {
     const { setupAuthInterceptor } = await loadApi();
     setupAuthInterceptor(navigate);
@@ -153,5 +205,59 @@ describe("auth interceptor refresh flow", () => {
     ).rejects.toBeDefined();
     expect(inst.h.postMock).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+describe("fetchApi error normalization", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    inst.h.requestMock = vi.fn();
+    inst.h.postMock = vi.fn();
+  });
+
+  it.each([
+    [400, "Vendor is required"],
+    [401, "Invalid credentials"],
+    [403, "Forbidden"],
+    [404, "Expense not found"],
+    [409, "Duplicate record (already exists)."],
+    [422, "Unprocessable order"],
+    [500, "Internal server error"],
+  ])("maps %i server errors to ApiError with server text", async (status, text) => {
+    const { fetchApi, ApiError } = await loadApi();
+    inst.h.requestMock.mockRejectedValue({
+      response: { status, data: { error: text } },
+      message: `Request failed with status code ${status}`,
+    });
+
+    const caught = await fetchApi({ method: "GET", url: "/x" }).catch((e) => e);
+
+    expect(caught).toBeInstanceOf(ApiError);
+    expect(caught.message).toBe(text);
+    expect(caught.status).toBe(status);
+    expect(caught.data).toEqual({ error: text });
+  });
+
+  it("falls back for network errors without a response", async () => {
+    const { fetchApi, ApiError, getErrorMessage } = await loadApi();
+    inst.h.requestMock.mockRejectedValue(new Error("socket hang up"));
+
+    const caught = await fetchApi({ method: "GET", url: "/x" }).catch((e) => e);
+
+    expect(caught).toBeInstanceOf(ApiError);
+    expect(caught.message).toBe("socket hang up");
+    expect(caught.status).toBeNull();
+    expect(getErrorMessage(caught, "Fallback")).toBe("socket hang up");
+    expect(getErrorMessage(new TypeError("boom"), "Fallback")).toBe("Fallback");
+  });
+
+  it("rethrows ApiError instances unchanged", async () => {
+    const { fetchApi, ApiError } = await loadApi();
+    const original = new ApiError("kept", { status: 400 });
+    inst.h.requestMock.mockRejectedValue(original);
+
+    const caught = await fetchApi({ method: "GET", url: "/x" }).catch((e) => e);
+
+    expect(caught).toBe(original);
   });
 });

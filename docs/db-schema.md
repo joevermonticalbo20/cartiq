@@ -114,6 +114,22 @@ erDiagram
   to one unread row per item; unknown-card alerts dedupe per UID.
 - **`Device`** registry: one ESP32 node per cart, bearer token bcrypt-hashed
   at rest, `lastSeenAt` updated on every reading/shift, `online = lastSeen < 5min`.
+- **No device provisioning endpoint by design:** devices are seeded and
+  managed directly in the database (`GET /devices` is OWNER read-only).
+  If remote provisioning is ever required, it needs an OWNER-gated
+  register endpoint plus token issuance/rotation - deliberately not built
+  until a real deployment needs it.
 - **Sensor → inventory mapping:** `LPG_TANK` mirrors into the `LPG Tank` row,
   `CHEESE_BIN` into `Cheese Powder` (source flips to `SENSOR`). Recipe-tracked
   items (pouches, frozen packs, powders via `IngredientMap`) deduct on POS orders.
+- **Inventory mutation contracts** (three paths, different semantics):
+  - POS sale deduction (`POST /orders`): decrements per recipe; never blocks
+    the sale, clamps at zero, and appends an `OVERSOLD "<item>" at <cart>:
+    requested X, had Y, short Z` entry to the response `warnings[]` when
+    demand exceeds stock (shrinkage stays observable).
+  - Manual adjustment (`POST /inventory/adjustments`): absolute overwrite by
+    an authenticated user; prefer passing `reason`; threshold breach always
+    raises `LOW_STOCK` (no dedup, unlike the shared rule).
+  - Sensor update (IoT readings): absolute overwrite from the physical scale
+    via the shared `applyStockChange` rule (deduped `LOW_STOCK` on threshold
+    crossing).

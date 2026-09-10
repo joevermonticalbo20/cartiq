@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import { CheckSquare, SlidersHorizontal, Square, Boxes, RefreshCw, Plus, PackagePlus } from "lucide-react";
-import api from "../api.js";
+import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import SensorPanel from "../components/SensorPanel.jsx";
 import EmptyState from "../components/EmptyState.jsx";
@@ -14,6 +15,8 @@ const STATUS_LABEL = { ok: "OK", low: "LOW", critical: "CRITICAL" };
 
 export default function InventoryPage() {
   const toast = useToast();
+  const { user } = useOutletContext();
+  const isOwner = user?.role === "OWNER";
   const [locations, setLocations] = useState([]);
   const [selected, setSelected] = useState("");
   const [loading, setLoading] = useState(true);
@@ -37,6 +40,7 @@ export default function InventoryPage() {
   });
 
   const [forecast, setForecast] = useState(null);
+  const [loadError, setLoadError] = useState("");
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkValue, setBulkValue] = useState("");
   const [bulkConfirm, setBulkConfirm] = useState(false);
@@ -57,13 +61,15 @@ export default function InventoryPage() {
         setLocations(inv.data.locations);
         setForecast(fc.data?.items ?? []);
         setPrep(pr.data);
-        
+        setLoadError("");
+
         if (!inv.data.locations.some((l) => l.code === selected) && inv.data.locations[0]) {
           setSelected(inv.data.locations[0].code);
         }
         setSelectedIds(new Set());
         setLastUpdated(new Date());
       })
+      .catch((err) => setLoadError(getErrorMessage(err, "Unable to load inventory.")))
       .finally(() => setLoading(false));
   }, [selected]);
 
@@ -91,7 +97,7 @@ export default function InventoryPage() {
       setAdjusting(null);
       refresh();
     } catch (err) {
-      setAdjustError(err.response?.data?.error || "Adjustment failed - try again.");
+      setAdjustError(getErrorMessage(err, "Adjustment failed - try again."));
     } finally {
       setSaving(false);
     }
@@ -119,7 +125,7 @@ export default function InventoryPage() {
       setNewItem({ name: "", category: "Ingredients", unit: "pcs", threshold: "", stock: "" });
       refresh();
     } catch (err) {
-      setAddError(err.response?.data?.error || "Failed to add item. Backend endpoint may be missing.");
+      setAddError(getErrorMessage(err, "Failed to add item. Backend endpoint may be missing."));
     } finally {
       setIsAdding(false);
     }
@@ -267,6 +273,13 @@ export default function InventoryPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          ) : loadError ? (
+            <div className="error-box" role="alert">
+              {loadError}{" "}
+              <button type="button" className="linklike" onClick={refresh}>
+                Retry
+              </button>
             </div>
           ) : !current ? (
             <EmptyState
@@ -436,9 +449,9 @@ export default function InventoryPage() {
               </table>
             </div>
             
-            {prep.calibration.length > 0 && (
+            {isOwner && prep.calibration.length > 0 && (
               <div style={{ marginTop: "var(--space-4)" }}>
-                <h3 className="section-title">Threshold review</h3>
+                <h3 className="section-title">Threshold review (owner)</h3>
                 <p className="muted small">
                   Noisy thresholds alert while stock stays healthy; silent ones
                   never fire. One click applies the suggestion.
@@ -470,7 +483,7 @@ export default function InventoryPage() {
                           toast(`Threshold for ${c.item} set to ${c.suggested_threshold}`, "success");
                           refresh();
                         } catch (err) {
-                          toast(err.response?.data?.error || "Update failed", "error");
+                          toast(getErrorMessage(err, "Update failed"), "error");
                         } finally {
                           setApplyingId(null);
                         }

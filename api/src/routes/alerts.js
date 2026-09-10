@@ -57,4 +57,26 @@ router.patch("/alerts/:id/read", requireAuth, requireRole("OWNER"), async (req, 
   }
 });
 
+// PATCH /alerts/:id/ack - staff acknowledgement. Any authenticated user may
+// acknowledge (detected -> acknowledged), but only OWNER resolves via
+// isRead (acknowledged -> resolved). Never deletes.
+router.patch("/alerts/:id/ack", requireAuth, async (req, res, next) => {
+  try {
+    const alert = await prisma.alert.update({
+      where: { id: Number(req.params.id) },
+      data: {
+        ackedBy: req.user.sub,
+        ackedAt: new Date(),
+        ackedByName: req.user.name ?? req.user.username,
+      },
+    });
+    return res.json({ alert });
+  } catch (err) {
+    if (err.code === "P2025") {
+      return res.status(404).json({ error: "Alert not found" });
+    }
+    return next(err);
+  }
+});
+
 export default router;

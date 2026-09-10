@@ -1,19 +1,26 @@
 import { useEffect, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import { ReceiptText, RefreshCw, X } from "lucide-react";
-import api from "../api.js";
+import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import Select from "../components/Select.jsx";
+import { useToast } from "../components/Toast.jsx";
 
 export default function SalesPage() {
+  const toast = useToast();
+  const { user } = useOutletContext();
+  const isOwner = user?.role === "OWNER";
   const [locations, setLocations] = useState([]);
   const [loc, setLoc] = useState("");
   const [date, setDate] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [confirming, setConfirming] = useState(null);
 
   useEffect(() => {
     api.get("/catalog").then(({ data }) => setLocations(data.locations)).catch(() => {});
@@ -39,6 +46,19 @@ export default function SalesPage() {
     { value: "", label: "All carts" },
     ...locations.map((l) => ({ value: l.code, label: l.code }))
   ];
+
+  async function doVoid() {
+    if (!confirming) return;
+    try {
+      await api.patch(`/orders/${confirming.id}`, { status: "VOID" });
+      toast(`Voided order #${confirming.id}`, "success");
+      refresh();
+    } catch (err) {
+      toast(getErrorMessage(err, "Void failed"), "error");
+    } finally {
+      setConfirming(null);
+    }
+  }
 
   return (
     <PageErrorBoundary>
@@ -149,14 +169,55 @@ export default function SalesPage() {
                   label: "Total",
                   width: 110,
                   align: "right",
-                  render: (o) => <strong>P{o.total}</strong>,
+                  render: (o) => (
+                    <>
+                      <strong>P{o.total}</strong>
+                      {o.status === "VOID" && (
+                        <> <Badge variant="neutral">VOID</Badge></>
+                      )}
+                    </>
+                  ),
                 },
+                ...(isOwner
+                  ? [
+                      {
+                        key: "actions",
+                        label: "",
+                        width: 48,
+                        align: "right",
+                        render: (o) =>
+                          o.status === "VOID" ? null : (
+                            <button
+                              className="danger-ghost small-btn"
+                              onClick={() => setConfirming(o)}
+                              title="Void order"
+                            >
+                              <X size={13} />
+                            </button>
+                          ),
+                      },
+                    ]
+                  : []),
               ]}
               data={rows}
               pagination={meta ? { ...meta, onPageChange: gotoPage } : null}
             />
           )}
         </section>
+
+        <ConfirmDialog
+          open={Boolean(confirming)}
+          title="Void order?"
+          message={
+            confirming
+              ? `Order #${confirming.id} for P${confirming.total} will stay in history as VOID and stop counting toward sales. Stock is not restored.`
+              : ""
+          }
+          confirmLabel="Void"
+          danger
+          onConfirm={doVoid}
+          onCancel={() => setConfirming(null)}
+        />
       </div>
     </PageErrorBoundary>
   );

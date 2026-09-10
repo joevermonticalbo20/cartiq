@@ -115,6 +115,34 @@ async function main() {
   const series = await req("/readings/recent?code=CART-01&channel=LPG_TANK", { token: ownerTok });
   check("readings series returned", series.data.readings.length >= 3);
 
+  // 8. SSE stream tickets (JWTs must never ride query strings)
+  const ticketRes = await req("/events/ticket", { method: "POST", token: ownerTok });
+  check("stream ticket issued",
+        ticketRes.status === 200 && typeof ticketRes.data?.ticket === "string");
+  const ctrl = new AbortController();
+  const streamRes = await fetch(`${BASE}/events?ticket=${ticketRes.data?.ticket}`, {
+    headers: { Accept: "text/event-stream" },
+    signal: ctrl.signal,
+  }).catch(() => null);
+  let firstChunk = "";
+  if (streamRes?.body) {
+    const reader = streamRes.body.getReader();
+    const { value } = await reader.read().catch(() => ({}));
+    firstChunk = Buffer.from(value ?? []).toString();
+    ctrl.abort();
+    await reader.cancel().catch(() => {});
+  }
+  check("stream opens on ticket",
+        streamRes?.status === 200 &&
+        (streamRes.headers.get("content-type") ?? "").includes("text/event-stream") &&
+        firstChunk.includes("connected"));
+  const jwtInQuery = await fetch(
+    `${BASE}/events?token=${ownerTok}`,
+    { headers: { Accept: "text/event-stream" }, signal: AbortSignal.timeout(8000) }
+  ).catch(() => null);
+  if (jwtInQuery?.body) await jwtInQuery.body.cancel().catch(() => {});
+  check("JWT in query string rejected", jwtInQuery?.status === 401);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 }

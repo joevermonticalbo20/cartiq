@@ -10,7 +10,7 @@ import {
   Clock,
   Zap,
 } from "lucide-react";
-import api from "../api.js";
+import api, { getErrorMessage } from "../api.js";
 import EmptyState from "./EmptyState.jsx";
 import { clockTicks, timeX, formatTick, formatLastReading } from "./sensorTimeScale.js";
 
@@ -34,7 +34,7 @@ export default function SensorPanel({ code = "CART-01" }) {
       setSeries(data.readings);
       setError("");
     } catch (err) {
-      setError(err.response?.data?.error || "No readings yet");
+      setError(getErrorMessage(err, "No readings yet"));
       setIsLive(false);
     }
   }, [code, channel]);

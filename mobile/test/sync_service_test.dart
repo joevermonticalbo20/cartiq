@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cartiq_mobile/services/api_client.dart';
@@ -11,6 +13,7 @@ class _FakeApi extends ApiClient {
   bool healthy = true;
   final List<Object?> script = [];
   int calls = 0;
+  Future<void> Function()? onSubmit;
 
   @override
   Future<bool> health() async => healthy;
@@ -20,6 +23,7 @@ class _FakeApi extends ApiClient {
     Map<String, dynamic> payload,
     String token,
   ) async {
+    await onSubmit?.call();
     final outcome = calls < script.length ? script[calls] : null;
     calls++;
     if (outcome is ApiException) throw outcome;
@@ -68,7 +72,24 @@ class _FakeQueue implements OfflineQueue {
 QueuedRecord _order(String id) => QueuedRecord(
       id: id,
       kind: 'order',
-      payload: {'clientRef': id},
+      payload: {
+        'clientRef': id,
+        'locationCode': 'CART-01',
+        'items': [
+          {'productName': 'Flavored Fries', 'qty': 1, 'unitPrice': 40},
+        ],
+      },
+    );
+
+QueuedRecord _orderMissingLocation(String id) => QueuedRecord(
+      id: id,
+      kind: 'order',
+      payload: {
+        'clientRef': id,
+        'items': [
+          {'productName': 'Flavored Fries', 'qty': 1, 'unitPrice': 40},
+        ],
+      },
     );
 
 void main() {
@@ -115,7 +136,8 @@ void main() {
       expect(await queue.count, 1);
     });
 
-    test('poison 400 is dropped and the rest still drains', () async {
+    test('poison 400 is dropped with reason and the rest still drains',
+        () async {
       await queue.enqueue(_order('poison'));
       await queue.enqueue(_order('good'));
       api.script.addAll([
@@ -128,6 +150,50 @@ void main() {
       expect(result.synced, 1);
       expect(result.remaining, 0);
       expect(await queue.count, 0);
+      expect(result.dropped, hasLength(1));
+      expect(result.dropped.single.id, 'poison');
+      expect(result.dropped.single.reason, 'SERVER_REJECTED_400');
+      expect(result.fullySynced, isFalse);
+    });
+
+    test('missing location is dropped, never synced, never retried',
+        () async {
+      await queue.enqueue(_orderMissingLocation('noloc'));
+
+      final result = await sync.syncAll();
+
+      expect(result.synced, 0);
+      expect(result.remaining, 0);
+      expect(await queue.count, 0);
+      expect(api.calls, 0);
+      expect(result.dropped, hasLength(1));
+      expect(result.dropped.single.reason, 'MISSING_LOCATION_CODE');
+      expect(result.fullySynced, isFalse);
+      expect(result.allDone, isTrue); // queue empty, but not a success
+    });
+
+    test('409 duplicate counts as synced', () async {
+      await queue.enqueue(_order('a'));
+      api.script.add(ApiException('already exists', statusCode: 409));
+
+      final result = await sync.syncAll();
+
+      expect(result.synced, 1);
+      expect(result.remaining, 0);
+      expect(result.dropped, isEmpty);
+      expect(result.fullySynced, isTrue);
+    });
+
+    test('429 rate-limit keeps the record for later', () async {
+      await queue.enqueue(_order('a'));
+      api.script.add(ApiException('slow down', statusCode: 429));
+
+      final result = await sync.syncAll();
+
+      expect(result.synced, 0);
+      expect(result.remaining, 1);
+      expect(result.dropped, isEmpty);
+      expect(api.calls, 1);
     });
 
     test('500 stops the round and keeps every record', () async {
@@ -166,6 +232,32 @@ void main() {
       expect(result.synced, 0);
       expect(result.remaining, 1);
       expect(api.calls, 0);
+    });
+
+    test('cancelActiveSync stops further uploads after logout', () async {
+      await queue.enqueue(_order('a'));
+      await queue.enqueue(_order('b'));
+      final started = Completer<void>();
+      final release = Completer<void>();
+      var entered = 0;
+      api.onSubmit = () async {
+        entered++;
+        if (entered == 1) {
+          started.complete();
+          await release.future;
+        }
+      };
+
+      final future = sync.syncAll();
+      await started.future;
+      sync.cancelActiveSync();
+      release.complete();
+      final result = await future;
+
+      expect(api.calls, 1);
+      expect(result.synced, 1);
+      expect(result.remaining, 1);
+      expect(await queue.count, 1);
     });
   });
 }

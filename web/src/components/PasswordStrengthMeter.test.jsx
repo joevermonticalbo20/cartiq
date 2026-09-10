@@ -40,3 +40,42 @@ describe("PasswordStrengthMeter", () => {
     expect(container.querySelector(".pw-strength-checks")).toBeNull();
   });
 });
+
+describe("PasswordStrengthMeter minLevel gate", () => {
+  function meetsMin(value, minLevel) {
+    const { container } = render(
+      <PasswordStrengthMeter value={value} minLevel={minLevel} />
+    );
+    return container.querySelector("input[type='hidden']").dataset.pwMeetsMin;
+  }
+
+  it("strong satisfies strong", () => {
+    expect(meetsMin("Abcdefg1!", "strong")).toBe("true");
+  });
+
+  it("good does not satisfy strong", () => {
+    const { container } = render(
+      <PasswordStrengthMeter value="Abcdefg1" minLevel="strong" />
+    );
+    expect(container.querySelector("input[type='hidden']").dataset.pwMeetsMin).toBe("false");
+    expect(screen.getByText(/Min strength required/)).toBeInTheDocument();
+  });
+
+  it("fair satisfies fair but weak does not", () => {
+    expect(meetsMin("abcdefg1", "fair")).toBe("true");
+    expect(meetsMin("abc", "fair")).toBe("false");
+  });
+
+  it("weak satisfies weak", () => {
+    expect(meetsMin("abc", "weak")).toBe("true");
+  });
+
+  it("no minLevel always meets", () => {
+    expect(meetsMin("abc", null)).toBe("true");
+    expect(screen.queryByText(/Min strength required/)).toBeNull();
+  });
+
+  it("unknown minLevel never meets", () => {
+    expect(meetsMin("Abcdefg1!", "bogus")).toBe("false");
+  });
+});

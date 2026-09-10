@@ -264,13 +264,18 @@ button.custom-select-trigger.active {
   cursor: pointer;
   transition: background var(--transition-fast);
 }
-.custom-select-option:hover {
+.custom-select-option:hover,
+.custom-select-option.highlighted {
   background: var(--surface-alt);
 }
 .custom-select-option.selected {
   background: var(--primary-soft);
   color: var(--primary-strong);
   font-weight: 700;
+}
+.custom-select-option.empty {
+  cursor: default;
+  color: var(--text-muted);
 }
 
 /* ============================================================
