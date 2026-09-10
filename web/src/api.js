@@ -121,6 +121,30 @@ api.interceptors.request.use((config) => {
 // --- API Methods ---
 
 /**
+ * Normalized API error. Carries the server's message plus the status,
+ * code, and raw body so callers never have to dig through axios shapes.
+ * Use getErrorMessage() to render it with a fallback.
+ */
+export class ApiError extends Error {
+  constructor(message, { status = null, code = null, data = null, cause = null } = {}) {
+    super(message, { cause });
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.data = data;
+  }
+}
+
+/**
+ * Safe display text for a caught request error. Server-provided messages
+ * surface verbatim; anything else falls back (never raw internals).
+ */
+export function getErrorMessage(err, fallback = "Request failed") {
+  if (err instanceof ApiError) return err.message || fallback;
+  return fallback;
+}
+
+/**
  * Generic fetch wrapper
  */
 export async function fetchApi(options) {
@@ -128,8 +152,13 @@ export async function fetchApi(options) {
     const response = await api.request(options);
     return { success: true, data: response.data };
   } catch (err) {
-    const errMsg = err.response?.data?.message || err.message || "Request failed";
-    throw new Error(errMsg, { cause: err });
+    if (err instanceof ApiError) throw err;
+    const status = err.response?.status ?? null;
+    const data = err.response?.data ?? null;
+    const code = data?.code ?? data?.error ?? null;
+    const errMsg =
+      data?.error || data?.message || err.message || "Request failed";
+    throw new ApiError(errMsg, { status, code, data, cause: err });
   }
 }
 

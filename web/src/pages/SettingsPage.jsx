@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { KeyRound, Plus, RefreshCw, Eye, EyeOff } from "lucide-react";
-import api from "../api.js";
+import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import Skeleton from "../components/Skeleton.jsx";
@@ -77,7 +77,7 @@ export default function SettingsPage() {
       setPw({ current: "", next: "", confirm: "" });
       setShowPw({ current: false, next: false, confirm: false }); // Reset eye toggles
     } catch (err) {
-      setPwError(err.response?.data?.error || "Change failed - is the current password correct?");
+      setPwError(getErrorMessage(err, "Change failed - is the current password correct?"));
     }
   }
 
@@ -99,7 +99,7 @@ export default function SettingsPage() {
       setShowNewStaffPw(false);
       loadOwnerData();
     } catch (err) {
-      setStaffError(err.response?.data?.error || "Create failed - is the username or RFID already taken?");
+      setStaffError(getErrorMessage(err, "Create failed - is the username or RFID already taken?"));
     }
   }
 
@@ -109,7 +109,7 @@ export default function SettingsPage() {
       toast(`${s.username} ${s.active ? "disabled" : "enabled"}`, "success");
       loadOwnerData();
     } catch (err) {
-      toast(err.response?.data?.error || "Update failed", "error");
+      toast(getErrorMessage(err, "Update failed"), "error");
     }
     setDisabling(null);
   }
@@ -128,7 +128,7 @@ export default function SettingsPage() {
       setResetPw("");
       setShowResetPw(false);
     } catch (err) {
-      setResetError(err.response?.data?.error || "Reset failed - try again.");
+      setResetError(getErrorMessage(err, "Reset failed - try again."));
     }
   }
 

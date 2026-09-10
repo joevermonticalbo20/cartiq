@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Download, FileUp, FileDown, CheckCircle2, AlertTriangle } from "lucide-react";
-import api from "../api.js";
+import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
@@ -39,7 +39,7 @@ export default function DataPage() {
       await downloadExport(dataset, month);
       toast(`Downloaded cartiq-${dataset}-${month || "all"}.xlsx`, "success");
     } catch (err) {
-      toast(err.response?.data?.error || "Export failed", "error");
+      toast(getErrorMessage(err, "Export failed"), "error");
     } finally {
       setBusyExport(null);
     }
@@ -61,7 +61,7 @@ export default function DataPage() {
         toast(`${res.data.valid_count} valid row(s) - ready to commit`, "success");
       }
     } catch (err) {
-      toast(err.response?.data?.error || "Import preview failed", "error");
+      toast(getErrorMessage(err, "Import preview failed"), "error");
       setPreview(null);
     } finally {
       setBusyImport(false);
@@ -80,7 +80,7 @@ export default function DataPage() {
       setPreview(null);
       pendingFile.current = null;
     } catch (err) {
-      toast(err.response?.data?.error || "Commit failed", "error");
+      toast(getErrorMessage(err, "Commit failed"), "error");
     } finally {
       setBusyImport(false);
       setConfirmOpen(false);

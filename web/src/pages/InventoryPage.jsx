@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { CheckSquare, SlidersHorizontal, Square, Boxes, RefreshCw, Plus, PackagePlus } from "lucide-react";
-import api from "../api.js";
+import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import SensorPanel from "../components/SensorPanel.jsx";
 import EmptyState from "../components/EmptyState.jsx";
@@ -91,7 +91,7 @@ export default function InventoryPage() {
       setAdjusting(null);
       refresh();
     } catch (err) {
-      setAdjustError(err.response?.data?.error || "Adjustment failed - try again.");
+      setAdjustError(getErrorMessage(err, "Adjustment failed - try again."));
     } finally {
       setSaving(false);
     }
@@ -119,7 +119,7 @@ export default function InventoryPage() {
       setNewItem({ name: "", category: "Ingredients", unit: "pcs", threshold: "", stock: "" });
       refresh();
     } catch (err) {
-      setAddError(err.response?.data?.error || "Failed to add item. Backend endpoint may be missing.");
+      setAddError(getErrorMessage(err, "Failed to add item. Backend endpoint may be missing."));
     } finally {
       setIsAdding(false);
     }
@@ -470,7 +470,7 @@ export default function InventoryPage() {
                           toast(`Threshold for ${c.item} set to ${c.suggested_threshold}`, "success");
                           refresh();
                         } catch (err) {
-                          toast(err.response?.data?.error || "Update failed", "error");
+                          toast(getErrorMessage(err, "Update failed"), "error");
                         } finally {
                           setApplyingId(null);
                         }

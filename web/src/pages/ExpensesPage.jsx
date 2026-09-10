@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { Trash2, ReceiptText, RefreshCw, X } from "lucide-react";
-import api from "../api.js";
+import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
 import DataTable from "../components/DataTable.jsx";
@@ -93,7 +93,7 @@ export default function ExpensesPage() {
       toast(`Deleted expense: ${confirming.vendor}`, "success");
       handleRefresh();
     } catch (err) {
-      toast(err.response?.data?.error || "Delete failed", "error");
+      toast(getErrorMessage(err, "Delete failed"), "error");
     } finally {
       setConfirming(null);
     }

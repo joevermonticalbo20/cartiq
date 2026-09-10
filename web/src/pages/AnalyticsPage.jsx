@@ -8,7 +8,7 @@ import {
   DollarSign, BarChart2, PackageSearch, RefreshCw, X, Sparkles 
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import api from "../api.js";
+import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import { SkeletonCards, SkeletonChart } from "../components/Skeleton.jsx";
@@ -134,7 +134,7 @@ export default function AnalyticsPage() {
       .catch((err) => {
         if (!alive) return;
         setLoading(false);
-        const msg = err.response?.data?.error || err.message || "Unable to load analytics. Please try again.";
+        const msg = getErrorMessage(err, "Unable to load analytics. Please try again.");
         setError(msg);
       });
     return () => { alive = false; };

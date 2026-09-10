@@ -155,3 +155,57 @@ describe("auth interceptor refresh flow", () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 });
+
+describe("fetchApi error normalization", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    inst.h.requestMock = vi.fn();
+    inst.h.postMock = vi.fn();
+  });
+
+  it.each([
+    [400, "Vendor is required"],
+    [401, "Invalid credentials"],
+    [403, "Forbidden"],
+    [404, "Expense not found"],
+    [409, "Duplicate record (already exists)."],
+    [422, "Unprocessable order"],
+    [500, "Internal server error"],
+  ])("maps %i server errors to ApiError with server text", async (status, text) => {
+    const { fetchApi, ApiError } = await loadApi();
+    inst.h.requestMock.mockRejectedValue({
+      response: { status, data: { error: text } },
+      message: `Request failed with status code ${status}`,
+    });
+
+    const caught = await fetchApi({ method: "GET", url: "/x" }).catch((e) => e);
+
+    expect(caught).toBeInstanceOf(ApiError);
+    expect(caught.message).toBe(text);
+    expect(caught.status).toBe(status);
+    expect(caught.data).toEqual({ error: text });
+  });
+
+  it("falls back for network errors without a response", async () => {
+    const { fetchApi, ApiError, getErrorMessage } = await loadApi();
+    inst.h.requestMock.mockRejectedValue(new Error("socket hang up"));
+
+    const caught = await fetchApi({ method: "GET", url: "/x" }).catch((e) => e);
+
+    expect(caught).toBeInstanceOf(ApiError);
+    expect(caught.message).toBe("socket hang up");
+    expect(caught.status).toBeNull();
+    expect(getErrorMessage(caught, "Fallback")).toBe("socket hang up");
+    expect(getErrorMessage(new TypeError("boom"), "Fallback")).toBe("Fallback");
+  });
+
+  it("rethrows ApiError instances unchanged", async () => {
+    const { fetchApi, ApiError } = await loadApi();
+    const original = new ApiError("kept", { status: 400 });
+    inst.h.requestMock.mockRejectedValue(original);
+
+    const caught = await fetchApi({ method: "GET", url: "/x" }).catch((e) => e);
+
+    expect(caught).toBe(original);
+  });
+});
