@@ -130,6 +130,26 @@ async function main() {
   });
   check("owner resolve path intact", resolve.data?.alert?.isRead === true);
 
+  // ---- H4 idempotency race: parallel same-clientRef posts ----
+  const raceRef = `phase7-race-${run}`;
+  const raceBody = {
+    clientRef: raceRef,
+    locationCode: "CART-01",
+    items: [{ productName: "Flavored Fries", qty: 1, unitPrice: 40 }],
+  };
+  const [raceA, raceB] = await Promise.all([
+    req("/orders", { method: "POST", token: tok, body: raceBody }),
+    req("/orders", { method: "POST", token: tok, body: raceBody }),
+  ]);
+  const statuses = [raceA.status, raceB.status].sort().join(",");
+  const ids = [raceA.data?.order?.id, raceB.data?.order?.id];
+  const dupes = [raceA.data?.duplicate, raceB.data?.duplicate];
+  check("concurrent duplicate: one created, one duplicate-shaped",
+        statuses === "200,201" &&
+        ids[0] != null && ids[0] === ids[1] &&
+        dupes.includes(true) && dupes.includes(false) &&
+        !JSON.stringify([raceA, raceB]).includes("P2002"));
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 }

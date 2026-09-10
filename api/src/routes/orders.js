@@ -55,7 +55,9 @@ router.post("/orders", requireAuth, async (req, res, next) => {
       return res.json({ duplicate: true, order: existing, warnings: [] });
     }
 
-    const result = await prisma.$transaction(async (tx) => {
+    let result;
+    try {
+      result = await prisma.$transaction(async (tx) => {
       // Server is the source of truth for the total - never trust the client.
       const orderTotal = items.reduce((sum, it) => sum + +it.qty * +it.unitPrice, 0);
 
@@ -113,7 +115,23 @@ router.post("/orders", requireAuth, async (req, res, next) => {
         }
       }
       return { order, warnings };
-    });
+      });
+    } catch (err) {
+      // Lost a same-clientRef race: the pre-check above passed for both
+      // requests, then the winner committed first. clientRef UNIQUE stays
+      // authoritative - return the winner as a duplicate, never raw P2002.
+      // (clientRef is the only unique field written in this transaction.)
+      if (err?.code === "P2002") {
+        const winner = await prisma.order.findUnique({
+          where: { clientRef: ref },
+          include: { items: true },
+        });
+        if (winner) {
+          return res.json({ duplicate: true, order: winner, warnings: [] });
+        }
+      }
+      return next(err);
+    }
 
     emit("order:new", {
       id: result.order.id,
