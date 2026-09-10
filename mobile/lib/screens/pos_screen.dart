@@ -42,6 +42,26 @@ extension PaymentMethodX on PaymentMethod {
   };
 }
 
+/// Persists a checkout sale, clearing [cart] ONLY after durable enqueue.
+/// Throws whatever [queue.enqueue] throws, leaving [cart] untouched so the
+/// cashier can retry. Returns the persisted payload.
+Future<Map<String, dynamic>> persistCheckout({
+  required CartState cart,
+  required OfflineQueue queue,
+  required Map<String, dynamic> Function() buildPayload,
+}) async {
+  final payload = buildPayload();
+  await queue.enqueue(
+    QueuedRecord(
+      id: payload['clientRef'] as String,
+      kind: 'order',
+      payload: payload,
+    ),
+  );
+  cart.clear();
+  return payload;
+}
+
 class PosScreen extends StatefulWidget {
   const PosScreen({super.key});
 
@@ -276,24 +296,28 @@ class _PosScreenState extends State<PosScreen> {
 
     if (cart.isEmpty) return;
 
-    final payload = {
-      'clientRef': newClientRef(),
-      'locationCode': auth.locationCode,
-      'items': cart.items.map((it) => it.toJson()).toList(),
-      'total': cart.total,
-      'status': 'PAID',
-      'paymentMethod': method.name.toUpperCase(),
-    };
-
     final snapshotTotal = cart.total;
-    cart.clear();
-    await _queue.enqueue(
-      QueuedRecord(
-        id: payload['clientRef'] as String,
-        kind: 'order',
-        payload: payload,
-      ),
-    );
+    try {
+      // Enqueue FIRST: cart.clear() below only runs after durable persist,
+      // so a storage failure keeps the sale intact for retry.
+      await persistCheckout(
+        cart: cart,
+        queue: _queue,
+        buildPayload: () => {
+          'clientRef': newClientRef(),
+          'locationCode': auth.locationCode,
+          'items': cart.items.map((it) => it.toJson()).toList(),
+          'total': cart.total,
+          'status': 'PAID',
+          'paymentMethod': method.name.toUpperCase(),
+        },
+      );
+    } catch (_) {
+      if (!mounted) return;
+      await Haptics.error();
+      _showSnack('Could not save sale on this device - cart kept', error: true);
+      return;
+    }
 
     if (sheetContext.mounted) Navigator.pop(sheetContext);
 
