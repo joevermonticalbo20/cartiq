@@ -59,6 +59,7 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial mount fetch via stable callbacks
     loadProfile();
     api.get("/catalog").then(({ data }) => setLocations(data.locations));
     loadOwnerData();
