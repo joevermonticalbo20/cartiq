@@ -56,8 +56,8 @@ class SyncService extends ChangeNotifier {
   }
 
   Future<SyncResult> _doSync() async {
-    final token = auth.token;
-    if (token == null) {
+    final startToken = auth.token;
+    if (startToken == null) {
       return SyncResult(online: false, synced: 0, remaining: await queue.count);
     }
     if (!await api.health()) {
@@ -65,18 +65,37 @@ class SyncService extends ChangeNotifier {
     }
 
     var synced = 0;
+    var activeToken = startToken;
     for (final record in await queue.pending()) {
       try {
-        await api.submitOrder(record.payload, token);
+        await api.submitOrder(record.payload, activeToken);
         await queue.remove(record.id);
         synced++;
       } on ApiException catch (e) {
-        if (e.statusCode == 401 || e.statusCode == 403) break; // session expired
-        // Server rejected (e.g. bad payload): drop poison messages, keep going.
+        if (e.statusCode == 401 || e.statusCode == 403) {
+          // Access tokens expire mid-session (12h). Recover once via the
+          // refresh token and retry this record instead of stalling the
+          // queue behind an expired session.
+          if (!await auth.refreshSession()) break;
+          final fresh = auth.token;
+          if (fresh == null) break;
+          activeToken = fresh;
+          try {
+            await api.submitOrder(record.payload, activeToken);
+            await queue.remove(record.id);
+            synced++;
+          } catch (_) {
+            break; // still failing after refresh: stop this round
+          }
+          continue;
+        }
+        // Server rejected the payload (4xx): drop the poison message and
+        // keep draining the rest instead of stalling behind it.
         if (e.statusCode != null && e.statusCode! >= 400 && e.statusCode! < 500) {
           await queue.remove(record.id);
+          continue;
         }
-        break;
+        break; // 5xx: stop this round, retry everything next sync
       } catch (_) {
         break; // network hiccup mid-drain: try again next sync
       }

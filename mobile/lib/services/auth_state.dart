@@ -60,6 +60,14 @@ class AuthState extends ChangeNotifier {
     }
   }
 
+  /// Refresh the access token mid-session (e.g. when a sync hits 401).
+  /// Returns true when a fresh token was stored.
+  Future<bool> refreshSession() async {
+    final recovered = await _tryRefresh();
+    if (recovered) notifyListeners();
+    return recovered;
+  }
+
   Future<void> signIn(String username, String password) async {
     final data = await api.login(username, password);
     token = data['token'] as String?;
