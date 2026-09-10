@@ -20,6 +20,11 @@ import { errorHandler, notFound } from "./middleware/error.js";
 
 const app = express();
 
+// Trust the first proxy hop (LAN reverse proxies, deploy front-ends) so
+// req.ip honors X-Forwarded-For. Required for correct login rate limiting
+// behind any proxy; harmless on direct LAN connections.
+app.set("trust proxy", 1);
+
 // Fail fast when auth is misconfigured - otherwise every request 401s.
 if (!process.env.JWT_SECRET) {
   console.error("[api:fatal] JWT_SECRET is not set. Add it to api/.env and restart.");

@@ -188,6 +188,9 @@ Manual acceptance: `docs/uat-script.md` (15-scenario supervised parallel-run).
 
 - No online payments, payroll/tax accounting, or customer-facing ordering.
 - Localhost-only deployment; supervised parallel-run at one cart; no production.
+- Single API instance: live SSE subscribers and the login rate-limit counter
+  live in process memory, so don't scale past one instance without a shared
+  bus/store.
 - Load cells cover the LPG tank + cheese powder bin (pilot configuration).
 - Forecasts activate after ~14 days of recorded usage (cold-start honesty).
 
