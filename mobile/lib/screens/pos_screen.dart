@@ -13,6 +13,8 @@ import '../services/sync_service.dart';
 import '../state/cart_state.dart';
 import '../theme.dart';
 import '../utils/haptics.dart';
+import '../widgets/app_badge.dart';
+import '../widgets/app_skeleton.dart';
 import '../widgets/empty_state.dart';
 
 String newClientRef() {
@@ -500,7 +502,10 @@ class _PosScreenState extends State<PosScreen> {
               future: _catalogFuture,
               builder: (context, snap) {
                 if (snap.connectionState != ConnectionState.done) {
-                  return const Center(child: CircularProgressIndicator());
+                  return ListView(
+                    padding: const EdgeInsets.all(14),
+                    children: const [AppSkeleton(rows: 6)],
+                  );
                 }
                 if (snap.hasError) {
                   return Center(
@@ -680,23 +685,9 @@ class _ProductCard extends StatelessWidget {
                   ),
                   if (inCartQty > 0) ...[
                     const SizedBox(width: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 7,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                      child: Text(
-                        '$inCartQty',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
+                    AppBadge(
+                      label: '$inCartQty',
+                      variant: AppBadgeVariant.brand,
                     ),
                   ],
                 ],
@@ -720,23 +711,9 @@ class _ProductCard extends StatelessWidget {
                     ),
                   ),
                   if (flavorCount > 0)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                      child: Text(
-                        '$flavorCount',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.primary,
-                        ),
-                      ),
+                    AppBadge(
+                      label: '$flavorCount',
+                      variant: AppBadgeVariant.brand,
                     )
                   else if (onQuickAdd != null)
                     Material(
