@@ -3,6 +3,9 @@ import { CheckCircle2, Info, XCircle, X } from "lucide-react";
 
 const ToastContext = createContext(() => {});
 
+// Maximum toasts on screen at once (oldest evicted first).
+const MAX_VISIBLE_TOASTS = 4;
+
 // Module-level reference so non-React code (e.g. the axios interceptor in
 // api.js) can emit a toast without calling a hook.
 let toastPush = () => {};
@@ -19,10 +22,17 @@ export function ToastProvider({ children }) {
     setToasts((t) => t.filter((x) => x.id !== id));
   }, []);
 
+  // Cap simultaneous toasts so SSE bursts or bulk actions can't flood the
+  // UI or stack dozens of live-region nodes for screen readers.
   const push = useCallback((message, type = "info") => {
     const id = ++idRef.current;
-    setToasts((t) => [...t, { id, message, type }]);
-    
+    setToasts((t) => {
+      // Identical toast already visible: keep the original (and its timer)
+      // instead of stacking a duplicate.
+      if (t.some((x) => x.message === message && x.type === type)) return t;
+      return [...t.slice(-(MAX_VISIBLE_TOASTS - 1)), { id, message, type }];
+    });
+
     setTimeout(() => {
       setToasts((t) => t.filter((x) => x.id !== id));
     }, 5000);
