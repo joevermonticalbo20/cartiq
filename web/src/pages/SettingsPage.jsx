@@ -17,6 +17,7 @@ export default function SettingsPage() {
   const isOwner = user?.role === "OWNER";
   
   const [profile, setProfile] = useState(user ?? null);
+  const [profileError, setProfileError] = useState("");
   const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
   const [devices, setDevices] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -50,8 +51,15 @@ export default function SettingsPage() {
     api.get("/auth/staff").then(({ data }) => setStaff(data.data)).catch(() => {});
   }
 
+  function loadProfile() {
+    setProfileError("");
+    api.get("/auth/me").then(({ data }) => setProfile(data.user)).catch(() => {
+      setProfileError("Unable to load profile.");
+    });
+  }
+
   useEffect(() => {
-    api.get("/auth/me").then(({ data }) => setProfile(data.user));
+    loadProfile();
     api.get("/catalog").then(({ data }) => setLocations(data.locations));
     loadOwnerData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -167,7 +175,16 @@ export default function SettingsPage() {
               Profile
             </h3>
             {!profile ? (
-              <Skeleton rows={3} />
+              profileError ? (
+                <div className="error-box" role="alert">
+                  {profileError}{" "}
+                  <button type="button" className="linklike" onClick={loadProfile}>
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                <Skeleton rows={3} />
+              )
             ) : (
               <div className="flex flex-col" aria-label="Profile details">
                 <div className="flex items-center justify-between" style={{ padding: "14px 0", borderBottom: "1px solid var(--border)" }}>

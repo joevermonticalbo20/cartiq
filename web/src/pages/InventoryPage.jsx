@@ -40,6 +40,7 @@ export default function InventoryPage() {
   });
 
   const [forecast, setForecast] = useState(null);
+  const [loadError, setLoadError] = useState("");
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkValue, setBulkValue] = useState("");
   const [bulkConfirm, setBulkConfirm] = useState(false);
@@ -60,13 +61,15 @@ export default function InventoryPage() {
         setLocations(inv.data.locations);
         setForecast(fc.data?.items ?? []);
         setPrep(pr.data);
-        
+        setLoadError("");
+
         if (!inv.data.locations.some((l) => l.code === selected) && inv.data.locations[0]) {
           setSelected(inv.data.locations[0].code);
         }
         setSelectedIds(new Set());
         setLastUpdated(new Date());
       })
+      .catch((err) => setLoadError(getErrorMessage(err, "Unable to load inventory.")))
       .finally(() => setLoading(false));
   }, [selected]);
 
@@ -270,6 +273,13 @@ export default function InventoryPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          ) : loadError ? (
+            <div className="error-box" role="alert">
+              {loadError}{" "}
+              <button type="button" className="linklike" onClick={refresh}>
+                Retry
+              </button>
             </div>
           ) : !current ? (
             <EmptyState
