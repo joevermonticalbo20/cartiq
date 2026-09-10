@@ -184,7 +184,11 @@ async function buildShiftsSheet(wb, month) {
 }
 
 // GET /api/export/:dataset?month=YYYY-MM
-router.get("/export/:dataset", requireAuth, async (req, res, next) => {
+router.get(
+  "/export/:dataset",
+  requireAuth,
+  requireRole("OWNER"),
+  async (req, res, next) => {
   try {
     const { dataset } = req.params;
     const month = req.query.month ? String(req.query.month) : undefined;
@@ -222,7 +226,8 @@ router.get("/export/:dataset", requireAuth, async (req, res, next) => {
   } catch (err) {
     return next(err);
   }
-});
+  }
+);
 
 // ---------------- product bulk import ----------------
 

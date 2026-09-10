@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../prisma.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 import { emit } from "./events.js";
 
 const router = Router();
@@ -41,7 +41,7 @@ router.get("/inventory", requireAuth, async (req, res, next) => {
   }
 });
 
-router.patch("/inventory/items/:id", requireAuth, async (req, res, next) => {
+router.patch("/inventory/items/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
     const { threshold } = req.body ?? {};
     if (threshold === undefined || !Number.isFinite(+threshold) || +threshold < 0) {
@@ -65,13 +65,32 @@ router.post("/inventory/adjustments", requireAuth, async (req, res, next) => {
     if (!Number.isInteger(+inventoryItemId) || !Number.isFinite(+newStock) || +newStock < 0) {
       return res.status(400).json({ error: "inventoryItemId and non-negative newStock are required" });
     }
+    // Staff corrections need a reason (owner rows record it when given).
+    // Every adjustment is audit-trailed with actor + before/after.
+    if (req.user.role !== "OWNER" && !String(reason ?? "").trim()) {
+      return res.status(400).json({ error: "reason is required for staff adjustments" });
+    }
     const item = await prisma.inventoryItem.findUnique({ where: { id: +inventoryItemId } });
     if (!item) return res.status(404).json({ error: "Inventory item not found" });
 
-    const updated = await prisma.inventoryItem.update({
-      where: { id: item.id },
-      data: { stock: +newStock },
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.inventoryItem.update({
+        where: { id: item.id },
+        data: { stock: +newStock },
+      });
+      const adjustment = await tx.stockAdjustment.create({
+        data: {
+          inventoryItemId: item.id,
+          locationId: item.locationId,
+          actorId: req.user.sub,
+          before: item.stock,
+          after: +newStock,
+          reason: reason ? String(reason).slice(0, 500) : null,
+        },
+      });
+      return { updated, adjustment };
     });
+    const { updated, adjustment } = result;
 
     const crossed = updated.stock <= updated.threshold;
     if (crossed) {
@@ -84,7 +103,16 @@ router.post("/inventory/adjustments", requireAuth, async (req, res, next) => {
       });
       emit("alert:new", { id: alert.id, type: "LOW_STOCK", message: alert.message });
     }
-    return res.json({ item: decorate([updated])[0] });
+    return res.json({
+      item: decorate([updated])[0],
+      adjustment: {
+        id: adjustment.id,
+        actorId: adjustment.actorId,
+        before: adjustment.before,
+        after: adjustment.after,
+        reason: adjustment.reason,
+      },
+    });
   } catch (err) {
     return next(err);
   }

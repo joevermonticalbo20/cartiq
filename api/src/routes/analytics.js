@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../prisma.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 import { ANALYTICS_CONFIG as CFG } from "../services/analytics_engine.js";
 import { buildForecastForLocation } from "../services/forecast_service.js";
 import {
@@ -462,7 +462,7 @@ router.get("/reorders/prep", requireAuth, async (req, res, next) => {
 
 // ---------------- staff performance ----------------
 // GET /api/analytics/staff-performance?days=28
-router.get("/analytics/staff-performance", requireAuth, async (req, res, next) => {
+router.get("/analytics/staff-performance", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
     const days = Math.min(Number(req.query.days) || 28, 90);
     const since = daysAgoStart(days - 1);
@@ -537,7 +537,7 @@ router.get("/analytics/staff-performance", requireAuth, async (req, res, next) =
 
 // ---------------- profit & expenses ----------------
 // GET /api/analytics/profit?days=30&code=CART-01
-router.get("/analytics/profit", requireAuth, async (req, res, next) => {
+router.get("/analytics/profit", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
     const days = Math.min(Number(req.query.days) || 30, 90);
     const location = await getLocation(req.query.code);

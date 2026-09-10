@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useOutletContext } from "react-router-dom";
 import { Trophy, Users, RefreshCw, X } from "lucide-react";
 import api from "../api.js";
 import Badge from "../components/Badge.jsx";
@@ -11,6 +12,8 @@ import PageHeader from "../components/PageHeader.jsx";
 import Select from "../components/Select.jsx";
 
 export default function StaffPage() {
+  const { user } = useOutletContext();
+  const isOwner = user?.role === "OWNER";
   const [onShift, setOnShift] = useState([]);
   const [locations, setLocations] = useState([]);
   const [loc, setLoc] = useState("");
@@ -28,7 +31,10 @@ export default function StaffPage() {
     setPerfLoading(true);
     Promise.all([
       api.get("/staff/on-shift").catch(() => ({ data: { on_shift: [] } })),
-      api.get("/analytics/staff-performance?days=28").catch(() => ({ data: { staff: [] } })),
+      // Leaderboard is owner-only server-side: don't request it as staff.
+      isOwner
+        ? api.get("/analytics/staff-performance?days=28").catch(() => ({ data: { staff: [] } }))
+        : Promise.resolve({ data: { staff: [] } }),
       api.get("/catalog").catch(() => ({ data: { locations: [] } }))
     ]).then(([shiftRes, perfRes, catRes]) => {
       setOnShift(shiftRes.data.on_shift || []);
@@ -39,7 +45,7 @@ export default function StaffPage() {
       setPerfLoading(false);
       setLastUpdated(new Date());
     });
-  }, []);
+  }, [isOwner]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial mount fetch via stable callback
@@ -126,7 +132,8 @@ export default function StaffPage() {
             )}
           </section>
 
-          {/* SECTION 2: Staff Performance */}
+          {/* SECTION 2: Staff Performance (owner-only data) */}
+          {isOwner && (
           <section className="panel" style={{ display: 'flex', flexDirection: 'column' }}>
             <div className="panel-head">
               <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
@@ -173,6 +180,7 @@ export default function StaffPage() {
               </div>
             )}
           </section>
+          )}
         </div>
 
         {/* SECTION 3: Shift Event History (Long Panel) */}

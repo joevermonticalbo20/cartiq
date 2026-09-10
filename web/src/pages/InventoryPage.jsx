@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import { CheckSquare, SlidersHorizontal, Square, Boxes, RefreshCw, Plus, PackagePlus } from "lucide-react";
 import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
@@ -14,6 +15,8 @@ const STATUS_LABEL = { ok: "OK", low: "LOW", critical: "CRITICAL" };
 
 export default function InventoryPage() {
   const toast = useToast();
+  const { user } = useOutletContext();
+  const isOwner = user?.role === "OWNER";
   const [locations, setLocations] = useState([]);
   const [selected, setSelected] = useState("");
   const [loading, setLoading] = useState(true);
@@ -436,9 +439,9 @@ export default function InventoryPage() {
               </table>
             </div>
             
-            {prep.calibration.length > 0 && (
+            {isOwner && prep.calibration.length > 0 && (
               <div style={{ marginTop: "var(--space-4)" }}>
-                <h3 className="section-title">Threshold review</h3>
+                <h3 className="section-title">Threshold review (owner)</h3>
                 <p className="muted small">
                   Noisy thresholds alert while stock stays healthy; silent ones
                   never fire. One click applies the suggestion.

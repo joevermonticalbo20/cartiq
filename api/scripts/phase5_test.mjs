@@ -163,6 +163,54 @@ async function main() {
   check("shift history paged", Array.isArray(history.data?.data) &&
         history.data.meta.totalPages >= 1);
 
+  // ---- H2 permission boundaries (server-enforced, not UI-hidden) ----
+  const staffExport = await req("/export/sales", { token: staffTok });
+  check("export forbidden for STAFF", staffExport.status === 403);
+  const ownerExport = await req("/export/sales", { token: tok });
+  check("export allowed for OWNER", ownerExport.status === 200);
+  const staffProfit = await req("/analytics/profit?days=7", { token: staffTok });
+  check("profit forbidden for STAFF", staffProfit.status === 403);
+  const staffPerf = await req("/analytics/staff-performance?days=7", { token: staffTok });
+  check("staff-performance forbidden for STAFF", staffPerf.status === 403);
+
+  const inv = await req("/inventory?code=CART-01", { token: tok });
+  const pouch = inv.data?.locations?.[0]?.items?.find((i) => i.name === "Pouches");
+  const staffThresh = await req(`/inventory/items/${pouch.id}`, {
+    method: "PATCH", token: staffTok, body: { threshold: pouch.threshold },
+  });
+  check("threshold PATCH forbidden for STAFF", staffThresh.status === 403);
+  const ownerThresh = await req(`/inventory/items/${pouch.id}`, {
+    method: "PATCH", token: tok, body: { threshold: pouch.threshold },
+  });
+  check("threshold PATCH allowed for OWNER (no-op value)", ownerThresh.status === 200);
+
+  const noReason = await req("/inventory/adjustments", {
+    method: "POST", token: staffTok,
+    body: { inventoryItemId: pouch.id, newStock: pouch.stock },
+  });
+  check("staff adjustment without reason rejected", noReason.status === 400);
+  const withReason = await req("/inventory/adjustments", {
+    method: "POST", token: staffTok,
+    body: { inventoryItemId: pouch.id, newStock: pouch.stock, reason: "phase5 H2 no-op check" },
+  });
+  check("staff adjustment with reason audited",
+        withReason.status === 200 &&
+        typeof withReason.data?.adjustment?.id === "number" &&
+        withReason.data.adjustment.before === withReason.data.adjustment.after);
+
+  const staffExp = await req("/expenses", {
+    method: "POST", token: staffTok,
+    body: { vendor: "H2-VERIFY", amount: 1, category: "Supplies" },
+  });
+  check("staff may submit expenses (owner corrects/deletes)",
+        staffExp.status === 201 && typeof staffExp.data?.expense?.id === "number");
+  if (staffExp.data?.expense?.id) {
+    const delExp = await req(`/expenses/${staffExp.data.expense.id}`, {
+      method: "DELETE", token: tok,
+    });
+    check("H2 probe expense cleaned up", delExp.data?.deleted === true);
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 }

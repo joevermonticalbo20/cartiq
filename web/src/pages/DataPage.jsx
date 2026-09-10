@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import { Download, FileUp, FileDown, CheckCircle2, AlertTriangle } from "lucide-react";
 import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
@@ -24,6 +25,8 @@ async function downloadExport(dataset, month) {
 
 export default function DataPage() {
   const toast = useToast();
+  const { user } = useOutletContext();
+  const isOwner = user?.role === "OWNER";
   const nowMonth = new Date().toISOString().slice(0, 7);
   const [month, setMonth] = useState(nowMonth);
   const [busyExport, setBusyExport] = useState(null);
@@ -115,7 +118,8 @@ export default function DataPage() {
           }}
         >
           
-          {/* EXPORT PANEL */}
+          {/* EXPORT PANEL (owner-only: financial datasets) */}
+          {isOwner && (
           <section className="panel" style={{ display: "flex", flexDirection: "column", padding: "var(--space-5)" }}>
             <div style={{ marginBottom: "var(--space-4)" }}>
               <h3 className="section-title" style={{ borderBottom: "none", padding: 0, margin: "0 0 var(--space-2) 0" }}>
@@ -152,6 +156,7 @@ export default function DataPage() {
               ))}
             </div>
           </section>
+          )}
 
           {/* IMPORT PANEL */}
           <section className="panel" style={{ display: "flex", flexDirection: "column", padding: "var(--space-5)" }}>

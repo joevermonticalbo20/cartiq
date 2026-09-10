@@ -7,7 +7,7 @@ import {
   TrendingUp, TrendingDown, ShoppingBag, 
   DollarSign, BarChart2, PackageSearch, RefreshCw, X, Sparkles 
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useOutletContext } from "react-router-dom";
 import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
@@ -73,6 +73,8 @@ function CustomTooltip({ active, payload, label }) {
 
 export default function AnalyticsPage() {
   const navigate = useNavigate();
+  const { user } = useOutletContext();
+  const isOwner = user?.role === "OWNER";
   const [carts, setCarts] = useState([]);
   const [cartCode, setCartCode] = useState("");
   const [range, setRange] = useState("30");
@@ -106,7 +108,8 @@ export default function AnalyticsPage() {
       api.get(`/analytics/trends?days=${days}${codeParam}`),
       api.get(`/analytics/trends?days=${days * 2}${codeParam}`),
       cartCode ? api.get(`/analytics/forecast?code=${encodeURIComponent(cartCode)}`) : Promise.resolve({ data: { code: null, items: [] } }),
-      api.get(`/analytics/profit?days=${days}${codeParam}`),
+      // Profit is owner-only server-side: don't even request it as staff.
+      isOwner ? api.get(`/analytics/profit?days=${days}${codeParam}`) : Promise.resolve({ data: null }),
       api.get(`/analytics/hourly?days=${days}${codeParam}`).catch(() => ({ data: null })),
       api.get(`/analytics/basket?days=${days}${codeParam}`).catch(() => ({ data: null })),
       api.get(`/analytics/sales-forecast?days=${days}${codeParam}`).catch(() => ({ data: null })),
@@ -138,7 +141,7 @@ export default function AnalyticsPage() {
         setError(msg);
       });
     return () => { alive = false; };
-  }, [range, cartCode, reload]);
+  }, [range, cartCode, reload, isOwner]);
 
   const revenueTrend = useMemo(() => {
     if (!trends || !prevTrends || prevTrends.total_sales <= 0) return null;
@@ -935,7 +938,7 @@ export default function AnalyticsPage() {
               )}
             </div>
 
-            {profit && <ProfitSection profit={profit} />}
+            {isOwner && profit && <ProfitSection profit={profit} />}
           </div>
         )}
 
