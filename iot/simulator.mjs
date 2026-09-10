@@ -12,7 +12,7 @@
 //   --base URL      API base (default http://127.0.0.1:4000/api)
 //   --cart CODE     cart id embedded in payloads (default CART-01)
 //   --token TOK     device token (default dev-CART-01-potafries)
-//   --interval MS   seconds between reading ticks (default 5000)
+//   --interval MS   milliseconds between reading ticks (default 5000)
 //   --drain         drain fast so LOW_STOCK alerts trigger quickly
 //   --uid HEX       staff card uid to tap (default 04A2B3C4)
 //   --tap-every N   toggle IN/OUT every N ticks (default 6, 0 disables)

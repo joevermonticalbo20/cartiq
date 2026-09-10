@@ -5,10 +5,13 @@ import rateLimit from "express-rate-limit";
 import { prisma } from "../prisma.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 
-// Rate limiter: 5 attempts per 15 min per IP
+// Rate limiter: 20 attempts per 15 min per IP. High enough that the
+// project's own regression suite (~10 logins back-to-back from one dev
+// machine) and typo-prone staff logins don't trip it, low enough that
+// password guessing stays impractical (~80/hr/IP).
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 20,
   message: { error: "Too many login attempts - please try again in 15 minutes" },
 });
 

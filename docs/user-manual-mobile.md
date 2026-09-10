@@ -4,6 +4,9 @@
 1. Start the API on the office PC: `cd api && npm run dev`
 2. Launch the app (`flutter run`). Android emulator tip: it reaches the PC via
    `10.0.2.2` (see `lib/config.dart`); physical phones use the PC's LAN IP.
+   If the server moved, use Rescan on the boot splash or Login → Server;
+   a manually saved URL persists across restarts (see README "Mobile
+   connectivity").
 3. Log in with the account assigned to your cart.
 
 ## Recording a sale

@@ -143,7 +143,7 @@ IPv4 address (e.g. `192.168.100.217`). The API must be running with
 - **Auth:** short-lived access JWT + rotating refresh tokens
   (`POST /auth/refresh`, `RefreshToken` table). Set `JWT_REFRESH_SECRET` in
   `api/.env` (falls back to `JWT_SECRET` if omitted). `/auth/login` is rate
-  limited to 5 attempts per 15 minutes per IP.
+  limited to 20 attempts per 15 minutes per IP.
 - **LAN origins:** browser dashboard on a phone/laptop needs its origin in
   `CORS_ORIGINS` plus `HOST=0.0.0.0` and the Windows Firewall TCP 4000 rule.
 
