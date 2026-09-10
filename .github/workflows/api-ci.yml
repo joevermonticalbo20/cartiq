@@ -41,6 +41,9 @@ jobs:
           DATABASE_URL: "file:./dev.db"
         run: npx prisma validate
 
+      - name: Unit tests
+        run: node --test test/*.test.js
+
       - name: Syntax check
         run: |
           node --check src/server.js

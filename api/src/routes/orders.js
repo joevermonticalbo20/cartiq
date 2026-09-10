@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../prisma.js";
 import { requireAuth } from "../middleware/auth.js";
-import { applyStockChange } from "../services/inventory_rules.js";
+import { applyStockChange, fmtStock, oversellShortage } from "../services/inventory_rules.js";
 import { emit } from "./events.js";
 
 const router = Router();
@@ -101,7 +101,14 @@ router.post("/orders", requireAuth, async (req, res, next) => {
             warnings.push(`no inventory row "${map.itemName}" at ${location.code}`);
             continue;
           }
-          const newStock = Math.max(0, inv.stock - map.amountPerUnit * it.qty);
+          const deduction = map.amountPerUnit * it.qty;
+          const newStock = Math.max(0, inv.stock - deduction);
+          const shortage = oversellShortage(inv.stock, map.amountPerUnit, it.qty);
+          if (shortage > 0) {
+            warnings.push(
+              `OVERSOLD "${map.itemName}" at ${location.code}: requested ${fmtStock(deduction)} ${inv.unit}, had ${fmtStock(inv.stock)}, short ${fmtStock(shortage)}`
+            );
+          }
           await applyStockChange(tx, { inv, newStock, location });
         }
       }
