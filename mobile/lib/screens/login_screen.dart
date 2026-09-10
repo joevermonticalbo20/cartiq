@@ -6,7 +6,6 @@ import '../services/auth_state.dart';
 import '../theme.dart';
 import '../utils/haptics.dart';
 import '../widgets/app_badge.dart';
-import '../widgets/login_background.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -133,10 +132,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
-        children: [
-          const LoginBackground(),
-          SafeArea(
+      body: SafeArea(
             child: Center(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(24),
@@ -263,8 +259,6 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         ),
-      ),
-        ],
       ),
     );
   }
