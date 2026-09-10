@@ -1,9 +1,11 @@
 import jwt from "jsonwebtoken";
 
 export function requireAuth(req, res, next) {
+  // Bearer header only. JWTs must never travel in query strings (server
+  // logs, browser history, proxies); the SSE stream uses short-lived
+  // tickets from POST /events/ticket instead (see routes/events.js).
   const header = req.headers.authorization || "";
-  const token =
-    header.startsWith("Bearer ") ? header.slice(7) : req.query.token ?? null;
+  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
   if (!token) {
     return res.status(401).json({ error: "Missing bearer token" });
   }

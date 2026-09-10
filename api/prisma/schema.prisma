@@ -139,6 +139,8 @@ model Order {
   total      Float
   // status: "PAID" | "VOID"
   status     String      @default("PAID")
+  // paymentMethod: "CASH" | "GCASH" | "CARD" (nullable for legacy rows)
+  paymentMethod String?
   // VOID audit (record-only; stock is NOT reversed on void)
   voidedBy   Int?
   voidedAt   DateTime?

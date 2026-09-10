@@ -4,10 +4,15 @@ import { useEffect, useLayoutEffect, useRef } from "react";
  * Subscribes to the CartIQ server-sent-events stream.
  * Auto-reconnects on disconnect (1s, 2s, 4s, 8s, max 30s).
  * Each event of the form `event: foo\ndata: {…}` is passed to `onEvent`.
+ *
+ * Auth: EventSource can't send headers, so every (re)connect first asks
+ * `getTicket()` for a short-lived stream ticket (POST /events/ticket).
+ * The long-lived JWT never appears in a URL.
  */
-export function useSSE(path, { token, onEvent, onStatus } = {}) {
+export function useSSE(path, { getTicket, onEvent, onStatus } = {}) {
   const onEventRef = useRef(onEvent);
   const onStatusRef = useRef(onStatus);
+  const getTicketRef = useRef(getTicket);
 
   useLayoutEffect(() => {
     onEventRef.current = onEvent;
@@ -17,29 +22,51 @@ export function useSSE(path, { token, onEvent, onStatus } = {}) {
     onStatusRef.current = onStatus;
   }, [onStatus]);
 
-  useEffect(() => {
-    if (!token) return undefined;
+  useLayoutEffect(() => {
+    getTicketRef.current = getTicket;
+  }, [getTicket]);
 
+  useEffect(() => {
     let es = null;
     let backoff = 1000;
     let cancelled = false;
     let timer = null;
 
-    const open = () => {
+    const scheduleReconnect = () => {
+      if (cancelled) return;
+      onStatusRef.current?.("down");
+      timer = setTimeout(open, backoff);
+      backoff = Math.min(backoff * 2, 30000);
+    };
+
+    const open = async () => {
       if (cancelled) return;
       onStatusRef.current?.("connecting");
-      // EventSource can't send custom headers, so pass token via query string.
-      const url = `${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
-      es = new EventSource(url);
+      let ticket = null;
+      try {
+        ticket = await getTicketRef.current?.();
+      } catch {
+        ticket = null;
+      }
+      if (cancelled) return;
+      if (!ticket) {
+        scheduleReconnect();
+        return;
+      }
+      const url = `${path}${path.includes("?") ? "&" : "?"}ticket=${encodeURIComponent(ticket)}`;
+      try {
+        es = new EventSource(url);
+      } catch {
+        scheduleReconnect();
+        return;
+      }
       es.onopen = () => {
         backoff = 1000;
         onStatusRef.current?.("open");
       };
       es.onerror = () => {
-        onStatusRef.current?.("down");
         es?.close();
-        timer = setTimeout(open, backoff);
-        backoff = Math.min(backoff * 2, 30000);
+        scheduleReconnect();
       };
       es.onmessage = (e) => {
         try {
@@ -62,12 +89,14 @@ export function useSSE(path, { token, onEvent, onStatus } = {}) {
       });
     };
 
-    open();
+    open().catch(() => {
+      if (!cancelled) onStatusRef.current?.("down");
+    });
 
     return () => {
       cancelled = true;
       clearTimeout(timer);
       es?.close();
     };
-  }, [path, token]);
+  }, [path, getTicket]);
 }

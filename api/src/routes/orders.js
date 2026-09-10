@@ -14,7 +14,7 @@ router.post("/orders", requireAuth, async (req, res, next) => {
   try {
     // Note: client-supplied `total` is intentionally ignored - the server
     // recomputes it from items (see below).
-    const { clientRef, locationCode, locationId, items } = req.body ?? {};
+    const { clientRef, locationCode, locationId, items, paymentMethod } = req.body ?? {};
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: "items must be a non-empty array" });
     }
@@ -38,6 +38,14 @@ router.post("/orders", requireAuth, async (req, res, next) => {
     }
     if (clientRef !== undefined && String(clientRef).length > 200) {
       return res.status(400).json({ error: "clientRef is too long (max 200 chars)" });
+    }
+    const PAYMENT_METHODS = ["CASH", "GCASH", "CARD"];
+    const payMethod =
+      paymentMethod === undefined || paymentMethod === null || paymentMethod === ""
+        ? null
+        : String(paymentMethod).toUpperCase();
+    if (payMethod !== null && !PAYMENT_METHODS.includes(payMethod)) {
+      return res.status(400).json({ error: "paymentMethod must be one of: CASH, GCASH, CARD" });
     }
     const location = await prisma.location.findFirst({
       where: locationId !== undefined ? { id: +locationId } : { code: locationCode },
@@ -68,6 +76,7 @@ router.post("/orders", requireAuth, async (req, res, next) => {
           staffId: req.user.sub,
           total: orderTotal,
           status: "PAID",
+          paymentMethod: payMethod,
           items: {
             create: items.map((it) => ({
               productName: String(it.productName).trim().slice(0, 120),

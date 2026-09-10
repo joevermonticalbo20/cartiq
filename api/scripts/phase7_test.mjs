@@ -130,6 +130,43 @@ async function main() {
   });
   check("owner resolve path intact", resolve.data?.alert?.isRead === true);
 
+  // ---- payment method persistence ----
+  const paid = await req("/orders", {
+    method: "POST", token: tok,
+    body: {
+      clientRef: `phase7-pay-${run}`,
+      locationCode: "CART-01",
+      items: [{ productName: "Flavored Fries", qty: 1, unitPrice: 40 }],
+      paymentMethod: "GCASH",
+    },
+  });
+  check("payment method persists on creation",
+        paid.status === 201 && paid.data?.order?.paymentMethod === "GCASH");
+  const paidHist = await req("/orders?page=1&pageSize=100", { token: tok });
+  const seenPaid = (paidHist.data?.data ?? []).find((o) => o.clientRef === `phase7-pay-${run}`);
+  check("payment method survives retrieval",
+        seenPaid?.paymentMethod === "GCASH");
+  const badPay = await req("/orders", {
+    method: "POST", token: tok,
+    body: {
+      clientRef: `phase7-paybad-${run}`,
+      locationCode: "CART-01",
+      items: [{ productName: "Flavored Fries", qty: 1, unitPrice: 40 }],
+      paymentMethod: "BARTER",
+    },
+  });
+  check("unknown payment method rejected", badPay.status === 400);
+  const nopay = await req("/orders", {
+    method: "POST", token: tok,
+    body: {
+      clientRef: `phase7-nopay-${run}`,
+      locationCode: "CART-01",
+      items: [{ productName: "Flavored Fries", qty: 1, unitPrice: 40 }],
+    },
+  });
+  check("omitted payment method stays null",
+        nopay.status === 201 && nopay.data?.order?.paymentMethod === null);
+
   // ---- H4 idempotency race: parallel same-clientRef posts ----
   const raceRef = `phase7-race-${run}`;
   const raceBody = {

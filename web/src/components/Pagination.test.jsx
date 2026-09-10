@@ -10,12 +10,12 @@ describe("Pagination", () => {
 
   it("renders total count but no buttons when only one page", () => {
     render(<Pagination meta={{ total: 5, page: 1, totalPages: 1 }} onPage={() => {}} />);
-    expect(screen.getByText("5 record(s)")).toBeInTheDocument();
+    expect(screen.getByText("5 records")).toBeInTheDocument();
   });
 
   it("renders the count even for a single item", () => {
     render(<Pagination meta={{ total: 1, page: 1, totalPages: 1 }} onPage={() => {}} />);
-    expect(screen.getByText("1 record(s)")).toBeInTheDocument();
+    expect(screen.getByText("1 record")).toBeInTheDocument();
   });
 
   it("renders page buttons when multiple pages", () => {

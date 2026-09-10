@@ -93,7 +93,17 @@ export default function DashboardPage() {
 
   const [sseStatus, setSseStatus] = useState("connecting");
   const [livePulse, setLivePulse] = useState(0);
-  const token = localStorage.getItem("cartiq_token") || null;
+
+  // Fresh stream ticket per (re)connect: the JWT travels in a POST body,
+  // never in the EventSource URL.
+  const getStreamTicket = useCallback(async () => {
+    try {
+      const { data } = await api.post("/events/ticket", {});
+      return data?.ticket ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -128,7 +138,7 @@ export default function DashboardPage() {
   }, [refresh]);
 
   useSSE(`${API_BASE}/events`, {
-    token,
+    getTicket: getStreamTicket,
     onStatus: setSseStatus,
     onEvent: (event, data) => {
       if (event === "order:new") {
