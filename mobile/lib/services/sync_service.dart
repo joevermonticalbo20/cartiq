@@ -6,21 +6,48 @@ import 'api_client.dart';
 import 'auth_state.dart';
 import 'offline_queue.dart';
 
+/// A queued record the server will never accept. Kept out of the queue but
+/// reported separately - dropped must NEVER be counted as synced.
+class DroppedRecord {
+  final String id;
+  final String kind;
+  final String reason;
+
+  const DroppedRecord({
+    required this.id,
+    required this.kind,
+    required this.reason,
+  });
+}
+
 class SyncResult {
   final bool online;
   final int synced;
   final int remaining;
+  final List<DroppedRecord> dropped;
 
   const SyncResult({
     required this.online,
     required this.synced,
     required this.remaining,
+    this.dropped = const [],
   });
 
   bool get allDone => online && remaining == 0;
 
+  /// True only when everything uploaded AND nothing was dropped.
+  /// Use this (not [allDone]) for success UI.
+  bool get fullySynced => allDone && dropped.isEmpty;
+
   String get message {
     if (!online) return 'Offline - records saved on this device';
+    if (dropped.isNotEmpty) {
+      final reasons = dropped.map((d) => d.reason).toSet().join(', ');
+      if (remaining == 0 && synced == 0) {
+        return 'Sale could not be sent ($reasons) - ask OWNER to review';
+      }
+      return 'Synced $synced record(s), ${dropped.length} could not be sent ($reasons)';
+    }
     if (synced == 0 && remaining > 0) return 'Server reachable but sync failed';
     return 'Synced $synced record(s)';
   }
@@ -66,7 +93,21 @@ class SyncService extends ChangeNotifier {
 
     var synced = 0;
     var activeToken = startToken;
+    final dropped = <DroppedRecord>[];
     for (final record in await queue.pending()) {
+      // Pre-validate before spending an upload: unattributable or malformed
+      // sales can never succeed, so drop with a reason instead of burning
+      // retries or - worse - silently deleting after a server 400.
+      final problem = _validateRecord(record);
+      if (problem != null) {
+        await queue.remove(record.id);
+        dropped.add(DroppedRecord(
+          id: record.id,
+          kind: record.kind,
+          reason: problem,
+        ));
+        continue;
+      }
       try {
         await api.submitOrder(record.payload, activeToken);
         await queue.remove(record.id);
@@ -89,18 +130,62 @@ class SyncService extends ChangeNotifier {
           }
           continue;
         }
-        // Server rejected the payload (4xx): drop the poison message and
-        // keep draining the rest instead of stalling behind it.
-        if (e.statusCode != null && e.statusCode! >= 400 && e.statusCode! < 500) {
+        if (e.statusCode == 409) {
+          // Idempotent replay: the server already has this order, so it
+          // counts as synced, not dropped.
           await queue.remove(record.id);
+          synced++;
           continue;
         }
-        break; // 5xx: stop this round, retry everything next sync
+        if (e.statusCode == null ||
+            e.statusCode == 429 ||
+            e.statusCode! >= 500) {
+          break; // retryable: network/timeout/rate-limit/5xx stays queued
+        }
+        // Any other 4xx slipped past pre-validation: drop with its status
+        // as the reason, keep draining the rest.
+        await queue.remove(record.id);
+        dropped.add(DroppedRecord(
+          id: record.id,
+          kind: record.kind,
+          reason: 'SERVER_REJECTED_${e.statusCode}',
+        ));
+        continue;
       } catch (_) {
         break; // network hiccup mid-drain: try again next sync
       }
     }
-    return SyncResult(online: true, synced: synced, remaining: await queue.count);
+    return SyncResult(
+      online: true,
+      synced: synced,
+      remaining: await queue.count,
+      dropped: dropped,
+    );
+  }
+
+  /// Returns a drop reason when [record] can never upload, else null.
+  /// Mirrors the server's POST /orders validation so poison never uploads.
+  String? _validateRecord(QueuedRecord record) {
+    if (record.kind != 'order') return null;
+    final payload = record.payload;
+    final code = payload['locationCode'];
+    if (code == null || (code is String && code.trim().isEmpty)) {
+      return 'MISSING_LOCATION_CODE';
+    }
+    final items = payload['items'];
+    if (items is! List || items.isEmpty) return 'EMPTY_ITEMS';
+    for (final it in items) {
+      if (it is! Map<String, dynamic>) return 'INVALID_ITEM';
+      final name = it['productName'];
+      if (name is! String || name.trim().isEmpty) return 'INVALID_PRODUCT';
+      final qty = it['qty'];
+      if (qty is! int || qty < 1) return 'INVALID_QTY';
+      final price = it['unitPrice'];
+      if (price is! num || !price.isFinite || price < 0) {
+        return 'INVALID_PRICE';
+      }
+    }
+    return null;
   }
 
   /// Start the periodic timer. Idempotent.

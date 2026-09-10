@@ -323,25 +323,29 @@ class _PosScreenState extends State<PosScreen> {
 
     final result = await sync.syncAll();
     if (!mounted) return;
-    if (result.allDone) {
+    if (result.fullySynced) {
       await Haptics.success();
+    } else if (result.dropped.isNotEmpty) {
+      await Haptics.error();
     } else {
       await Haptics.tap();
     }
     // Queued-offline is a normal flow, not an error - keep it neutral.
+    // Dropped is never reported as success (see SyncResult).
     _showSnack(
-      result.allDone
+      result.fullySynced
           ? 'Sale recorded · ${method.label} · P${snapshotTotal.toStringAsFixed(0)}'
-          : '${result.message} · P${snapshotTotal.toStringAsFixed(0)} queued',
-      success: result.allDone,
+          : '${result.message} · P${snapshotTotal.toStringAsFixed(0)}',
+      success: result.fullySynced,
+      error: result.dropped.isNotEmpty,
     );
     if (!mounted) return;
     await _showSaleResultSheet(
       method: method,
       total: snapshotTotal,
       cashTendered: cashTendered,
-      synced: result.allDone,
-      queueMessage: result.allDone ? null : result.message,
+      synced: result.fullySynced,
+      queueMessage: result.fullySynced ? null : result.message,
     );
   }
 
