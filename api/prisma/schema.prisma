@@ -139,6 +139,10 @@ model Order {
   total      Float
   // status: "PAID" | "VOID"
   status     String      @default("PAID")
+  // VOID audit (record-only; stock is NOT reversed on void)
+  voidedBy   Int?
+  voidedAt   DateTime?
+  voidReason String?
   items      OrderItem[]
   createdAt  DateTime    @default(now())
   syncedAt   DateTime    @default(now())
@@ -218,5 +222,9 @@ model Alert {
   message   String
   payload   String?
   isRead    Boolean  @default(false)
+  // Staff acknowledgement (detected -> acknowledged -> resolved via isRead).
+  ackedBy     Int?
+  ackedAt     DateTime?
+  ackedByName String?
   createdAt DateTime @default(now())
 }

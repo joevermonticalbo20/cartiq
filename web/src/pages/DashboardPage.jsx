@@ -64,6 +64,7 @@ export default function DashboardPage() {
   const toast = useToast();
   // Kukunin natin ang user context para makuha ang pangalan
   const { user } = useOutletContext();
+  const isOwner = user?.role === "OWNER";
   const firstName = user?.name ? user.name.split(" ")[0] : "there";
 
   const [report, setReport] = useState(null);
@@ -543,7 +544,7 @@ export default function DashboardPage() {
                 Stock alerts
               </h3>
               <div className="flex items-center gap-2">
-                {alerts.length > 0 && (
+                {isOwner && alerts.length > 0 && (
                   <button
                     className="ghost small-btn"
                     onClick={async () => {

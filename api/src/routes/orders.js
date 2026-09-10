@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../prisma.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 import { applyStockChange, fmtStock, oversellShortage } from "../services/inventory_rules.js";
 import { emit } from "./events.js";
 
@@ -175,5 +175,34 @@ router.get("/orders", requireAuth, async (req, res, next) => {
 function emptyMeta(page, pageSize) {
   return { total: 0, page, pageSize, totalPages: 1 };
 }
+
+// PATCH /orders/:id - void a mis-tapped sale (OWNER only). Record-only:
+// the row stays in history with actor + timestamp, stock is NOT reversed.
+router.patch("/orders/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
+  try {
+    const { status, reason } = req.body ?? {};
+    if (status !== "VOID") {
+      return res.status(400).json({ error: 'only status "VOID" is supported' });
+    }
+    const existing = await prisma.order.findUnique({ where: { id: Number(req.params.id) } });
+    if (!existing) return res.status(404).json({ error: "Order not found" });
+    if (existing.status === "VOID") {
+      return res.status(400).json({ error: "Order is already void" });
+    }
+    const updated = await prisma.order.update({
+      where: { id: existing.id },
+      data: {
+        status: "VOID",
+        voidedBy: req.user.sub,
+        voidedAt: new Date(),
+        voidReason: reason ? String(reason).slice(0, 500) : null,
+      },
+      include: { items: true },
+    });
+    return res.json({ order: updated });
+  } catch (err) {
+    return next(err);
+  }
+});
 
 export default router;
