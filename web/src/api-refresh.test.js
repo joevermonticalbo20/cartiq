@@ -118,6 +118,58 @@ describe("auth interceptor refresh flow", () => {
     expect(navigate).toHaveBeenCalledWith("/login", { replace: true });
   });
 
+  it.each([500, 502, 503])(
+    "stays logged in when refresh fails with %i",
+    async (status) => {
+      const { setupAuthInterceptor } = await loadApi();
+      setupAuthInterceptor(navigate);
+      const store = useBackingStore({
+        cartiq_token: "expired-access",
+        cartiq_refresh_token: "stored-refresh",
+      });
+      inst.h.postMock.mockRejectedValue({
+        response: { status, data: {} },
+      });
+
+      await expect(inst.h.responseError(fail401())).rejects.toBeDefined();
+      expect(store.cartiq_token).toBe("expired-access");
+      expect(store.cartiq_refresh_token).toBe("stored-refresh");
+      expect(navigate).not.toHaveBeenCalled();
+      expect(inst.h.requestMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it("stays logged in when refresh hits a network error", async () => {
+    const { setupAuthInterceptor } = await loadApi();
+    setupAuthInterceptor(navigate);
+    const store = useBackingStore({
+      cartiq_token: "expired-access",
+      cartiq_refresh_token: "stored-refresh",
+    });
+    inst.h.postMock.mockRejectedValue(new Error("socket hang up"));
+
+    await expect(inst.h.responseError(fail401())).rejects.toBeDefined();
+    expect(store.cartiq_token).toBe("expired-access");
+    expect(store.cartiq_refresh_token).toBe("stored-refresh");
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("logs out when refresh is explicitly forbidden (403)", async () => {
+    const { setupAuthInterceptor } = await loadApi();
+    setupAuthInterceptor(navigate);
+    const store = useBackingStore({
+      cartiq_token: "expired-access",
+      cartiq_refresh_token: "revoked-refresh",
+    });
+    inst.h.postMock.mockRejectedValue({
+      response: { status: 403, data: {} },
+    });
+
+    await expect(inst.h.responseError(fail401())).rejects.toBeDefined();
+    expect(store.cartiq_token).toBeUndefined();
+    expect(navigate).toHaveBeenCalledWith("/login", { replace: true });
+  });
+
   it("shares one refresh across concurrent 401s", async () => {
     const { setupAuthInterceptor } = await loadApi();
     setupAuthInterceptor(navigate);
