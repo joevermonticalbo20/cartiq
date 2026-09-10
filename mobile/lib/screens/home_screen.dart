@@ -9,6 +9,9 @@ import '../services/persisted_queue.dart';
 import '../services/sync_service.dart';
 import '../state/theme_controller.dart';
 import '../theme.dart';
+import '../widgets/app_badge.dart';
+import '../widgets/app_dialog.dart';
+import '../widgets/section_header.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -181,28 +184,15 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(width: 8),
               IconButton.filledTonal(
                 onPressed: () async {
-                  final confirmed = await showDialog<bool>(
-                    context: context,
-                    builder: (dialogContext) => AlertDialog(
-                      title: const Text('Log out?'),
-                      content: Text(
-                        _queueCount > 0
-                            ? '$_queueCount sale(s) still queued — they stay saved on this device.'
-                            : 'No queued sales. You can sign back in anytime.',
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(dialogContext, false),
-                          child: const Text('Cancel'),
-                        ),
-                        FilledButton(
-                          onPressed: () => Navigator.pop(dialogContext, true),
-                          child: const Text('Log out'),
-                        ),
-                      ],
-                    ),
+                  final confirmed = await showAppConfirm(
+                    context,
+                    title: 'Log out?',
+                    message: _queueCount > 0
+                        ? '$_queueCount sale(s) still queued — they stay saved on this device.'
+                        : 'No queued sales. You can sign back in anytime.',
+                    confirmLabel: 'Log out',
                   );
-                  if (confirmed != true || !context.mounted) return;
+                  if (!confirmed || !context.mounted) return;
                   final auth = context.read<AuthState>();
                   if (!auth.isLoggedIn) return;
                   await auth.signOut();
@@ -253,20 +243,9 @@ class _HomeScreenState extends State<HomeScreen> {
           if (_onShift.isNotEmpty) ...[
             _SectionHeader(
               title: 'On shift now',
-              trailing: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(99),
-                ),
-                child: Text(
-                  '${_onShift.length}',
-                  style: const TextStyle(
-                    color: AppColors.primary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
+              trailing: AppBadge(
+                label: '${_onShift.length}',
+                variant: AppBadgeVariant.brand,
               ),
             ),
             const SizedBox(height: 8),
@@ -362,33 +341,15 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Stock alerts',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      if (_lowItems.isNotEmpty)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 9,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.danger.withValues(alpha: 0.10),
-                            borderRadius: BorderRadius.circular(99),
-                          ),
-                          child: Text(
-                            '${_lowItems.length} ITEM${_lowItems.length != 1 ? 'S' : ''}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.danger,
-                            ),
-                          ),
-                        ),
-                    ],
+                  _SectionHeader(
+                    title: 'Stock alerts',
+                    trailing: _lowItems.isNotEmpty
+                        ? AppBadge(
+                            label:
+                                '${_lowItems.length} ITEM${_lowItems.length != 1 ? 'S' : ''}',
+                            variant: AppBadgeVariant.danger,
+                          )
+                        : null,
                   ),
                   const SizedBox(height: 8),
                   if (_loading)
@@ -761,13 +722,7 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(title, style: Theme.of(context).textTheme.titleMedium),
-        ?trailing,
-      ],
-    );
+    return SectionHeader(title: title, trailing: trailing);
   }
 }
 
