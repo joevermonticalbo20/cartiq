@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cartiq_mobile/services/api_client.dart';
@@ -11,6 +13,7 @@ class _FakeApi extends ApiClient {
   bool healthy = true;
   final List<Object?> script = [];
   int calls = 0;
+  Future<void> Function()? onSubmit;
 
   @override
   Future<bool> health() async => healthy;
@@ -20,6 +23,7 @@ class _FakeApi extends ApiClient {
     Map<String, dynamic> payload,
     String token,
   ) async {
+    await onSubmit?.call();
     final outcome = calls < script.length ? script[calls] : null;
     calls++;
     if (outcome is ApiException) throw outcome;
@@ -228,6 +232,32 @@ void main() {
       expect(result.synced, 0);
       expect(result.remaining, 1);
       expect(api.calls, 0);
+    });
+
+    test('cancelActiveSync stops further uploads after logout', () async {
+      await queue.enqueue(_order('a'));
+      await queue.enqueue(_order('b'));
+      final started = Completer<void>();
+      final release = Completer<void>();
+      var entered = 0;
+      api.onSubmit = () async {
+        entered++;
+        if (entered == 1) {
+          started.complete();
+          await release.future;
+        }
+      };
+
+      final future = sync.syncAll();
+      await started.future;
+      sync.cancelActiveSync();
+      release.complete();
+      final result = await future;
+
+      expect(api.calls, 1);
+      expect(result.synced, 1);
+      expect(result.remaining, 1);
+      expect(await queue.count, 1);
     });
   });
 }

@@ -195,6 +195,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   if (!confirmed || !context.mounted) return;
                   final auth = context.read<AuthState>();
                   if (!auth.isLoggedIn) return;
+                  // Stop any in-flight drain first so no further request
+                  // reuses this session after sign-out.
+                  context.read<SyncService>().cancelActiveSync();
                   await auth.signOut();
                 },
                 icon: const Icon(Icons.logout_rounded, size: 20),

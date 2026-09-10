@@ -67,6 +67,16 @@ class SyncService extends ChangeNotifier {
   bool _appResumed = true;
   bool get isSyncing => _running;
 
+  /// Bumped on logout. An in-flight drain checks it before every upload and
+  /// stops instead of sending another request with stale credentials.
+  int _generation = 0;
+
+  /// Cancel any in-flight drain (call before sign-out). Records already
+  /// uploaded stay uploaded; the rest stay queued for the next session.
+  void cancelActiveSync() {
+    _generation++;
+  }
+
   /// Trigger an immediate sync (used by app resume, lifecycle events, manual tap).
   Future<SyncResult> syncAll() async {
     if (_running) {
@@ -94,7 +104,17 @@ class SyncService extends ChangeNotifier {
     var synced = 0;
     var activeToken = startToken;
     final dropped = <DroppedRecord>[];
+    final gen = _generation;
     for (final record in await queue.pending()) {
+      // Logout happened mid-drain: stop before another old-session upload.
+      if (gen != _generation) {
+        return SyncResult(
+          online: true,
+          synced: synced,
+          remaining: await queue.count,
+          dropped: dropped,
+        );
+      }
       // Pre-validate before spending an upload: unattributable or malformed
       // sales can never succeed, so drop with a reason instead of burning
       // retries or - worse - silently deleting after a server 400.
