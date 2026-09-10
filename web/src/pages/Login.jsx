@@ -70,6 +70,9 @@ export default function Login() {
     try {
       const { data } = await api.post("/auth/login", { username, password });
       localStorage.setItem("cartiq_token", data.token);
+      if (data.refreshToken) {
+        localStorage.setItem("cartiq_refresh_token", data.refreshToken);
+      }
       navigate("/dashboard");
     } catch (err) {
       setError(err.response?.data?.error || "Login failed. Is the API running?");

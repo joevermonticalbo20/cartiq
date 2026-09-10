@@ -104,6 +104,7 @@ export default function Layout() {
 
   function logout() {
     localStorage.removeItem("cartiq_token");
+    localStorage.removeItem("cartiq_refresh_token");
     setConfirmingLogout(false);
     navigate("/login");
   }

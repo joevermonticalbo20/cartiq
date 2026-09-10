@@ -20,6 +20,51 @@ let interceptorInstalled = false;
 // Prevent duplicate redirects when multiple concurrent 401s occur.
 let redirecting = false;
 
+// Shared in-flight refresh so concurrent 401s make exactly one POST.
+// Rotation invalidates the old refresh token, so a second POST would fail.
+let refreshPromise = null;
+
+function clearSession() {
+  localStorage.removeItem("cartiq_token");
+  localStorage.removeItem("cartiq_refresh_token");
+}
+
+function redirectToLogin() {
+  if (!redirecting && navigateFn) {
+    redirecting = true;
+    navigateFn("/login", { replace: true });
+    setTimeout(() => (redirecting = false), 2000);
+  }
+}
+
+// Silent access-token refresh. Resolves the fresh token, or null when the
+// session is unrecoverable (no/expired refresh token, network down).
+function refreshAccessToken() {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const stored = localStorage.getItem("cartiq_refresh_token");
+        if (!stored) return null;
+        // Bare axios (not the api instance) to avoid interceptor recursion.
+        const { data } = await axios.post(`${API_BASE}/auth/refresh`, {
+          refreshToken: stored,
+        });
+        if (!data?.token) return null;
+        localStorage.setItem("cartiq_token", data.token);
+        if (data.refreshToken) {
+          localStorage.setItem("cartiq_refresh_token", data.refreshToken);
+        }
+        return data.token;
+      } catch {
+        return null;
+      } finally {
+        refreshPromise = null;
+      }
+    })();
+  }
+  return refreshPromise;
+}
+
 export function setupAuthInterceptor(navigate) {
   navigateFn = navigate;
   if (interceptorInstalled) return;
@@ -27,18 +72,33 @@ export function setupAuthInterceptor(navigate) {
 
   api.interceptors.response.use(
     (response) => response,
-    (error) => {
+    async (error) => {
       const originalRequest = error.config;
+      // Auth calls manage their own failures (login shows its error box,
+      // refresh has no session to recover) — never retry or redirect them.
+      // Note: config.url is the endpoint path ("/auth/login"), so match
+      // by inclusion, not by "/login" prefix (which never matches).
+      const isAuthCall =
+        originalRequest?.url?.includes("/auth/login") ||
+        originalRequest?.url?.includes("/auth/refresh");
 
-      // Handle 401 - token expired or invalid: log out and redirect.
-      // No refresh-token flow exists, so fail fast instead of queueing.
-      if (error.response?.status === 401 && !originalRequest?.url?.startsWith("/login")) {
-        localStorage.removeItem("cartiq_token");
-        if (!redirecting && navigateFn) {
-          redirecting = true;
-          navigateFn("/login", { replace: true });
-          setTimeout(() => (redirecting = false), 2000);
+      // 401 on an app request: try one silent refresh, then retry once.
+      // Only a dead refresh (or no refresh token) logs out, like mobile.
+      if (error.response?.status === 401 && !isAuthCall && !originalRequest?._retry) {
+        if (originalRequest) originalRequest._retry = true;
+        const fresh = await refreshAccessToken().catch(() => null);
+        if (fresh && originalRequest) {
+          originalRequest.headers = {
+            ...originalRequest.headers,
+            Authorization: `Bearer ${fresh}`,
+          };
+          return api(originalRequest);
         }
+        clearSession();
+        redirectToLogin();
+      } else if (error.response?.status === 401 && !isAuthCall) {
+        clearSession();
+        redirectToLogin();
       }
 
       // NOTE: no global error toast here on purpose. Every caller owns its
