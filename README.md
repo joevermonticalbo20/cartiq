@@ -21,7 +21,8 @@ pending hardware pilot and faculty approval.
 # 1) API  (terminal 1)
 cd api
 npm install              # postinstall auto-runs `prisma generate`
-npm run db:push        # creates the SQLite database (api/prisma/dev.db)
+npm run db:migrate      # applies prisma/migrations to api/prisma/dev.db
+npm run db:push        # schema-prototype escape hatch (no migration recorded)
 npm run db:seed        # users, locations, products, recipes, IoT device tokens
 npm run dev            # http://127.0.0.1:4000/api/health
 
