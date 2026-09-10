@@ -51,7 +51,9 @@ router.post("/login", loginLimiter, async (req, res, next) => {
       { expiresIn: "12h" }
     );
     const refreshToken = jwt.sign(
-      { sub: user.id, username: user.username, role: user.role, name: user.name },
+      // jti guarantees uniqueness: without it, two logins in the same
+      // second produce byte-identical JWTs and collide on token UNIQUE.
+      { sub: user.id, username: user.username, role: user.role, name: user.name, jti: crypto.randomUUID() },
       process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
       { expiresIn: "30d" }
     );
@@ -118,7 +120,8 @@ router.post("/refresh", async (req, res, next) => {
       { expiresIn: "12h" }
     );
     const newRefreshToken = jwt.sign(
-      { sub: user.id, username: user.username, role: user.role, name: user.name },
+      // jti: see login route - same-second rotations must not collide.
+      { sub: user.id, username: user.username, role: user.role, name: user.name, jti: crypto.randomUUID() },
       process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
       { expiresIn: "30d" }
     );
