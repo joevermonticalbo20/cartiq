@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 
 /// CartIQ design tokens - mirrors web theme.css (60-30-20 system).
 /// 20% brand red | 30% charcoal | 60% neutral base
+/// Status hexes match web `--success/--warn/--danger/--info` exactly.
 class AppColors {
   static const primary = Color(0xFFE73631);
   static const primaryStrong = Color(0xFFC72824);
   static const primarySoft = Color(0xFFFBE3E2);
+  static const primaryTint = Color(0xFFFCEFEE);
 
   static const accent = Color(0xFF0A0908);
   static const accentSoft = Color(0xFF1E1E1E);
@@ -13,16 +15,34 @@ class AppColors {
   static const highlight = Color(0xFFECC242);
   static const highlightSoft = Color(0xFFFEF6D7);
 
-  static const ok = Color(0xFF15803D);
-  static const warn = Color(0xFFB45309);
-  static const danger = Color(0xFFB91C1C);
-  static const info = Color(0xFF1E40AF);
+  static const ok = Color(0xFF166534);
+  static const okBg = Color(0xFFDCFCE7);
+  static const warn = Color(0xFF92400E);
+  static const warnBg = Color(0xFFFEF3C7);
+  static const danger = Color(0xFF991B1B);
+  static const dangerBg = Color(0xFFFEE2E2);
+  static const info = Color(0xFF1E3A8A);
+  static const infoBg = Color(0xFFDBEAFE);
 }
 
 class AppRadius {
-  static const l = 16.0;
-  static const m = 12.0;
+  static const xs = 4.0;
   static const s = 10.0;
+  static const m = 12.0;
+  static const l = 16.0;
+  static const xl = 20.0;
+}
+
+/// 4px-base spacing scale - mirrors web `--space-1..8`.
+class AppSpacing {
+  static const space1 = 4.0;
+  static const space2 = 8.0;
+  static const space3 = 12.0;
+  static const space4 = 16.0;
+  static const space5 = 20.0;
+  static const space6 = 24.0;
+  static const space7 = 32.0;
+  static const space8 = 40.0;
 }
 
 class AppShadow {
@@ -65,6 +85,10 @@ class AppTheme {
     );
 
     // ---- text theme (Standard+: readable at arm's length) --------------
+    // Web mapping (sizes stay touch-sized, roles match):
+    // displaySmall~3xl, headlineMedium~2xl, headlineSmall~xl, titleLarge~lg,
+    // titleMedium/titleSmall~md, bodyLarge/bodyMedium~md, bodySmall~sm,
+    // labelLarge~sm, labelSmall~xs.
     TextTheme textTheme = TextTheme(
       displaySmall: TextStyle(
           fontSize: 30, fontWeight: FontWeight.w800, letterSpacing: -0.5, color: text),
