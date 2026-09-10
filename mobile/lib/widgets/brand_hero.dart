@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme.dart';
 
 /// Shared CartIQ brand hero: gradient CQ mark, title, yellow rule, tagline.
-/// Used by the login screen and the boot splash so both share one identity.
+/// Used by the boot splash. (The login screen shows assets/logo.png instead.)
 class BrandHero extends StatelessWidget {
   const BrandHero({super.key, this.compact = false});
 

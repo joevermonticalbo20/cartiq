@@ -141,5 +141,31 @@ void main() {
       expect(result.remaining, 2);
       expect(api.calls, 1);
     });
+
+    test('missing token reports offline and keeps every record', () async {
+      await queue.enqueue(_order('a'));
+      auth.token = null;
+
+      final result = await sync.syncAll();
+
+      expect(result.online, isFalse);
+      expect(result.allDone, isFalse);
+      expect(result.synced, 0);
+      expect(result.remaining, 1);
+      expect(api.calls, 0);
+    });
+
+    test('unreachable server reports offline without attempting upload',
+        () async {
+      await queue.enqueue(_order('a'));
+      api.healthy = false;
+
+      final result = await sync.syncAll();
+
+      expect(result.online, isFalse);
+      expect(result.synced, 0);
+      expect(result.remaining, 1);
+      expect(api.calls, 0);
+    });
   });
 }

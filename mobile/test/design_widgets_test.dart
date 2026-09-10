@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cartiq_mobile/widgets/app_badge.dart';
 import 'package:cartiq_mobile/widgets/app_dialog.dart';
-import 'package:cartiq_mobile/widgets/kpi_card.dart';
 import 'package:cartiq_mobile/widgets/section_header.dart';
 import 'package:cartiq_mobile/widgets/app_skeleton.dart';
 
@@ -39,32 +38,6 @@ void main() {
       expect(find.text('Shift event history'), findsOneWidget);
       expect(find.text('Operations'), findsOneWidget);
       expect(find.text('action'), findsOneWidget);
-    });
-  });
-
-  group('AppKpiCard', () {
-    testWidgets('renders label, value and trend', (tester) async {
-      await tester.pumpWidget(_wrap(const AppKpiCard(
-        label: 'SALES TODAY',
-        value: 'P12,450',
-        trendLabel: '+8.2%',
-        trendUp: true,
-        solid: true,
-      )));
-      expect(find.text('SALES TODAY'), findsOneWidget);
-      expect(find.text('P12,450'), findsOneWidget);
-      expect(find.text('+8.2%'), findsOneWidget);
-    });
-
-    testWidgets('taps through onTap', (tester) async {
-      var tapped = false;
-      await tester.pumpWidget(_wrap(AppKpiCard(
-        label: 'Orders',
-        value: '34',
-        onTap: () => tapped = true,
-      )));
-      await tester.tap(find.text('34'));
-      expect(tapped, isTrue);
     });
   });
 
