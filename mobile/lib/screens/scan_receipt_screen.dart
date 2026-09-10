@@ -114,12 +114,12 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
       _busy = true;
       _message = null;
     });
-    // Prefer the OCR-parsed date text when it is ISO-8601; otherwise the
-    // server records upload time. The raw text stays visible in the form.
+    // Prefer the OCR-parsed date (ISO, dd/mm/yyyy, or month names);
+    // otherwise the server records upload time. Raw text stays visible.
     DateTime expenseDate = DateTime.now();
     final dateText = _date.text.trim();
     if (dateText.isNotEmpty) {
-      expenseDate = DateTime.tryParse(dateText) ?? DateTime.now();
+      expenseDate = parseReceiptDate(dateText) ?? DateTime.now();
     }
     try {
       await auth.api.createExpense(auth.token!, {

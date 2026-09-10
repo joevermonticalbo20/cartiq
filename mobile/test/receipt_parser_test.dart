@@ -41,5 +41,79 @@ void main() {
       final parsed = parseReceiptText('VENDOR\n2x fries\nP80.00');
       expect(parsed.amount, 80.0);
     });
+
+    test('amount parses US thousands style', () {
+      final parsed = parseReceiptText('VENDOR\nTOTAL P1,234.50');
+      expect(parsed.amount, 1234.5);
+    });
+
+    test('amount parses European thousands style', () {
+      final parsed = parseReceiptText('VENDOR\nTOTAL P1.234,50');
+      expect(parsed.amount, 1234.5);
+    });
+
+    test('amount parses decimal comma without thousands', () {
+      final parsed = parseReceiptText('VENDOR\nTOTAL 80,50');
+      expect(parsed.amount, 80.5);
+    });
+
+    test('amount parses plain thousands comma', () {
+      final parsed = parseReceiptText('VENDOR\nTOTAL P1,250');
+      expect(parsed.amount, 1250.0);
+    });
+
+    test('date extracts month-name tokens', () {
+      expect(
+        parseReceiptText('VENDOR\n12 Sep 2026\nP100.00').dateText,
+        '12 Sep 2026',
+      );
+      expect(
+        parseReceiptText('VENDOR\nSep 12, 2026\nP100.00').dateText,
+        'Sep 12, 2026',
+      );
+    });
+  });
+
+  group('parseMoneyToken', () {
+    test('both thousand styles', () {
+      expect(parseMoneyToken('1,234.50'), 1234.5);
+      expect(parseMoneyToken('1.234,50'), 1234.5);
+      expect(parseMoneyToken('1234.50'), 1234.5);
+    });
+
+    test('lone comma follows decimal-vs-thousands rule', () {
+      expect(parseMoneyToken('1,25'), 1.25);
+      expect(parseMoneyToken('1,250'), 1250.0);
+    });
+
+    test('rejects empty, zero, and absurd values', () {
+      expect(parseMoneyToken(''), isNull);
+      expect(parseMoneyToken('0'), isNull);
+      expect(parseMoneyToken('9999999'), isNull);
+      expect(parseMoneyToken('abc'), isNull);
+    });
+  });
+
+  group('parseReceiptDate', () {
+    test('ISO dates', () {
+      expect(parseReceiptDate('2026-09-11'), DateTime(2026, 9, 11));
+    });
+
+    test('numeric local dates', () {
+      expect(parseReceiptDate('11/09/2026'), DateTime(2026, 9, 11));
+      expect(parseReceiptDate('11-09-26'), DateTime(2026, 9, 11));
+    });
+
+    test('month-name dates', () {
+      expect(parseReceiptDate('12 Sep 2026'), DateTime(2026, 9, 12));
+      expect(parseReceiptDate('Sep 12, 2026'), DateTime(2026, 9, 12));
+    });
+
+    test('malformed input returns null', () {
+      expect(parseReceiptDate(null), isNull);
+      expect(parseReceiptDate(''), isNull);
+      expect(parseReceiptDate('not a date'), isNull);
+      expect(parseReceiptDate('99/99/2026'), isNull);
+    });
   });
 }
