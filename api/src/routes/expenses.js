@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { prisma } from "../prisma.js";
+import { db as prisma } from "../firestore.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/auth.js";
 

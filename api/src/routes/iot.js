@@ -1,8 +1,7 @@
 import { Router } from "express";
-import { prisma } from "../prisma.js";
+import { db as prisma } from "../firestore.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireDevice } from "../middleware/device.js";
-import { applyStockChange } from "../services/inventory_rules.js";
 
 const router = Router();
 
@@ -32,7 +31,24 @@ router.post("/iot/readings", requireDevice, async (req, res, next) => {
     const accepted = [];
     const rejected = [];
 
-    await prisma.$transaction(async (tx) => {
+    // Firestore transactions require ALL reads before ALL writes:
+    // read phase (stock rows + unread alerts), compute phase (same
+    // validation/messages as before), then write phase. Sensor stock
+    // updates keep the same threshold-alert rules as POS orders.
+    await prisma.runTransaction(async (tx) => {
+      // ---- READ PHASE ----
+      const [invRows, unreadAlerts] = await Promise.all([
+        tx.inventoryItem.findMany({ where: { locationId: location.id } }),
+        tx.alert.findMany({ where: { type: "LOW_STOCK", isRead: false } }),
+      ]);
+      const invByName = new Map(invRows.map((r) => [r.name, r]));
+
+      // ---- COMPUTE PHASE ----
+      // Note: readings are stored even when their inventory row is missing
+      // (rejected from `accepted` but still recorded), exactly as before.
+      const plans = [];
+      const createdNeedles = new Set();
+      const newAlerts = [];
       for (const r of rows) {
         const itemName = CHANNELS[r.channel];
         const kg = Number(r.kg);
@@ -45,24 +61,76 @@ router.post("/iot/readings", requireDevice, async (req, res, next) => {
           rejected.push({ channel: r.channel ?? null, reason: "invalid ts" });
           continue;
         }
+        const inv = invByName.get(itemName) ?? null;
+        plans.push({ row: r, itemName, kg, ts, inv });
+        if (!inv) {
+          rejected.push({ channel: r.channel, reason: `no inventory row "${itemName}"` });
+        } else {
+          accepted.push({ channel: r.channel, kg, ts: ts.toISOString() });
+        }
+      }
+
+      // ---- CROSSING DETECTION (pure: sequential running stock per item,
+      // applyStockChange parity — alert only on threshold CROSSING) ----
+      const running = new Map();
+      for (const plan of plans) {
+        if (!plan.inv) continue;
+        const base = running.has(plan.inv.id) ? running.get(plan.inv.id) : plan.inv.stock;
+        running.set(plan.inv.id, plan.kg);
+        if (base > plan.inv.threshold && plan.kg <= plan.inv.threshold) {
+          const needle = `${plan.inv.name} @ ${location.code}`;
+          const dup =
+            createdNeedles.has(needle) ||
+            unreadAlerts.some((a) => (a.message ?? "").includes(needle));
+          if (!dup) {
+            createdNeedles.add(needle);
+            newAlerts.push({
+              type: "LOW_STOCK",
+              message: `${needle} dropped below threshold (${plan.kg} ${plan.inv.unit} left)`,
+              payload: JSON.stringify({
+                inventoryItemId: plan.inv.id,
+                stock: plan.kg,
+                threshold: plan.inv.threshold,
+                unit: plan.inv.unit,
+              }),
+            });
+          }
+        }
+      }
+
+      // ---- ID ALLOCATION (last reads of the transaction) ----
+      // NOTE: crossing detection MUST run before this (it only reads plans
+      // plus prior iterations, no writes) so newAlerts is fully populated.
+      const alloc = await tx.allocIds({
+        sensorReadings: plans.length,
+        alerts: newAlerts.length,
+      });
+      const readingIds = alloc.sensorReadings;
+      const alertIds = alloc.alerts ?? [];
+
+      // ---- WRITE PHASE ----
+      for (let i = 0; i < plans.length; i++) {
+        const plan = plans[i];
         await tx.sensorReading.create({
           data: {
+            id: readingIds[i],
             locationId: location.id,
-            channel: r.channel,
-            kg,
-            ts,
+            channel: plan.row.channel,
+            kg: plan.kg,
+            ts: plan.ts,
             deviceId: req.device.deviceId,
           },
         });
-        const inv = await tx.inventoryItem.findFirst({
-          where: { locationId: location.id, name: itemName },
-        });
-        if (!inv) {
-          rejected.push({ channel: r.channel, reason: `no inventory row "${itemName}"` });
-          continue;
+        if (plan.inv) {
+          await tx.inventoryItem.update({
+            where: { id: plan.inv.id },
+            data: { stock: plan.kg },
+          });
         }
-        await applyStockChange(tx, { inv, newStock: kg, location });
-        accepted.push({ channel: r.channel, kg, ts: ts.toISOString() });
+      }
+      for (const [i, a] of newAlerts.entries()) {
+        a.id = alertIds[i];
+        await tx.alert.create({ data: a });
       }
       await tx.device.update({
         where: { id: req.device.id },
@@ -91,7 +159,20 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
     const accepted = [];
     const rejected = [];
 
-    await prisma.$transaction(async (tx) => {
+    // Same reads-first restructure as /iot/readings: users and unread
+    // UNKNOWN_CARD alerts are prefetched, then shifts + alerts are written.
+    await prisma.runTransaction(async (tx) => {
+      // ---- READ PHASE (users table is tiny; match UIDs in code) ----
+      const [users, unreadAlerts] = await Promise.all([
+        tx.user.findMany(),
+        tx.alert.findMany({ where: { type: "UNKNOWN_CARD", isRead: false } }),
+      ]);
+      const byUid = new Map(users.filter((u) => u.rfidUid).map((u) => [u.rfidUid, u]));
+
+      // ---- COMPUTE PHASE (same validation/messages as before) ----
+      const plans = [];
+      const createdNeedles = new Set();
+      const newAlerts = [];
       for (const e of rows) {
         const uid = String(e.staff_uid ?? "").trim();
         const event = String(e.event ?? "").toUpperCase();
@@ -104,34 +185,52 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
           rejected.push({ staff_uid: uid || null, reason: "invalid ts" });
           continue;
         }
-        const user = await prisma.user.findUnique({ where: { rfidUid: uid } });
-        await tx.shift.create({
-          data: {
-            staffUid: uid,
-            staffId: user?.id ?? null,
-            staffName: user?.name ?? null,
-            locationId: location.id,
-            event,
-            ts,
-            deviceId: req.device.deviceId,
-          },
-        });
+        const user = byUid.get(uid) ?? null;
+        plans.push({ uid, event, ts, user });
         if (!user) {
           const needle = `Unknown RFID card ${uid}`;
-          const dup = await tx.alert.findFirst({
-            where: { type: "UNKNOWN_CARD", isRead: false, message: { contains: needle } },
-          });
+          const dup =
+            createdNeedles.has(needle) ||
+            unreadAlerts.some((a) => (a.message ?? "").includes(needle));
           if (!dup) {
-            await tx.alert.create({
-              data: {
-                type: "UNKNOWN_CARD",
-                message: `${needle} tapped at ${location.code} - register this card`,
-                payload: JSON.stringify({ uid, locationCode: location.code }),
-              },
+            createdNeedles.add(needle);
+            newAlerts.push({
+              type: "UNKNOWN_CARD",
+              message: `${needle} tapped at ${location.code} - register this card`,
+              payload: JSON.stringify({ uid, locationCode: location.code }),
             });
           }
         }
         accepted.push({ staff_uid: uid, event, matched: user ? user.name : null });
+      }
+
+      // ---- ID ALLOCATION (last reads of the transaction) ----
+      const shiftAlloc = await tx.allocIds({
+        shifts: plans.length,
+        alerts: newAlerts.length,
+      });
+      const shiftIds = shiftAlloc.shifts;
+      const shiftAlertIds = shiftAlloc.alerts ?? [];
+
+      // ---- WRITE PHASE ----
+      for (let i = 0; i < plans.length; i++) {
+        const plan = plans[i];
+        await tx.shift.create({
+          data: {
+            id: shiftIds[i],
+            staffUid: plan.uid,
+            staffId: plan.user?.id ?? null,
+            staffName: plan.user?.name ?? null,
+            locationId: location.id,
+            event: plan.event,
+            ts: plan.ts,
+            deviceId: req.device.deviceId,
+          },
+        });
+      }
+      for (const [i, a] of newAlerts.entries()) {
+        a.id = shiftAlertIds[i];
+        await tx.alert.create({ data: a });
       }
       await tx.device.update({
         where: { id: req.device.id },

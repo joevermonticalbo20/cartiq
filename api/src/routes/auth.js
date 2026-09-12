@@ -2,7 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import rateLimit from "express-rate-limit";
-import { prisma } from "../prisma.js";
+import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 
 // Rate limiter: 20 attempts per 15 min per IP. High enough that the

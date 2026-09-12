@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { prisma } from "../prisma.js";
+import { db as prisma } from "../firestore.js";
 
 const healthRouter = Router();
 const startedAt = Date.now();
@@ -7,7 +7,7 @@ const startedAt = Date.now();
 healthRouter.get("/health", async (_req, res) => {
   let db = false;
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    await prisma.ping();
     db = true;
   } catch {
     db = false;

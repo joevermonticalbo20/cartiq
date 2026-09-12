@@ -1,9 +1,0 @@
--- AlterTable
-ALTER TABLE "Alert" ADD COLUMN "ackedAt" DATETIME;
-ALTER TABLE "Alert" ADD COLUMN "ackedBy" INTEGER;
-ALTER TABLE "Alert" ADD COLUMN "ackedByName" TEXT;
-
--- AlterTable
-ALTER TABLE "Order" ADD COLUMN "voidReason" TEXT;
-ALTER TABLE "Order" ADD COLUMN "voidedAt" DATETIME;
-ALTER TABLE "Order" ADD COLUMN "voidedBy" INTEGER;

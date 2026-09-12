@@ -7,10 +7,13 @@
 //
 //   --clean wipes previously seeded history (orders with clientRef LIKE
 //   'hist-%') first, so re-runs don't duplicate the demo dataset.
+//
+// Firestore port: identical dataset shape (same clientRef format, totals,
+// items, dates). Order items are embedded in the order doc with allocated
+// numeric ids, matching API-created orders field-for-field.
+import "dotenv/config";
+import { db } from "../src/firestore.js";
 
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
 const DAYS = Number(process.argv[2]) || 21;
 const CLEAN = process.argv.includes("--clean");
 const BASE_PRICE = 40;
@@ -28,18 +31,17 @@ function randInt(min, max) {
 }
 
 async function main() {
-  const locations = await prisma.location.findMany();
+  const locations = await db.locations.findMany();
   if (locations.length === 0) throw new Error("Run npm run db:seed first");
 
   if (CLEAN) {
-    const old = await prisma.order.findMany({
-      where: { clientRef: { startsWith: "hist-" } },
-      select: { id: true },
-    });
+    const all = await db.orders.findMany();
+    const old = all.filter((o) => typeof o.clientRef === "string" && o.clientRef.startsWith("hist-"));
     if (old.length > 0) {
-      const ids = old.map((o) => o.id);
-      await prisma.orderItem.deleteMany({ where: { orderId: { in: ids } } });
-      await prisma.order.deleteMany({ where: { id: { in: ids } } });
+      // Items are embedded in the order doc: deleting the order removes them.
+      for (let i = 0; i < old.length; i += 400) {
+        await Promise.all(old.slice(i, i + 400).map((o) => db.orders.delete({ where: { id: o.id } })));
+      }
     }
     console.log(`Cleaned ${old.length} previously seeded history orders.`);
   }
@@ -78,8 +80,14 @@ async function main() {
         }
         const total = items.reduce((s, it) => s + it.qty * it.unitPrice, 0);
 
-        await prisma.order.create({
+        // One counter block per order (order id + item ids), like API orders.
+        const [orderId, ...itemIds] = await db.orders.nextIds(1 + items.length);
+        items.forEach((it, i) => {
+          it.id = itemIds[i];
+        });
+        await db.orders.create({
           data: {
+            id: orderId,
             clientRef: `hist-${loc.code}-${d}-${o}-${Math.random()
               .toString(36)
               .slice(2, 8)}`,
@@ -89,7 +97,7 @@ async function main() {
             status: "PAID",
             createdAt: created,
             syncedAt: created,
-            items: { create: items },
+            items,
           },
         });
         orderCount++;
@@ -108,5 +116,5 @@ main()
     process.exit(1);
   })
   .finally(async () => {
-    await prisma.$disconnect();
+    await db.$disconnect();
   });

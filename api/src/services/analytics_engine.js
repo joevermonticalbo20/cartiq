@@ -1,4 +1,4 @@
-import { prisma } from "../prisma.js";
+import { db as prisma } from "../firestore.js";
 
 export const ANALYTICS_CONFIG = {
   MIN_DAYS_FOR_FORECAST: 14, // proposal: forecasts activate after 2-4 weeks of data

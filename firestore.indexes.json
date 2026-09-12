@@ -1,0 +1,7 @@
+{
+  // No composite indexes needed by design: every query uses at most one
+  // server-side equality filter (single-field indexes are automatic); all
+  // other filtering / ordering / pagination happens in api/src/firestore.js.
+  "indexes": [],
+  "fieldOverrides": []
+}

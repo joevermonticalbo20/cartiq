@@ -1,7 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import ExcelJS from "exceljs";
-import { prisma } from "../prisma.js";
+import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 
 const router = Router();
@@ -315,7 +315,7 @@ router.post(
 
       if (commit && errors.length === 0 && validRows.length > 0) {
         for (const r of validRows) {
-          const connectIds = [];
+          const flavorIds = [];
           for (const fname of r.flavorNames) {
             const key = fname.toLowerCase();
             let id = existingFlavors.get(key);
@@ -324,14 +324,16 @@ router.post(
               existingFlavors.set(key, created.id);
               id = created.id;
             }
-            connectIds.push({ id });
+            flavorIds.push(id);
           }
           await prisma.product.create({
             data: {
               name: r.name,
               category: r.category,
               basePrice: r.basePrice,
-              ...(connectIds.length ? { flavors: { connect: connectIds } } : {}),
+              // Firestore port: M2M flavors are stored as flavorIds on the
+              // product doc (was Prisma `flavors: { connect: [...] }`).
+              ...(flavorIds.length ? { flavorIds } : {}),
             },
           });
           existingProducts.add(r.name.toLowerCase());

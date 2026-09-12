@@ -1,4 +1,4 @@
-import { prisma } from "../prisma.js";
+import { db as prisma } from "../firestore.js";
 import {
   ANALYTICS_CONFIG as CFG,
   buildDailyUsage,

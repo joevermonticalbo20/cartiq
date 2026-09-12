@@ -72,9 +72,12 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`CartIQ API listening on http://${HOST}:${PORT}${HOST === "127.0.0.1" ? " (localhost only)" : " (LAN-exposed)"}`);
   
   // Advertise the API via mDNS (Bonjour) so mobile clients can discover it
-  // automatically without hardcoding IP addresses.
-  if (HOST !== "127.0.0.1") {
-    const mdns = bonjour();
+  // automatically without hardcoding IP addresses. Skipped when
+  // DISABLE_MDNS=true (cloud hosts like Render have no mDNS); the try/catch
+  // keeps a multicast failure from ever taking the API down.
+  if (HOST !== "127.0.0.1" && process.env.DISABLE_MDNS !== "true") {
+    try {
+      const mdns = bonjour();
     const service = mdns.publish({
       name: "CartIQ API",
       type: "http",
@@ -93,5 +96,8 @@ const server = app.listen(PORT, HOST, () => {
     };
     process.on("SIGINT", shutdown);
     process.on("SIGTERM", shutdown);
+    } catch (err) {
+      console.error("mDNS unavailable, continuing without advertisement:", err.message);
+    }
   }
 });

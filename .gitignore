@@ -7,6 +7,12 @@ npm-debug.log*
 .env
 .env.local
 .env.*.local
+service-account*.json
+*-service-account*.json
+
+# Firebase local runtime (emulator data, hosting cache)
+.firebase/
+.firebaserc.user
 
 # Builds
 dist/
@@ -32,7 +38,7 @@ android/app/upload-keystore*
 Thumbs.db
 .DS_Store
 
-# Prisma / SQLite
+# Legacy SQLite files (pre-Firestore local DB, gitignored, never commit)
 api/prisma/dev.db
 api/prisma/dev.db-journal
 *.db

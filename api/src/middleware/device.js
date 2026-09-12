@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { prisma } from "../prisma.js";
+import { db as prisma } from "../firestore.js";
 
 // Device (ESP32 node) authentication. Tokens are bcrypt-hashed at rest;
 // with only a handful of active nodes, comparing each is fine.

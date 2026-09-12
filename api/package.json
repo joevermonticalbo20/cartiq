@@ -3,17 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "CartIQ REST API - Pota Fries multi-location food cart platform (localhost-only dev server)",
+  "description": "CartIQ REST API - Pota Fries multi-location food cart platform (Firestore backend, localhost dev server)",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "db:push": "prisma db push",
-    "db:migrate": "prisma migrate deploy",
-    "db:seed": "node prisma/seed.js",
-    "postinstall": "prisma generate"
+    "db:seed": "node scripts/seed_firestore.mjs",
+    "emulators": "firebase emulators:start --only firestore"
   },
   "dependencies": {
-    "@prisma/client": "^6.10.0",
     "bcryptjs": "^3.0.2",
     "bonjour": "^3.5.1",
     "cors": "^2.8.5",
@@ -21,10 +21,8 @@
     "exceljs": "^4.4.0",
     "express": "^5.1.0",
     "express-rate-limit": "^7.4.0",
+    "firebase-admin": "^14.4.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.2.0"
-  },
-  "devDependencies": {
-    "prisma": "^6.10.0"
   }
 }

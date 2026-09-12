@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { prisma } from "../prisma.js";
+import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { applyStockChange, fmtStock, oversellShortage } from "../services/inventory_rules.js";
+import { fmtStock, oversellShortage } from "../services/inventory_rules.js";
 import { emit } from "./events.js";
 
 const router = Router();
@@ -65,72 +65,125 @@ router.post("/orders", requireAuth, async (req, res, next) => {
 
     let result;
     try {
-      result = await prisma.$transaction(async (tx) => {
-      // Server is the source of truth for the total - never trust the client.
-      const orderTotal = items.reduce((sum, it) => sum + +it.qty * +it.unitPrice, 0);
+      // Firestore transactions require ALL reads before ALL writes, so this
+      // runs as read phase (guard + recipes + stock + alerts) then write
+      // phase (counter + guard + order + stock + alerts). Same validation,
+      // same warnings/alert texts, same response shapes as before.
+      // Idempotency is atomic via the orderRefs/{clientRef} guard doc: the
+      // pre-check above is the fast path, the guard wins any same-ref race.
+      const outcome = await prisma.runTransaction(async (tx) => {
+        // ---- READ PHASE ----
+        const guard = await tx.getDoc("orderRefs", ref);
+        if (guard) return { dup: true };
+        const [maps, invRows, unreadAlerts] = await Promise.all([
+          tx.ingredientMap.findMany(),
+          tx.inventoryItem.findMany({ where: { locationId: location.id } }),
+          tx.alert.findMany({ where: { type: "LOW_STOCK", isRead: false } }),
+        ]);
+        const invByName = new Map(invRows.map((r) => [r.name, r]));
 
-      const order = await tx.order.create({
-        data: {
-          clientRef: ref,
-          locationId: location.id,
-          staffId: req.user.sub,
-          total: orderTotal,
-          status: "PAID",
-          paymentMethod: payMethod,
-          items: {
-            create: items.map((it) => ({
-              productName: String(it.productName).trim().slice(0, 120),
-              flavor: it.flavor == null ? null : String(it.flavor).slice(0, 80),
-              qty: Math.trunc(+it.qty),
-              unitPrice: +it.unitPrice,
-            })),
-          },
-        },
-        include: { items: true },
-      });
+        // ---- COMPUTE PHASE (pure; mirrors the original per-item loop) ----
+        // Server is the source of truth for the total - never trust the client.
+        const orderTotal = items.reduce((sum, it) => sum + +it.qty * +it.unitPrice, 0);
+        const itemRows = items.map((it) => ({
+          productName: String(it.productName).trim().slice(0, 120),
+          flavor: it.flavor == null ? null : String(it.flavor).slice(0, 80),
+          qty: Math.trunc(+it.qty),
+          unitPrice: +it.unitPrice,
+        }));
+        const warnings = [];
+        const stockWrites = new Map(); // invId -> { inv, newStock }
+        const createdNeedles = new Set();
+        const newAlerts = [];
+        for (const row of itemRows) {
+          const flavorKey = row.flavor ?? "";
+          const byItem = new Map();
+          for (const m of maps) {
+            if (m.productName !== row.productName) continue;
+            if (m.flavor !== flavorKey && m.flavor !== "") continue;
+            const current = byItem.get(m.itemName);
+            if (!current || (m.flavor === flavorKey && current.flavor !== flavorKey)) {
+              byItem.set(m.itemName, m);
+            }
+          }
+          for (const map of byItem.values()) {
+            const inv = invByName.get(map.itemName);
+            if (!inv) {
+              warnings.push(`no inventory row "${map.itemName}" at ${location.code}`);
+              continue;
+            }
+            const base = stockWrites.has(inv.id) ? stockWrites.get(inv.id).newStock : inv.stock;
+            const deduction = map.amountPerUnit * row.qty;
+            const newStock = Math.max(0, base - deduction);
+            const shortage = oversellShortage(base, map.amountPerUnit, row.qty);
+            if (shortage > 0) {
+              warnings.push(
+                `OVERSOLD "${map.itemName}" at ${location.code}: requested ${fmtStock(deduction)} ${inv.unit}, had ${fmtStock(base)}, short ${fmtStock(shortage)}`
+              );
+            }
+            // applyStockChange parity: alert only on threshold CROSSING.
+            const crossed = base > inv.threshold && newStock <= inv.threshold;
+            stockWrites.set(inv.id, { inv, newStock });
+            if (crossed) {
+              const needle = `${inv.name} @ ${location.code}`;
+              const dup =
+                createdNeedles.has(needle) ||
+                unreadAlerts.some((a) => (a.message ?? "").includes(needle));
+              if (!dup) {
+                createdNeedles.add(needle);
+                newAlerts.push({
+                  type: "LOW_STOCK",
+                  message: `${needle} dropped below threshold (${newStock} ${inv.unit} left)`,
+                  payload: JSON.stringify({
+                    inventoryItemId: inv.id,
+                    stock: newStock,
+                    threshold: inv.threshold,
+                    unit: inv.unit,
+                  }),
+                });
+              }
+            }
+          }
+        }
 
-      // Automatic ingredient deduction. Flavor-specific recipe rows win over
-      // the generic ("") row for the same inventory item.
-      const warnings = [];
-      for (const it of order.items) {
-        const flavorKey = it.flavor ?? "";
-        const maps = await tx.ingredientMap.findMany({
-          where: { productName: it.productName, flavor: { in: [flavorKey, ""] } },
+        // ---- ID ALLOCATION (last reads of the transaction) ----
+        const alloc = await tx.allocIds({
+          orders: 1 + itemRows.length,
+          alerts: newAlerts.length,
         });
-        const byItem = new Map();
-        for (const m of maps) {
-          const current = byItem.get(m.itemName);
-          if (!current || (m.flavor === flavorKey && current.flavor !== flavorKey)) {
-            byItem.set(m.itemName, m);
-          }
+        const [orderId, ...itemIds] = alloc.orders;
+        const alertIds = alloc.alerts ?? [];
+        itemRows.forEach((row, i) => {
+          row.id = itemIds[i];
+        });
+
+        // ---- WRITE PHASE ----
+        tx.setDoc("orderRefs", ref, { orderId });
+        const order = await tx.order.create({
+          data: {
+            id: orderId,
+            clientRef: ref,
+            locationId: location.id,
+            staffId: req.user.sub,
+            total: orderTotal,
+            status: "PAID",
+            paymentMethod: payMethod,
+            items: itemRows,
+          },
+        });
+        for (const { inv, newStock } of stockWrites.values()) {
+          await tx.inventoryItem.update({ where: { id: inv.id }, data: { stock: newStock } });
         }
-        for (const map of byItem.values()) {
-          const inv = await tx.inventoryItem.findFirst({
-            where: { locationId: location.id, name: map.itemName },
-          });
-          if (!inv) {
-            warnings.push(`no inventory row "${map.itemName}" at ${location.code}`);
-            continue;
-          }
-          const deduction = map.amountPerUnit * it.qty;
-          const newStock = Math.max(0, inv.stock - deduction);
-          const shortage = oversellShortage(inv.stock, map.amountPerUnit, it.qty);
-          if (shortage > 0) {
-            warnings.push(
-              `OVERSOLD "${map.itemName}" at ${location.code}: requested ${fmtStock(deduction)} ${inv.unit}, had ${fmtStock(inv.stock)}, short ${fmtStock(shortage)}`
-            );
-          }
-          await applyStockChange(tx, { inv, newStock, location });
+        newAlerts.forEach((a, i) => {
+          a.id = alertIds[i];
+        });
+        for (const a of newAlerts) {
+          await tx.alert.create({ data: a });
         }
-      }
-      return { order, warnings };
+        return { dup: false, order, warnings };
       });
-    } catch (err) {
-      // Lost a same-clientRef race: the pre-check above passed for both
-      // requests, then the winner committed first. clientRef UNIQUE stays
-      // authoritative - return the winner as a duplicate, never raw P2002.
-      // (clientRef is the only unique field written in this transaction.)
-      if (err?.code === "P2002") {
+
+      if (outcome.dup) {
         const winner = await prisma.order.findUnique({
           where: { clientRef: ref },
           include: { items: true },
@@ -138,7 +191,10 @@ router.post("/orders", requireAuth, async (req, res, next) => {
         if (winner) {
           return res.json({ duplicate: true, order: winner, warnings: [] });
         }
+        return next(new Error("Order commit did not persist"));
       }
+      result = { order: outcome.order, warnings: outcome.warnings };
+    } catch (err) {
       return next(err);
     }
 

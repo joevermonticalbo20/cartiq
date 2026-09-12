@@ -1,0 +1,13 @@
+// CartIQ Firestore security rules — backend-only access.
+//
+// The Express API talks to Firestore with the Admin SDK (bypasses rules).
+// Web/mobile clients NEVER touch Firestore directly (they use the REST API
+// with the existing JWT auth), so default-deny is correct and safest.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

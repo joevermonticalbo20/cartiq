@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { prisma } from "../prisma.js";
+import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { emit } from "./events.js";
 
@@ -73,6 +73,9 @@ router.post("/inventory/adjustments", requireAuth, async (req, res, next) => {
     const item = await prisma.inventoryItem.findUnique({ where: { id: +inventoryItemId } });
     if (!item) return res.status(404).json({ error: "Inventory item not found" });
 
+    // Numeric id allocated up front: counter reads are illegal once the
+    // transaction has staged its first write.
+    const [adjustmentId] = await prisma.stockAdjustment.nextIds(1);
     const result = await prisma.$transaction(async (tx) => {
       const updated = await tx.inventoryItem.update({
         where: { id: item.id },
@@ -80,6 +83,7 @@ router.post("/inventory/adjustments", requireAuth, async (req, res, next) => {
       });
       const adjustment = await tx.stockAdjustment.create({
         data: {
+          id: adjustmentId,
           inventoryItemId: item.id,
           locationId: item.locationId,
           actorId: req.user.sub,

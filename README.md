@@ -10,7 +10,7 @@ pending hardware pilot and faculty approval.
 
 | Component | Path | Stack | Status |
 |---|---|---|---|
-| REST API | `api/` | Node.js 24, Express 5, Prisma ORM, SQLite (local file), JWT + rotating refresh tokens, login rate limiting, ExcelJS, Bonjour/mDNS advertise | done, tested |
+| REST API | `api/` | Node.js 24, Express 5, Firestore (Spark free tier, via `api/src/firestore.js` data layer), JWT + rotating refresh tokens, login rate limiting, ExcelJS, Bonjour/mDNS advertise | done, tested |
 | Web admin dashboard | `web/` | React 19, Vite, React Router, Axios | done, builds (lint 0 errors, P1-P4 UX polish) |
 | Mobile POS app | `mobile/` | Flutter (Android/Windows), offline-first sqflite queue, ML Kit OCR, subnet auto-discovery | done, analyzes clean (0 errors) |
 | ESP32 IoT node | `iot/` | Arduino C++ firmware + **Node simulator** (`iot/simulator.mjs`) | code complete; hardware pending |
@@ -18,12 +18,13 @@ pending hardware pilot and faculty approval.
 ## Quickstart
 
 ```bash
+# 0) Firestore emulator (terminal 0, repo root - free, no credentials/quota)
+firebase emulators:start --only firestore   # 127.0.0.1:8080
+
 # 1) API  (terminal 1)
 cd api
-npm install              # postinstall auto-runs `prisma generate`
-npm run db:migrate      # applies prisma/migrations to api/prisma/dev.db
-npm run db:push        # schema-prototype escape hatch (no migration recorded)
-npm run db:seed        # users, locations, products, recipes, IoT device tokens
+npm install
+npm run db:seed        # users, locations, products, recipes, IoT device tokens (Firestore)
 npm run dev            # http://127.0.0.1:4000/api/health
 
 # 2) Web dashboard  (terminal 2)
@@ -138,10 +139,10 @@ IPv4 address (e.g. `192.168.100.217`). The API must be running with
   `locationCode`/`locationId` (400 otherwise, never silently books to the
   first cart) and the `total` is recomputed from items — client totals are
   ignored. Replays with the same `clientRef` return `duplicate: true`.
-- **Errors carry `correlationId`:** Prisma P2002 → 409, P2025 → 404, 404s
+- **Errors carry `correlationId`:** duplicate unique fields (P2002) → 409, missing records (P2025) → 404, 404s
   include an id — quote it when reporting a failure.
 - **Auth:** short-lived access JWT + rotating refresh tokens
-  (`POST /auth/refresh`, `RefreshToken` table). Set `JWT_REFRESH_SECRET` in
+  (`POST /auth/refresh`, `refreshTokens` collection). Set `JWT_REFRESH_SECRET` in
   `api/.env` (falls back to `JWT_SECRET` if omitted). `/auth/login` is rate
   limited to 20 attempts per 15 minutes per IP.
 - **LAN origins:** browser dashboard on a phone/laptop needs its origin in
@@ -242,7 +243,7 @@ React+Vite setup:
   (ESLint + React plugin + react-hooks rules); `npm run coverage` (text +
   HTML coverage reports). CI-ready: fails build on test or lint errors.
 - **GitHub Actions CI** — `web-ci.yml` (web lint + test + build),
-  `api-ci.yml` (`npm ci` + Prisma validate + syntax check), and
+  `api-ci.yml` (`npm ci` + unit tests + syntax check), and
   `mobile-ci.yml` (`flutter analyze` + `flutter test`) run on every push and
   PR touching their paths.
 - **Tailwind CSS v4** — `@tailwindcss/vite` plugin with a token-mapped

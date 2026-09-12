@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
 import { Router } from "express";
-import { prisma } from "../prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 
 const router = Router();

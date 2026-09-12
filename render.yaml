@@ -1,0 +1,26 @@
+# CartIQ API on Render (free tier) — Infrastructure as Code blueprint.
+# Dashboard path if you prefer clicks: New → Web Service → this repo.
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: cartiq-api
+    runtime: node
+    rootDir: api
+    buildCommand: npm ci
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: FIREBASE_PROJECT_ID
+        value: cartiq-8e46f
+      - key: CORS_ORIGINS
+        value: https://cartiq-8e46f.web.app,https://cartiq-8e46f.firebaseapp.com
+      # Secrets below are intentionally empty here: paste them in the Render
+      # dashboard (Environment tab) so they never touch git.
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
