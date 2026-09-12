@@ -182,8 +182,8 @@ export default function DashboardPage() {
   const avgTicket = todayOrders > 0 ? todaySales / todayOrders : 0;
 
   const topItem = (() => {
-    if (!trends?.by_weekday) return null;
-    const all = trends.by_weekday.flatMap((d) => d.top_items ?? []);
+    // trends.top_items is top-level (top 5 by qty across the period).
+    const all = trends?.top_items ?? [];
     if (all.length === 0) return null;
     return all.sort((a, b) => (b.qty ?? 0) - (a.qty ?? 0))[0];
   })();
