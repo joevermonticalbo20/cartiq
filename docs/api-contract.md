@@ -19,6 +19,7 @@ Auth: JWT bearer token from `POST /api/auth/login` (12h expiry)
 | `/orders` | POST | `{clientRef, locationCode|locationId, items[{productName, flavor, qty, unitPrice}]}` — missing location → 400 (never books to a wrong cart); `total` is recomputed server-side (client value ignored). `clientRef` dedupes offline replays (`duplicate:true` + original order). Deducts ingredients via `IngredientMap` recipes inside a transaction; raises `LOW_STOCK` alerts on threshold crossings; returns `warnings[]` for missing inventory rows. |
 | `/orders?location_code&date&limit` | GET | Recent orders incl. items, location, staff. |
 | `/inventory` / `/inventory?code=` | GET | Grouped per location; each item gains computed `status`: `ok` / `low` (≤ threshold) / `critical` (≤ threshold/2). |
+| `/inventory/items` | POST | Add a stock row `{locationCode\|locationId, name*, unit?, stock?, threshold?, source?}` — 404 unknown cart, 409 duplicate name, 201 `{item, locationCode}`. Extra `category` field is ignored (no backing field). |
 | `/inventory/adjustments` | POST | Manual count correction `{inventoryItemId, newStock, reason}` (auth required); creates an alert if the result is below threshold. |
 | `/inventory/items/:id` | PATCH | Threshold update `{threshold}` (non-negative) — apply target for threshold calibration. |
 | `/catalog` | GET | Products with flavors + active locations (POS bootstrap payload). |

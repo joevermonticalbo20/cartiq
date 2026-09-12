@@ -41,6 +41,59 @@ router.get("/inventory", requireAuth, async (req, res, next) => {
   }
 });
 
+// POST /api/inventory/items - add a new stock row to a cart (any
+// authenticated staff; the dashboard Add Item form is not role-gated, same
+// as adjustments). The dashboard also sends `category`, which has no backing
+// field and is intentionally ignored.
+router.post("/inventory/items", requireAuth, async (req, res, next) => {
+  try {
+    const { locationCode, locationId, name, unit, stock, threshold, source } = req.body ?? {};
+    if (locationId === undefined && (locationCode === undefined || locationCode === "")) {
+      return res.status(400).json({ error: "locationCode or locationId is required" });
+    }
+    if (locationId !== undefined && !Number.isInteger(+locationId)) {
+      return res.status(400).json({ error: "locationId must be an integer" });
+    }
+    const itemName = String(name ?? "").trim().slice(0, 120);
+    if (!itemName) {
+      return res.status(400).json({ error: "name is required" });
+    }
+    const unitStr = String(unit ?? "pcs").trim().slice(0, 20) || "pcs";
+    const stockNum = stock === undefined || stock === "" ? 0 : +stock;
+    const thresholdNum = threshold === undefined || threshold === "" ? 0 : +threshold;
+    if (!Number.isFinite(stockNum) || stockNum < 0 || !Number.isFinite(thresholdNum) || thresholdNum < 0) {
+      return res.status(400).json({ error: "stock and threshold must be non-negative numbers" });
+    }
+    const src = source === "SENSOR" ? "SENSOR" : "MANUAL";
+
+    const location = await prisma.location.findFirst({
+      where: locationId !== undefined ? { id: +locationId } : { code: String(locationCode) },
+    });
+    if (!location) return res.status(404).json({ error: "Location not found" });
+
+    const existing = await prisma.inventoryItem.findMany({
+      where: { locationId: location.id, name: itemName },
+    });
+    if (existing.length > 0) {
+      return res.status(409).json({ error: `Item "${itemName}" already exists at ${location.code}` });
+    }
+
+    const created = await prisma.inventoryItem.create({
+      data: {
+        locationId: location.id,
+        name: itemName,
+        unit: unitStr,
+        stock: stockNum,
+        threshold: thresholdNum,
+        source: src,
+      },
+    });
+    return res.status(201).json({ item: decorate([created])[0], locationCode: location.code });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.patch("/inventory/items/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
     const { threshold } = req.body ?? {};
