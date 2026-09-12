@@ -1,23 +1,23 @@
 import 'services/discovery_service.dart';
 
 class AppConfig {
-  // LOCAL-ONLY API endpoint.
+  // SHARED PRODUCTION API endpoint (same database as the web dashboard).
   //
-  // The default below uses mDNS (.local) so the app works on any network without
-  // rebuilding when the PC's IP changes:
-  //   - On the same LAN, cartiq-api.local resolves to the API server's IP
-  //   - The server advertises itself via Bonjour/mDNS (bonjour npm package)
+  // The default below points at the hosted Render backend, which talks to the
+  // same prod Firestore as https://cartiq-8e46f.web.app — so the app and the
+  // web share one database with no per-phone configuration.
   //
-  // For other targets, override at build/run time with --dart-define:
+  // Local/LAN development still works two ways (no rebuild needed):
+  //   - In-app: boot splash or Login → Server row → type the LAN URL
+  //     (e.g. http://192.168.1.5:4000/api). A manual URL is persisted and
+  //     wins over discovery on every launch until you Rescan.
+  //   - Build-time: flutter run --dart-define=API_BASE_URL=http://<PC_LAN_IP>:4000/api
   //
-  //   Android emulator:   flutter run --dart-define=API_BASE_URL=http://10.0.2.2:4000/api
-  //   Physical phone:     flutter run --dart-define=API_BASE_URL=http://<PC_LAN_IP>:4000/api
-  //   Android APK build:  flutter build apk --dart-define=API_BASE_URL=http://<PC_LAN_IP>:4000/api
-  //
-  // To find your PC's LAN IP: ipconfig (Windows) or ifconfig (macOS/Linux)
+  // Other --dart-define targets:
+  //   Android emulator (host API):  --dart-define=API_BASE_URL=http://10.0.2.2:4000/api
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://cartiq-api.local:4000/api',
+    defaultValue: 'https://cartiq-api-aswt.onrender.com/api',
   );
 
   static final DiscoveryService _discovery = DiscoveryService();
