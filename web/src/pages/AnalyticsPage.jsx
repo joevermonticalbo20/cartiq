@@ -107,9 +107,11 @@ export default function AnalyticsPage() {
     Promise.all([
       api.get(`/analytics/trends?days=${days}${codeParam}`),
       api.get(`/analytics/trends?days=${days * 2}${codeParam}`),
-      cartCode ? api.get(`/analytics/forecast?code=${encodeURIComponent(cartCode)}`) : Promise.resolve({ data: { code: null, items: [] } }),
+      cartCode ? api.get(`/analytics/forecast?code=${encodeURIComponent(cartCode)}`).catch(() => ({ data: { code: cartCode, items: [] } })) : Promise.resolve({ data: { code: null, items: [] } }),
       // Profit is owner-only server-side: don't even request it as staff.
-      isOwner ? api.get(`/analytics/profit?days=${days}${codeParam}`) : Promise.resolve({ data: null }),
+      // Individual .catch per auxiliary request so one slow/failed endpoint
+      // degrades to its empty state instead of failing the whole page.
+      isOwner ? api.get(`/analytics/profit?days=${days}${codeParam}`).catch(() => ({ data: null })) : Promise.resolve({ data: null }),
       api.get(`/analytics/hourly?days=${days}${codeParam}`).catch(() => ({ data: null })),
       api.get(`/analytics/basket?days=${days}${codeParam}`).catch(() => ({ data: null })),
       api.get(`/analytics/sales-forecast?days=${days}${codeParam}`).catch(() => ({ data: null })),
@@ -606,7 +608,7 @@ export default function AnalyticsPage() {
                 <div style={{ marginTop: "var(--space-5)" }}>
                   <h3 className="profit-chart-title">Peak hours</h3>
                   <p className="muted small" style={{ marginBottom: "var(--space-2)" }}>
-                    {hourly.peak.total_sales > 0 ? (
+                    {hourly.peak?.total_sales > 0 ? (
                       <>Busiest: <strong>{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hourly.peak.dow]} {hourly.peak.hour}:00</strong> - staff the rush, prep before it.</>
                     ) : (
                       <>No hourly pattern yet - it appears once sales accumulate.</>
