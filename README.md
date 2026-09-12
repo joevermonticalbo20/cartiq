@@ -4,18 +4,56 @@
 Multi-Location Food Cart Operations**
 
 SIA 2 & Mobile Application Development final project - Group 5, BSIT BA3B,
-Laguna University. Status: **Phases 0-5 + frontend UX polish P1-P4 +
-reliability/checkout/connectivity sprints complete (development build)**,
-pending hardware pilot and faculty approval.
+Laguna University. Status: **deployed live (see "Deployment" below)** —
+Phases 0-5 + frontend UX polish P1-P4 + reliability/checkout/connectivity
+sprints + Firestore migration complete, pending hardware pilot and faculty
+approval.
 
 | Component | Path | Stack | Status |
 |---|---|---|---|
-| REST API | `api/` | Node.js 24, Express 5, Firestore (Spark free tier, via `api/src/firestore.js` data layer), JWT + rotating refresh tokens, login rate limiting, ExcelJS, Bonjour/mDNS advertise | done, tested |
-| Web admin dashboard | `web/` | React 19, Vite, React Router, Axios | done, builds (lint 0 errors, P1-P4 UX polish) |
-| Mobile POS app | `mobile/` | Flutter (Android/Windows), offline-first sqflite queue, ML Kit OCR, subnet auto-discovery | done, analyzes clean (0 errors) |
+| REST API | `api/` | Node.js 24, Express 5, Firestore (Spark free tier, via `api/src/firestore.js` data layer), JWT + rotating refresh tokens, login rate limiting, ExcelJS, Bonjour/mDNS advertise | done, tested, **live on Render** |
+| Web admin dashboard | `web/` | React 19, Vite, React Router, Axios | done, builds (lint 0 errors, P1-P4 UX polish), **live on Firebase Hosting** |
+| Mobile POS app | `mobile/` | Flutter (Android/Windows), offline-first sqflite queue, ML Kit OCR, shared-prod API default | done, analyzes clean (0 errors) |
 | ESP32 IoT node | `iot/` | Arduino C++ firmware + **Node simulator** (`iot/simulator.mjs`) | code complete; hardware pending |
 
-## Quickstart
+Live URLs: web dashboard `https://cartiq-8e46f.web.app` · API
+`https://cartiq-api-aswt.onrender.com/api` (health: `.../api/health`) ·
+database: Firestore Native `(default)` in project `cartiq-8e46f` (seeded).
+
+## Environment files (for groupmates)
+
+Secrets live in gitignored `.env` files — never commit them. Each folder has
+a checked-in reference with the same keys and safe placeholder values:
+
+| Folder | Copy | Purpose |
+|---|---|---|
+| `api/` | `api/.env.example` → `api/.env` | Emulator host (dev) or project + service-account key (prod), JWT secrets, `HOST`/`PORT`, `CORS_ORIGINS` |
+| `web/` | `web/.env.example` → `web/.env` | Only needed to override `VITE_API_BASE` (default `/api` works for local dev; prod URL is baked at build time) |
+| `mobile/` | `mobile/.env.example` (reference only) | Values to pass via `--dart-define=API_BASE_URL=...` or the in-app Server row — Flutter reads no `.env` file |
+| `iot/firmware/` | `config.example.h` → `config.h` | Wi-Fi credentials, API URL, device token, cart IDs (all local-only) |
+
+## Deployment (live)
+
+```text
+Firebase Hosting (web/dist) ──VITE_API_BASE──▶ Render (api/, npm start)
+                                                      │
+                                                      ▼
+                                            Firestore (cartiq-8e46f)
+                                                      ▲
+Mobile POS ───────── API_BASE_URL (default) ──────────┘
+```
+
+* **Frontend:** `cd web && $env:VITE_API_BASE='https://cartiq-api-aswt.onrender.com/api'; npm run build`
+  then `firebase deploy --only hosting --project cartiq-8e46f` (PowerShell: one line at a time).
+* **Backend:** auto-deploys on push to `main` (Render → Root Directory `api`, `npm ci` / `npm start`).
+  Service env vars live in the Render dashboard, never in git (see `render.yaml` + `api/.env.example`).
+* **Database:** seeded once (`npm run db:seed` against prod). Never run `seed_history` on prod;
+  demo history stays on the emulator. Rules (`firestore.rules`) deny direct client access —
+  everything goes through the API: `firebase deploy --only firestore:rules --project cartiq-8e46f`.
+* **Free-tier notes:** Render sleeps after idle (~50s cold start; mobile/web retry once, POS queue covers
+  sales); Firestore reads are cached server-side 60s to protect the 50k/day Spark quota.
+
+## Quickstart (local development)
 
 ```bash
 # 0) Firestore emulator (terminal 0, repo root - free, no credentials/quota)
@@ -32,10 +70,12 @@ cd web && npm install && npm run dev   # http://localhost:5173
 
 # 3) Mobile POS  (terminal 3)
 cd mobile && flutter pub get
-flutter run   # physical phone - boot splash auto-discovers the API on the LAN
-              # (see "Mobile connectivity"); Skip or type the IP if the scan stalls
-#  Fallback when auto-discovery can't reach the server:
-#    flutter run --dart-define=API_BASE_URL=http://192.168.100.217:4000/api
+flutter run   # default backend is the shared production API (same Firestore
+              # database as the web dashboard) - just log in, no IP needed.
+              # (see "Mobile connectivity")
+# Local API instead (pick ONE, no other change needed):
+#  - in-app: type the LAN URL on the boot splash or Login → Server row
+#  - build-time: flutter run --dart-define=API_BASE_URL=http://192.168.100.217:4000/api
 #  Alternate API_BASE_URL targets (see "Mobile connectivity" below):
 #    Android emulator:  http://10.0.2.2:4000/api
 #    Windows desktop:   http://127.0.0.1:4000/api
@@ -61,8 +101,16 @@ Device tokens (printed by seed, hashed in DB): `dev-CART-01-potafries`, etc.
 
 ## Mobile connectivity
 
-The mobile POS talks directly to the API on `:4000` (it is not a browser, so it
-does not use the web `/api` proxy).
+The mobile POS talks to the **shared production API by default**
+(`https://cartiq-api-aswt.onrender.com/api` — the same Firestore database as
+the web dashboard), so a fresh install just works: log in, no IP needed.
+(It is not a browser, so it does not use the web `/api` proxy.)
+
+**LAN auto-discovery is OFF by default** (`enableLanDiscovery = false` in
+`mobile/lib/config.dart`) so the app can never silently attach to a
+localhost/LAN dev server instead of the shared database. The sections below
+describe the LAN machinery, which still works when you point the app at a
+local API (in-app Server row) or re-enable discovery for an offline pilot.
 
 **Auto-discovery (default, no rebuild on Wi-Fi change):** the app boots
 straight into a splash (`mobile/lib/main.dart` `_BootApp`) while
@@ -97,7 +145,8 @@ Manual override is still supported at **build/run time** via
 
 | Target | `API_BASE_URL` | Requirements |
 |---|---|---|
-| Physical Android phone (auto) | _(discovered)_ | PC and phone on same Wi-Fi; API running with `HOST=0.0.0.0`; Windows Firewall allows TCP 4000 |
+| Physical phone (production default) | `https://cartiq-api-aswt.onrender.com/api` | internet; first tap after idle may time out once (Render free cold start — retry) |
+| Physical Android phone (LAN auto-discovery) | _(discovered, only when `enableLanDiscovery = true`)_ | PC and phone on same Wi-Fi; API running with `HOST=0.0.0.0`; Windows Firewall allows TCP 4000 |
 | Physical Android phone (manual, in-app) | typed on splash or Login → Server | same as above, no rebuild; persists across restarts |
 | Physical Android phone (manual, build-time) | `http://<PC_LAN_IP>:4000/api` | same as above, plus rebuild with the current IP |
 | Android emulator | `http://10.0.2.2:4000/api` | host loopback alias |
@@ -133,7 +182,9 @@ IPv4 address (e.g. `192.168.100.217`). The API must be running with
 - **CORS is env-driven:** set `CORS_ORIGINS` in `api/.env` to a
   comma-separated list (e.g.
   `CORS_ORIGINS="http://localhost:5173,http://192.168.100.217:5173"`) so a
-  DHCP change doesn't need a code edit. Server exits at boot with
+  DHCP change doesn't need a code edit. Production (Render dashboard) must
+  list the hosted frontend:
+  `CORS_ORIGINS="https://cartiq-8e46f.web.app,https://cartiq-8e46f.firebaseapp.com"`. Server exits at boot with
   `[api:fatal]` if `JWT_SECRET` is missing.
 - **Orders are server-authoritative:** `POST /orders` requires
   `locationCode`/`locationId` (400 otherwise, never silently books to the
