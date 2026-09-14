@@ -251,7 +251,11 @@ export default function SalesPage() {
                 },
                 {
                   key: "total",
-                  label: "Total",
+                  label: (
+                    // Shift the header left so it sits above the amounts
+                    // (amount slot 52px + gap 8px + badge spacer 62px).
+                    <span style={{ paddingRight: 70 }}>Total</span>
+                  ),
                   width: 132,
                   align: "right",
                   render: (o) => (
@@ -267,20 +271,11 @@ export default function SalesPage() {
                       <strong style={{ minWidth: "52px", textAlign: "right" }}>
                         P{o.total}
                       </strong>
+                      {/* Empty spacer keeps every amount in the same slot;
+                         the VOID badge now lives in the actions cell. */}
                       <span
-                        style={{
-                          minWidth: "62px",
-                          display: "inline-flex",
-                          justifyContent: "flex-start",
-                        }}
-                      >
-                        {o.status === "VOID" && (
-                          <Badge variant="danger">VOID</Badge>
-                        )}
-                        {o.status === "REFUNDED" && (
-                          <Badge variant="warn">REFUNDED</Badge>
-                        )}
-                      </span>
+                        style={{ minWidth: "62px", display: "inline-block" }}
+                      />
                     </span>
                   ),
                 },
@@ -293,7 +288,7 @@ export default function SalesPage() {
                         align: "right",
                         render: (o) => (
                           <div className="flex items-center justify-end gap-2">
-                            {o.status !== "VOID" ? (
+                            {o.status === "PAID" ? (
                               <>
                                 <button
                                   className="ghost small-btn"
@@ -314,20 +309,11 @@ export default function SalesPage() {
                                 </button>
                               </>
                             ) : (
-                              /* Invisible placeholder: keeps the actions column
-                                 the same width so TOTAL stays aligned. */
-                              <span
-                                aria-hidden="true"
-                                className="flex items-center justify-end gap-2"
-                                style={{ visibility: "hidden" }}
-                              >
-                                <button className="ghost small-btn" disabled tabIndex={-1}>
-                                  <Edit2 size={13} />
-                                </button>
-                                <button className="danger-ghost small-btn" disabled tabIndex={-1}>
-                                  <X size={13} />
-                                </button>
-                              </span>
+                              /* Status badge sits where the pen/X buttons are,
+                                 right-aligned like them. */
+                              <Badge variant={o.status === "REFUNDED" ? "warn" : "danger"}>
+                                {o.status}
+                              </Badge>
                             )}
                           </div>
                         )
