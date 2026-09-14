@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 import Button from "./Button.jsx";
 
+// Sticky confirm dialog: backdrop clicks and Escape NEVER dismiss — only an
+// explicit Cancel/confirm button closes it. This guards destructive actions
+// (logout, void, delete, disable, commit) against accidental dismissal.
 export default function ConfirmDialog({
   open,
   title = "Are you sure?",
@@ -21,10 +24,7 @@ export default function ConfirmDialog({
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     cancelRef.current?.focus();
     const onKey = (e) => {
-      if (e.key === "Escape") {
-        onCancel?.();
-        return;
-      }
+      // NOTE: Escape intentionally does nothing here (sticky dialog).
       // Trap Tab inside the dialog while it is open.
       if (e.key !== "Tab") return;
       const root = modalRef.current;
@@ -50,14 +50,13 @@ export default function ConfirmDialog({
 
   if (!open) return null;
   return (
-    <div className="modal-backdrop" onClick={onCancel}>
+    <div className="modal-backdrop">
       <div
         ref={modalRef}
         className="modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
-        onClick={(e) => e.stopPropagation()}
       >
         <h3 id="confirm-dialog-title">{title}</h3>
         {message && <p className="muted">{message}</p>}

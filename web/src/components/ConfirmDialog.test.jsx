@@ -28,12 +28,12 @@ describe("ConfirmDialog", () => {
     expect(onCancel).toHaveBeenCalled();
   });
 
-  it("calls onCancel when backdrop is clicked", () => {
+  it("does NOT dismiss when backdrop is clicked (sticky)", () => {
     const onCancel = vi.fn();
     const { container } = render(<ConfirmDialog open={true} onCancel={onCancel} />);
     const backdrop = container.querySelector(".modal-backdrop");
     fireEvent.click(backdrop);
-    expect(onCancel).toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
   });
 
   it("does not close when clicking inside the modal", () => {
@@ -63,11 +63,11 @@ describe("ConfirmDialog", () => {
     expect(confirm).toHaveFocus();
   });
 
-  it("calls onCancel on Escape", () => {
+  it("does NOT dismiss on Escape (sticky)", () => {
     const onCancel = vi.fn();
     render(<ConfirmDialog open={true} onCancel={onCancel} />);
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onCancel).not.toHaveBeenCalled();
   });
 
   it("returns focus to the invoker on close", () => {
