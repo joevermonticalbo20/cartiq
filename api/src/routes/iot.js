@@ -324,6 +324,60 @@ router.post("/shifts/manual", requireAuth, requireRole("OWNER"), async (req, res
   }
 });
 
+// PATCH /shifts/:id (OWNER, user JWT) — correct a shift log row
+// (event/location/timestamp). Staff identity is immutable here; delete +
+// re-log if the wrong person was recorded.
+// Body: { event?: "IN"|"OUT", locationCode?, ts? } (at least one required)
+router.patch("/shifts/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
+  try {
+    const { event, locationCode, ts } = req.body ?? {};
+    if (event === undefined && locationCode === undefined && ts === undefined) {
+      return res.status(400).json({ error: "provide event, locationCode, or ts" });
+    }
+    const existing = await prisma.shift.findUnique({ where: { id: Number(req.params.id) } });
+    if (!existing) return res.status(404).json({ error: "Shift not found" });
+    const data = {};
+    if (event !== undefined) {
+      const ev = String(event).toUpperCase();
+      if (!["IN", "OUT"].includes(ev)) {
+        return res.status(400).json({ error: 'event must be "IN" or "OUT"' });
+      }
+      data.event = ev;
+    }
+    if (locationCode !== undefined) {
+      const location = await prisma.location.findUnique({ where: { code: String(locationCode) } });
+      if (!location) return res.status(404).json({ error: "Location not found" });
+      data.locationId = location.id;
+    }
+    if (ts !== undefined) {
+      const at = new Date(ts);
+      if (!Number.isFinite(at.getTime())) {
+        return res.status(400).json({ error: "ts must be a valid date" });
+      }
+      data.ts = at;
+    }
+    const shift = await prisma.shift.update({
+      where: { id: existing.id },
+      data,
+      include: { location: { select: { code: true, name: true } } },
+    });
+    return res.json({ shift });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// DELETE /shifts/:id (OWNER, user JWT) — remove a mis-logged shift row.
+router.delete("/shifts/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
+  try {
+    await prisma.shift.delete({ where: { id: Number(req.params.id) } });
+    return res.json({ deleted: true });
+  } catch (err) {
+    if (err.code === "P2025") return res.status(404).json({ error: "Shift not found" });
+    return next(err);
+  }
+});
+
 // GET /api/staff/on-shift -> who is currently IN per cart (latest event today, Manila day)
 router.get("/staff/on-shift", requireAuth, async (_req, res, next) => {
   try {

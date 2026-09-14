@@ -98,7 +98,9 @@ envelope `{ data:[...], meta:{ total, page, pageSize, totalPages } }`.
 
 | Endpoint | Method | Notes |
 |---|---|---|
-| `/shifts/history?code&date&page&pageSize` | GET | Paged RFID shift log. |
+| `/shifts/history?code&date&page&pageSize` | GET | Paged RFID shift log (Manila day for `date`). |
+| `/shifts/:id` | PATCH | OWNER user-JWT. Correct a row: `{event?, locationCode?, ts?}` (at least one; staff identity immutable) → `{shift}`. Powers Edit Shift Log. |
+| `/shifts/:id` | DELETE | OWNER user-JWT. Remove a mis-logged row → `{deleted:true}`. |
 | `/devices` | GET | OWNER-only IoT registry: device_id, cart, active, last_seen_at, computed `online` (<5 min heartbeat). |
 | `/auth/change-password` | POST | Self-service: verifies current password, min 6 new chars. |
 | `/auth/staff` | GET | OWNER-only staff list incl. location, rfidUid, active. |

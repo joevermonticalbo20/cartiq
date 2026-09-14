@@ -170,12 +170,30 @@ export default function StaffPage() {
   async function handleEditShift(e) {
     e.preventDefault();
     setEditError("");
+    const at = editing.ts ? new Date(editing.ts) : null;
+    if (!at || !Number.isFinite(at.getTime())) {
+      setEditError("Enter a valid date and time.");
+      return;
+    }
+    // Timestamps compare at minute precision (the input has no seconds).
+    const sameMinute = (a, b) => Math.floor(new Date(a).getTime() / 60000) === Math.floor(new Date(b).getTime() / 60000);
+    const original = rows.find((r) => r.id === editing.id);
+    if (
+      original &&
+      editing.event === original.event &&
+      editing.locationCode === (original.location?.code || "") &&
+      sameMinute(editing.ts, original.ts)
+    ) {
+      toast("No changes — nothing to update on this shift log.", "info");
+      closeEditModal();
+      return;
+    }
     setIsEditing(true);
     try {
       await api.patch(`/shifts/${editing.id}`, {
         locationCode: editing.locationCode,
         event: editing.event,
-        ts: new Date(editing.ts).toISOString()
+        ts: at.toISOString()
       });
       toast(`Shift event updated`, "success");
       closeEditModal();
