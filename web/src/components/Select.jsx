@@ -126,7 +126,15 @@ export default function Select({ value, onChange, options = [], placeholder = "S
                   role="option"
                   aria-selected={isSelected}
                   className={`custom-select-option${isSelected ? " selected" : ""}${i === highlighted ? " highlighted" : ""}`}
-                  onClick={() => choose(i)}
+                  // preventDefault stops a wrapping <label> (every modal
+                  // field uses one) from forwarding a second synthetic click
+                  // to the trigger button, which would instantly reopen the
+                  // menu right after a pick. jsdom doesn't emulate label
+                  // forwarding, so this is covered by assertion below.
+                  onClick={(e) => {
+                    e.preventDefault();
+                    choose(i);
+                  }}
                   onMouseEnter={() => setHighlighted(i)}
                 >
                   {opt.label}

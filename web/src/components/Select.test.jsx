@@ -66,8 +66,22 @@ describe("Select", () => {
     expect(screen.getByText("Pick one")).toBeInTheDocument();
   });
 
-  it("hides the placeholder option from the menu but shows its label when active", () => {
-    const opts = [
+  it("cancels the option click so a wrapping label cannot reopen the menu", () => {
+    renderSelect();
+    fireEvent.click(screen.getByRole("button"));
+    const option = within(screen.getByRole("listbox")).getByText("CART-02");
+    let prevented = false;
+    const probe = (e) => {
+      prevented = e.defaultPrevented;
+    };
+    document.addEventListener("click", probe);
+    fireEvent.click(option);
+    document.removeEventListener("click", probe);
+    expect(prevented).toBe(true);
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("hides the placeholder option from the menu but shows its label when active", () => {    const opts = [
       { value: "", label: "Select staff..." },
       { value: "1", label: "Stall Staff 1" },
       { value: "2", label: "Stall Staff 2" },
