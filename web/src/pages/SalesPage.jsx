@@ -252,7 +252,7 @@ export default function SalesPage() {
                 {
                   key: "total",
                   label: "Total",
-                  width: 150,
+                  width: 132,
                   align: "right",
                   render: (o) => (
                     <span
@@ -264,13 +264,23 @@ export default function SalesPage() {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      <strong>P{o.total}</strong>
-                      {o.status === "VOID" && (
-                        <Badge variant="danger">VOID</Badge>
-                      )}
-                      {o.status === "REFUNDED" && (
-                        <Badge variant="warn">REFUNDED</Badge>
-                      )}
+                      <strong style={{ minWidth: "52px", textAlign: "right" }}>
+                        P{o.total}
+                      </strong>
+                      <span
+                        style={{
+                          minWidth: "62px",
+                          display: "inline-flex",
+                          justifyContent: "flex-start",
+                        }}
+                      >
+                        {o.status === "VOID" && (
+                          <Badge variant="danger">VOID</Badge>
+                        )}
+                        {o.status === "REFUNDED" && (
+                          <Badge variant="warn">REFUNDED</Badge>
+                        )}
+                      </span>
                     </span>
                   ),
                 },
@@ -279,7 +289,7 @@ export default function SalesPage() {
                       {
                         key: "actions",
                         label: "",
-                        width: 96,
+                        width: 84,
                         align: "right",
                         render: (o) => (
                           <div className="flex items-center justify-end gap-2">
