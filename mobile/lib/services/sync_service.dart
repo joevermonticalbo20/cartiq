@@ -97,9 +97,13 @@ class SyncService extends ChangeNotifier {
     if (startToken == null) {
       return SyncResult(online: false, synced: 0, remaining: await queue.count);
     }
-    // No health() pre-check: it cost an extra roundtrip on every drain and
-    // doubled Render cold-start latency. Submit directly; network failure
-    // below is treated as offline.
+    // Reachability gate: reports offline WITHOUT attempting any upload when
+    // the server is known-unreachable (see sync_service_test "unreachable
+    // server reports offline"). Skipping this would burn an upload attempt
+    // per drain and misreport online:true on total network failure.
+    if (!await api.health()) {
+      return SyncResult(online: false, synced: 0, remaining: await queue.count);
+    }
 
     var synced = 0;
     var activeToken = startToken;
