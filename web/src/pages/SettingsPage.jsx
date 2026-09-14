@@ -47,13 +47,13 @@ export default function SettingsPage() {
 
   function loadOwnerData() {
     if (!isOwner) return;
-    api.get("/devices").then(({ data }) => setDevices(data.data)).catch(() => {});
-    api.get("/auth/staff").then(({ data }) => setStaff(data.data)).catch(() => {});
+    api.get("/devices").then(({ data }) => setDevices(data?.data ?? [])).catch(() => {});
+    api.get("/auth/staff").then(({ data }) => setStaff(data?.data ?? [])).catch(() => {});
   }
 
   function loadProfile() {
     setProfileError("");
-    api.get("/auth/me").then(({ data }) => setProfile(data.user)).catch(() => {
+    api.get("/auth/me").then(({ data }) => setProfile(data?.user ?? null)).catch(() => {
       setProfileError("Unable to load profile.");
     });
   }
@@ -61,7 +61,7 @@ export default function SettingsPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial mount fetch via stable callbacks
     loadProfile();
-    api.get("/catalog").then(({ data }) => setLocations(data.locations));
+    api.get("/catalog").then(({ data }) => setLocations(data?.locations ?? [])).catch(() => {});
     loadOwnerData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOwner]);
@@ -141,7 +141,10 @@ export default function SettingsPage() {
     }
   }
 
-  const locationOptions = locations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
+  const safeLocations = Array.isArray(locations) ? locations : [];
+  const safeDevices = Array.isArray(devices) ? devices : [];
+  const safeStaff = Array.isArray(staff) ? staff : [];
+  const locationOptions = safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
 
   // Reusable inline style para sa mata (eye icon)
   const toggleBtnStyle = {
@@ -339,7 +342,7 @@ export default function SettingsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {devices.map((d) => (
+                    {safeDevices.map((d) => (
                       <tr key={d.id}>
                         <td><strong>{d.device_id}</strong></td>
                         <td><Badge variant="info">{d.cart}</Badge></td>
@@ -353,7 +356,7 @@ export default function SettingsPage() {
                         </td>
                       </tr>
                     ))}
-                    {devices.length === 0 && (
+                    {safeDevices.length === 0 && (
                       <tr>
                         <td colSpan="4" className="muted t-center" style={{ padding: "var(--space-4)" }}>No devices registered.</td>
                       </tr>
@@ -389,7 +392,7 @@ export default function SettingsPage() {
                   </thead>
                   <tbody>
                     {/* Nilagyan ng filter para hindi na ipakita ang OWNER */}
-                    {staff.filter((s) => s.role !== "OWNER").map((s) => (
+                    {safeStaff.filter((s) => s.role !== "OWNER").map((s) => (
                       <tr key={s.id} className={!s.active ? "row-disabled" : undefined}>
                         <td><strong>{s.name}</strong></td>
                         <td>{s.username}</td>

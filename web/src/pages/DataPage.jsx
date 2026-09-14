@@ -57,11 +57,13 @@ export default function DataPage() {
       const form = new FormData();
       form.append("file", file);
       const res = await api.post("/import/products?dry_run=true", form);
-      setPreview(res.data);
-      if (res.data.errors.length > 0) {
-        toast(`${res.data.errors.length} row(s) need fixing before commit`, "warn");
+      const errors = res.data?.errors ?? [];
+      const validCount = res.data?.valid_count ?? 0;
+      setPreview({ errors, valid_count: validCount, ...(res.data ?? {}) });
+      if (errors.length > 0) {
+        toast(`${errors.length} row(s) need fixing before commit`, "warn");
       } else {
-        toast(`${res.data.valid_count} valid row(s) - ready to commit`, "success");
+        toast(`${validCount} valid row(s) - ready to commit`, "success");
       }
     } catch (err) {
       toast(getErrorMessage(err, "Import preview failed"), "error");
@@ -79,7 +81,7 @@ export default function DataPage() {
       const form = new FormData();
       form.append("file", pendingFile.current);
       await api.post("/import/products?dry_run=false", form);
-      toast(`Committed ${preview.valid_count} product(s) to the catalog`, "success");
+      toast(`Committed ${preview?.valid_count ?? 0} product(s) to the catalog`, "success");
       setPreview(null);
       pendingFile.current = null;
     } catch (err) {
@@ -204,8 +206,8 @@ export default function DataPage() {
                   <h4 style={{ fontSize: "var(--fs-sm)", margin: 0, color: "var(--accent)", fontWeight: "var(--fw-bold)" }}>
                     Validation Preview
                   </h4>
-                  <Badge variant={preview.errors.length > 0 ? "danger" : "ok"}>
-                    {preview.errors.length > 0 ? `${preview.errors.length} Errors` : "Valid"}
+                  <Badge variant={(preview.errors ?? []).length > 0 ? "danger" : "ok"}>
+                    {(preview.errors ?? []).length > 0 ? `${(preview.errors ?? []).length} Errors` : "Valid"}
                   </Badge>
                 </div>
 
@@ -218,7 +220,7 @@ export default function DataPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {preview.errors.map((e, i) => (
+                      {(preview.errors ?? []).map((e, i) => (
                         <tr key={`e${i}`}>
                           <td style={{ padding: "8px 12px" }}>
                             <Badge variant="danger">#{e.row}</Badge>
@@ -231,7 +233,7 @@ export default function DataPage() {
                           </td>
                         </tr>
                       ))}
-                      {preview.errors.length === 0 && (
+                      {(preview.errors ?? []).length === 0 && (
                         <tr>
                           <td style={{ padding: "8px 12px" }}>
                             <Badge variant="ok">READY</Badge>
@@ -239,7 +241,7 @@ export default function DataPage() {
                           <td style={{ color: "var(--success)", padding: "8px 12px" }}>
                             <div className="flex items-center gap-2">
                               <CheckCircle2 size={13} style={{ flexShrink: 0 }} />
-                              <span style={{ fontSize: "var(--fs-xs)" }}>{preview.valid_count} valid row(s), no conflicts found.</span>
+                              <span style={{ fontSize: "var(--fs-xs)" }}>{preview.valid_count ?? 0} valid row(s), no conflicts found.</span>
                             </div>
                           </td>
                         </tr>
@@ -251,9 +253,9 @@ export default function DataPage() {
                 <button
                   style={{ marginTop: "var(--space-3)", width: "100%" }}
                   onClick={() => setConfirmOpen(true)}
-                  disabled={busyImport || preview.errors.length > 0 || preview.valid_count === 0}
+                  disabled={busyImport || (preview.errors ?? []).length > 0 || (preview.valid_count ?? 0) === 0}
                 >
-                  Commit {preview.valid_count} product(s)
+                  Commit {preview.valid_count ?? 0} product(s)
                 </button>
               </div>
             )}

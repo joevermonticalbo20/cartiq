@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useId } from "react";
 import { ChevronDown } from "lucide-react";
 
 export default function Select({ value, onChange, options = [], placeholder = "Select...", className = "" }) {
+  const safeOptions = Array.isArray(options) ? options : [];
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(-1);
   const ref = useRef(null);
@@ -19,16 +20,16 @@ export default function Select({ value, onChange, options = [], placeholder = "S
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const selectedOption = options.find((o) => o.value === value);
+  const selectedOption = safeOptions.find((o) => o.value === value);
 
   // Highlight follows the selected row whenever the menu opens.
   function openMenu() {
-    setHighlighted(options.findIndex((o) => o.value === value));
+    setHighlighted(safeOptions.findIndex((o) => o.value === value));
     setOpen(true);
   }
 
   function choose(index) {
-    const opt = options[index];
+    const opt = safeOptions[index];
     if (!opt) return;
     onChange(opt.value);
     setOpen(false);
@@ -43,22 +44,22 @@ export default function Select({ value, onChange, options = [], placeholder = "S
       }
       return;
     }
-    if (options.length === 0) {
+    if (safeOptions.length === 0) {
       if (e.key === "Escape") setOpen(false);
       return;
     }
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setHighlighted((h) => (h + 1) % options.length);
+      setHighlighted((h) => (h + 1) % safeOptions.length);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setHighlighted((h) => (h - 1 + options.length) % options.length);
+      setHighlighted((h) => (h - 1 + safeOptions.length) % safeOptions.length);
     } else if (e.key === "Home") {
       e.preventDefault();
       setHighlighted(0);
     } else if (e.key === "End") {
       e.preventDefault();
-      setHighlighted(options.length - 1);
+      setHighlighted(safeOptions.length - 1);
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       choose(highlighted);
@@ -95,12 +96,12 @@ export default function Select({ value, onChange, options = [], placeholder = "S
           className="custom-select-dropdown"
           role="listbox"
         >
-          {options.length === 0 ? (
+          {safeOptions.length === 0 ? (
             <li className="custom-select-option empty" role="option" aria-selected="false" aria-disabled="true">
               No options available
             </li>
           ) : (
-            options.map((opt, i) => {
+            safeOptions.map((opt, i) => {
               const isSelected = value === opt.value;
               return (
                 <li

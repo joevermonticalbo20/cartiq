@@ -23,7 +23,7 @@ export default function SalesPage() {
   const [confirming, setConfirming] = useState(null);
 
   useEffect(() => {
-    api.get("/catalog").then(({ data }) => setLocations(data.locations)).catch(() => {});
+    api.get("/catalog").then(({ data }) => setLocations(data?.locations ?? [])).catch(() => {});
   }, []);
 
   const { rows, meta, loading, error, gotoPage, refresh } = usePagedData(
@@ -42,9 +42,10 @@ export default function SalesPage() {
     }
   }, [loading]);
 
+  const safeLocations = Array.isArray(locations) ? locations : [];
   const locationOptions = [
     { value: "", label: "All carts" },
-    ...locations.map((l) => ({ value: l.code, label: l.code }))
+    ...safeLocations.map((l) => ({ value: l.code, label: l.code }))
   ];
 
   async function doVoid() {
@@ -149,7 +150,7 @@ export default function SalesPage() {
                   label: "Items",
                   render: (o) => (
                     <span className="muted small" style={{ display: "block" }}>
-                      {o.items
+                      {(o.items ?? [])
                         .map(
                           (i) =>
                             `${i.qty}x ${i.productName}${i.flavor ? ` (${i.flavor})` : ""}`

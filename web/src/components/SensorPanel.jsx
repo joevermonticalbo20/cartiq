@@ -31,7 +31,7 @@ export default function SensorPanel({ code = "CART-01" }) {
       const { data } = await api.get(
         `/readings/recent?code=${code}&channel=${channel}&limit=60`
       );
-      setSeries(data.readings);
+      setSeries(data?.readings ?? []);
       setError("");
     } catch (err) {
       setError(getErrorMessage(err, "No readings yet"));
@@ -54,9 +54,10 @@ export default function SensorPanel({ code = "CART-01" }) {
   const channelConfig = CHANNELS.find((c) => c.id === channel);
   const Icon = channelConfig.icon;
 
-  // Stats
-  const values = series.map((r) => r.kg);
-  const latest = series[series.length - 1];
+  // Stats — safeSeries guarantees array even if a stale/error payload slips through.
+  const safeSeries = Array.isArray(series) ? series : [];
+  const values = safeSeries.map((r) => r.kg);
+  const latest = safeSeries[safeSeries.length - 1];
   const min = values.length ? Math.min(...values) : 0;
   const max = values.length ? Math.max(...values) : 1;
   const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
@@ -82,7 +83,7 @@ export default function SensorPanel({ code = "CART-01" }) {
   // Readings with unparseable timestamps (e.g. "" from an NTP-unsynced
   // node) are dropped from the chart — one bad ts must never stretch
   // the whole axis back to 1970.
-  const ordered = [...series]
+  const ordered = [...safeSeries]
     .filter((r) => Number.isFinite(new Date(r.ts).getTime()))
     .sort((a, b) => new Date(a.ts) - new Date(b.ts));
   const startMs = ordered.length ? new Date(ordered[0].ts).getTime() : 0;
@@ -92,7 +93,7 @@ export default function SensorPanel({ code = "CART-01" }) {
     hasSpan
       ? timeX(new Date(ts).getTime(), startMs, endMs, padX, W)
       : (W - padX * 2) / 2 + padX;
-  const pts = (hasSpan ? ordered : series).map((r) => {
+  const pts = (hasSpan ? ordered : safeSeries).map((r) => {
     const x = hasSpan
       ? xOfTime(r.ts)
       : (ordered.indexOf(r) / Math.max(ordered.length - 1, 1)) * (W - padX * 2) + padX;
@@ -145,7 +146,7 @@ export default function SensorPanel({ code = "CART-01" }) {
           subtitle={error}
           action={{ label: "Retry", onClick: fetchData }}
         />
-      ) : series.length === 0 ? (
+      ) : safeSeries.length === 0 ? (
         <EmptyState
           icon={Icon}
           title="Waiting for readings"
@@ -209,7 +210,7 @@ export default function SensorPanel({ code = "CART-01" }) {
               </div>
               <div className="sensor-stat-mini">
                 <span className="muted small">Samples</span>
-                <strong>{series.length}</strong>
+                <strong>{safeSeries.length}</strong>
               </div>
             </div>
           </div>

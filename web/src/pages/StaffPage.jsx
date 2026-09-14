@@ -37,11 +37,9 @@ export default function StaffPage() {
         : Promise.resolve({ data: { staff: [] } }),
       api.get("/catalog").catch(() => ({ data: { locations: [] } }))
     ]).then(([shiftRes, perfRes, catRes]) => {
-      setOnShift(shiftRes.data.on_shift || []);
-      setPerformance(perfRes.data || { staff: [] });
-      if (catRes.data.locations) {
-        setLocations(catRes.data.locations);
-      }
+      setOnShift(shiftRes.data?.on_shift ?? []);
+      setPerformance(perfRes.data ?? { staff: [] });
+      setLocations(catRes.data?.locations ?? []);
       setPerfLoading(false);
       setLastUpdated(new Date());
     });
@@ -65,9 +63,10 @@ export default function StaffPage() {
     refreshTable();
   }
 
+  const safeLocations = Array.isArray(locations) ? locations : [];
   const locationOptions = [
     { value: "", label: "All carts" },
-    ...locations.map((l) => ({ value: l.code, label: l.code }))
+    ...safeLocations.map((l) => ({ value: l.code, label: l.code }))
   ];
 
   const isLoading = tableLoading || perfLoading;

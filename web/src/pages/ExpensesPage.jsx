@@ -36,7 +36,7 @@ export default function ExpensesPage() {
   const [lastUpdated, setLastUpdated] = useState(null);
 
   useEffect(() => {
-    api.get("/catalog").then(({ data }) => setLocations(data.locations)).catch(() => {});
+    api.get("/catalog").then(({ data }) => setLocations(data?.locations ?? [])).catch(() => {});
   }, []);
 
   const path = (p) =>
@@ -100,9 +100,10 @@ export default function ExpensesPage() {
   }
 
   // Options para sa ating custom Select dropdowns
+  const safeLocations = Array.isArray(locations) ? locations : [];
   const locationOptions = [
     { value: "", label: "All carts" },
-    ...locations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }))
+    ...safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }))
   ];
 
   const categoryOptions = [
@@ -179,15 +180,15 @@ export default function ExpensesPage() {
             )}
           </div>
 
-          {summary && summary.by_category.length > 0 && (
+          {summary && (summary.by_category ?? []).length > 0 && (
             <div className="flex flex-wrap gap-2" style={{ marginBottom: "var(--space-4)" }}>
-              {summary.by_category.map((c) => (
+              {(summary.by_category ?? []).map((c) => (
                 <Badge key={c.category} variant={CATEGORY_CLASS[c.category] ?? "neutral"}>
                   {c.category}: P{Number(c.total).toLocaleString()}
                 </Badge>
               ))}
               <Badge variant="brand">
-                TOTAL: P{Number(summary.totals.total_amount).toLocaleString()}
+                TOTAL: P{Number(summary.totals?.total_amount ?? 0).toLocaleString()}
               </Badge>
             </div>
           )}

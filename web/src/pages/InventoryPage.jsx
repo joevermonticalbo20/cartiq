@@ -58,13 +58,14 @@ export default function InventoryPage() {
       api.get(`/reorders/prep?code=${targetCode}&days=3`).catch(() => ({ data: null })),
     ])
       .then(([inv, fc, pr]) => {
-        setLocations(inv.data.locations);
+        const locs = inv.data?.locations ?? [];
+        setLocations(locs);
         setForecast(fc.data?.items ?? []);
         setPrep(pr.data);
         setLoadError("");
 
-        if (!inv.data.locations.some((l) => l.code === selected) && inv.data.locations[0]) {
-          setSelected(inv.data.locations[0].code);
+        if (!locs.some((l) => l.code === selected) && locs[0]) {
+          setSelected(locs[0].code);
         }
         setSelectedIds(new Set());
         setLastUpdated(new Date());
@@ -142,10 +143,10 @@ export default function InventoryPage() {
 
   function toggleSelectAll() {
     if (!current) return;
-    if (selectedIds.size === current.items.length) {
+    if (selectedIds.size === currentItems.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(current.items.map((it) => it.id)));
+      setSelectedIds(new Set(currentItems.map((it) => it.id)));
     }
   }
 
@@ -183,9 +184,12 @@ export default function InventoryPage() {
     refresh();
   }
 
-  const current = locations.find((l) => l.code === selected);
-  const allSelected = current && selectedIds.size === current.items.length && current.items.length > 0;
-  const locationOptions = locations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
+  const safeLocations = Array.isArray(locations) ? locations : [];
+  const safeForecast = Array.isArray(forecast) ? forecast : [];
+  const current = safeLocations.find((l) => l.code === selected);
+  const currentItems = current?.items ?? [];
+  const allSelected = current && selectedIds.size === currentItems.length && currentItems.length > 0;
+  const locationOptions = safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
 
   // Options para sa Custom Select
   const categoryOptions = [
@@ -313,8 +317,8 @@ export default function InventoryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {current.items.map((item) => {
-                    const fcItem = forecast.find((f) => f.name === item.name);
+                  {currentItems.map((item) => {
+                    const fcItem = safeForecast.find((f) => f.name === item.name);
                     const isSelected = selectedIds.has(item.id);
                     return (
                       <tr key={item.id} className={isSelected ? "row-selected" : undefined}>
@@ -429,7 +433,7 @@ export default function InventoryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {prep.prep.map((p) => (
+                  {(prep.prep ?? []).map((p) => (
                     <tr key={p.item}>
                       <td><strong>{p.item}</strong> <span className="muted small">{p.unit}</span></td>
                       <td className="t-center">{p.current_stock}</td>
@@ -449,14 +453,14 @@ export default function InventoryPage() {
               </table>
             </div>
             
-            {isOwner && prep.calibration.length > 0 && (
+            {isOwner && (prep.calibration ?? []).length > 0 && (
               <div style={{ marginTop: "var(--space-4)" }}>
                 <h3 className="section-title">Threshold review (owner)</h3>
                 <p className="muted small">
                   Noisy thresholds alert while stock stays healthy; silent ones
                   never fire. One click applies the suggestion.
                 </p>
-                {prep.calibration.map((c) => (
+                {(prep.calibration ?? []).map((c) => (
                   <div key={c.inventory_item_id} className="alert-item">
                     <span className="alert-item-text">
                       <div className="alert-item-name">

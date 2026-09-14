@@ -127,6 +127,12 @@ export function setupAuthInterceptor(navigate) {
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("cartiq_token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  // FormData uploads (Data Hub .xlsx import) need the browser's multipart
+  // boundary. The instance default is application/json, so drop it here and
+  // let axios set multipart/form-data automatically.
+  if (config.data instanceof FormData && config.headers) {
+    delete config.headers["Content-Type"];
+  }
   return config;
 });
 

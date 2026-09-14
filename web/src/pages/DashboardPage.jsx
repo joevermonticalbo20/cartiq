@@ -117,10 +117,10 @@ export default function DashboardPage() {
     };
     await Promise.all([
       settle("report", api.get("/reports/daily"), (r) => setReport(r.data)),
-      settle("inventory", api.get("/inventory"), (r) => setInventory(r.data.locations)),
-      settle("staff", api.get("/staff/on-shift"), (r) => setOnShift(r.data.on_shift)),
-      settle("sales", api.get("/orders?page=1&pageSize=8"), (r) => setLatestSales(r.data.data)),
-      settle("alerts", api.get("/alerts?unread_only=true&page=1&pageSize=6"), (r) => setAlerts(r.data.data)),
+      settle("inventory", api.get("/inventory"), (r) => setInventory(r.data?.locations ?? [])),
+      settle("staff", api.get("/staff/on-shift"), (r) => setOnShift(r.data?.on_shift ?? [])),
+      settle("sales", api.get("/orders?page=1&pageSize=8"), (r) => setLatestSales(r.data?.data ?? [])),
+      settle("alerts", api.get("/alerts?unread_only=true&page=1&pageSize=6"), (r) => setAlerts(r.data?.data ?? [])),
       settle("trends", api.get("/analytics/trends?days=7").catch(() => ({ data: null })), (r) => setTrends(r.data)),
       settle("prev", api.get("/reports/daily?daysAgo=1").catch(() => ({ data: null })), (r) => setPrev(r.data)),
     ]);
@@ -159,23 +159,28 @@ export default function DashboardPage() {
       } else if (event === "alert:new") {
         setAlerts((a) => [
           { id: data.id, type: data.type, message: data.message },
-          ...a,
+          ...(Array.isArray(a) ? a : []),
         ].slice(0, 6));
         toast(`Alert: ${data.message}`, "warn");
       }
     },
   });
 
-  const lowCount = inventory.reduce(
-    (sum, loc) => sum + loc.items.filter((i) => i.status !== "ok").length,
+  const safeInventory = Array.isArray(inventory) ? inventory : [];
+  const safeOnShift = Array.isArray(onShift) ? onShift : [];
+  const safeLatestSales = Array.isArray(latestSales) ? latestSales : [];
+  const safeAlerts = Array.isArray(alerts) ? alerts : [];
+
+  const lowCount = safeInventory.reduce(
+    (sum, loc) => sum + (loc.items ?? []).filter((i) => i.status !== "ok").length,
     0
   );
-  const criticalCount = inventory.reduce(
-    (sum, loc) => sum + loc.items.filter((i) => i.status === "critical").length,
+  const criticalCount = safeInventory.reduce(
+    (sum, loc) => sum + (loc.items ?? []).filter((i) => i.status === "critical").length,
     0
   );
 
-  const lowStockAlerts = alerts.filter((a) => a.type === "LOW_STOCK");
+  const lowStockAlerts = safeAlerts.filter((a) => a.type === "LOW_STOCK");
 
   const todaySales = report?.total_sales ?? 0;
   const todayOrders = report?.orders ?? 0;
@@ -362,8 +367,8 @@ export default function DashboardPage() {
                 <div>
                   <div className="kpi-card-value">{report ? todayOrders : "—"}</div>
                   <div className="kpi-card-sub">
-                    Across {inventory.length} active cart
-                    {inventory.length !== 1 ? "s" : ""}
+                    Across {safeInventory.length} active cart
+                    {safeInventory.length !== 1 ? "s" : ""}
                   </div>
                 </div>
                 <span className={`kpi-card-trend ${ordersDir}`}>
@@ -463,10 +468,10 @@ export default function DashboardPage() {
                   <Users size={20} />
                 </span>
               </div>
-              <div className="kpi-card-value">{onShift.length}</div>
+              <div className="kpi-card-value">{safeOnShift.length}</div>
               <div className="kpi-card-sub">
-                {onShift.length > 0
-                  ? onShift.map((s) => s.location_code).join(", ")
+                {safeOnShift.length > 0
+                  ? safeOnShift.map((s) => s.location_code).join(", ")
                   : "No staff tapped in"}
               </div>
             </div>
@@ -523,7 +528,7 @@ export default function DashboardPage() {
                 View all
               </button>
             </div>
-            {latestSales.length === 0 ? (
+            {safeLatestSales.length === 0 ? (
               <EmptyState
                 icon={ShoppingBag}
                 title="No sales today"
@@ -543,11 +548,11 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {latestSales.map((o) => (
+                    {safeLatestSales.map((o) => (
                       <tr key={o.id}>
                         <td className="text-xs muted">{formatTime(o.createdAt)}</td>
                         <td className="text-xs">
-                          {o.items
+                          {(o.items ?? [])
                             .map((i) => `${i.qty}x ${i.productName}${i.flavor ? ` (${i.flavor})` : ""}`)
                             .join(", ")}
                         </td>
@@ -583,14 +588,14 @@ export default function DashboardPage() {
                 Stock alerts
               </h3>
               <div className="flex items-center gap-2">
-                {isOwner && alerts.length > 0 && (
+                {isOwner && safeAlerts.length > 0 && (
                   <button
                     className="ghost small-btn"
                     onClick={async () => {
                       try {
                         await api.patch("/alerts/read", {});
                         const alr = await api.get("/alerts?unread_only=true&page=1&pageSize=6");
-                        setAlerts(alr.data.data);
+                        setAlerts(alr.data?.data ?? []);
                         toast("All alerts marked as read", "success");
                       } catch {
                         toast("Failed to mark alerts as read", "error");
@@ -606,7 +611,7 @@ export default function DashboardPage() {
                 </button>
               </div>
             </div>
-            {inventory.length === 0 ? (
+            {safeInventory.length === 0 ? (
               <EmptyState
                 icon={Boxes}
                 title="No carts configured"
@@ -615,9 +620,9 @@ export default function DashboardPage() {
               />
             ) : (
               <div>
-                {inventory
+                {safeInventory
                   .flatMap((loc) =>
-                    loc.items
+                    (loc.items ?? [])
                       .filter((i) => i.status !== "ok")
                       .map((i) => ({ ...i, locationCode: loc.code }))
                   )
@@ -646,7 +651,7 @@ export default function DashboardPage() {
                       </div>
                     );
                   })}
-                {inventory.every((loc) => loc.items.every((i) => i.status === "ok")) && (
+                {safeInventory.every((loc) => (loc.items ?? []).every((i) => i.status === "ok")) && (
                   <EmptyState
                     icon={CheckCircle}
                     title="All stock healthy"
@@ -659,18 +664,19 @@ export default function DashboardPage() {
           </section>
 
           {/* 4. Cart Status (Spans 1 column) */}
-          {inventory.length > 0 && (
+          {safeInventory.length > 0 && (
             <section className="panel">
               <div className="panel-head" style={{ marginBottom: "12px" }}>
                 <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
                   Cart status
                 </h3>
-                <Badge variant="neutral">{inventory.length} carts</Badge>
+                <Badge variant="neutral">{safeInventory.length} carts</Badge>
               </div>
               <div>
-                {inventory.map((loc) => {
-                  const low = loc.items.filter((i) => i.status !== "ok").length;
-                  const critical = loc.items.filter((i) => i.status === "critical").length;
+                {safeInventory.map((loc) => {
+                  const locItems = loc.items ?? [];
+                  const low = locItems.filter((i) => i.status !== "ok").length;
+                  const critical = locItems.filter((i) => i.status === "critical").length;
                   const dotClass = critical > 0 ? "critical" : low > 0 ? "warn" : "ok";
 
                   return (
@@ -687,7 +693,7 @@ export default function DashboardPage() {
                       <span className="alert-item-text">
                         <div className="alert-item-name">{loc.code}</div>
                         <div className="alert-item-detail">
-                          {loc.name} - {loc.items.length} items
+                          {loc.name} - {locItems.length} items
                         </div>
                       </span>
                       <Badge variant={critical > 0 ? "danger" : low > 0 ? "warn" : "ok"}>
@@ -710,11 +716,11 @@ export default function DashboardPage() {
               <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
                 On-shift staff
               </h3>
-              <Badge variant={onShift.length > 0 ? "ok" : "neutral"}>
-                {onShift.length} on duty
+              <Badge variant={safeOnShift.length > 0 ? "ok" : "neutral"}>
+                {safeOnShift.length} on duty
               </Badge>
             </div>
-            {onShift.length === 0 ? (
+            {safeOnShift.length === 0 ? (
               <EmptyState
                 icon={Clock}
                 title="No one on shift"
@@ -723,7 +729,7 @@ export default function DashboardPage() {
               />
             ) : (
               <div className="flex flex-col gap-2">
-                {onShift.map((s) => (
+                {safeOnShift.map((s) => (
                   <div
                     key={`${s.name}-${s.location_code}`}
                     className="cart-status-item"

@@ -69,7 +69,7 @@ export default function Layout() {
   }
 
   useEffect(() => {
-    api.get("/auth/me").then(({ data }) => setUser(data.user)).catch(() => {});
+    api.get("/auth/me").then(({ data }) => setUser(data?.user ?? null)).catch(() => {});
   }, []);
 
   useLayoutEffect(() => {
