@@ -252,18 +252,26 @@ export default function SalesPage() {
                 {
                   key: "total",
                   label: "Total",
-                  width: 110,
+                  width: 150,
                   align: "right",
                   render: (o) => (
-                    <>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "flex-end",
+                        gap: "8px",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
                       <strong>P{o.total}</strong>
                       {o.status === "VOID" && (
-                        <div style={{ marginTop: "4px" }}><Badge variant="danger">VOID</Badge></div>
+                        <Badge variant="danger">VOID</Badge>
                       )}
                       {o.status === "REFUNDED" && (
-                        <div style={{ marginTop: "4px" }}><Badge variant="warn">REFUNDED</Badge></div>
+                        <Badge variant="warn">REFUNDED</Badge>
                       )}
-                    </>
+                    </span>
                   ),
                 },
                 ...(isOwner
@@ -271,10 +279,10 @@ export default function SalesPage() {
                       {
                         key: "actions",
                         label: "",
-                        width: 80,
+                        width: 96,
                         align: "right",
                         render: (o) => (
-                          <div className="flex items-center justify-end gap-1">
+                          <div className="flex items-center justify-end gap-2">
                             {o.status !== "VOID" && (
                               <button
                                 className="ghost small-btn"
@@ -361,7 +369,7 @@ export default function SalesPage() {
           title="Void order?"
           message={
             confirming
-              ? `Order #${confirming.id} for P${confirming.total} will stay in history as VOID and stop counting toward sales. Stock is not restored.`
+              ? `Order #${confirming.id} for P${confirming.total} will stay in history as VOID and stop counting toward sales. Deducted recipe stock will be restored automatically.`
               : ""
           }
           confirmLabel="Void"
