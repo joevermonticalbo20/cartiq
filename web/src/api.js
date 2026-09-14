@@ -93,7 +93,10 @@ export function setupAuthInterceptor(navigate) {
       // 401 on an app request: try one silent refresh, then retry once.
       // Logout happens ONLY on explicit session rejection. Transient
       // refresh failures (offline/timeout/5xx) keep the session and let
-      // the caller show its own error, like mobile.
+      // the caller show its own error, like mobile. And when the refresh
+      // DID yield a fresh token but the retried call still 401s, that is an
+      // endpoint-level rejection (wrong credential type, disabled feature) —
+      // never a dead session, so the session must survive it too.
       if (error.response?.status === 401 && !isAuthCall && !originalRequest?._retry) {
         if (originalRequest) originalRequest._retry = true;
         const outcome = await refreshAccessToken().catch(() => ({ fatal: false }));
@@ -102,13 +105,14 @@ export function setupAuthInterceptor(navigate) {
             ...originalRequest.headers,
             Authorization: `Bearer ${outcome.token}`,
           };
+          originalRequest._refreshed = true;
           return api(originalRequest);
         }
         if (outcome?.fatal) {
           clearSession();
           redirectToLogin();
         }
-      } else if (error.response?.status === 401 && !isAuthCall) {
+      } else if (error.response?.status === 401 && !isAuthCall && !originalRequest?._refreshed) {
         clearSession();
         redirectToLogin();
       }

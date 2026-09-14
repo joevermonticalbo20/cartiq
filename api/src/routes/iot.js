@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db as prisma } from "../firestore.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 import { requireDevice } from "../middleware/device.js";
 import { manilaDayRange, manilaDayStart } from "../services/timezone.js";
 
@@ -272,6 +272,53 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
     });
 
     return res.status(201).json({ accepted, rejected });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /api/shifts/manual (OWNER, user JWT) — manager correction for a missed
+// RFID tap. Device auth deliberately NOT required here: this is the dashboard
+// path, while POST /shifts stays device-only. Using the device endpoint with
+// a user token 401s (and must never be used as a fallback).
+// Body: { staffId, locationCode, event: "IN"|"OUT", ts? }
+router.post("/shifts/manual", requireAuth, requireRole("OWNER"), async (req, res, next) => {
+  try {
+    const { staffId, locationCode, event, ts } = req.body ?? {};
+    const ev = String(event ?? "").toUpperCase();
+    if (!["IN", "OUT"].includes(ev)) {
+      return res.status(400).json({ error: 'event must be "IN" or "OUT"' });
+    }
+    if (locationCode === undefined || locationCode === "") {
+      return res.status(400).json({ error: "locationCode is required" });
+    }
+    if (staffId === undefined || staffId === "" || staffId === null) {
+      return res.status(400).json({ error: "staffId is required" });
+    }
+    const [user, location] = await Promise.all([
+      prisma.user.findUnique({ where: { id: Number(staffId) } }),
+      prisma.location.findUnique({ where: { code: String(locationCode) } }),
+    ]);
+    if (!user) return res.status(404).json({ error: "Staff not found" });
+    if (!location) return res.status(404).json({ error: "Location not found" });
+    const at = ts ? new Date(ts) : new Date();
+    if (!Number.isFinite(at.getTime())) {
+      return res.status(400).json({ error: "ts must be a valid date" });
+    }
+    const [id] = await prisma.shift.nextIds(1);
+    const shift = await prisma.shift.create({
+      data: {
+        id,
+        staffUid: user.rfidUid ?? `MANUAL-${user.id}`,
+        staffId: user.id,
+        staffName: user.name,
+        locationId: location.id,
+        event: ev,
+        ts: at,
+        deviceId: "MANUAL",
+      },
+    });
+    return res.status(201).json({ shift });
   } catch (err) {
     return next(err);
   }

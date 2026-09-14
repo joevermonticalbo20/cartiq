@@ -43,6 +43,9 @@ export default function StaffPage() {
     event: "IN",
     ts: toLocalISOString(new Date())
   });
+  // Tracks whether the manager hand-edited the timestamp. The live clock
+  // below only ticks an untouched field, so typing is never overwritten.
+  const [tsTouched, setTsTouched] = useState(false);
 
   const [editing, setEditing] = useState(null);
   const [editClosing, setEditClosing] = useState(false);
@@ -85,11 +88,20 @@ export default function StaffPage() {
   }, [fetchTopData]);
 
   useEffect(() => {
-    if (!tableLoading && !perfLoading) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional clock sync when loading flips
-      setLastUpdated(new Date());
-    }
+    if (tableLoading || perfLoading) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional clock sync when loading flips
+    setLastUpdated(new Date());
   }, [tableLoading, perfLoading]);
+
+  // Live clock for Exact Date & Time: ticks every second while the manual
+  // entry modal is open, until the manager hand-edits the field.
+  useEffect(() => {
+    if (!addOpen || tsTouched) return undefined;
+    const timer = setInterval(() => {
+      setNewShift((prev) => ({ ...prev, ts: toLocalISOString(new Date()) }));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [addOpen, tsTouched]);
 
   function handleRefreshAll() {
     fetchTopData();
@@ -115,17 +127,27 @@ export default function StaffPage() {
     setTimeout(() => { setEditing(null); setEditClosing(false); }, 150);
   }
 
-  // --- MANUAL ENTRY HANDLER ---
+  // --- MANUAL ENTRY HANDLER (OWNER user-JWT endpoint; the device-only
+  // POST /shifts would 401 a user token and must never be used here) ---
   async function handleAddShift(e) {
     e.preventDefault();
     setAddError("");
+    if (!newShift.staffId) {
+      setAddError("Select a staff member.");
+      return;
+    }
+    const at = newShift.ts ? new Date(newShift.ts) : null;
+    if (!at || !Number.isFinite(at.getTime())) {
+      setAddError("Enter a valid date and time.");
+      return;
+    }
     setIsAdding(true);
     try {
-      await api.post("/shifts", {
-        staffId: newShift.staffId,
+      await api.post("/shifts/manual", {
+        staffId: Number(newShift.staffId),
         locationCode: newShift.locationCode,
         event: newShift.event,
-        ts: new Date(newShift.ts).toISOString()
+        ts: at.toISOString()
       });
       toast(`Manual shift entry saved`, "success");
       closeAddModal();
@@ -135,6 +157,7 @@ export default function StaffPage() {
         event: "IN",
         ts: toLocalISOString(new Date())
       });
+      setTsTouched(false);
       handleRefreshAll();
     } catch (err) {
       setAddError(getErrorMessage(err, "Failed to log manual shift."));
@@ -331,6 +354,9 @@ export default function StaffPage() {
                     if(!newShift.locationCode && locations.length > 0) {
                       setNewShift(prev => ({ ...prev, locationCode: locations[0].code }));
                     }
+                    // Fresh timestamp + re-arm the live clock on every open.
+                    setNewShift(prev => ({ ...prev, ts: toLocalISOString(new Date()) }));
+                    setTsTouched(false);
                     setAddOpen(true);
                   }}
                 >
@@ -489,7 +515,11 @@ export default function StaffPage() {
                     type="datetime-local"
                     required
                     value={newShift.ts}
-                    onChange={(e) => setNewShift({ ...newShift, ts: e.target.value })}
+                    onChange={(e) => {
+                      setTsTouched(true);
+                      setNewShift({ ...newShift, ts: e.target.value });
+                    }}
+                    title="Live clock — edit to set a custom time"
                     style={{ height: "36px" }}
                   />
                 </label>

@@ -90,6 +90,36 @@ describe("auth interceptor refresh flow", () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
+  it("stays logged in when a refreshed retry still 401s (endpoint-level rejection)", async () => {
+    const { setupAuthInterceptor } = await loadApi();
+    setupAuthInterceptor(navigate);
+    const store = useBackingStore({
+      cartiq_token: "expired-access",
+      cartiq_refresh_token: "stored-refresh",
+    });
+    inst.h.postMock.mockResolvedValue({
+      data: { token: "new-access", refreshToken: "new-refresh" },
+    });
+    // First 401 triggers refresh + retry; capture the retried config.
+    inst.h.requestMock.mockRejectedValueOnce(fail401());
+    await expect(inst.h.responseError(fail401())).rejects.toBeDefined();
+    const retried = inst.h.requestMock.mock.calls[0][0];
+    expect(retried._retry).toBe(true);
+    expect(retried._refreshed).toBe(true);
+
+    // The retried call 401s again despite the fresh token: endpoint-level
+    // rejection (wrong credential type), NOT a dead session.
+    await expect(
+      inst.h.responseError({
+        response: { status: 401, data: {} },
+        config: retried,
+      })
+    ).rejects.toBeDefined();
+    expect(store.cartiq_token).toBe("new-access");
+    expect(store.cartiq_refresh_token).toBe("new-refresh");
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it("logs out when refresh fails", async () => {
     const { setupAuthInterceptor } = await loadApi();
     setupAuthInterceptor(navigate);
