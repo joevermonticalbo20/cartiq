@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import Select from "./Select.jsx";
 
 const OPTIONS = [
@@ -64,5 +64,25 @@ describe("Select", () => {
   it("shows the placeholder for a stale value", () => {
     renderSelect({ value: "GONE", placeholder: "Pick one" });
     expect(screen.getByText("Pick one")).toBeInTheDocument();
+  });
+
+  it("hides the placeholder option from the menu but shows its label when active", () => {
+    const opts = [
+      { value: "", label: "Select staff..." },
+      { value: "1", label: "Stall Staff 1" },
+      { value: "2", label: "Stall Staff 2" },
+    ];
+    const { trigger } = renderSelect({ options: opts, placeholderValue: "" });
+    // Trigger shows the placeholder label while nothing real is picked.
+    expect(screen.getByText("Select staff...")).toBeInTheDocument();
+    fireEvent.click(trigger);
+    const listbox = screen.getByRole("listbox");
+    expect(listbox).toBeInTheDocument();
+    // Placeholder row is gone from the menu; real options remain.
+    expect(within(listbox).queryByText("Select staff...")).toBeNull();
+    expect(within(listbox).getByText("Stall Staff 1")).toBeInTheDocument();
+    expect(within(listbox).getByText("Stall Staff 2")).toBeInTheDocument();
+    fireEvent.click(within(listbox).getByText("Stall Staff 2"));
+    expect(screen.queryByRole("listbox")).toBeNull();
   });
 });

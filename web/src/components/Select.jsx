@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useId } from "react";
 import { ChevronDown } from "lucide-react";
 
-export default function Select({ value, onChange, options = [], placeholder = "Select...", className = "" }) {
+export default function Select({ value, onChange, options = [], placeholder = "Select...", placeholderValue, className = "" }) {
   const safeOptions = Array.isArray(options) ? options : [];
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(-1);
@@ -22,14 +22,30 @@ export default function Select({ value, onChange, options = [], placeholder = "S
 
   const selectedOption = safeOptions.find((o) => o.value === value);
 
+  // A placeholder passed as a real option (e.g. { value: "", label:
+  // "Select staff..." }) is shown as the trigger text when active but hidden
+  // from the dropdown list, so picking a value never leaves a prompt row.
+  const placeholderOption =
+    placeholderValue === undefined
+      ? undefined
+      : safeOptions.find((o) => o.value === placeholderValue);
+  const menuOptions = placeholderOption
+    ? safeOptions.filter((o) => o !== placeholderOption)
+    : safeOptions;
+  const displayLabel = selectedOption
+    ? selectedOption.label
+    : placeholderOption
+      ? placeholderOption.label
+      : placeholder;
+
   // Highlight follows the selected row whenever the menu opens.
   function openMenu() {
-    setHighlighted(safeOptions.findIndex((o) => o.value === value));
+    setHighlighted(menuOptions.findIndex((o) => o.value === value));
     setOpen(true);
   }
 
   function choose(index) {
-    const opt = safeOptions[index];
+    const opt = menuOptions[index];
     if (!opt) return;
     onChange(opt.value);
     setOpen(false);
@@ -44,22 +60,22 @@ export default function Select({ value, onChange, options = [], placeholder = "S
       }
       return;
     }
-    if (safeOptions.length === 0) {
+    if (menuOptions.length === 0) {
       if (e.key === "Escape") setOpen(false);
       return;
     }
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setHighlighted((h) => (h + 1) % safeOptions.length);
+      setHighlighted((h) => (h + 1) % menuOptions.length);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setHighlighted((h) => (h - 1 + safeOptions.length) % safeOptions.length);
+      setHighlighted((h) => (h - 1 + menuOptions.length) % menuOptions.length);
     } else if (e.key === "Home") {
       e.preventDefault();
       setHighlighted(0);
     } else if (e.key === "End") {
       e.preventDefault();
-      setHighlighted(safeOptions.length - 1);
+      setHighlighted(menuOptions.length - 1);
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       choose(highlighted);
@@ -85,7 +101,7 @@ export default function Select({ value, onChange, options = [], placeholder = "S
         aria-activedescendant={open ? activeDescendant : undefined}
       >
         <span className="custom-select-value">
-          {selectedOption ? selectedOption.label : placeholder}
+          {displayLabel}
         </span>
         <ChevronDown size={16} className={`custom-select-icon ${open ? "open" : ""}`} />
       </button>
@@ -96,12 +112,12 @@ export default function Select({ value, onChange, options = [], placeholder = "S
           className="custom-select-dropdown"
           role="listbox"
         >
-          {safeOptions.length === 0 ? (
+          {menuOptions.length === 0 ? (
             <li className="custom-select-option empty" role="option" aria-selected="false" aria-disabled="true">
               No options available
             </li>
           ) : (
-            safeOptions.map((opt, i) => {
+            menuOptions.map((opt, i) => {
               const isSelected = value === opt.value;
               return (
                 <li

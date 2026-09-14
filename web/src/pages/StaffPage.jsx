@@ -501,6 +501,7 @@ export default function StaffPage() {
                     value={newShift.staffId}
                     onChange={(val) => setNewShift({ ...newShift, staffId: val })}
                     options={formStaffOptions}
+                    placeholderValue=""
                   />
                 </label>
                 
