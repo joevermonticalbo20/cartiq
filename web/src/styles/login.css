@@ -241,7 +241,12 @@
 }
 
 .password-toggle:hover {
-  color: var(--accent);
+  color: var(--text-muted);
+  transform: translateY(-50%);
+}
+
+.password-toggle:active:not(:disabled) {
+  transform: translateY(-50%);
 }
 
 /* --- Submit Button --- */

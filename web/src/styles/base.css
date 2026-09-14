@@ -92,3 +92,15 @@ label.field {
   font-size: var(--fs-sm);
   font-weight: 500;
 }
+
+/* ----- Base: hide native password reveal/clear controls ----- */
+/* Every password field already has its own show/hide toggle; the browser
+   native one (Edge/IE reveal eye) would render a confusing second icon. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+input[type="password"]::-webkit-credentials-auto-fill-button {
+  visibility: hidden;
+  pointer-events: none;
+}
