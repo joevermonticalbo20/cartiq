@@ -5,9 +5,10 @@ Multi-Location Food Cart Operations**
 
 SIA 2 & Mobile Application Development final project - Group 5, BSIT BA3B,
 Laguna University. Status: **deployed live (see "Deployment" below)** —
-Phases 0-5 + frontend UX polish P1-P4 + reliability/checkout/connectivity
-sprints + Firestore migration complete, pending hardware pilot and faculty
-approval.
+Phases 0-8 + frontend UX polish P1-P4 + reliability/checkout/connectivity
+sprints + Firestore migration + auth hardening + cart provisioning + products
+catalog + instant POS catalog sync complete, pending hardware pilot and
+faculty approval.
 
 | Component | Path | Stack | Status |
 |---|---|---|---|
@@ -51,7 +52,8 @@ Mobile POS ───────── API_BASE_URL (default) ──────
   demo history stays on the emulator. Rules (`firestore.rules`) deny direct client access —
   everything goes through the API: `firebase deploy --only firestore:rules --project cartiq-8e46f`.
 * **Free-tier notes:** Render sleeps after idle (~50s cold start; mobile/web retry once, POS queue covers
-  sales); Firestore reads are cached server-side 60s to protect the 50k/day Spark quota.
+  sales); Firestore reads are cached server-side 60s to protect the 50k/day Spark quota
+  (except `/catalog`, which is always-fresh so the POS never sells stale data).
 
 ## Quickstart (local development)
 
@@ -192,10 +194,22 @@ IPv4 address (e.g. `192.168.100.217`). The API must be running with
   ignored. Replays with the same `clientRef` return `duplicate: true`.
 - **Errors carry `correlationId`:** duplicate unique fields (P2002) → 409, missing records (P2025) → 404, 404s
   include an id — quote it when reporting a failure.
-- **Auth:** short-lived access JWT + rotating refresh tokens
-  (`POST /auth/refresh`, `refreshTokens` collection). Set `JWT_REFRESH_SECRET` in
-  `api/.env` (falls back to `JWT_SECRET` if omitted). `/auth/login` is rate
-  limited to 20 attempts per 15 minutes per IP.
+- **Auth:** 15-minute access JWT + rotating 30-day refresh tokens
+  (`POST /auth/refresh`, `refreshTokens` collection) + `POST /auth/logout`
+  revocation. Refresh rejects disabled accounts; `JWT_REFRESH_SECRET` must
+  differ from `JWT_SECRET` in production (Render dashboard, never in git).
+  `/auth/login` is rate limited to 20 attempts per 15 minutes per IP.
+  Extra guards: `/auth/refresh` 60/15min, `/orders` 120/min, `/import` and
+  `/locations` 20/hour (all in-memory, single-instance).
+- **Manual shift tools (OWNER):** `POST /shifts/manual` (missed-tap correction),
+  `PATCH /shifts/:id` (event/cart/time fix), `DELETE /shifts/:id`. The device
+  `POST /shifts` stays device-token-only — user tokens there 401 by design.
+- **Carts & catalog (OWNER):** `POST /locations` provisions cart + starter
+  inventory + ESP32 device with a shown-once token; `PATCH /locations/:id`
+  renames or toggles `ACTIVE/INACTIVE` (code immutable, no hard delete).
+  `GET|POST /products`, `PATCH /products/:id`, rename (atomic recipe rewrite),
+  guarded delete, `GET|POST /flavors`. `/catalog` is always-fresh (nocache)
+  so POS pull-to-refresh shows adds/removes immediately.
 - **LAN origins:** browser dashboard on a phone/laptop needs its origin in
   `CORS_ORIGINS` plus `HOST=0.0.0.0` and the Windows Firewall TCP 4000 rule.
 
@@ -204,18 +218,24 @@ IPv4 address (e.g. `192.168.100.217`). The API must be running with
 Automated suites (API must be running):
 
 ```bash
-node scripts/phase2_test.mjs   # IoT pipeline - 11 checks
+node scripts/phase2_test.mjs   # IoT pipeline - 14 checks
 node scripts/phase3_test.mjs   # analytics     - 19 checks (needs seed_history first)
 node scripts/phase4_test.mjs   # OCR + Excel   - 20 checks
-node scripts/phase5_test.mjs   # hardening     - 23 checks (pagination/staff/password/devices/shifts)
+node scripts/phase5_test.mjs   # hardening     - 33 checks (pagination/staff/password/devices/shifts)
 node scripts/phase6_test.mjs   # categories    - 13 checks (expense buckets)
+node scripts/phase7_test.mjs   # void workflow + ack + idempotency race - 21 checks
+node scripts/phase8_test.mjs   # carts + products catalog - 33 checks
+node scripts/test_authz_fix.mjs # logout/revoke, 15min tokens, VOID restore - 13 checks
+node --test test/*.test.js     # api unit tests (run inside api/) - 7 checks
 flutter analyze                # mobile static analysis
-flutter test                   # mobile unit tests - 21 checks (URL normalize, cart, receipt parser)
-cd web && npm run build        # web production build
+flutter test                   # mobile unit tests - 68 checks (URL normalize, cart, receipt parser, sync, money/text input)
+cd web && npm run lint && npm run test && npm run build  # web lint + 173 tests + production build
 ```
 
-Last full regression on a fresh database: **86 automated checks passed** across
-phases 2-6 plus an idempotency rerun.
+Last full regression on a fresh database: **166 automated API checks passed**
+(phases 2-8 + authz fix) plus api unit tests, **68 mobile** checks and
+**173 web** checks — all green, all on emulator-backed local runs
+(never run phase suites against prod; they write test data).
 
 Manual acceptance: `docs/uat-script.md` (15-scenario supervised parallel-run).
 
@@ -238,8 +258,12 @@ Manual acceptance: `docs/uat-script.md` (15-scenario supervised parallel-run).
 
 ## Known limits (by design, per proposal scope)
 
-- No online payments, payroll/tax accounting, or customer-facing ordering.
-- Localhost-only deployment; supervised parallel-run at one cart; no production.
+- **Free-tier deployment (live):** web on Firebase Hosting, API on Render free
+  (sleeps after idle, ~50s cold start; mobile/web retry once, POS queue covers
+  sales), Firestore Spark with 60s server-side read caching (except the
+  always-fresh POS catalog) to protect the 50k/day quota.
+- **Supervised operation:** parallel-run at the carts; no online payments,
+  payroll/tax accounting, or customer-facing ordering (per proposal scope).
 - Single API instance: live SSE subscribers and the login rate-limit counter
   live in process memory, so don't scale past one instance without a shared
   bus/store.
@@ -288,9 +312,9 @@ React+Vite setup:
   crash on one screen doesn't take the app down.
 - **Quick cart switcher** on the dashboard — shows each cart with its
   current low-stock count, links to the Inventory page.
-- **Vitest test suite** — `npm run test` (86 unit tests covering api utils,
-  DataTable, ConfirmDialog, Pagination, EmptyState, PasswordStrengthMeter,
-  and custom hooks); `npm run lint`
+- **Vitest test suite** — `npm run test` (173 unit tests covering api utils,
+  money/text/qty input rules, DataTable, Select, ConfirmDialog, Pagination,
+  EmptyState, PasswordStrengthMeter, and custom hooks); `npm run lint`
   (ESLint + React plugin + react-hooks rules); `npm run coverage` (text +
   HTML coverage reports). CI-ready: fails build on test or lint errors.
 - **GitHub Actions CI** — `web-ci.yml` (web lint + test + build),
@@ -340,8 +364,9 @@ React+Vite setup:
   Skip, and manual-IP entry; persisted manual server URL; Login → Server
   panel with Rescan + Save & test; errors show the resolved URL
   (`main.dart`, `services/api_client.dart`, `screens/login_screen.dart`).
-- **Dialog + toast a11y (web)** — `ConfirmDialog` has `role=dialog`,
-  Esc-to-cancel, initial focus; toasts have `role=status`/`alert`,
+- **Dialog + toast a11y (web)** — `ConfirmDialog` is sticky by design
+  (backdrop/Esc never dismiss; Cancel button only) with `role=dialog`,
+  initial focus and focus trap/return; toasts have `role=status`/`alert`,
   `aria-live`, a dismiss button, and a 5 s timeout.
 - **Loading + honesty (web)** — Analytics skeleton blocks + `aria-busy` +
   error Retry; Expenses summary respects the category filter; Data Hub
@@ -372,3 +397,26 @@ React+Vite setup:
   (`/reorders/prep`, `PATCH /inventory/items/:id`). Analytics page
   restructured: takeaway chips on top, numbered sections, fixed axes/legends,
   donut center totals, rich forecast empties (see `docs/api-contract.md`).
+- **Auth hardening batch** — 15-minute access tokens, server-side logout
+  revoke, disabled-account refresh rejection, no-logout-on-endpoint-401
+  interceptor rule; demo credential removed from the login page.
+- **Carts + Products UI** — Settings Carts section (add/deactivate/rename,
+  shown-once device token with copy) and a Financial → Products page
+  (create/edit/rename/delete with recipe/order safety counts, flavor
+  management, Data Hub import link).
+- **No-change honesty** — every edit modal detects untouched input and shows
+  an info toast (`No changes — …`) instead of a fake success and a wasted
+  API call (adjust stock, threshold, bulk, payment, expense, staff, shift).
+- **Input rules everywhere** — money (7 digits + 2 decimals), stock counts
+  (5 + 2), vendor/note (2 letters min, 40 max, single spaces), item names
+  (2 letters min, 30 max); shared `utils/format.js` + `utils/text.js`
+  (web, tested) and `utils/money_input.dart` + `utils/text_input.dart`
+  (mobile, tested).
+- **Shift tools that work** — Manual Shift Entry via OWNER endpoint (no more
+  device-401 logout) with a live-ticking Exact Date & Time; shift edit/delete
+  endpoints with minute-precision no-change check.
+- **Smarter Select** — placeholder options hidden from the menu, and option
+  clicks cancel label-forwarding so wrapping labels can't reopen the menu.
+- **Instant POS catalog** — pull-to-refresh + resume auto-reload on the POS
+  grid, always-fresh `/catalog`, and an `unknown product` sale warning when
+  the cart holds a since-deleted item.
