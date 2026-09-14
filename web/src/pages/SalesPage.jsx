@@ -252,9 +252,12 @@ export default function SalesPage() {
                 {
                   key: "total",
                   label: (
-                    // Shift the header left so it sits above the amounts
-                    // (amount slot 52px + gap 8px + badge spacer 62px).
-                    <span style={{ paddingRight: 70 }}>Total</span>
+                    // Mirror of the amount slot below: "Total" is left-aligned
+                    // in a 52px slot so its T sits exactly above every P.
+                    <span style={{ display: "inline-flex", gap: "8px", whiteSpace: "nowrap" }}>
+                      <span style={{ minWidth: "52px", textAlign: "left" }}>Total</span>
+                      <span style={{ minWidth: "62px" }} />
+                    </span>
                   ),
                   width: 132,
                   align: "right",
@@ -268,7 +271,7 @@ export default function SalesPage() {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      <strong style={{ minWidth: "52px", textAlign: "right" }}>
+                      <strong style={{ minWidth: "52px", textAlign: "left" }}>
                         P{o.total}
                       </strong>
                       {/* Empty spacer keeps every amount in the same slot;
@@ -309,11 +312,19 @@ export default function SalesPage() {
                                 </button>
                               </>
                             ) : (
-                              /* Status badge sits where the pen/X buttons are,
-                                 right-aligned like them. */
-                              <Badge variant={o.status === "REFUNDED" ? "warn" : "danger"}>
-                                {o.status}
-                              </Badge>
+                              /* Status badge centered across the actions cell,
+                                 i.e. in the middle of where pen/X sit. */
+                              <span
+                                style={{
+                                  display: "inline-flex",
+                                  justifyContent: "center",
+                                  width: "100%",
+                                }}
+                              >
+                                <Badge variant={o.status === "REFUNDED" ? "warn" : "danger"}>
+                                  {o.status}
+                                </Badge>
+                              </span>
                             )}
                           </div>
                         )
