@@ -12,6 +12,7 @@ import PageHeader from "../components/PageHeader.jsx";
 import { useToast } from "../components/Toast.jsx";
 import Select from "../components/Select.jsx";
 import { sanitizeMoneyInput, parseMoney } from "../utils/format.js";
+import { sanitizeTextInput, validateVendor, validateNote } from "../utils/text.js";
 
 const CATEGORY_CLASS = {
   Supplies: "brand",
@@ -128,15 +129,25 @@ export default function ExpensesPage() {
       setAddError("Enter an amount from P0.01 to P9,999,999.99 (whole pesos max 7 digits, up to 2 decimals).");
       return;
     }
+    const vendor = validateVendor(newExpense.vendor);
+    if (!vendor.ok) {
+      setAddError(vendor.error);
+      return;
+    }
+    const note = validateNote(newExpense.note);
+    if (!note.ok) {
+      setAddError(note.error);
+      return;
+    }
     setIsAdding(true);
     try {
       await api.post("/expenses", {
         date: newExpense.date,
-        vendor: newExpense.vendor,
+        vendor: vendor.value,
         locationCode: newExpense.locationCode || null,
         category: newExpense.category,
         amount,
-        note: newExpense.note,
+        note: note.value || null,
         source: "MANUAL"
       });
       toast(`Expense for ${newExpense.vendor} added`, "success");
@@ -168,15 +179,25 @@ export default function ExpensesPage() {
       setEditError("Enter an amount from P0.01 to P9,999,999.99 (whole pesos max 7 digits, up to 2 decimals).");
       return;
     }
+    const vendor = validateVendor(editing.vendor);
+    if (!vendor.ok) {
+      setEditError(vendor.error);
+      return;
+    }
+    const note = validateNote(editing.note);
+    if (!note.ok) {
+      setEditError(note.error);
+      return;
+    }
     const original = rows.find((r) => r.id === editing.id);
     const sameDay = (d) => String(d ?? "").split("T")[0];
     if (
       original &&
-      editing.vendor === original.vendor &&
+      vendor.value === original.vendor &&
       amount === Math.round(Number(original.amount) * 100) / 100 &&
       sameDay(editing.date) === sameDay(original.date) &&
       editing.category === original.category &&
-      (editing.note || "") === (original.note || "")
+      (note.value || "") === (original.note || "")
     ) {
       toast("No changes — nothing to update on this expense.", "info");
       closeEditModal();
@@ -186,11 +207,11 @@ export default function ExpensesPage() {
     try {
       await api.patch(`/expenses/${editing.id}`, {
         date: editing.date.split("T")[0],
-        vendor: editing.vendor,
+        vendor: vendor.value,
         locationCode: editing.locationCode || null,
         category: editing.category,
         amount,
-        note: editing.note
+        note: note.value || null
       });
       toast(`Expense for ${editing.vendor} updated`, "success");
       closeEditModal();
@@ -482,9 +503,12 @@ export default function ExpensesPage() {
                   <input
                     type="text"
                     required
+                    minLength={2}
+                    maxLength={40}
                     placeholder="e.g. SM Supermarket"
+                    title="Min 2 letters, max 40 characters, single spaces only"
                     value={newExpense.vendor}
-                    onChange={(e) => setNewExpense({ ...newExpense, vendor: e.target.value })}
+                    onChange={(e) => setNewExpense({ ...newExpense, vendor: sanitizeTextInput(e.target.value) })}
                   />
                 </label>
                 
@@ -511,9 +535,11 @@ export default function ExpensesPage() {
                   Note (Optional)
                   <input
                     type="text"
+                    maxLength={40}
                     placeholder="Brief description of the purchase"
+                    title="Max 40 characters, single spaces only"
                     value={newExpense.note}
-                    onChange={(e) => setNewExpense({ ...newExpense, note: e.target.value })}
+                    onChange={(e) => setNewExpense({ ...newExpense, note: sanitizeTextInput(e.target.value) })}
                   />
                 </label>
                 
@@ -569,8 +595,11 @@ export default function ExpensesPage() {
                   <input
                     type="text"
                     required
+                    minLength={2}
+                    maxLength={40}
+                    title="Min 2 letters, max 40 characters, single spaces only"
                     value={editing?.vendor || ""}
-                    onChange={(e) => setEditing({ ...editing, vendor: e.target.value })}
+                    onChange={(e) => setEditing({ ...editing, vendor: sanitizeTextInput(e.target.value) })}
                   />
                 </label>
                 
@@ -597,8 +626,10 @@ export default function ExpensesPage() {
                   Note (Optional)
                   <input
                     type="text"
+                    maxLength={40}
+                    title="Max 40 characters, single spaces only"
                     value={editing?.note || ""}
-                    onChange={(e) => setEditing({ ...editing, note: e.target.value })}
+                    onChange={(e) => setEditing({ ...editing, note: sanitizeTextInput(e.target.value) })}
                   />
                 </label>
                 

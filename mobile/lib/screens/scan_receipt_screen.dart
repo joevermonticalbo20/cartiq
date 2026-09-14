@@ -8,6 +8,7 @@ import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../services/receipt_scanner.dart';
 import '../utils/money_input.dart';
+import '../utils/text_input.dart';
 import '../theme.dart';
 
 class ScanReceiptScreen extends StatefulWidget {
@@ -92,10 +93,22 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
   }
 
   Future<void> _save(bool ocrSource) async {
-    final amount = MoneyInput.tryParse(_amount.text);
-    if (_vendor.text.trim().isEmpty || amount == null || amount <= 0) {
+    final vendor = TextInputRules.sanitize(_vendor.text).trim();
+    final note = TextInputRules.sanitize(_note.text).trim();
+    if (!TextInputRules.isValidVendor(_vendor.text)) {
       setState(() => _message =
-          'Vendor and an amount from P0.01 to P9,999,999.99 are required.');
+          'Vendor needs at least 2 letters (max 40 characters, single spaces).');
+      return;
+    }
+    if (!TextInputRules.isValidNote(_note.text)) {
+      setState(() => _message =
+          'Note needs at least 2 letters when provided (max 40 characters).');
+      return;
+    }
+    final amount = MoneyInput.tryParse(_amount.text);
+    if (amount == null || amount <= 0) {
+      setState(() => _message =
+          'Enter an amount from P0.01 to P9,999,999.99.');
       return;
     }
     // Expenses are online-only (not queued offline). Surface connectivity
@@ -125,17 +138,17 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
     }
     try {
       await auth.api.createExpense(auth.token!, {
-        'vendor': _vendor.text.trim(),
+        'vendor': vendor,
         'locationCode': _locationCode,
         'amount': amount,
         'date': expenseDate.toIso8601String(),
         'source': ocrSource ? 'OCR' : 'MANUAL',
         'category': _category,
-        'note': _note.text.trim(),
+        'note': note.isEmpty ? '' : note,
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Expense recorded: ${_vendor.text.trim()} (P${amount.toStringAsFixed(2)})')),
+        SnackBar(content: Text('Expense recorded: $vendor (P${amount.toStringAsFixed(2)})')),
       );
       Navigator.pop(context);
     } on ApiException catch (e) {
@@ -282,8 +295,10 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
                   const SizedBox(height: 10),
                   TextField(
                     controller: _vendor,
+                    inputFormatters: const [SingleSpaceFormatter()],
                     decoration: const InputDecoration(
                       labelText: 'Vendor *',
+                      helperText: 'Min 2 letters, max 40',
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -310,8 +325,10 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
                   TextField(
                     controller: _note,
                     maxLines: 2,
+                    inputFormatters: const [SingleSpaceFormatter()],
                     decoration: const InputDecoration(
                       labelText: 'Note / OCR excerpt',
+                      helperText: 'Max 40 characters',
                       border: OutlineInputBorder(),
                     ),
                   ),
