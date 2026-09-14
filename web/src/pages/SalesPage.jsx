@@ -93,9 +93,10 @@ export default function SalesPage() {
     setEditError("");
     setIsEditing(true);
     try {
+      // Payment correction only — the API rejects any status except VOID,
+      // which has its own confirm dialog on the table.
       await api.patch(`/orders/${editing.id}`, {
         paymentMethod: editing.paymentMethod,
-        status: editing.status
       });
       toast(`Order #${editing.id} updated`, "success");
       closeEditModal();
@@ -370,11 +371,11 @@ export default function SalesPage() {
             <div className={`modal ${editClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
               <h3><Edit2 size={22} className="muted"/> Edit Order #{editing?.id}</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                Update the payment method or order status. To fully invalidate an order, use the Void button on the table.
+                Correct a mis-tapped payment method. To fully invalidate an order, use the Void button on the table.
               </p>
               
               <form onSubmit={handleEditOrder} className="flex flex-col gap-4">
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+                <div>
                   <label className="field">
                     Payment Method
                     <Select
@@ -382,19 +383,8 @@ export default function SalesPage() {
                       onChange={(val) => setEditing({ ...editing, paymentMethod: val })}
                       options={[
                         { value: "CASH", label: "Cash" },
-                        { value: "GCASH", label: "GCash" }
-                      ]}
-                    />
-                  </label>
-                  
-                  <label className="field">
-                    Order Status
-                    <Select
-                      value={editing?.status || "COMPLETED"}
-                      onChange={(val) => setEditing({ ...editing, status: val })}
-                      options={[
-                        { value: "COMPLETED", label: "Completed" },
-                        { value: "REFUNDED", label: "Refunded" }
+                        { value: "GCASH", label: "GCash" },
+                        { value: "CARD", label: "Card" }
                       ]}
                     />
                   </label>

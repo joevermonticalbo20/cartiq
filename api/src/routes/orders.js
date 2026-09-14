@@ -269,21 +269,43 @@ function emptyMeta(page, pageSize) {
   return { total: 0, page, pageSize, totalPages: 1 };
 }
 
-// PATCH /orders/:id - void a mis-tapped sale (OWNER only). The row stays in
-// history with actor + timestamp, and deducted recipe stock is restored
-// (auto-restore) with an audit trail. Missing inventory rows are reported in
-// warnings[] instead of failing the void.
+// PATCH /orders/:id (OWNER only) — two operations, never mixed:
+//   { status: "VOID", reason? } — void a mis-tapped sale. The row stays in
+//   history with actor + timestamp, and deducted recipe stock is restored
+//   (auto-restore) with an audit trail. Missing inventory rows are reported in
+//   warnings[] instead of failing the void.
+//   { paymentMethod } — correct a mis-tapped payment method on a PAID order
+//   (CASH|GCASH|CARD). Stock untouched.
+const ORDER_PAYMENT_METHODS = ["CASH", "GCASH", "CARD"];
 router.patch("/orders/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const { status, reason } = req.body ?? {};
-    if (status !== "VOID") {
-      return res.status(400).json({ error: 'only status "VOID" is supported' });
+    const { status, reason, paymentMethod } = req.body ?? {};
+    if (status !== undefined && status !== "VOID") {
+      return res.status(400).json({ error: 'only status "VOID" is supported (omit status to edit payment method)' });
     }
     const existing = await prisma.order.findUnique({
       where: { id: Number(req.params.id) },
       include: { items: true },
     });
     if (!existing) return res.status(404).json({ error: "Order not found" });
+    if (status === undefined) {
+      if (paymentMethod === undefined) {
+        return res.status(400).json({ error: "provide paymentMethod or status VOID" });
+      }
+      if (existing.status === "VOID") {
+        return res.status(400).json({ error: "VOID orders cannot be edited" });
+      }
+      const payMethod = String(paymentMethod).toUpperCase();
+      if (!ORDER_PAYMENT_METHODS.includes(payMethod)) {
+        return res.status(400).json({ error: "paymentMethod must be one of: CASH, GCASH, CARD" });
+      }
+      const updated = await prisma.order.update({
+        where: { id: existing.id },
+        data: { paymentMethod: payMethod },
+        include: { items: true },
+      });
+      return res.json({ order: updated });
+    }
     if (existing.status === "VOID") {
       return res.status(400).json({ error: "Order is already void" });
     }
