@@ -479,11 +479,11 @@ export default function SettingsPage() {
                 <table className="data table-fixed">
                   <thead>
                     <tr>
-                      <th style={{ width: 200 }}>Device ID</th>
-                      <th style={{ width: 140 }}>Cart</th>
-                      <th style={{ width: 140 }}>Status</th>
-                      <th>Last heartbeat</th>
-                      <th className="t-center" style={{ width: 140 }}>Actions</th>
+                      <th style={{ width: 180 }}>Device ID</th>
+                      <th style={{ width: 120 }}>Cart</th>
+                      <th style={{ width: 110 }}>Status</th>
+                      <th style={{ width: 240 }}>Last heartbeat</th>
+                      <th className="t-center" style={{ width: 130 }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
