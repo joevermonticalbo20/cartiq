@@ -417,6 +417,10 @@ React+Vite setup:
   endpoints with minute-precision no-change check.
 - **Smarter Select** — placeholder options hidden from the menu, and option
   clicks cancel label-forwarding so wrapping labels can't reopen the menu.
+- **Honest edit modals** - Sales edit is payment-correction only (the API now
+  accepts `{paymentMethod}`; the phantom Completed/Refunded status that always
+  400'd is gone), and Inventory edit is threshold-only (name/unit/category
+  have no backing fields and no longer pretend to save).
 - **Instant POS catalog** — pull-to-refresh + resume auto-reload on the POS
   grid, always-fresh `/catalog`, and an `unknown product` sale warning when
   the cart holds a since-deleted item.
