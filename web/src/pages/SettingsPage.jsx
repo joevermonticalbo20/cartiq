@@ -483,7 +483,7 @@ export default function SettingsPage() {
                       <th style={{ width: 120 }}>Cart</th>
                       <th style={{ width: 110 }}>Status</th>
                       <th style={{ width: 240 }}>Last heartbeat</th>
-                      <th style={{ width: 90 }}>Actions</th>
+                      <th className="t-center" style={{ width: 160 }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -499,8 +499,8 @@ export default function SettingsPage() {
                         <td className="muted small">
                           {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "never"}
                         </td>
-                        <td className="nowrap">
-                          <div className="flex items-center justify-start gap-1">
+                        <td className="t-center nowrap">
+                          <div className="flex items-center justify-center gap-1">
                             <button
                               className="ghost small-btn"
                               onClick={() => { setDeviceEditing(d); setDeviceError(""); }}
