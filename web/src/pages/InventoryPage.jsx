@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { CheckSquare, SlidersHorizontal, Square, Boxes, RefreshCw, Plus, PackagePlus } from "lucide-react";
+import { CheckSquare, SlidersHorizontal, Square, Boxes, RefreshCw, Plus, PackagePlus, Edit2, Trash2 } from "lucide-react";
 import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import SensorPanel from "../components/SensorPanel.jsx";
@@ -21,14 +21,14 @@ export default function InventoryPage() {
   const [selected, setSelected] = useState("");
   const [loading, setLoading] = useState(true);
   
-  // States para sa Adjusting Stock
   const [adjusting, setAdjusting] = useState(null);
+  const [adjustClosing, setAdjustClosing] = useState(false);
   const [newStock, setNewStock] = useState("");
   const [adjustError, setAdjustError] = useState("");
   const [saving, setSaving] = useState(false);
   
-  // States para sa Add New Item
   const [addOpen, setAddOpen] = useState(false);
+  const [addClosing, setAddClosing] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState("");
   const [newItem, setNewItem] = useState({
@@ -39,6 +39,14 @@ export default function InventoryPage() {
     stock: ""
   });
 
+  // --- NEW STATES FOR EDIT & DELETE ---
+  const [editing, setEditing] = useState(null);
+  const [editClosing, setEditClosing] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [deleting, setDeleting] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const [forecast, setForecast] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -47,6 +55,29 @@ export default function InventoryPage() {
   const [prep, setPrep] = useState(null);
   const [applyingId, setApplyingId] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+
+  function closeAddModal() {
+    setAddClosing(true);
+    setTimeout(() => { setAddOpen(false); setAddClosing(false); }, 150);
+  }
+
+  function closeAdjustModal() {
+    setAdjustClosing(true);
+    setTimeout(() => { setAdjusting(null); setAdjustClosing(false); }, 150);
+  }
+
+  function closeEditModal() {
+    setEditClosing(true);
+    setTimeout(() => { setEditing(null); setEditClosing(false); }, 150);
+  }
+
+  // UX Fix: Added editing, editClosing, and deleting to global scroll lock
+  const isAnyModalOpen = addOpen || addClosing || adjusting || adjustClosing || bulkConfirm || editing || editClosing || Boolean(deleting);
+  useEffect(() => {
+    if (isAnyModalOpen) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => { document.body.style.overflow = ""; };
+  }, [isAnyModalOpen]);
 
   const refresh = useCallback(() => {
     const targetCode = selected || "CART-01";
@@ -63,7 +94,6 @@ export default function InventoryPage() {
         setForecast(fc.data?.items ?? []);
         setPrep(pr.data);
         setLoadError("");
-
         if (!locs.some((l) => l.code === selected) && locs[0]) {
           setSelected(locs[0].code);
         }
@@ -95,7 +125,7 @@ export default function InventoryPage() {
         reason: "manual recount via dashboard",
       });
       toast(`${adjusting.name} updated to ${value} ${adjusting.unit}`, "success");
-      setAdjusting(null);
+      closeAdjustModal();
       refresh();
     } catch (err) {
       setAdjustError(getErrorMessage(err, "Adjustment failed - try again."));
@@ -104,7 +134,6 @@ export default function InventoryPage() {
     }
   }
 
-  // Function para i-save ang New Item
   async function handleAddItem(e) {
     e.preventDefault();
     setAddError("");
@@ -122,13 +151,51 @@ export default function InventoryPage() {
       });
       
       toast(`${newItem.name} added successfully to ${selected}`, "success");
-      setAddOpen(false);
+      closeAddModal();
       setNewItem({ name: "", category: "Ingredients", unit: "pcs", threshold: "", stock: "" });
       refresh();
     } catch (err) {
       setAddError(getErrorMessage(err, "Failed to add item. Backend endpoint may be missing."));
     } finally {
       setIsAdding(false);
+    }
+  }
+
+  // --- NEW HANDLERS FOR EDIT & DELETE ---
+  async function handleEditItem(e) {
+    e.preventDefault();
+    setEditError("");
+    setIsEditing(true);
+
+    try {
+      await api.patch(`/inventory/items/${editing.id}`, {
+        name: editing.name,
+        category: editing.category,
+        unit: editing.unit,
+        threshold: Number(editing.threshold)
+      });
+      toast(`${editing.name} updated successfully`, "success");
+      closeEditModal();
+      refresh();
+    } catch (err) {
+      setEditError(getErrorMessage(err, "Failed to update item."));
+    } finally {
+      setIsEditing(false);
+    }
+  }
+
+  async function handleDeleteItem() {
+    if (!deleting) return;
+    setIsDeleting(true);
+    try {
+      await api.del(`/inventory/items/${deleting.id}`);
+      toast(`${deleting.name} deleted successfully`, "success");
+      setDeleting(null);
+      refresh();
+    } catch (err) {
+      toast(getErrorMessage(err, "Failed to delete item."), "error");
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -198,7 +265,7 @@ export default function InventoryPage() {
     { value: "Cleaning", label: "Cleaning" },
     { value: "Others", label: "Others" },
   ];
-
+  
   const unitOptions = [
     { value: "pcs", label: "Pieces (pcs)" },
     { value: "kg", label: "Kilograms (kg)" },
@@ -231,7 +298,7 @@ export default function InventoryPage() {
             </>
           }
         />
-
+        
         <section className="panel inventory-panel">
           <div className="inventory-filters-row">
             <Select
@@ -246,7 +313,7 @@ export default function InventoryPage() {
               </button>
             )}
           </div>
-
+          
           {loading ? (
             <div className="table-wrap" tabIndex={0} aria-label="Loading table">
               <table className="data">
@@ -313,7 +380,7 @@ export default function InventoryPage() {
                     <th><span className="th-inner">Source</span></th>
                     <th><span className="th-inner">Status</span></th>
                     <th><span className="th-inner">Forecast</span></th>
-                    <th className="t-center"><span className="th-inner">Action</span></th>
+                    <th className="t-center" style={{ width: 140 }}><span className="th-inner">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -360,17 +427,39 @@ export default function InventoryPage() {
                             <span className="muted small">-</span>
                           )}
                         </td>
-                        <td className="t-center">
-                          <button
-                            className="ghost small-btn"
-                            onClick={() => {
-                              setAdjusting(item);
-                              setNewStock(String(item.stock));
-                              setAdjustError("");
-                            }}
-                          >
-                            <SlidersHorizontal size={13} /> Adjust
-                          </button>
+                        
+                        {/* UPDATE: Added Edit & Delete actions */}
+                        <td className="t-center nowrap">
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              className="ghost small-btn"
+                              onClick={() => {
+                                setAdjusting(item);
+                                setNewStock(String(item.stock));
+                                setAdjustError("");
+                              }}
+                              title="Adjust Stock"
+                            >
+                              <SlidersHorizontal size={13} />
+                            </button>
+                            <button
+                              className="ghost small-btn"
+                              onClick={() => {
+                                setEditing({...item});
+                                setEditError("");
+                              }}
+                              title="Edit Item"
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                            <button
+                              className="danger-ghost small-btn"
+                              onClick={() => setDeleting(item)}
+                              title="Delete Item"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -381,7 +470,6 @@ export default function InventoryPage() {
           )}
         </section>
 
-        {/* BULK ACTION BAR */}
         {selectedIds.size > 0 && (
           <div className="bulk-action-bar" role="region" aria-live="polite">
             <span>
@@ -414,7 +502,6 @@ export default function InventoryPage() {
           </div>
         )}
 
-        {/* PREP & REVIEW THRESHOLDS PANEL */}
         {prep && (
           <section className="panel" style={{ marginTop: "var(--space-3)" }}>
             <h3 className="section-title">Prep for the next {prep.days} days</h3>
@@ -501,16 +588,16 @@ export default function InventoryPage() {
             )}
           </section>
         )}
-
-        {/* SENSOR PANEL */}
         <div style={{ marginTop: "var(--space-3)" }}>
           <SensorPanel code={selected} />
         </div>
 
-        {/* ADD NEW ITEM MODAL */}
-        {addOpen && (
-          <div className="modal-backdrop" onClick={() => setAddOpen(false)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
+        {/* MODALS */}
+        
+        {/* ADD ITEM MODAL */}
+        {(addOpen || addClosing) && (
+          <div className={`modal-backdrop ${addClosing ? "is-closing" : ""}`}>
+            <div className={`modal ${addClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
               <h3><PackagePlus size={22} className="muted"/> Add New Item</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
                 Add a new supply or ingredient to <strong>{selected}</strong>&rsquo;s inventory. Tracked manually.
@@ -529,7 +616,6 @@ export default function InventoryPage() {
                   />
                 </label>
                 
-                {/* 1FR 1FR GRID LAYOUT */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
                   <label className="field">
                     Category
@@ -579,8 +665,8 @@ export default function InventoryPage() {
                 </div>
                 
                 <div className="modal-actions">
-                  <button type="button" className="ghost" onClick={() => setAddOpen(false)}>Cancel</button>
-                  <button type="submit" disabled={isAdding}>
+                  <button type="button" className="ghost" onClick={closeAddModal} disabled={isAdding || addClosing}>Cancel</button>
+                  <button type="submit" disabled={isAdding || addClosing}>
                     {isAdding ? "Adding..." : "Add Item"}
                   </button>
                 </div>
@@ -590,17 +676,82 @@ export default function InventoryPage() {
           </div>
         )}
 
-        {/* ADJUSTMENT MODAL */}
-        {adjusting && (
-          <div className="modal-backdrop" onClick={() => setAdjusting(null)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
+        {/* EDIT ITEM MODAL */}
+        {(editing || editClosing) && (
+          <div className={`modal-backdrop ${editClosing ? "is-closing" : ""}`}>
+            <div className={`modal ${editClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
+              <h3><Edit2 size={22} className="muted"/> Edit Item</h3>
+              <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
+                Update details for <strong>{editing?.name}</strong>. Stock adjustments should be made using the Adjust tool.
+              </p>
+              
+              <form onSubmit={handleEditItem} className="flex flex-col gap-4">
+                <label className="field">
+                  Item Name
+                  <input
+                    type="text"
+                    required
+                    value={editing?.name || ""}
+                    onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                    autoFocus
+                  />
+                </label>
+                
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+                  <label className="field">
+                    Category
+                    <Select
+                      value={editing?.category || "Ingredients"}
+                      onChange={(val) => setEditing({ ...editing, category: val })}
+                      options={categoryOptions}
+                    />
+                  </label>
+                  
+                  <label className="field">
+                    Unit
+                    <Select
+                      value={editing?.unit || "pcs"}
+                      onChange={(val) => setEditing({ ...editing, unit: val })}
+                      options={unitOptions}
+                    />
+                  </label>
+                </div>
+
+                <label className="field">
+                  Low Threshold
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    required
+                    value={editing?.threshold || ""}
+                    onChange={(e) => setEditing({ ...editing, threshold: e.target.value })}
+                  />
+                </label>
+                
+                <div className="modal-actions">
+                  <button type="button" className="ghost" onClick={closeEditModal} disabled={isEditing || editClosing}>Cancel</button>
+                  <button type="submit" disabled={isEditing || editClosing}>
+                    {isEditing ? "Saving..." : "Save Changes"}
+                  </button>
+                </div>
+                {editError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{editError}</p>}
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ADJUST STOCK MODAL */}
+        {(adjusting || adjustClosing) && (
+          <div className={`modal-backdrop ${adjustClosing ? "is-closing" : ""}`}>
+            <div className={`modal ${adjustClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
               <h3><SlidersHorizontal size={22} className="muted"/> Adjust stock</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                Manual recount after a physical check for <strong>{adjusting.name}</strong>. Current: {adjusting.stock}{" "}
-                {adjusting.unit}. 
+                Manual recount after a physical check for <strong>{adjusting?.name}</strong>. Current: {adjusting?.stock}{" "}
+                {adjusting?.unit}. 
               </p>
               <label className="field">
-                New stock count ({adjusting.unit})
+                New stock count ({adjusting?.unit})
                 <input
                   type="number"
                   min="0"
@@ -611,8 +762,8 @@ export default function InventoryPage() {
                 />
               </label>
               <div className="modal-actions">
-                <button className="ghost" onClick={() => setAdjusting(null)}>Cancel</button>
-                <button disabled={saving} onClick={saveAdjustment}>
+                <button className="ghost" onClick={closeAdjustModal} disabled={saving || adjustClosing}>Cancel</button>
+                <button disabled={saving || adjustClosing} onClick={saveAdjustment}>
                   {saving ? "Saving..." : "Save adjustment"}
                 </button>
               </div>
@@ -621,7 +772,7 @@ export default function InventoryPage() {
           </div>
         )}
 
-        {/* BULK CONFIRM DIALOG */}
+        {/* BULK ADJUST CONFIRMATION */}
         <ConfirmDialog
           open={bulkConfirm}
           title="Bulk stock adjustment"
@@ -630,6 +781,18 @@ export default function InventoryPage() {
           onConfirm={commitBulk}
           onCancel={() => setBulkConfirm(false)}
         />
+
+        {/* DELETE ITEM CONFIRMATION */}
+        <ConfirmDialog
+          open={Boolean(deleting)}
+          title="Delete Item?"
+          message={`Are you sure you want to permanently remove "${deleting?.name}" from this cart's inventory? This action cannot be undone.`}
+          confirmLabel={isDeleting ? "Deleting..." : "Delete Item"}
+          danger={true}
+          onConfirm={handleDeleteItem}
+          onCancel={() => setDeleting(null)}
+        />
+
       </div>
     </PageErrorBoundary>
   );

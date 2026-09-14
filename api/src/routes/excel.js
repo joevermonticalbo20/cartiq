@@ -267,6 +267,9 @@ router.post(
       await wb.xlsx.load(req.file.buffer);
       const sheet = wb.worksheets[0];
       if (!sheet) return res.status(400).json({ error: "Workbook has no sheets" });
+      if (sheet.rowCount - 1 > 2000) {
+        return res.status(400).json({ error: "max 2000 data rows per import" });
+      }
 
       const errors = [];
       const validRows = [];

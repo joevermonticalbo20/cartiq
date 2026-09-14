@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { ReceiptText, RefreshCw, X } from "lucide-react";
+import { ReceiptText, RefreshCw, X, Download, Edit2 } from "lucide-react";
 import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
@@ -16,11 +16,20 @@ export default function SalesPage() {
   const toast = useToast();
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
+  
   const [locations, setLocations] = useState([]);
   const [loc, setLoc] = useState("");
   const [date, setDate] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
+  
   const [confirming, setConfirming] = useState(null);
+  const [exporting, setExporting] = useState(false);
+
+  // --- NEW STATES FOR EDIT ORDER ---
+  const [editing, setEditing] = useState(null);
+  const [editClosing, setEditClosing] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editError, setEditError] = useState("");
 
   useEffect(() => {
     api.get("/catalog").then(({ data }) => setLocations(data?.locations ?? [])).catch(() => {});
@@ -34,7 +43,6 @@ export default function SalesPage() {
     [loc, date]
   );
 
-  // Awtomatikong kukuha ng bagong oras tuwing matatapos mag-load ang table data
   useEffect(() => {
     if (!loading) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional clock sync when loading flips
@@ -42,6 +50,64 @@ export default function SalesPage() {
     }
   }, [loading]);
 
+  // UX Fix: Global scroll lock para sa Edit modal (gawa niya)
+  const isAnyModalOpen = editing || editClosing || Boolean(confirming);
+  useEffect(() => {
+    if (isAnyModalOpen) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => { document.body.style.overflow = ""; };
+  }, [isAnyModalOpen]);
+
+  function closeEditModal() {
+    setEditClosing(true);
+    setTimeout(() => { setEditing(null); setEditClosing(false); }, 150);
+  }
+
+  // --- EXPORT HANDLER (gawa niya) ---
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const res = await api.get('/export/sales', {
+        params: { month: date ? date.slice(0, 7) : undefined, location_code: loc },
+        responseType: 'blob'
+      });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sales-${loc || 'all'}-${date || 'all'}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast("Sales exported successfully", "success");
+    } catch (err) {
+      toast(getErrorMessage(err, "Export failed"), "error");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  // --- EDIT HANDLER (gawa niya) ---
+  async function handleEditOrder(e) {
+    e.preventDefault();
+    setEditError("");
+    setIsEditing(true);
+    try {
+      await api.patch(`/orders/${editing.id}`, {
+        paymentMethod: editing.paymentMethod,
+        status: editing.status
+      });
+      toast(`Order #${editing.id} updated`, "success");
+      closeEditModal();
+      refresh();
+    } catch (err) {
+      setEditError(getErrorMessage(err, "Failed to update order."));
+    } finally {
+      setIsEditing(false);
+    }
+  }
+
+  // Guards para hindi mag-crash pag null ang locations
   const safeLocations = Array.isArray(locations) ? locations : [];
   const locationOptions = [
     { value: "", label: "All carts" },
@@ -61,6 +127,9 @@ export default function SalesPage() {
     }
   }
 
+  // (duplicate locationOptions removed — safe version above is used)
+
+
   return (
     <PageErrorBoundary>
       <div className="page-container wide">
@@ -70,18 +139,27 @@ export default function SalesPage() {
           sub="Every receipt, searchable by cart and day."
           actions={
             <>
-              {/* Idinagdag natin ang Last updated text dito */}
               <span className="muted small" style={{ marginRight: "4px" }}>
                 Last updated {lastUpdated?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) ?? "just now"}
               </span>
-              <button 
-                className="ghost small-btn" 
-                onClick={refresh} 
-                disabled={loading} 
+              <button
+                className="ghost small-btn"
+                onClick={refresh}
+                disabled={loading}
                 title="Refresh sales"
               >
                 <RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh
               </button>
+              {isOwner && (
+                <button
+                  className="small-btn"
+                  onClick={handleExport}
+                  disabled={exporting || loading}
+                  title="Export current view to Excel"
+                >
+                  <Download size={14} className={exporting ? "spin" : ""} /> Export
+                </button>
+              )}
             </>
           }
         />
@@ -89,10 +167,10 @@ export default function SalesPage() {
         <section className="panel sales-panel">
           <div className="sales-filters-row">
             <div className="sales-filters-left">
-              <Select 
-                value={loc} 
-                onChange={(val) => setLoc(val)} 
-                options={locationOptions} 
+              <Select
+                value={loc}
+                onChange={(val) => setLoc(val)}
+                options={locationOptions}
               />
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
             </div>
@@ -160,6 +238,12 @@ export default function SalesPage() {
                   ),
                 },
                 {
+                  key: "payment",
+                  label: "Payment",
+                  width: 110,
+                  render: (o) => <Badge variant="neutral">{o.paymentMethod || "CASH"}</Badge>,
+                },
+                {
                   key: "staff",
                   label: "Staff",
                   width: 140,
@@ -174,7 +258,10 @@ export default function SalesPage() {
                     <>
                       <strong>P{o.total}</strong>
                       {o.status === "VOID" && (
-                        <> <Badge variant="neutral">VOID</Badge></>
+                        <div style={{ marginTop: "4px" }}><Badge variant="danger">VOID</Badge></div>
+                      )}
+                      {o.status === "REFUNDED" && (
+                        <div style={{ marginTop: "4px" }}><Badge variant="warn">REFUNDED</Badge></div>
                       )}
                     </>
                   ),
@@ -184,18 +271,33 @@ export default function SalesPage() {
                       {
                         key: "actions",
                         label: "",
-                        width: 48,
+                        width: 80,
                         align: "right",
-                        render: (o) =>
-                          o.status === "VOID" ? null : (
-                            <button
-                              className="danger-ghost small-btn"
-                              onClick={() => setConfirming(o)}
-                              title="Void order"
-                            >
-                              <X size={13} />
-                            </button>
-                          ),
+                        render: (o) => (
+                          <div className="flex items-center justify-end gap-1">
+                            {o.status !== "VOID" && (
+                              <button
+                                className="ghost small-btn"
+                                onClick={() => {
+                                  setEditing({ ...o, paymentMethod: o.paymentMethod || "CASH" });
+                                  setEditError("");
+                                }}
+                                title="Edit order"
+                              >
+                                <Edit2 size={13} />
+                              </button>
+                            )}
+                            {o.status !== "VOID" && (
+                              <button
+                                className="danger-ghost small-btn"
+                                onClick={() => setConfirming(o)}
+                                title="Void order"
+                              >
+                                <X size={13} />
+                              </button>
+                            )}
+                          </div>
+                        )
                       },
                     ]
                   : []),
@@ -205,6 +307,54 @@ export default function SalesPage() {
             />
           )}
         </section>
+
+        {/* --- EDIT ORDER MODAL --- */}
+        {(editing || editClosing) && (
+          <div className={`modal-backdrop ${editClosing ? "is-closing" : ""}`}>
+            <div className={`modal ${editClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
+              <h3><Edit2 size={22} className="muted"/> Edit Order #{editing?.id}</h3>
+              <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
+                Update the payment method or order status. To fully invalidate an order, use the Void button on the table.
+              </p>
+              
+              <form onSubmit={handleEditOrder} className="flex flex-col gap-4">
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+                  <label className="field">
+                    Payment Method
+                    <Select
+                      value={editing?.paymentMethod || "CASH"}
+                      onChange={(val) => setEditing({ ...editing, paymentMethod: val })}
+                      options={[
+                        { value: "CASH", label: "Cash" },
+                        { value: "GCASH", label: "GCash" }
+                      ]}
+                    />
+                  </label>
+                  
+                  <label className="field">
+                    Order Status
+                    <Select
+                      value={editing?.status || "COMPLETED"}
+                      onChange={(val) => setEditing({ ...editing, status: val })}
+                      options={[
+                        { value: "COMPLETED", label: "Completed" },
+                        { value: "REFUNDED", label: "Refunded" }
+                      ]}
+                    />
+                  </label>
+                </div>
+                
+                <div className="modal-actions">
+                  <button type="button" className="ghost" onClick={closeEditModal} disabled={isEditing || editClosing}>Cancel</button>
+                  <button type="submit" disabled={isEditing || editClosing}>
+                    {isEditing ? "Saving..." : "Save Changes"}
+                  </button>
+                </div>
+                {editError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{editError}</p>}
+              </form>
+            </div>
+          </div>
+        )}
 
         <ConfirmDialog
           open={Boolean(confirming)}

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useOutletContext } from "react-router-dom";
-import { Trophy, Users, RefreshCw, X } from "lucide-react";
-import api from "../api.js";
+import { Trophy, Users, RefreshCw, X, Plus, Edit2, Trash2, Clock } from "lucide-react";
+import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
 import DataTable from "../components/DataTable.jsx";
@@ -9,37 +9,71 @@ import EmptyState from "../components/EmptyState.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import Select from "../components/Select.jsx";
+import { useToast } from "../components/Toast.jsx";
+
+// Helper para ma-format ang Date object sa "YYYY-MM-DDThh:mm" (local time) para sa datetime-local input
+function toLocalISOString(date) {
+  const tzOffset = date.getTimezoneOffset() * 60000;
+  return new Date(date - tzOffset).toISOString().slice(0, 16);
+}
 
 export default function StaffPage() {
+  const toast = useToast();
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
+  
   const [onShift, setOnShift] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [staffList, setStaffList] = useState([]);
   const [loc, setLoc] = useState("");
   const [performance, setPerformance] = useState(null);
   const [perfLoading, setPerfLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
+
+  // --- NEW STATES FOR MANUAL ENTRY & EDIT ---
+  const [addOpen, setAddOpen] = useState(false);
+  const [addClosing, setAddClosing] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const [addError, setAddError] = useState("");
+  const [newShift, setNewShift] = useState({
+    staffId: "",
+    locationCode: "",
+    event: "IN",
+    ts: toLocalISOString(new Date())
+  });
+
+  const [editing, setEditing] = useState(null);
+  const [editClosing, setEditClosing] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editError, setEditError] = useState("");
+  
+  const [deleting, setDeleting] = useState(null);
 
   const { rows, meta, loading: tableLoading, error, gotoPage, refresh: refreshTable } = usePagedData(
     (p) => `/shifts/history?page=${p}&pageSize=10` + (loc ? `&code=${loc}` : ""),
     [loc]
   );
 
-  // Pinagsama natin sa isang function ang pag-fetch ng top data para iisang Refresh button lang
   const fetchTopData = useCallback(() => {
     setPerfLoading(true);
     Promise.all([
       api.get("/staff/on-shift").catch(() => ({ data: { on_shift: [] } })),
-      // Leaderboard is owner-only server-side: don't request it as staff.
       isOwner
         ? api.get("/analytics/staff-performance?days=28").catch(() => ({ data: { staff: [] } }))
         : Promise.resolve({ data: { staff: [] } }),
-      api.get("/catalog").catch(() => ({ data: { locations: [] } }))
-    ]).then(([shiftRes, perfRes, catRes]) => {
+      api.get("/catalog").catch(() => ({ data: { locations: [] } })),
+      isOwner
+        ? api.get("/auth/staff").catch(() => ({ data: { data: [] } }))
+        : Promise.resolve({ data: { data: [] } })
+    ]).then(([shiftRes, perfRes, catRes, staffRes]) => {
       setOnShift(shiftRes.data?.on_shift ?? []);
       setPerformance(perfRes.data ?? { staff: [] });
       setLocations(catRes.data?.locations ?? []);
+      if (staffRes?.data?.data) {
+        setStaffList(staffRes.data.data.filter((s) => s.role !== "OWNER"));
+      }
       setPerfLoading(false);
       setLastUpdated(new Date());
     });
@@ -50,7 +84,6 @@ export default function StaffPage() {
     fetchTopData();
   }, [fetchTopData]);
 
-  // I-update ang time kapag natapos na ang table mag-load automatically
   useEffect(() => {
     if (!tableLoading && !perfLoading) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional clock sync when loading flips
@@ -63,10 +96,98 @@ export default function StaffPage() {
     refreshTable();
   }
 
+  // --- MODAL UX & HELPERS ---
+  const isAnyModalOpen = addOpen || addClosing || editing || editClosing || Boolean(deleting);
+  
+  useEffect(() => {
+    if (isAnyModalOpen) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => { document.body.style.overflow = ""; };
+  }, [isAnyModalOpen]);
+
+  function closeAddModal() {
+    setAddClosing(true);
+    setTimeout(() => { setAddOpen(false); setAddClosing(false); }, 150);
+  }
+
+  function closeEditModal() {
+    setEditClosing(true);
+    setTimeout(() => { setEditing(null); setEditClosing(false); }, 150);
+  }
+
+  // --- MANUAL ENTRY HANDLER ---
+  async function handleAddShift(e) {
+    e.preventDefault();
+    setAddError("");
+    setIsAdding(true);
+    try {
+      await api.post("/shifts", {
+        staffId: newShift.staffId,
+        locationCode: newShift.locationCode,
+        event: newShift.event,
+        ts: new Date(newShift.ts).toISOString()
+      });
+      toast(`Manual shift entry saved`, "success");
+      closeAddModal();
+      setNewShift({
+        staffId: "",
+        locationCode: locations[0]?.code || "",
+        event: "IN",
+        ts: toLocalISOString(new Date())
+      });
+      handleRefreshAll();
+    } catch (err) {
+      setAddError(getErrorMessage(err, "Failed to log manual shift."));
+    } finally {
+      setIsAdding(false);
+    }
+  }
+
+  // --- EDIT SHIFT HANDLER ---
+  async function handleEditShift(e) {
+    e.preventDefault();
+    setEditError("");
+    setIsEditing(true);
+    try {
+      await api.patch(`/shifts/${editing.id}`, {
+        locationCode: editing.locationCode,
+        event: editing.event,
+        ts: new Date(editing.ts).toISOString()
+      });
+      toast(`Shift event updated`, "success");
+      closeEditModal();
+      handleRefreshAll();
+    } catch (err) {
+      setEditError(getErrorMessage(err, "Failed to update shift log."));
+    } finally {
+      setIsEditing(false);
+    }
+  }
+
+  // --- DELETE SHIFT HANDLER ---
+  async function handleDeleteShift() {
+    if (!deleting) return;
+    try {
+      await api.del(`/shifts/${deleting.id}`);
+      toast(`Shift log deleted successfully`, "success");
+      handleRefreshAll();
+    } catch (err) {
+      toast(getErrorMessage(err, "Failed to delete shift log."), "error");
+    } finally {
+      setDeleting(null);
+    }
+  }
+
   const safeLocations = Array.isArray(locations) ? locations : [];
   const locationOptions = [
     { value: "", label: "All carts" },
     ...safeLocations.map((l) => ({ value: l.code, label: l.code }))
+  ];
+  
+  const formLocationOptions = safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
+  const formStaffOptions = [
+    { value: "", label: "Select staff..." },
+    ...staffList.map((s) => ({ value: s.id, label: s.name }))
   ];
 
   const isLoading = tableLoading || perfLoading;
@@ -94,7 +215,7 @@ export default function StaffPage() {
             </>
           }
         />
-
+        
         <div className="dashboard-top-row" style={{ gridTemplateColumns: "1fr 2fr", marginBottom: "var(--space-5)" }}>
           {/* SECTION 1: Currently On Shift */}
           <section className="panel" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -189,10 +310,10 @@ export default function StaffPage() {
               Shift event history
             </h3>
             <div className="flex items-center gap-2">
-              <Select 
-                value={loc} 
-                onChange={(val) => setLoc(val)} 
-                options={locationOptions} 
+              <Select
+                value={loc}
+                onChange={(val) => setLoc(val)}
+                options={locationOptions}
                 placeholder="Select a cart..."
               />
               {loc && (
@@ -203,9 +324,21 @@ export default function StaffPage() {
                   <X size={14} /> Clear filter
                 </button>
               )}
+              {isOwner && (
+                <button
+                  className="small-btn"
+                  onClick={() => {
+                    if(!newShift.locationCode && locations.length > 0) {
+                      setNewShift(prev => ({ ...prev, locationCode: locations[0].code }));
+                    }
+                    setAddOpen(true);
+                  }}
+                >
+                  <Plus size={14} /> Manual Entry
+                </button>
+              )}
             </div>
           </div>
-
           {error ? (
             <div className="error-box">{error}</div>
           ) : !tableLoading && (!rows || rows.length === 0) ? (
@@ -214,8 +347,8 @@ export default function StaffPage() {
               title="No shift events found"
               subtitle={
                 loc 
-                ? "Try clearing the filter to see events from other carts." 
-                : "Tap an RFID card at a cart node and the IN/OUT event will appear here."
+                  ? "Try clearing the filter to see events from other carts."
+                  : "Tap an RFID card at a cart node and the IN/OUT event will appear here."
               }
             />
           ) : (
@@ -266,12 +399,180 @@ export default function StaffPage() {
                   width: 150,
                   render: (s) => <Badge variant="info">{s.location?.code}</Badge>,
                 },
+                ...(isOwner
+                  ? [
+                      {
+                        key: "actions",
+                        label: "",
+                        width: 80,
+                        align: "right",
+                        render: (s) => (
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              className="ghost small-btn"
+                              onClick={() => {
+                                setEditing({
+                                  ...s,
+                                  locationCode: s.location?.code || "",
+                                  ts: toLocalISOString(new Date(s.ts))
+                                });
+                                setEditError("");
+                              }}
+                              title="Edit shift log"
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                            <button
+                              className="danger-ghost small-btn"
+                              onClick={() => setDeleting(s)}
+                              title="Delete shift log"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        ),
+                      },
+                    ]
+                  : []),
               ]}
               data={rows}
               pagination={meta ? { ...meta, onPageChange: gotoPage } : null}
             />
           )}
         </section>
+
+        {/* --- MANUAL ENTRY MODAL --- */}
+        {(addOpen || addClosing) && (
+          <div className={`modal-backdrop ${addClosing ? "is-closing" : ""}`}>
+            <div className={`modal ${addClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
+              <h3><Clock size={22} className="muted"/> Manual Shift Entry</h3>
+              <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
+                Log an IN or OUT event if a staff member forgot to tap their RFID card.
+              </p>
+              
+              <form onSubmit={handleAddShift} className="flex flex-col gap-4">
+                <label className="field">
+                  Staff Member
+                  <Select
+                    value={newShift.staffId}
+                    onChange={(val) => setNewShift({ ...newShift, staffId: val })}
+                    options={formStaffOptions}
+                  />
+                </label>
+                
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+                  <label className="field">
+                    Event Type
+                    <Select
+                      value={newShift.event}
+                      onChange={(val) => setNewShift({ ...newShift, event: val })}
+                      options={[
+                        { value: "IN", label: "Time IN" },
+                        { value: "OUT", label: "Time OUT" }
+                      ]}
+                    />
+                  </label>
+                  
+                  <label className="field">
+                    Cart Assignment
+                    <Select
+                      value={newShift.locationCode}
+                      onChange={(val) => setNewShift({ ...newShift, locationCode: val })}
+                      options={formLocationOptions}
+                    />
+                  </label>
+                </div>
+
+                <label className="field">
+                  Exact Date & Time
+                  <input
+                    type="datetime-local"
+                    required
+                    value={newShift.ts}
+                    onChange={(e) => setNewShift({ ...newShift, ts: e.target.value })}
+                    style={{ height: "36px" }}
+                  />
+                </label>
+                
+                <div className="modal-actions">
+                  <button type="button" className="ghost" onClick={closeAddModal} disabled={isAdding || addClosing}>Cancel</button>
+                  <button type="submit" disabled={isAdding || addClosing || !newShift.staffId}>
+                    {isAdding ? "Saving..." : "Log Shift"}
+                  </button>
+                </div>
+                {addError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{addError}</p>}
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* --- EDIT SHIFT MODAL --- */}
+        {(editing || editClosing) && (
+          <div className={`modal-backdrop ${editClosing ? "is-closing" : ""}`}>
+            <div className={`modal ${editClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
+              <h3><Edit2 size={22} className="muted"/> Edit Shift Log</h3>
+              <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
+                Update the event details for <strong>{editing?.staffName || "Unregistered"}</strong>.
+              </p>
+              
+              <form onSubmit={handleEditShift} className="flex flex-col gap-4">
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+                  <label className="field">
+                    Event Type
+                    <Select
+                      value={editing?.event || "IN"}
+                      onChange={(val) => setEditing({ ...editing, event: val })}
+                      options={[
+                        { value: "IN", label: "Time IN" },
+                        { value: "OUT", label: "Time OUT" }
+                      ]}
+                    />
+                  </label>
+                  
+                  <label className="field">
+                    Cart Assignment
+                    <Select
+                      value={editing?.locationCode || ""}
+                      onChange={(val) => setEditing({ ...editing, locationCode: val })}
+                      options={formLocationOptions}
+                    />
+                  </label>
+                </div>
+
+                <label className="field">
+                  Exact Date & Time
+                  <input
+                    type="datetime-local"
+                    required
+                    value={editing?.ts || ""}
+                    onChange={(e) => setEditing({ ...editing, ts: e.target.value })}
+                    style={{ height: "36px" }}
+                  />
+                </label>
+                
+                <div className="modal-actions">
+                  <button type="button" className="ghost" onClick={closeEditModal} disabled={isEditing || editClosing}>Cancel</button>
+                  <button type="submit" disabled={isEditing || editClosing}>
+                    {isEditing ? "Saving..." : "Save Changes"}
+                  </button>
+                </div>
+                {editError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{editError}</p>}
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* --- DELETE SHIFT CONFIRMATION --- */}
+        <ConfirmDialog
+          open={Boolean(deleting)}
+          title="Delete shift log?"
+          message={`Are you sure you want to delete the ${deleting?.event} event for "${deleting?.staffName}"? This action cannot be undone.`}
+          confirmLabel="Delete Log"
+          danger={true}
+          onConfirm={handleDeleteShift}
+          onCancel={() => setDeleting(null)}
+        />
+        
       </div>
     </PageErrorBoundary>
   );

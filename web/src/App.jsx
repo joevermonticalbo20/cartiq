@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate, Navigate, Route, Routes } from "react-router-dom";
 import { ToastProvider } from "./components/Toast.jsx";
-import { setupAuthInterceptor } from "./api.js";
+import { setupAuthInterceptor, isTokenExpired } from "./api.js";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import Layout from "./components/Layout.jsx";
 import Login from "./pages/Login.jsx";
@@ -16,7 +16,17 @@ import SettingsPage from "./pages/SettingsPage.jsx";
 
 function RequireAuth({ children }) {
   const token = localStorage.getItem("cartiq_token");
-  return token ? children : <Navigate to="/login" replace />;
+  const refresh = localStorage.getItem("cartiq_refresh_token");
+  // Expired access alone is not a logout: the interceptor will silently
+  // refresh on the first 401. Only redirect when there is no session at all
+  // (no access AND no refresh), or access is expired AND no refresh to recover.
+  if (!token && !refresh) return <Navigate to="/login" replace />;
+  if (token && isTokenExpired(token) && !refresh) {
+    localStorage.removeItem("cartiq_token");
+    return <Navigate to="/login" replace />;
+  }
+  if (!token) return <Navigate to="/login" replace />;
+  return children;
 }
 
 export default function App() {

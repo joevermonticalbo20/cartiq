@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import bonjour from "bonjour";
+import rateLimit from "express-rate-limit";
 import authRoutes from "./routes/auth.js";
 import healthRouter from "./routes/health.js";
 import catalogRoutes from "./routes/catalog.js";
@@ -44,6 +45,26 @@ const allowedOrigins = process.env.CORS_ORIGINS
 app.use(cors({ origin: allowedOrigins }));
 
 app.use(express.json({ limit: "1mb" }));
+
+// Minimal security headers (no extra dep): deny framing, nosniff,
+// minimal referrer. CSP is intentionally omitted — the API serves JSON,
+// not HTML, and Hosting already sets its own policy for the web app.
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  next();
+});
+
+// Abuse guards (in-memory, single-instance — same caveat as login limiter
+// and SSE in README known limits). Generous caps so legit POS bursts pass.
+const refreshLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60 });
+const ordersLimiter = rateLimit({ windowMs: 60 * 1000, max: 120 });
+const importLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 20 });
+app.use("/api/auth/refresh", refreshLimiter);
+app.use("/api/auth/logout", refreshLimiter);
+app.use("/api/orders", ordersLimiter);
+app.use("/api/import", importLimiter);
 
 app.use("/api/auth", authRoutes);
 app.use("/api", catalogRoutes);

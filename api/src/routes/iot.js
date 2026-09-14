@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db as prisma } from "../firestore.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireDevice } from "../middleware/device.js";
+import { manilaDayRange, manilaDayStart } from "../services/timezone.js";
 
 const router = Router();
 
@@ -17,7 +18,9 @@ function asArray(body, key) {
 }
 
 // POST /api/iot/readings  (device auth)
-// Body: { readings: [{channel:"LPG_TANK"|"CHEESE_BIN", kg, ts?}] }
+// Body: { cart_id?, device_id?, readings: [{channel:"LPG_TANK"|"CHEESE_BIN", kg, ts?}] }
+// cart_id/device_id are informational: the location always comes from the
+// authenticated device token. A mismatched cart_id is a misconfiguration.
 router.post("/iot/readings", requireDevice, async (req, res, next) => {
   try {
     const rows = asArray(req.body, "readings");
@@ -28,6 +31,11 @@ router.post("/iot/readings", requireDevice, async (req, res, next) => {
       return res.status(400).json({ error: "max 200 readings per request" });
     }
     const location = req.device.location;
+    if (req.body?.cart_id && String(req.body.cart_id) !== location.code) {
+      return res.status(400).json({
+        error: `cart_id "${req.body.cart_id}" does not match device location "${location.code}"`,
+      });
+    }
     const accepted = [];
     const rejected = [];
 
@@ -62,10 +70,17 @@ router.post("/iot/readings", requireDevice, async (req, res, next) => {
           continue;
         }
         const inv = invByName.get(itemName) ?? null;
-        plans.push({ row: r, itemName, kg, ts, inv });
         if (!inv) {
+          plans.push({ row: r, itemName, kg, ts, inv });
           rejected.push({ channel: r.channel, reason: `no inventory row "${itemName}"` });
+        } else if (inv.updatedAt && ts.getTime() < new Date(inv.updatedAt).getTime() - 60 * 1000) {
+          // Stale replay guard: a reading older than the current stock write
+          // (beyond 60s clock tolerance) must not clobber a newer POS sale.
+          // Still stored below, but excluded from accepted + stock mirror.
+          plans.push({ row: r, itemName, kg, ts, inv: null, staleInv: inv });
+          rejected.push({ channel: r.channel, reason: "stale ts older than current stock" });
         } else {
+          plans.push({ row: r, itemName, kg, ts, inv });
           accepted.push({ channel: r.channel, kg, ts: ts.toISOString() });
         }
       }
@@ -78,17 +93,25 @@ router.post("/iot/readings", requireDevice, async (req, res, next) => {
         const base = running.has(plan.inv.id) ? running.get(plan.inv.id) : plan.inv.stock;
         running.set(plan.inv.id, plan.kg);
         if (base > plan.inv.threshold && plan.kg <= plan.inv.threshold) {
-          const needle = `${plan.inv.name} @ ${location.code}`;
+          const dedupeKey = `low:${location.id}:${plan.inv.id}`;
           const dup =
-            createdNeedles.has(needle) ||
-            unreadAlerts.some((a) => (a.message ?? "").includes(needle));
+            createdNeedles.has(dedupeKey) ||
+            unreadAlerts.some((a) => {
+              try {
+                return JSON.parse(a.payload ?? "{}")?.dedupeKey === dedupeKey;
+              } catch {
+                return (a.message ?? "").includes(`${plan.inv.name} @ ${location.code}`);
+              }
+            });
           if (!dup) {
-            createdNeedles.add(needle);
+            createdNeedles.add(dedupeKey);
             newAlerts.push({
               type: "LOW_STOCK",
-              message: `${needle} dropped below threshold (${plan.kg} ${plan.inv.unit} left)`,
+              message: `${plan.inv.name} @ ${location.code} dropped below threshold (${plan.kg} ${plan.inv.unit} left)`,
               payload: JSON.stringify({
+                dedupeKey,
                 inventoryItemId: plan.inv.id,
+                locationId: location.id,
                 stock: plan.kg,
                 threshold: plan.inv.threshold,
                 unit: plan.inv.unit,
@@ -145,7 +168,7 @@ router.post("/iot/readings", requireDevice, async (req, res, next) => {
 });
 
 // POST /api/shifts  (device auth)
-// Body: { events: [{staff_uid, event:"IN"|"OUT", ts?}] }
+// Body: { cart_id?, device_id?, events: [{staff_uid, event:"IN"|"OUT", ts?}] }
 router.post("/shifts", requireDevice, async (req, res, next) => {
   try {
     const rows = asArray(req.body, "events");
@@ -156,6 +179,11 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
       return res.status(400).json({ error: "max 200 events per request" });
     }
     const location = req.device.location;
+    if (req.body?.cart_id && String(req.body.cart_id) !== location.code) {
+      return res.status(400).json({
+        error: `cart_id "${req.body.cart_id}" does not match device location "${location.code}"`,
+      });
+    }
     const accepted = [];
     const rejected = [];
 
@@ -188,16 +216,21 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
         const user = byUid.get(uid) ?? null;
         plans.push({ uid, event, ts, user });
         if (!user) {
-          const needle = `Unknown RFID card ${uid}`;
+          const dedupeKey = `unknown:${location.id}:${uid}`;
           const dup =
-            createdNeedles.has(needle) ||
-            unreadAlerts.some((a) => (a.message ?? "").includes(needle));
+            createdNeedles.has(dedupeKey) ||
+            unreadAlerts.some((a) => {
+              try {
+                if (JSON.parse(a.payload ?? "{}")?.dedupeKey === dedupeKey) return true;
+              } catch {}
+              return (a.message ?? "").includes(`Unknown RFID card ${uid}`);
+            });
           if (!dup) {
-            createdNeedles.add(needle);
+            createdNeedles.add(dedupeKey);
             newAlerts.push({
               type: "UNKNOWN_CARD",
-              message: `${needle} tapped at ${location.code} - register this card`,
-              payload: JSON.stringify({ uid, locationCode: location.code }),
+              message: `Unknown RFID card ${uid} tapped at ${location.code} - register this card`,
+              payload: JSON.stringify({ dedupeKey, uid, locationId: location.id, locationCode: location.code }),
             });
           }
         }
@@ -244,11 +277,10 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
   }
 });
 
-// GET /api/staff/on-shift -> who is currently IN per cart (latest event today)
+// GET /api/staff/on-shift -> who is currently IN per cart (latest event today, Manila day)
 router.get("/staff/on-shift", requireAuth, async (_req, res, next) => {
   try {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
+    const start = manilaDayStart(0);
     const shifts = await prisma.shift.findMany({
       where: { ts: { gte: start } },
       include: { location: { select: { code: true, name: true } } },
@@ -286,13 +318,11 @@ router.get("/shifts/history", requireAuth, async (req, res, next) => {
     const where = {};
     if (code) where.location = { code: String(code) };
     if (date) {
-      const start = new Date(`${date}T00:00:00`);
-      if (!Number.isFinite(start.getTime())) {
+      const range = manilaDayRange(String(date));
+      if (!range) {
         return res.status(400).json({ error: "date must be YYYY-MM-DD" });
       }
-      const end = new Date(start);
-      end.setDate(end.getDate() + 1);
-      where.ts = { gte: start, lt: end };
+      where.ts = { gte: range.start, lt: range.end };
     }
     const [total, shifts] = await Promise.all([
       prisma.shift.count({ where }),

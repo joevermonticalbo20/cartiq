@@ -163,20 +163,35 @@ export function getErrorMessage(err, fallback = "Request failed") {
 }
 
 /**
- * Generic fetch wrapper
+ * Generic fetch wrapper with one cold-start retry: Render free sleeps after
+ * idle (~50s cold start vs 10s timeout), so the first GET after idle almost
+ * always times out. Retry idempotent GETs once; never auto-retry POST/
+ * PATCH/PUT/DELETE (writes rely on clientRef idempotency, not retries).
  */
 export async function fetchApi(options) {
+  const isGet = String(options?.method ?? "GET").toUpperCase() === "GET";
   try {
     const response = await api.request(options);
     return { success: true, data: response.data };
   } catch (err) {
-    if (err instanceof ApiError) throw err;
-    const status = err.response?.status ?? null;
-    const data = err.response?.data ?? null;
+    const timedOut = !err.response && (err.code === "ECONNABORTED" || /timeout/i.test(err.message ?? ""));
+    let finalErr = err;
+    if (isGet && timedOut && !options._retried) {
+      await new Promise((r) => setTimeout(r, 2000));
+      try {
+        const response = await api.request({ ...options, _retried: true });
+        return { success: true, data: response.data };
+      } catch (retryErr) {
+        finalErr = retryErr;
+      }
+    }
+    if (finalErr instanceof ApiError) throw finalErr;
+    const status = finalErr.response?.status ?? null;
+    const data = finalErr.response?.data ?? null;
     const code = data?.code ?? data?.error ?? null;
     const errMsg =
-      data?.error || data?.message || err.message || "Request failed";
-    throw new ApiError(errMsg, { status, code, data, cause: err });
+      data?.error || data?.message || finalErr.message || "Request failed";
+    throw new ApiError(errMsg, { status, code, data, cause: finalErr });
   }
 }
 

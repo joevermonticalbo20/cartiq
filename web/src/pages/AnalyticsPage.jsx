@@ -1,11 +1,11 @@
 import { useEffect, useState, useMemo, Fragment } from "react";
-import { 
-  AreaChart, Area, BarChart, Bar, XAxis, YAxis, 
-  Tooltip, ResponsiveContainer, CartesianGrid, Cell, LabelList, 
+import {
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis,
+  Tooltip, ResponsiveContainer, CartesianGrid, Cell, LabelList,
 } from "recharts";
-import { 
-  TrendingUp, TrendingDown, ShoppingBag, 
-  DollarSign, BarChart2, PackageSearch, RefreshCw, X, Sparkles 
+import {
+  TrendingUp, TrendingDown, ShoppingBag,
+  DollarSign, BarChart2, PackageSearch, RefreshCw, X, Sparkles, Printer
 } from "lucide-react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import api, { getErrorMessage } from "../api.js";
@@ -21,12 +21,14 @@ import { fmtMoneyAxis, fmtShortDate } from "../utils/format.js";
 
 // API risk level -> badge variant
 const RISK_CHIP = { high: "danger", medium: "warn", low: "ok", unknown: "neutral" };
+
 const HEAT_HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 const HEAT_DAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
 function HeatmapGrid({ matrix }) {
   const byKey = new Map((matrix ?? []).map((c) => [`${c.dow}:${c.hour}`, c]));
   const max = Math.max(1, ...(matrix ?? []).map((c) => c.total_sales));
+
   return (
     <div className="heat-grid" role="img" aria-label="Heatmap of revenue by weekday and hour">
       <div className="heat-corner" />
@@ -75,10 +77,14 @@ export default function AnalyticsPage() {
   const navigate = useNavigate();
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
+  
   const [carts, setCarts] = useState([]);
   const [cartCode, setCartCode] = useState("");
-  const [range, setRange] = useState("30");
   
+  const [range, setRange] = useState("30");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+
   const [trends, setTrends] = useState(null);
   const [prevTrends, setPrevTrends] = useState(null);
   const [forecast, setForecast] = useState(null);
@@ -93,7 +99,6 @@ export default function AnalyticsPage() {
   const [sortCol, setSortCol] = useState("sales");
   const [sortDir, setSortDir] = useState("desc");
   const [lastUpdated, setLastUpdated] = useState(null);
-
   const [summaryLang, setSummaryLang] = useState("en");
 
   useEffect(() => {
@@ -102,32 +107,65 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     let alive = true;
-    const days = Number(range) || 30;
+    
+    let dateParams = "";
+    let prevDateParams = "";
     const codeParam = cartCode ? `&code=${encodeURIComponent(cartCode)}` : "";
+
+    if (range === "custom") {
+      if (!customStart || !customEnd) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- custom range guard, intentional early-exit
+        setLoading(false);
+        return; 
+      }
+      dateParams = `&startDate=${customStart}&endDate=${customEnd}`;
+      
+      const startD = new Date(customStart);
+      const endD = new Date(customEnd);
+      const diffTime = Math.abs(endD - startD);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      const prevEnd = new Date(startD);
+      prevEnd.setDate(prevEnd.getDate() - 1);
+      const prevStart = new Date(prevEnd);
+      prevStart.setDate(prevStart.getDate() - diffDays);
+      
+      prevDateParams = `&startDate=${prevStart.toISOString().split('T')[0]}&endDate=${prevEnd.toISOString().split('T')[0]}`;
+    } else {
+      const days = Number(range) || 30;
+      dateParams = `&days=${days}`;
+      prevDateParams = `&days=${days * 2}`;
+    }
+
+    setLoading(true);
+
     Promise.all([
-      api.get(`/analytics/trends?days=${days}${codeParam}`),
-      api.get(`/analytics/trends?days=${days * 2}${codeParam}`),
+      api.get(`/analytics/trends?1=1${dateParams}${codeParam}`),
+      api.get(`/analytics/trends?1=1${prevDateParams}${codeParam}`),
       cartCode ? api.get(`/analytics/forecast?code=${encodeURIComponent(cartCode)}`).catch(() => ({ data: { code: cartCode, items: [] } })) : Promise.resolve({ data: { code: null, items: [] } }),
       // Profit is owner-only server-side: don't even request it as staff.
       // Individual .catch per auxiliary request so one slow/failed endpoint
       // degrades to its empty state instead of failing the whole page.
-      isOwner ? api.get(`/analytics/profit?days=${days}${codeParam}`).catch(() => ({ data: null })) : Promise.resolve({ data: null }),
-      api.get(`/analytics/hourly?days=${days}${codeParam}`).catch(() => ({ data: null })),
-      api.get(`/analytics/basket?days=${days}${codeParam}`).catch(() => ({ data: null })),
-      api.get(`/analytics/sales-forecast?days=${days}${codeParam}`).catch(() => ({ data: null })),
+      isOwner ? api.get(`/analytics/profit?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })) : Promise.resolve({ data: null }),
+      api.get(`/analytics/hourly?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })),
+      api.get(`/analytics/basket?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })),
+      api.get(`/analytics/sales-forecast?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })),
     ])
       .then(([cur, ext, f, pf, hr, bk, sf]) => {
         if (!alive) return;
         setLoading(false);
+
         const curSales = cur.data.total_sales;
         const extSales = ext.data.total_sales;
-        const prevSales = Math.max(0, extSales - curSales);
+        const prevSales = range === "custom" ? extSales : Math.max(0, extSales - curSales);
+        
         setTrends(cur.data);
         setPrevTrends({
           ...cur.data,
           total_sales: prevSales,
-          orders: Math.max(0, (ext.data.orders ?? 0) - (cur.data.orders ?? 0)),
+          orders: range === "custom" ? (ext.data.orders ?? 0) : Math.max(0, (ext.data.orders ?? 0) - (cur.data.orders ?? 0)),
         });
+        
         setForecast(f.data);
         setProfit(pf.data);
         setHourly(hr.data);
@@ -142,8 +180,9 @@ export default function AnalyticsPage() {
         const msg = getErrorMessage(err, "Unable to load analytics. Please try again.");
         setError(msg);
       });
+
     return () => { alive = false; };
-  }, [range, cartCode, reload, isOwner]);
+  }, [range, cartCode, reload, isOwner, customStart, customEnd]);
 
   const revenueTrend = useMemo(() => {
     if (!trends || !prevTrends || prevTrends.total_sales <= 0) return null;
@@ -171,11 +210,13 @@ export default function AnalyticsPage() {
   const topItemStat = useMemo(() => {
     const cur = trends?.top_items?.[0];
     if (!cur) return { name: " ", qty: null, trend: null };
+
     const prevMatch = prevTrends?.top_items?.find((t) => t.name === cur.name);
     const trend =
       prevMatch && prevMatch.qty > 0
         ? ((cur.qty - prevMatch.qty) / prevMatch.qty) * 100
         : null;
+
     return { name: cur.name, qty: cur.qty, trend };
   }, [trends, prevTrends]);
 
@@ -190,6 +231,7 @@ export default function AnalyticsPage() {
     if (ordersTrend !== null && Math.abs(ordersTrend) >= 5) {
       list.push({ icon: ShoppingBag, short: `Orders ${ordersTrend >= 0 ? "+" : ""}${ordersTrend.toFixed(1)}%`, href: "#section-sales", type: ordersTrend >= 0 ? "success" : "danger" });
     }
+
     const byWeekday = trends?.by_weekday ?? [];
     if (byWeekday.length) {
       const best = byWeekday.reduce((a, b) => (a.total_sales > b.total_sales ? a : b));
@@ -197,6 +239,7 @@ export default function AnalyticsPage() {
         list.push({ icon: BarChart2, short: `${best.label} peaks - staff it`, href: "#section-dow", type: "info" });
       }
     }
+
     if (totalOrders > 0) {
       list.push({ icon: ShoppingBag, short: `Avg ticket P${avgOrderValue.toFixed(0)}`, href: "#section-items", type: "info" });
     }
@@ -206,12 +249,15 @@ export default function AnalyticsPage() {
   const categoryData = useMemo(() => {
     const items = trends?.top_items ?? [];
     const byCategory = {};
+
     for (const item of items) {
       const cat = item.name?.split(" ")[0] ?? "Other";
       if (!byCategory[cat]) byCategory[cat] = 0;
       byCategory[cat] += item.sales;
     }
+
     const total = Object.values(byCategory).reduce((s, v) => s + v, 0);
+
     return Object.entries(byCategory)
       .map(([name, sales]) => ({ name, sales: Number(sales.toFixed(2)), pct: total > 0 ? ((sales / total) * 100).toFixed(1) : "0" }))
       .sort((a, b) => b.sales - a.sales)
@@ -236,6 +282,7 @@ export default function AnalyticsPage() {
   const tableData = useMemo(() => {
     const items = trends?.top_items ?? [];
     const total = items.reduce((s, i) => s + i.sales, 0);
+
     return [...items].map((item, idx) => ({
       ...item,
       rank: idx + 1,
@@ -253,7 +300,7 @@ export default function AnalyticsPage() {
 
   function sortIcon(col) {
     if (sortCol !== col) return <span className="sort-icon"> </span>;
-    return <span className="sort-icon active">{sortDir === "desc" ? " ↓ " : " ↑ "}</span>;
+    return <span className="sort-icon active">{sortDir === "desc" ? "↓" : "↑"}</span>;
   }
 
   const locationOptions = [
@@ -266,11 +313,9 @@ export default function AnalyticsPage() {
     { value: "14", label: "Last 14 days" },
     { value: "30", label: "Last 30 days" },
     { value: "90", label: "Last 90 days" },
+    { value: "custom", label: "Custom range..." }
   ];
 
-  // ==========================================================
-  // SMART SUMMARY GENERATOR (FIXED SPACING)
-  // ==========================================================
   const renderSmartSummary = () => {
     const rev = Number(totalRevenue).toLocaleString();
     const ord = totalOrders;
@@ -297,7 +342,6 @@ export default function AnalyticsPage() {
     }
 
     const riskItems = forecast?.items?.filter(i => i.risk === "high" || i.risk === "medium").length || 0;
-
     const highlightStyle = { color: "var(--primary-strong)", fontWeight: "800", fontSize: "1.05em" };
 
     if (summaryLang === "en") {
@@ -340,7 +384,7 @@ export default function AnalyticsPage() {
           title="Analytics"
           sub="Performance metrics, sales trends, and top items."
           actions={
-            <>
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="muted small" style={{ marginRight: "4px" }}>
                 Last updated {lastUpdated?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) ?? "just now"}
               </span>
@@ -355,7 +399,14 @@ export default function AnalyticsPage() {
               >
                 <RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh
               </button>
-            </>
+              <button
+                className="small-btn"
+                onClick={() => window.print()}
+                title="Print Report to PDF"
+              >
+                <Printer size={14} /> Print Report
+              </button>
+            </div>
           }
         />
 
@@ -374,17 +425,34 @@ export default function AnalyticsPage() {
               <Select
                 value={range}
                 onChange={(val) => {
-                  setLoading(true);
                   setRange(val);
+                  if(val !== "custom") setLoading(true);
                 }}
                 options={rangeOptions}
                 placeholder="Select range..."
               />
+              {range === "custom" && (
+                <div className="flex items-center gap-2" style={{ animation: "rise-in 0.2s ease" }}>
+                  <input
+                    type="date"
+                    value={customStart}
+                    onChange={(e) => { setCustomStart(e.target.value); setLoading(true); }}
+                    style={{ height: "36px", borderRadius: "14px", border: "1px solid var(--border)", padding: "0 12px", background: "var(--surface-alt)", color: "var(--text)" }}
+                  />
+                  <span className="muted small font-bold">to</span>
+                  <input
+                    type="date"
+                    value={customEnd}
+                    onChange={(e) => { setCustomEnd(e.target.value); setLoading(true); }}
+                    style={{ height: "36px", borderRadius: "14px", border: "1px solid var(--border)", padding: "0 12px", background: "var(--surface-alt)", color: "var(--text)" }}
+                  />
+                </div>
+              )}
             </div>
             {(cartCode || range !== "30") && (
               <button 
                 className="danger-ghost small-btn" 
-                onClick={() => { setCartCode(""); setRange("30"); setLoading(true); }}
+                onClick={() => { setCartCode(""); setRange("30"); setCustomStart(""); setCustomEnd(""); setLoading(true); }}
               >
                 <X size={14} /> Clear filters
               </button>
@@ -513,7 +581,7 @@ export default function AnalyticsPage() {
               <div
                 className="chart-container"
                 role="img"
-                aria-label={`Area chart of daily revenue over the last ${range} days. Total revenue: P${totalRevenue.toLocaleString()}.`}
+                aria-label={`Area chart of daily revenue. Total revenue: P${totalRevenue.toLocaleString()}.`}
               >
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={trends.daily_series ?? []} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
@@ -604,6 +672,7 @@ export default function AnalyticsPage() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+
               {hourly && (
                 <div style={{ marginTop: "var(--space-5)" }}>
                   <h3 className="profit-chart-title">Peak hours</h3>
@@ -739,6 +808,7 @@ export default function AnalyticsPage() {
                   </tbody>
                 </table>
               </div>
+
               {basket && basket.orders > 0 && (
                 <div style={{ marginTop: "var(--space-4)" }}>
                   <h3 className="profit-chart-title">What sells together</h3>
@@ -777,6 +847,7 @@ export default function AnalyticsPage() {
                 const items = forecast?.items ?? [];
                 const sufficient = items.filter((i) => i.data_sufficient);
                 const insufficient = items.filter((i) => !i.data_sufficient);
+
                 if (items.length === 0) {
                   return (
                     <EmptyState
@@ -788,6 +859,7 @@ export default function AnalyticsPage() {
                     />
                   );
                 }
+
                 if (sufficient.length === 0) {
                   return (
                     <div className="forecast-empty">
@@ -819,6 +891,7 @@ export default function AnalyticsPage() {
                     </div>
                   );
                 }
+
                 return (
                   <>
                     <p className="muted small" style={{ marginBottom: "var(--space-2)" }}>

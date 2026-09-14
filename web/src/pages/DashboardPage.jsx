@@ -17,12 +17,14 @@ import {
   ShoppingBag,
   TrendingUp,
   Users,
+  X
 } from "lucide-react";
 import api, { API_BASE, getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import SensorPanel from "../components/SensorPanel.jsx";
+import Select from "../components/Select.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { useSSE } from "../hooks/useSSE.js";
 
@@ -51,7 +53,6 @@ function TrendArrow({ dir }) {
   return <Minus size={12} />;
 }
 
-// Keyboard parity for clickable cards: Enter/Space activates like a click.
 function activate(e, fn) {
   if (e.key === "Enter" || e.key === " ") {
     e.preventDefault();
@@ -59,14 +60,20 @@ function activate(e, fn) {
   }
 }
 
+// Helper to get local YYYY-MM-DD
+function getLocalToday() {
+  const tzOffset = new Date().getTimezoneOffset() * 60000;
+  return new Date(Date.now() - tzOffset).toISOString().slice(0, 10);
+}
+
 export default function DashboardPage() {
   const navigate = useNavigate();
   const toast = useToast();
-  // Kukunin natin ang user context para makuha ang pangalan
+  
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
   const firstName = user?.name ? user.name.split(" ")[0] : "there";
-
+  
   const [report, setReport] = useState(null);
   const [inventory, setInventory] = useState([]);
   const [onShift, setOnShift] = useState([]);
@@ -74,13 +81,16 @@ export default function DashboardPage() {
   const [alerts, setAlerts] = useState([]);
   const [trends, setTrends] = useState(null);
   const [prev, setPrev] = useState(null);
+  
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
-  // Per-section fetch failures: { report?: msg, inventory?: msg, ... }.
-  // Failed sections keep their previous data (never zeroed) and are listed
-  // in the banner below instead of blanking the whole dashboard.
   const [sectionErrors, setSectionErrors] = useState({});
+
+  // --- NEW STATES FOR FILTERS ---
+  const [locations, setLocations] = useState([]);
+  const [dateFilter, setDateFilter] = useState("");
+  const [cartFilter, setCartFilter] = useState("");
 
   const sectionLabels = {
     report: "Sales",
@@ -94,8 +104,11 @@ export default function DashboardPage() {
   const [sseStatus, setSseStatus] = useState("connecting");
   const [livePulse, setLivePulse] = useState(0);
 
-  // Fresh stream ticket per (re)connect: the JWT travels in a POST body,
-  // never in the EventSource URL.
+  // Load locations for the cart filter dropdown
+  useEffect(() => {
+    api.get("/catalog").then(({ data }) => setLocations(data.locations)).catch(() => {});
+  }, []);
+
   const getStreamTicket = useCallback(async () => {
     try {
       const { data } = await api.post("/events/ticket", {});
@@ -115,21 +128,33 @@ export default function DashboardPage() {
         errs[key] = getErrorMessage(err, "Couldn't load this section.");
       }
     };
+
+    // Build Query Parameters dynamically
+    const dQ = dateFilter ? `date=${dateFilter}` : "";
+    const lQ = cartFilter ? `location_code=${cartFilter}` : "";
+    const cQ = cartFilter ? `code=${cartFilter}` : "";
+
+    const buildQ = (base, params) => {
+      const query = params.filter(Boolean).join("&");
+      if (!query) return base;
+      return base.includes("?") ? `${base}&${query}` : `${base}?${query}`;
+    };
+
     await Promise.all([
-      settle("report", api.get("/reports/daily"), (r) => setReport(r.data)),
+      settle("report", api.get(buildQ("/reports/daily", [dQ, lQ])), (r) => setReport(r.data)),
       settle("inventory", api.get("/inventory"), (r) => setInventory(r.data?.locations ?? [])),
       settle("staff", api.get("/staff/on-shift"), (r) => setOnShift(r.data?.on_shift ?? [])),
-      settle("sales", api.get("/orders?page=1&pageSize=8"), (r) => setLatestSales(r.data?.data ?? [])),
-      settle("alerts", api.get("/alerts?unread_only=true&page=1&pageSize=6"), (r) => setAlerts(r.data?.data ?? [])),
-      settle("trends", api.get("/analytics/trends?days=7").catch(() => ({ data: null })), (r) => setTrends(r.data)),
-      settle("prev", api.get("/reports/daily?daysAgo=1").catch(() => ({ data: null })), (r) => setPrev(r.data)),
+      settle("sales", api.get(buildQ("/orders?page=1&pageSize=8", [dQ, lQ])), (r) => setLatestSales(r.data?.data ?? [])),
+      settle("alerts", api.get(buildQ("/alerts?unread_only=true&page=1&pageSize=6", [lQ])), (r) => setAlerts(r.data?.data ?? [])),
+      settle("trends", api.get(buildQ("/analytics/trends?days=7", [cQ, dQ])).catch(() => ({ data: null })), (r) => setTrends(r.data)),
+      settle("prev", api.get(buildQ("/reports/daily?daysAgo=1", [dQ, lQ])).catch(() => ({ data: null })), (r) => setPrev(r.data)),
     ]);
+    
     setSectionErrors(errs);
-    // "Last updated" only moves when something actually refreshed.
     if (Object.keys(errs).length < 7) setLastUpdated(new Date());
     setLoading(false);
     setRefreshing(false);
-  }, []);
+  }, [dateFilter, cartFilter]);
 
   useEffect(() => {
     const timer = setTimeout(refresh, 0);
@@ -141,7 +166,14 @@ export default function DashboardPage() {
     getTicket: getStreamTicket,
     onStatus: setSseStatus,
     onEvent: (event, data) => {
+      // --- SMART LIVE EVENTS: Ignore if viewing past dates ---
+      const isViewingLive = !dateFilter || dateFilter === getLocalToday();
+      if (!isViewingLive) return;
+
       if (event === "order:new") {
+        // --- SMART LIVE EVENTS: Ignore if filtered to a different cart ---
+        if (cartFilter && data.locationCode && data.locationCode !== cartFilter) return;
+
         setReport((r) =>
           r
             ? {
@@ -157,6 +189,8 @@ export default function DashboardPage() {
           "success"
         );
       } else if (event === "alert:new") {
+        if (cartFilter && data.locationCode && data.locationCode !== cartFilter) return;
+
         setAlerts((a) => [
           { id: data.id, type: data.type, message: data.message },
           ...(Array.isArray(a) ? a : []),
@@ -171,23 +205,25 @@ export default function DashboardPage() {
   const safeLatestSales = Array.isArray(latestSales) ? latestSales : [];
   const safeAlerts = Array.isArray(alerts) ? alerts : [];
 
-  const lowCount = safeInventory.reduce(
+  // --- FILTER INVENTORY & STAFF BY CART ON FRONTEND (gawa niya, nilagyan lang ng guards) ---
+  const activeInventory = cartFilter ? safeInventory.filter((l) => l.code === cartFilter) : safeInventory;
+  const activeOnShift = cartFilter ? safeOnShift.filter((s) => s.location_code === cartFilter) : safeOnShift;
+
+  const lowCount = activeInventory.reduce(
     (sum, loc) => sum + (loc.items ?? []).filter((i) => i.status !== "ok").length,
     0
   );
-  const criticalCount = safeInventory.reduce(
+  const criticalCount = activeInventory.reduce(
     (sum, loc) => sum + (loc.items ?? []).filter((i) => i.status === "critical").length,
     0
   );
 
   const lowStockAlerts = safeAlerts.filter((a) => a.type === "LOW_STOCK");
-
   const todaySales = report?.total_sales ?? 0;
   const todayOrders = report?.orders ?? 0;
   const avgTicket = todayOrders > 0 ? todaySales / todayOrders : 0;
 
   const topItem = (() => {
-    // trends.top_items is top-level (top 5 by qty across the period).
     const all = trends?.top_items ?? [];
     if (all.length === 0) return null;
     return all.sort((a, b) => (b.qty ?? 0) - (a.qty ?? 0))[0];
@@ -197,20 +233,22 @@ export default function DashboardPage() {
     was != null && was > 0 ? ((today - was) / was) * 100 : null;
 
   const dirOf = (d) => (d == null ? "flat" : d > 0 ? "up" : d < 0 ? "down" : "flat");
-  
-  // INO-MODIFIED: Pinalitan ang "Idle" ng "No prior data"
   const labelOf = (d) =>
-    d == null ? "No prior data" : `${d >= 0 ? "+" : ""}${d.toFixed(1)}% vs yesterday`;
+    d == null ? "No prior data" : `${d >= 0 ? "+" : ""}${d.toFixed(1)}% vs prior`;
 
   const salesDelta = pct(todaySales, prev?.total_sales);
   const ordersDelta = pct(todayOrders, prev?.orders);
-
   const salesDir = dirOf(salesDelta);
   const ordersDir = dirOf(ordersDelta);
 
   const weeklyMax = trends?.by_weekday
     ? Math.max(...trends.by_weekday.map((s) => s.total_sales), 1)
     : 1;
+
+  const locationOptions = [
+    { value: "", label: "All carts" },
+    ...locations.map((l) => ({ value: l.code, label: l.code }))
+  ];
 
   return (
     <div className="page-container wide">
@@ -246,8 +284,40 @@ export default function DashboardPage() {
               : "Stay on top of your operations, monitor progress, and track real-time status."}
           </p>
         </div>
-        <div className="page-header-actions">
-          <span className="muted small" style={{ marginRight: "4px" }}>
+        
+        {/* --- GLOBAL HEADER FILTERS --- */}
+        <div className="page-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <Select
+            value={cartFilter}
+            onChange={setCartFilter}
+            options={locationOptions}
+            placeholder="All carts"
+          />
+          <input
+            type="date"
+            value={dateFilter}
+            onChange={e => setDateFilter(e.target.value)}
+            style={{ 
+              height: '36px', 
+              borderRadius: '14px', 
+              border: '1px solid var(--border)', 
+              padding: '0 12px', 
+              background: 'var(--surface-alt)', 
+              color: 'var(--text)' 
+            }}
+            title="View past dashboard"
+          />
+          {(dateFilter || cartFilter) && (
+             <button
+                className="danger-ghost small-btn"
+                onClick={() => { setDateFilter(""); setCartFilter(""); }}
+                title="Clear Filters"
+             >
+                <X size={14} /> Clear
+             </button>
+          )}
+
+          <span className="muted small" style={{ marginLeft: "4px" }}>
             Last updated {lastUpdated?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) ?? "just now"}
           </span>
           <button
@@ -278,7 +348,6 @@ export default function DashboardPage() {
 
       {loading ? (
         <>
-          {/* Custom Skeleton para sa Top Row */}
           <div className="dashboard-top-row">
             <div className="dashboard-kpi-stack">
               <div className="kpi-card large"><Skeleton rows={3} height={20} /></div>
@@ -295,8 +364,6 @@ export default function DashboardPage() {
               <div className="skel" style={{ flex: 1, minHeight: "140px", marginTop: "16px", borderRadius: "8px" }} />
             </div>
           </div>
-          
-          {/* Custom Skeleton para sa Bottom Row */}
           <div className="dashboard-body">
             <div className="panel widget-orders"><Skeleton rows={6} /></div>
             <div className="panel"><Skeleton rows={4} /></div>
@@ -307,10 +374,8 @@ export default function DashboardPage() {
         </>
       ) : (
         <div className="dashboard-top-row">
-          
-          {/* COLUMN 1: Large KPIs (Stacked) */}
+          {/* COLUMN 1: Large KPIs */}
           <div className="dashboard-kpi-stack">
-            {/* Sales Card - Styled as solid brand color */}
             <div
               className="kpi-card large solid-brand"
               onClick={() => navigate("/sales")}
@@ -320,7 +385,7 @@ export default function DashboardPage() {
               aria-label="Sales today - view sales"
             >
               <div className="kpi-card-header">
-                <span className="kpi-card-label">Sales today</span>
+                <span className="kpi-card-label">{dateFilter ? "Sales (Filtered)" : "Sales today"}</span>
                 <span className="kpi-card-icon">
                   <DollarSign size={22} />
                 </span>
@@ -348,7 +413,6 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Orders Card */}
             <div
               className="kpi-card large"
               onClick={() => navigate("/sales")}
@@ -358,7 +422,7 @@ export default function DashboardPage() {
               aria-label="Orders today - view sales"
             >
               <div className="kpi-card-header">
-                <span className="kpi-card-label">Orders today</span>
+                <span className="kpi-card-label">{dateFilter ? "Orders (Filtered)" : "Orders today"}</span>
                 <span className="kpi-card-icon">
                   <ShoppingBag size={22} />
                 </span>
@@ -367,8 +431,7 @@ export default function DashboardPage() {
                 <div>
                   <div className="kpi-card-value">{report ? todayOrders : "—"}</div>
                   <div className="kpi-card-sub">
-                    Across {safeInventory.length} active cart
-                    {safeInventory.length !== 1 ? "s" : ""}
+                    Across {activeInventory.length} active cart{activeInventory.length !== 1 ? "s" : ""}
                   </div>
                 </div>
                 <span className={`kpi-card-trend ${ordersDir}`}>
@@ -379,7 +442,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* COLUMN 2: Secondary KPIs (2x2 Grid) */}
+          {/* COLUMN 2: Secondary KPIs */}
           <div className="dashboard-kpi-grid-2x2">
             <div
               className="kpi-card"
@@ -387,7 +450,6 @@ export default function DashboardPage() {
               onKeyDown={(e) => activate(e, () => navigate("/sales"))}
               role="button"
               tabIndex={0}
-              aria-label="Average ticket - view sales"
             >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">Avg ticket</span>
@@ -396,7 +458,7 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className="kpi-card-value">P{avgTicket.toFixed(0)}</div>
-              <div className="kpi-card-sub">Per order today</div>
+              <div className="kpi-card-sub">Per order {dateFilter ? "selected" : "today"}</div>
             </div>
 
             <div
@@ -405,7 +467,6 @@ export default function DashboardPage() {
               onKeyDown={(e) => activate(e, () => navigate("/analytics"))}
               role="button"
               tabIndex={0}
-              aria-label="Top item - view analytics"
             >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">Top item</span>
@@ -427,7 +488,6 @@ export default function DashboardPage() {
               onKeyDown={(e) => activate(e, () => navigate("/inventory"))}
               role="button"
               tabIndex={0}
-              aria-label="Low stock - view inventory"
             >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">Low stock</span>
@@ -460,7 +520,6 @@ export default function DashboardPage() {
               onKeyDown={(e) => activate(e, () => navigate("/staff"))}
               role="button"
               tabIndex={0}
-              aria-label="Staff on shift - view staff"
             >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">On shift</span>
@@ -468,10 +527,10 @@ export default function DashboardPage() {
                   <Users size={20} />
                 </span>
               </div>
-              <div className="kpi-card-value">{safeOnShift.length}</div>
+              <div className="kpi-card-value">{activeOnShift.length}</div>
               <div className="kpi-card-sub">
-                {safeOnShift.length > 0
-                  ? safeOnShift.map((s) => s.location_code).join(", ")
+                {activeOnShift.length > 0
+                  ? activeOnShift.map((s) => s.location_code).join(", ")
                   : "No staff tapped in"}
               </div>
             </div>
@@ -515,10 +574,7 @@ export default function DashboardPage() {
       {/* BOTTOM SECTION */}
       {!loading && (
         <div className="dashboard-body">
-          
-          {/* ROW 1 ================================= */}
-          
-          {/* 1. Recent Orders (Spans 2 columns) */}
+          {/* 1. Recent Orders */}
           <section className="panel widget-orders" aria-live="polite">
             <div className="panel-head" style={{ marginBottom: "16px" }}>
               <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
@@ -531,7 +587,7 @@ export default function DashboardPage() {
             {safeLatestSales.length === 0 ? (
               <EmptyState
                 icon={ShoppingBag}
-                title="No sales today"
+                title="No sales found"
                 subtitle="Sales appear here as soon as staff records them."
                 compact
               />
@@ -575,13 +631,10 @@ export default function DashboardPage() {
             )}
           </section>
 
-          {/* 2. Live Sensor (Spans 1 column naturally) */}
-          <SensorPanel code="CART-01" />
+          {/* 2. Live Sensor */}
+          <SensorPanel code={cartFilter || "CART-01"} />
 
-
-          {/* ROW 2 ================================= */}
-
-          {/* 3. Stock Alerts (Spans 1 column) */}
+          {/* 3. Stock Alerts */}
           <section className="panel">
             <div className="panel-head" style={{ marginBottom: "12px" }}>
               <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
@@ -611,7 +664,7 @@ export default function DashboardPage() {
                 </button>
               </div>
             </div>
-            {safeInventory.length === 0 ? (
+            {activeInventory.length === 0 ? (
               <EmptyState
                 icon={Boxes}
                 title="No carts configured"
@@ -620,7 +673,7 @@ export default function DashboardPage() {
               />
             ) : (
               <div>
-                {safeInventory
+                {activeInventory
                   .flatMap((loc) =>
                     (loc.items ?? [])
                       .filter((i) => i.status !== "ok")
@@ -651,7 +704,7 @@ export default function DashboardPage() {
                       </div>
                     );
                   })}
-                {safeInventory.every((loc) => (loc.items ?? []).every((i) => i.status === "ok")) && (
+                {activeInventory.every((loc) => (loc.items ?? []).every((i) => i.status === "ok")) && (
                   <EmptyState
                     icon={CheckCircle}
                     title="All stock healthy"
@@ -663,22 +716,21 @@ export default function DashboardPage() {
             )}
           </section>
 
-          {/* 4. Cart Status (Spans 1 column) */}
-          {safeInventory.length > 0 && (
+          {/* 4. Cart Status */}
+          {activeInventory.length > 0 && (
             <section className="panel">
               <div className="panel-head" style={{ marginBottom: "12px" }}>
                 <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
                   Cart status
                 </h3>
-                <Badge variant="neutral">{safeInventory.length} carts</Badge>
+                <Badge variant="neutral">{activeInventory.length} carts</Badge>
               </div>
               <div>
-                {safeInventory.map((loc) => {
+                {activeInventory.map((loc) => {
                   const locItems = loc.items ?? [];
                   const low = locItems.filter((i) => i.status !== "ok").length;
                   const critical = locItems.filter((i) => i.status === "critical").length;
                   const dotClass = critical > 0 ? "critical" : low > 0 ? "warn" : "ok";
-
                   return (
                     <div
                       key={loc.id}
@@ -687,7 +739,6 @@ export default function DashboardPage() {
                       onKeyDown={(e) => activate(e, () => navigate("/inventory"))}
                       role="button"
                       tabIndex={0}
-                      aria-label={`${loc.code} stock status - view inventory`}
                     >
                       <span className={`status-dot ${dotClass}`} />
                       <span className="alert-item-text">
@@ -710,17 +761,17 @@ export default function DashboardPage() {
             </section>
           )}
 
-          {/* 5. On-shift Staff (Spans 1 column) */}
+          {/* 5. On-shift Staff */}
           <section className="panel">
             <div className="panel-head" style={{ marginBottom: "12px" }}>
               <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
                 On-shift staff
               </h3>
-              <Badge variant={safeOnShift.length > 0 ? "ok" : "neutral"}>
-                {safeOnShift.length} on duty
+              <Badge variant={activeOnShift.length > 0 ? "ok" : "neutral"}>
+                {activeOnShift.length} on duty
               </Badge>
             </div>
-            {safeOnShift.length === 0 ? (
+            {activeOnShift.length === 0 ? (
               <EmptyState
                 icon={Clock}
                 title="No one on shift"
@@ -729,7 +780,7 @@ export default function DashboardPage() {
               />
             ) : (
               <div className="flex flex-col gap-2">
-                {safeOnShift.map((s) => (
+                {activeOnShift.map((s) => (
                   <div
                     key={`${s.name}-${s.location_code}`}
                     className="cart-status-item"
@@ -750,7 +801,6 @@ export default function DashboardPage() {
               </div>
             )}
           </section>
-
         </div>
       )}
     </div>

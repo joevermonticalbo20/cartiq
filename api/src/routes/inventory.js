@@ -61,8 +61,8 @@ router.post("/inventory/items", requireAuth, async (req, res, next) => {
     const unitStr = String(unit ?? "pcs").trim().slice(0, 20) || "pcs";
     const stockNum = stock === undefined || stock === "" ? 0 : +stock;
     const thresholdNum = threshold === undefined || threshold === "" ? 0 : +threshold;
-    if (!Number.isFinite(stockNum) || stockNum < 0 || !Number.isFinite(thresholdNum) || thresholdNum < 0) {
-      return res.status(400).json({ error: "stock and threshold must be non-negative numbers" });
+    if (!Number.isFinite(stockNum) || stockNum < 0 || stockNum > 100000 || !Number.isFinite(thresholdNum) || thresholdNum < 0 || thresholdNum > 100000) {
+      return res.status(400).json({ error: "stock and threshold must be 0-100000" });
     }
     const src = source === "SENSOR" ? "SENSOR" : "MANUAL";
 
@@ -97,8 +97,8 @@ router.post("/inventory/items", requireAuth, async (req, res, next) => {
 router.patch("/inventory/items/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
     const { threshold } = req.body ?? {};
-    if (threshold === undefined || !Number.isFinite(+threshold) || +threshold < 0) {
-      return res.status(400).json({ error: "non-negative threshold is required" });
+    if (threshold === undefined || !Number.isFinite(+threshold) || +threshold < 0 || +threshold > 100000) {
+      return res.status(400).json({ error: "threshold must be 0-100000" });
     }
     const item = await prisma.inventoryItem.findUnique({ where: { id: +req.params.id } });
     if (!item) return res.status(404).json({ error: "Inventory item not found" });
@@ -115,8 +115,8 @@ router.patch("/inventory/items/:id", requireAuth, requireRole("OWNER"), async (r
 router.post("/inventory/adjustments", requireAuth, async (req, res, next) => {
   try {
     const { inventoryItemId, newStock, reason } = req.body ?? {};
-    if (!Number.isInteger(+inventoryItemId) || !Number.isFinite(+newStock) || +newStock < 0) {
-      return res.status(400).json({ error: "inventoryItemId and non-negative newStock are required" });
+    if (!Number.isInteger(+inventoryItemId) || !Number.isFinite(+newStock) || +newStock < 0 || +newStock > 100000) {
+      return res.status(400).json({ error: "inventoryItemId and newStock 0-100000 are required" });
     }
     // Staff corrections need a reason (owner rows record it when given).
     // Every adjustment is audit-trailed with actor + before/after.
@@ -155,7 +155,12 @@ router.post("/inventory/adjustments", requireAuth, async (req, res, next) => {
         data: {
           type: "LOW_STOCK",
           message: `${item.name} @ manual adjustment set to ${updated.stock} ${item.unit} (threshold ${updated.threshold})`,
-          payload: JSON.stringify({ inventoryItemId: item.id, reason: reason ?? null }),
+          payload: JSON.stringify({
+            dedupeKey: `low:${item.locationId}:${item.id}:manual:${Date.now()}`,
+            inventoryItemId: item.id,
+            locationId: item.locationId,
+            reason: reason ?? null,
+          }),
         },
       });
       emit("alert:new", { id: alert.id, type: "LOW_STOCK", message: alert.message });

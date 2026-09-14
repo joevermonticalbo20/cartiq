@@ -86,6 +86,10 @@ class ApiClient {
   /// The base URL actually in use (resolved, manual, or fallback).
   String get currentBaseUrl => _resolvedBaseUrl ?? AppConfig.apiBaseUrl;
 
+  /// True when talking over plain HTTP (LAN dev). Shown in UI as a
+  /// subtle warning — never use public WiFi with an http:// server.
+  bool get isInsecureUrl => currentBaseUrl.startsWith('http://');
+
   /// True when the URL was typed by the user rather than discovered.
   bool get isManualUrl => _isManual;
 
@@ -154,6 +158,23 @@ class ApiClient {
       ),
     );
     return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  /// Revoke a refresh token server-side. Best-effort: never throws, so
+  /// logout always completes locally even offline.
+  Future<void> logout(String? refreshToken) async {
+    if (refreshToken == null || refreshToken.isEmpty) return;
+    try {
+      await _http
+          .post(
+            _uri('/auth/logout'),
+            headers: _headers(),
+            body: jsonEncode({'refreshToken': refreshToken}),
+          )
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // offline or already revoked: local logout still proceeds
+    }
   }
 
   Future<bool> health() async {

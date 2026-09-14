@@ -48,7 +48,7 @@ router.post("/login", loginLimiter, async (req, res, next) => {
     const accessToken = jwt.sign(
       { sub: user.id, username: user.username, role: user.role, name: user.name },
       process.env.JWT_SECRET,
-      { expiresIn: "12h" }
+      { expiresIn: "15m" }
     );
     const refreshToken = jwt.sign(
       // jti guarantees uniqueness: without it, two logins in the same
@@ -113,11 +113,14 @@ router.post("/refresh", async (req, res, next) => {
       include: { location: true },
     });
     if (!user) return res.status(404).json({ error: "User not found" });
+    if (user.active === false) {
+      return res.status(401).json({ error: "Account disabled" });
+    }
 
     const newAccessToken = jwt.sign(
       { sub: user.id, username: user.username, role: user.role, name: user.name },
       process.env.JWT_SECRET,
-      { expiresIn: "12h" }
+      { expiresIn: "15m" }
     );
     const newRefreshToken = jwt.sign(
       // jti: see login route - same-second rotations must not collide.
@@ -134,6 +137,25 @@ router.post("/refresh", async (req, res, next) => {
     });
 
     return res.json({ token: newAccessToken, refreshToken: newRefreshToken, user: publicUser(user) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /auth/logout - revoke a refresh token (idempotent, public so an
+// expired access token can still log out). Web/mobile clear local session
+// after calling this; server record is deleted so a stolen refresh dies.
+router.post("/logout", async (req, res, next) => {
+  try {
+    const { refreshToken } = req.body ?? {};
+    if (!refreshToken) return res.json({ loggedOut: true });
+    const tokenRecord = await prisma.refreshToken.findUnique({
+      where: { token: refreshToken },
+    });
+    if (tokenRecord) {
+      await prisma.refreshToken.delete({ where: { id: tokenRecord.id } });
+    }
+    return res.json({ loggedOut: true });
   } catch (err) {
     return next(err);
   }

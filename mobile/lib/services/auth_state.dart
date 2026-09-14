@@ -83,6 +83,11 @@ class AuthState extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    // Revoke server-side first so a stolen refresh dies; local clear
+    // happens regardless (logout must never hang on network fail).
+    try {
+      await api.logout(refreshToken);
+    } catch (_) {}
     token = null;
     refreshToken = null;
     await storage.delete(key: 'cartiq_token');

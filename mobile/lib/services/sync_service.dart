@@ -97,9 +97,9 @@ class SyncService extends ChangeNotifier {
     if (startToken == null) {
       return SyncResult(online: false, synced: 0, remaining: await queue.count);
     }
-    if (!await api.health()) {
-      return SyncResult(online: false, synced: 0, remaining: await queue.count);
-    }
+    // No health() pre-check: it cost an extra roundtrip on every drain and
+    // doubled Render cold-start latency. Submit directly; network failure
+    // below is treated as offline.
 
     var synced = 0;
     var activeToken = startToken;
@@ -129,12 +129,13 @@ class SyncService extends ChangeNotifier {
         continue;
       }
       try {
+        // Server returns 200 {duplicate:true} for replays — still synced.
         await api.submitOrder(record.payload, activeToken);
         await queue.remove(record.id);
         synced++;
       } on ApiException catch (e) {
         if (e.statusCode == 401 || e.statusCode == 403) {
-          // Access tokens expire mid-session (12h). Recover once via the
+          // Access tokens are short-lived (15min). Recover once via the
           // refresh token and retry this record instead of stalling the
           // queue behind an expired session.
           if (!await auth.refreshSession()) break;

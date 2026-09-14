@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { fmtStock, oversellShortage } from "../services/inventory_rules.js";
+import { manilaDayRange } from "../services/timezone.js";
 import { emit } from "./events.js";
 
 const router = Router();
@@ -18,14 +19,17 @@ router.post("/orders", requireAuth, async (req, res, next) => {
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: "items must be a non-empty array" });
     }
+    if (items.length > 100) {
+      return res.status(400).json({ error: "max 100 items per order" });
+    }
     for (const it of items) {
       const qty = +it.qty;
       const price = +it.unitPrice;
       if (typeof it.productName !== "string" || !it.productName.trim() ||
-          !Number.isInteger(qty) || qty < 1 ||
-          !Number.isFinite(price) || price < 0) {
+          !Number.isInteger(qty) || qty < 1 || qty > 100 ||
+          !Number.isFinite(price) || price < 0 || price > 10000) {
         return res.status(400).json({
-          error: "each item needs a productName, an integer qty >= 1 and a unitPrice >= 0",
+          error: "each item needs a productName, an integer qty 1-100 and a unitPrice 0-10000",
         });
       }
     }
@@ -125,17 +129,25 @@ router.post("/orders", requireAuth, async (req, res, next) => {
             const crossed = base > inv.threshold && newStock <= inv.threshold;
             stockWrites.set(inv.id, { inv, newStock });
             if (crossed) {
-              const needle = `${inv.name} @ ${location.code}`;
+              const dedupeKey = `low:${location.id}:${inv.id}`;
               const dup =
-                createdNeedles.has(needle) ||
-                unreadAlerts.some((a) => (a.message ?? "").includes(needle));
+                createdNeedles.has(dedupeKey) ||
+                unreadAlerts.some((a) => {
+                  try {
+                    return JSON.parse(a.payload ?? "{}")?.dedupeKey === dedupeKey;
+                  } catch {
+                    return (a.message ?? "").includes(`${inv.name} @ ${location.code}`);
+                  }
+                });
               if (!dup) {
-                createdNeedles.add(needle);
+                createdNeedles.add(dedupeKey);
                 newAlerts.push({
                   type: "LOW_STOCK",
-                  message: `${needle} dropped below threshold (${newStock} ${inv.unit} left)`,
+                  message: `${inv.name} @ ${location.code} dropped below threshold (${newStock} ${inv.unit} left)`,
                   payload: JSON.stringify({
+                    dedupeKey,
                     inventoryItemId: inv.id,
+                    locationId: location.id,
                     stock: newStock,
                     threshold: inv.threshold,
                     unit: inv.unit,
@@ -224,13 +236,11 @@ router.get("/orders", requireAuth, async (req, res, next) => {
       where.locationId = loc.id;
     }
     if (date) {
-      const start = new Date(`${date}T00:00:00`);
-      if (!Number.isFinite(start.getTime())) {
+      const range = manilaDayRange(String(date));
+      if (!range) {
         return res.status(400).json({ error: "date must be YYYY-MM-DD" });
       }
-      const end = new Date(start);
-      end.setDate(end.getDate() + 1);
-      where.createdAt = { gte: start, lt: end };
+      where.createdAt = { gte: range.start, lt: range.end };
     }
     const [total, orders] = await Promise.all([
       prisma.order.count({ where }),
@@ -259,30 +269,100 @@ function emptyMeta(page, pageSize) {
   return { total: 0, page, pageSize, totalPages: 1 };
 }
 
-// PATCH /orders/:id - void a mis-tapped sale (OWNER only). Record-only:
-// the row stays in history with actor + timestamp, stock is NOT reversed.
+// PATCH /orders/:id - void a mis-tapped sale (OWNER only). The row stays in
+// history with actor + timestamp, and deducted recipe stock is restored
+// (auto-restore) with an audit trail. Missing inventory rows are reported in
+// warnings[] instead of failing the void.
 router.patch("/orders/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
     const { status, reason } = req.body ?? {};
     if (status !== "VOID") {
       return res.status(400).json({ error: 'only status "VOID" is supported' });
     }
-    const existing = await prisma.order.findUnique({ where: { id: Number(req.params.id) } });
+    const existing = await prisma.order.findUnique({
+      where: { id: Number(req.params.id) },
+      include: { items: true },
+    });
     if (!existing) return res.status(404).json({ error: "Order not found" });
     if (existing.status === "VOID") {
       return res.status(400).json({ error: "Order is already void" });
     }
-    const updated = await prisma.order.update({
+    if (process.env.VOID_RESTORE === "false") {
+      const updated = await prisma.order.update({
+        where: { id: existing.id },
+        data: {
+          status: "VOID",
+          voidedBy: req.user.sub,
+          voidedAt: new Date(),
+          voidReason: reason ? String(reason).slice(0, 500) : null,
+        },
+        include: { items: true },
+      });
+      return res.json({ order: updated, restored: [], warnings: [] });
+    }
+    const outcome = await prisma.$transaction(async (tx) => {
+      const [maps, invRows] = await Promise.all([
+        tx.ingredientMap.findMany(),
+        tx.inventoryItem.findMany({ where: { locationId: existing.locationId } }),
+      ]);
+      const invByName = new Map(invRows.map((r) => [r.name, r]));
+      const warnings = [];
+      const restores = new Map(); // invId -> { inv, restoreQty }
+      for (const row of existing.items ?? []) {
+        const flavorKey = row.flavor ?? "";
+        const byItem = new Map();
+        for (const m of maps) {
+          if (m.productName !== row.productName) continue;
+          if (m.flavor !== flavorKey && m.flavor !== "") continue;
+          const current = byItem.get(m.itemName);
+          if (!current || (m.flavor === flavorKey && current.flavor !== flavorKey)) {
+            byItem.set(m.itemName, m);
+          }
+        }
+        for (const map of byItem.values()) {
+          const inv = invByName.get(map.itemName);
+          if (!inv) {
+            warnings.push(`no inventory row "${map.itemName}" at void — restore skipped`);
+            continue;
+          }
+          const add = map.amountPerUnit * row.qty;
+          const prev = restores.has(inv.id) ? restores.get(inv.id).newStock : inv.stock;
+          restores.set(inv.id, { inv, newStock: prev + add, added: (restores.get(inv.id)?.added ?? 0) + add });
+        }
+      }
+      const alloc = await tx.allocIds({ stockAdjustments: restores.size });
+      const adjIds = alloc.stockAdjustments ?? [];
+      let i = 0;
+      for (const { inv, newStock, added } of restores.values()) {
+        await tx.inventoryItem.update({ where: { id: inv.id }, data: { stock: newStock } });
+        await tx.stockAdjustment.create({
+          data: {
+            id: adjIds[i++],
+            inventoryItemId: inv.id,
+            locationId: inv.locationId,
+            actorId: req.user.sub,
+            before: inv.stock,
+            after: newStock,
+            reason: `VOID order #${existing.id}: restored ${added} ${inv.unit}${reason ? ` — ${String(reason).slice(0, 200)}` : ""}`.slice(0, 500),
+          },
+        });
+      }
+      const updated = await tx.order.update({
+        where: { id: existing.id },
+        data: {
+          status: "VOID",
+          voidedBy: req.user.sub,
+          voidedAt: new Date(),
+          voidReason: reason ? String(reason).slice(0, 500) : null,
+        },
+      });
+      return { updated, warnings, restored: [...restores.values()].map(({ inv, newStock, added }) => ({ item: inv.name, restored: added, stock: newStock })) };
+    });
+    const order = await prisma.order.findUnique({
       where: { id: existing.id },
-      data: {
-        status: "VOID",
-        voidedBy: req.user.sub,
-        voidedAt: new Date(),
-        voidReason: reason ? String(reason).slice(0, 500) : null,
-      },
       include: { items: true },
     });
-    return res.json({ order: updated });
+    return res.json({ order, restored: outcome.restored, warnings: outcome.warnings });
   } catch (err) {
     return next(err);
   }

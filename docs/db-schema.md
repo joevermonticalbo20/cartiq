@@ -1,6 +1,8 @@
 # CartIQ Database Schema
 
-Prisma source of truth: [`api/prisma/schema.prisma`](../api/prisma/schema.prisma)
+Firestore source of truth: [`api/src/firestore.js`](../api/src/firestore.js) `MODELS` registry
+(numeric IDs via `_counters`, Prisma-shaped API). The old `api/prisma/schema.prisma`
+no longer exists; the ER below is the logical model mirrored in Firestore.
 
 ```mermaid
 erDiagram

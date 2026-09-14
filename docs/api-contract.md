@@ -1,13 +1,18 @@
 # CartIQ API Contract (Phase 0 baseline)
 
 Base URL: `http://127.0.0.1:4000/api` (localhost-only during development)
-Auth: JWT bearer token from `POST /api/auth/login` (12h expiry)
+Auth: short-lived JWT (15min) from `POST /api/auth/login` + rotating 30d refresh
+(`POST /api/auth/refresh`, revoke via `POST /api/auth/logout`). All day
+boundaries are Asia/Manila. Alert dedupe is by structured `dedupeKey`
+(`low:<locationId>:<itemId>` / `unknown:<locationId>:<uid>`), not message text.
 
 ## Phase 0 - implemented
 
 | Endpoint | Method | Body / Params | Response |
 |---|---|---|---|
-| `/auth/login` | POST | `{username, password}` | `{token, user{id,name,username,role,location}}` |
+| `/auth/login` | POST | `{username, password}` (20/15min/IP) | `{token(15min), refreshToken(30d), user}` |
+| `/auth/refresh` | POST | `{refreshToken}` (60/15min/IP, rotation, rejects disabled accounts) | `{token, refreshToken, user}` |
+| `/auth/logout` | POST | `{refreshToken?}` idempotent | `{loggedOut:true}` |
 | `/auth/me` | GET | Bearer token | `{user}` |
 | `/health` | GET | - | `{ok, service, version, uptimeSec, db, time}` — 503 when the DB is unreachable. |
 | `/secure-ping` | GET | Bearer token | `{pong, user}` |
@@ -16,12 +21,14 @@ Auth: JWT bearer token from `POST /api/auth/login` (12h expiry)
 
 | Endpoint | Method | Notes |
 |---|---|---|
-| `/orders` | POST | `{clientRef, locationCode|locationId, items[{productName, flavor, qty, unitPrice}]}` — missing location → 400 (never books to a wrong cart); `total` is recomputed server-side (client value ignored). `clientRef` dedupes offline replays (`duplicate:true` + original order). Deducts ingredients via `IngredientMap` recipes inside a transaction; raises `LOW_STOCK` alerts on threshold crossings; returns `warnings[]` for missing inventory rows. |
-| `/orders?location_code&date&limit` | GET | Recent orders incl. items, location, staff. |
+| `/orders` | POST | `{clientRef, locationCode|locationId, items[{productName, flavor, qty 1-100, unitPrice 0-10000}]}` max 100 items — missing location → 400 (never books to a wrong cart); `total` is recomputed server-side (client value ignored). `clientRef` dedupes offline replays (`duplicate:true` + original order). Deducts ingredients via `IngredientMap` recipes inside a transaction (with contention retry); raises `LOW_STOCK` alerts on threshold crossings (structured key); returns `warnings[]` for missing inventory rows. Rate-limited 120/min/IP. |
+| `/orders?location_code&date&limit` | GET | Recent orders incl. items, location, staff. `date` is a Manila calendar day. |
+| `/orders/:id` | PATCH | OWNER `{status:"VOID", reason?}` — flips to VOID **and auto-restores** recipe stock + writes `stockAdjustment` audit rows; missing rows go to `warnings[]`. Set `VOID_RESTORE=false` to keep record-only. Returns `{order, restored[], warnings[]}`. |
 | `/inventory` / `/inventory?code=` | GET | Grouped per location; each item gains computed `status`: `ok` / `low` (≤ threshold) / `critical` (≤ threshold/2). |
-| `/inventory/items` | POST | Add a stock row `{locationCode\|locationId, name*, unit?, stock?, threshold?, source?}` — 404 unknown cart, 409 duplicate name, 201 `{item, locationCode}`. Extra `category` field is ignored (no backing field). |
+| `/inventory/items` | POST | Add a stock row `{locationCode\|locationId, name*, unit?, stock? 0-100000, threshold? 0-100000, source?}` — 404 unknown cart, 409 duplicate name, 201 `{item, locationCode}`. Extra `category` field is ignored (no backing field). |
+| `/inventory/adjustments` | POST | Manual count correction `{inventoryItemId, newStock 0-100000, reason}` (auth required; reason required for STAFF); creates an alert if the result is below threshold. |
 | `/inventory/adjustments` | POST | Manual count correction `{inventoryItemId, newStock, reason}` (auth required); creates an alert if the result is below threshold. |
-| `/inventory/items/:id` | PATCH | Threshold update `{threshold}` (non-negative) — apply target for threshold calibration. |
+| `/inventory/items/:id` | PATCH | Threshold update `{threshold 0-100000}` — apply target for threshold calibration. |
 | `/catalog` | GET | Products with flavors + active locations (POS bootstrap payload). |
 | `/alerts?unread_only=true&limit` | GET | Alert feed, newest first. |
 | `/alerts/:id/read` | PATCH | OWNER-only mark-read. |
@@ -38,8 +45,8 @@ Channel mapping: `LPG_TANK` → `LPG Tank` row, `CHEESE_BIN` → `Cheese Powder`
 
 | Endpoint | Method | Notes |
 |---|---|---|
-| `/iot/readings` | POST | Device auth. `{readings:[{channel:"LPG_TANK"\|"CHEESE_BIN", kg, ts?}]}` — stores readings, mirrors kg into the matching inventory row (source becomes SENSOR), fires deduped LOW_STOCK alerts on threshold crossings. |
-| `/shifts` | POST | Device auth. `{events:[{staff_uid, event:"IN"\|"OUT", ts?}]}` — records shift events; matches UID to staff via `User.rfidUid`; unknown cards raise UNKNOWN_CARD alerts but are still logged. |
+| `/iot/readings` | POST | Device auth. `{cart_id?, device_id?, readings:[{channel:"LPG_TANK"\|"CHEESE_BIN", kg 0-1000, ts?}]}` max 200 — `cart_id` mismatch → 400; stale `ts` older than current stock (>60s tolerance) is stored but rejected from stock mirror; mirrors kg into the matching inventory row, fires deduped LOW_STOCK alerts (structured key). |
+| `/shifts` | POST | Device auth. `{cart_id?, device_id?, events:[{staff_uid, event:"IN"\|"OUT", ts?}]}` max 200 — `cart_id` mismatch → 400; matches UID to staff via `User.rfidUid`; unknown cards raise UNKNOWN_CARD alerts (structured key) but are still logged. |
 | `/staff/on-shift` | GET | Latest event per person per cart today; `IN` = currently on shift; unregistered cards flagged. Includes last 20 events. |
 | `/readings/recent?code&channel&limit` | GET | Ascending series for dashboard charts. |
 
@@ -79,7 +86,7 @@ import with mandatory preview + row-level validation before commit (OWNER only).
 | `/expenses?code&month&limit` | GET | List + totals + top-vendor breakdown for period. |
 | `/expenses/:id` | PATCH/DELETE | Correct OCR-parsed fields; delete is OWNER-only. |
 | `/export/:dataset?month=YYYY-MM` | GET | `sales` (line items + summary sheets), `inventory`, `expenses`, `shifts` as streamed .xlsx downloads. |
-| `/import/products?dry_run=` | POST | Multipart `file`. Columns: name*, category, basePrice*, flavors ("A;B"). Returns `{rows_total, valid_count, errors[{row,reason}]}`; commit blocked until zero errors; auto-creates missing flavors. |
+| `/import/products?dry_run=` | POST | Multipart `file` (5MB, max 2000 rows, 20/hour/IP). Columns: name*, category, basePrice*, flavors ("A;B"). Returns `{rows_total, valid_count, errors[{row,reason}]}`; commit blocked until zero errors; auto-creates missing flavors. |
 
 Tests: `node scripts/phase4_test.mjs` (20 checks incl. import round-trip).
 

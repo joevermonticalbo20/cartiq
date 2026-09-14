@@ -102,7 +102,17 @@ export default function Layout() {
     setConfirmingLogout(true);
   }
 
-  function logout() {
+  async function logout() {
+    const refresh = localStorage.getItem("cartiq_refresh_token");
+    // Revoke server-side so a stolen refresh dies; local clear happens
+    // regardless (idempotent endpoint, never blocks logout on network fail).
+    if (refresh) {
+      try {
+        await api.post("/auth/logout", { refreshToken: refresh });
+      } catch {
+        /* offline or already revoked: still log out locally */
+      }
+    }
     localStorage.removeItem("cartiq_token");
     localStorage.removeItem("cartiq_refresh_token");
     setConfirmingLogout(false);

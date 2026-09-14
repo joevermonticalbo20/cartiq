@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { Trash2, ReceiptText, RefreshCw, X } from "lucide-react";
+import { Trash2, ReceiptText, RefreshCw, X, Plus, Edit2, Wallet } from "lucide-react";
 import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
@@ -24,16 +24,34 @@ export default function ExpensesPage() {
   const toast = useToast();
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
-  
   const currentMonth = new Date().toISOString().slice(0, 7);
+  
   const [code, setCode] = useState("");
   const [locations, setLocations] = useState([]);
   const [month, setMonth] = useState(currentMonth);
   const [category, setCategory] = useState("");
-  
   const [confirming, setConfirming] = useState(null);
   const [summary, setSummary] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+
+  // --- NEW STATES FOR ADD & EDIT EXPENSE ---
+  const [addOpen, setAddOpen] = useState(false);
+  const [addClosing, setAddClosing] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const [addError, setAddError] = useState("");
+  const [newExpense, setNewExpense] = useState({
+    date: new Date().toISOString().split("T")[0],
+    vendor: "",
+    locationCode: "",
+    category: "Supplies",
+    amount: "",
+    note: ""
+  });
+
+  const [editing, setEditing] = useState(null);
+  const [editClosing, setEditClosing] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editError, setEditError] = useState("");
 
   useEffect(() => {
     api.get("/catalog").then(({ data }) => setLocations(data?.locations ?? [])).catch(() => {});
@@ -51,7 +69,6 @@ export default function ExpensesPage() {
     category,
   ]);
 
-  // Update ang Last Updated timestamp kapag natapos mag-load
   useEffect(() => {
     if (!loading) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional clock sync when loading flips
@@ -59,9 +76,6 @@ export default function ExpensesPage() {
     }
   }, [loading]);
 
-  // summary (totals + by_category) comes with every response; use the first
-  // page's payload to render the breakdown strip. Includes the category
-  // filter so the strip never disagrees with the table.
   const loadSummary = useCallback(async () => {
     try {
       const res = await api.get(
@@ -86,6 +100,81 @@ export default function ExpensesPage() {
     loadSummary();
   }
 
+  // UX Fix: Global scroll lock para sa modals
+  const isAnyModalOpen = addOpen || addClosing || editing || editClosing || Boolean(confirming);
+  useEffect(() => {
+    if (isAnyModalOpen) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => { document.body.style.overflow = ""; };
+  }, [isAnyModalOpen]);
+
+  function closeAddModal() {
+    setAddClosing(true);
+    setTimeout(() => { setAddOpen(false); setAddClosing(false); }, 150);
+  }
+
+  function closeEditModal() {
+    setEditClosing(true);
+    setTimeout(() => { setEditing(null); setEditClosing(false); }, 150);
+  }
+
+  // --- ADD EXPENSE HANDLER ---
+  async function handleAddExpense(e) {
+    e.preventDefault();
+    setAddError("");
+    setIsAdding(true);
+    try {
+      await api.post("/expenses", {
+        date: newExpense.date,
+        vendor: newExpense.vendor,
+        locationCode: newExpense.locationCode || null,
+        category: newExpense.category,
+        amount: Number(newExpense.amount),
+        note: newExpense.note,
+        source: "MANUAL"
+      });
+      toast(`Expense for ${newExpense.vendor} added`, "success");
+      closeAddModal();
+      setNewExpense({
+        date: new Date().toISOString().split("T")[0],
+        vendor: "",
+        locationCode: "",
+        category: "Supplies",
+        amount: "",
+        note: ""
+      });
+      handleRefresh();
+    } catch (err) {
+      setAddError(getErrorMessage(err, "Failed to add expense."));
+    } finally {
+      setIsAdding(false);
+    }
+  }
+
+  // --- EDIT EXPENSE HANDLER ---
+  async function handleEditExpense(e) {
+    e.preventDefault();
+    setEditError("");
+    setIsEditing(true);
+    try {
+      await api.patch(`/expenses/${editing.id}`, {
+        date: editing.date.split("T")[0],
+        vendor: editing.vendor,
+        locationCode: editing.locationCode || null,
+        category: editing.category,
+        amount: Number(editing.amount),
+        note: editing.note
+      });
+      toast(`Expense for ${editing.vendor} updated`, "success");
+      closeEditModal();
+      handleRefresh();
+    } catch (err) {
+      setEditError(getErrorMessage(err, "Failed to update expense."));
+    } finally {
+      setIsEditing(false);
+    }
+  }
+
   async function doDelete() {
     if (!confirming) return;
     try {
@@ -99,11 +188,17 @@ export default function ExpensesPage() {
     }
   }
 
-  // Options para sa ating custom Select dropdowns
+  // Options para sa ating custom Select dropdowns (guards para hindi mag-crash)
   const safeLocations = Array.isArray(locations) ? locations : [];
   const locationOptions = [
     { value: "", label: "All carts" },
     ...safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }))
+  ];
+  
+  // Para sa forms, ayaw natin ng "All carts" o "All categories" blank options
+  const formLocationOptions = [
+    { value: "", label: "General / No Cart Assigned" },
+    ...locations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }))
   ];
 
   const categoryOptions = [
@@ -111,9 +206,10 @@ export default function ExpensesPage() {
     ...(summary?.categories ?? ["Supplies", "LPG/Gas", "Maintenance", "Fees/Rent", "Other"]).map((c) => ({ value: c, label: c }))
   ];
 
+  const formCategoryOptions = (summary?.categories ?? ["Supplies", "LPG/Gas", "Maintenance", "Fees/Rent", "Other"]).map((c) => ({ value: c, label: c }));
+
   return (
     <PageErrorBoundary>
-      {/* Nilagyan natin ng wide class para lumapad gaya ng Sales/Analytics */}
       <div className="page-container wide">
         <PageHeader
           eyebrow="Operations"
@@ -137,35 +233,42 @@ export default function ExpensesPage() {
               >
                 <RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh
               </button>
+              {/* NEW: Add Expense Button */}
+              {isOwner && (
+                <button
+                  className="small-btn"
+                  onClick={() => setAddOpen(true)}
+                  title="Manually add an expense"
+                >
+                  <Plus size={14} /> Add Expense
+                </button>
+              )}
             </div>
           }
         />
-
-        {/* Ginamit natin ang sales-panel css para makuha ang malinis na soft-panel UI */}
         <section className="panel sales-panel">
           <div className="sales-filters-row">
             <div className="sales-filters-left">
-              <Select 
-                value={code} 
-                onChange={(val) => setCode(val)} 
-                options={locationOptions} 
-                placeholder="All carts" 
+              <Select
+                value={code}
+                onChange={(val) => setCode(val)}
+                options={locationOptions}
+                placeholder="All carts"
               />
-              <input 
-                type="month" 
-                value={month} 
-                onChange={(e) => setMonth(e.target.value)} 
+              <input
+                type="month"
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
                 title="Filter by month"
-                style={{ height: "36px" }} // Para kapantay ng Select dropdown
+                style={{ height: "36px" }}
               />
-              <Select 
-                value={category} 
-                onChange={(val) => setCategory(val)} 
-                options={categoryOptions} 
-                placeholder="All categories" 
+              <Select
+                value={category}
+                onChange={(val) => setCategory(val)}
+                options={categoryOptions}
+                placeholder="All categories"
               />
             </div>
-
             {(code || month !== currentMonth || category) && (
               <button
                 className="danger-ghost small-btn"
@@ -179,7 +282,6 @@ export default function ExpensesPage() {
               </button>
             )}
           </div>
-
           {summary && (summary.by_category ?? []).length > 0 && (
             <div className="flex flex-wrap gap-2" style={{ marginBottom: "var(--space-4)" }}>
               {(summary.by_category ?? []).map((c) => (
@@ -192,20 +294,19 @@ export default function ExpensesPage() {
               </Badge>
             </div>
           )}
-
           {error ? (
             <div className="error-box">{error}</div>
           ) : !loading && (!rows || rows.length === 0) ? (
             <EmptyState
               icon={ReceiptText}
               title="No expenses in this period"
-              subtitle="Scan vendor receipts from the mobile POS app and they&apos;ll appear here automatically."
+              subtitle="Add an expense manually or scan vendor receipts from the POS app."
             />
           ) : (
             <DataTable
               loading={loading}
-              fixedLayout={true} // Ginawang fixed ang table layout
-              emptyMessage="No expenses this period - scan vendor receipts from the mobile POS app."
+              fixedLayout={true}
+              emptyMessage="No expenses this period."
               columns={[
                 {
                   key: "date",
@@ -230,7 +331,7 @@ export default function ExpensesPage() {
                     e.location ? (
                       <Badge variant="info">{e.location.code}</Badge>
                     ) : (
-                      "-"
+                      <span className="muted small">General</span>
                     ),
                 },
                 {
@@ -276,16 +377,32 @@ export default function ExpensesPage() {
                       {
                         key: "actions",
                         label: "",
-                        width: 48,
+                        width: 80,
                         align: "right",
                         render: (e) => (
-                          <button
-                            className="danger-ghost small-btn"
-                            onClick={() => setConfirming(e)}
-                            title="Delete expense"
-                          >
-                            <Trash2 size={13} />
-                          </button>
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              className="ghost small-btn"
+                              onClick={() => {
+                                setEditing({
+                                  ...e,
+                                  date: new Date(e.date).toISOString().split("T")[0],
+                                  locationCode: e.location?.code || ""
+                                });
+                                setEditError("");
+                              }}
+                              title="Edit expense"
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                            <button
+                              className="danger-ghost small-btn"
+                              onClick={() => setConfirming(e)}
+                              title="Delete expense"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
                         ),
                       },
                     ]
@@ -297,6 +414,176 @@ export default function ExpensesPage() {
           )}
         </section>
 
+        {/* --- ADD EXPENSE MODAL --- */}
+        {(addOpen || addClosing) && (
+          <div className={`modal-backdrop ${addClosing ? "is-closing" : ""}`}>
+            <div className={`modal ${addClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
+              <h3><Wallet size={22} className="muted"/> Add Manual Expense</h3>
+              <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
+                Record an expense directly if the receipt scanner isn&apos;t available.
+              </p>
+              <form onSubmit={handleAddExpense} className="flex flex-col gap-4">
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+                  <label className="field">
+                    Date
+                    <input
+                      type="date"
+                      required
+                      value={newExpense.date}
+                      onChange={(e) => setNewExpense({ ...newExpense, date: e.target.value })}
+                      style={{ height: "36px" }}
+                    />
+                  </label>
+                  <label className="field">
+                    Amount (PHP)
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      required
+                      placeholder="0.00"
+                      value={newExpense.amount}
+                      onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })}
+                    />
+                  </label>
+                </div>
+                
+                <label className="field">
+                  Vendor / Supplier
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. SM Supermarket"
+                    value={newExpense.vendor}
+                    onChange={(e) => setNewExpense({ ...newExpense, vendor: e.target.value })}
+                  />
+                </label>
+                
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+                  <label className="field">
+                    Category
+                    <Select
+                      value={newExpense.category}
+                      onChange={(val) => setNewExpense({ ...newExpense, category: val })}
+                      options={formCategoryOptions}
+                    />
+                  </label>
+                  <label className="field">
+                    Cart Assignment
+                    <Select
+                      value={newExpense.locationCode}
+                      onChange={(val) => setNewExpense({ ...newExpense, locationCode: val })}
+                      options={formLocationOptions}
+                    />
+                  </label>
+                </div>
+
+                <label className="field">
+                  Note (Optional)
+                  <input
+                    type="text"
+                    placeholder="Brief description of the purchase"
+                    value={newExpense.note}
+                    onChange={(e) => setNewExpense({ ...newExpense, note: e.target.value })}
+                  />
+                </label>
+                
+                <div className="modal-actions">
+                  <button type="button" className="ghost" onClick={closeAddModal} disabled={isAdding || addClosing}>Cancel</button>
+                  <button type="submit" disabled={isAdding || addClosing}>
+                    {isAdding ? "Adding..." : "Save Expense"}
+                  </button>
+                </div>
+                {addError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{addError}</p>}
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* --- EDIT EXPENSE MODAL --- */}
+        {(editing || editClosing) && (
+          <div className={`modal-backdrop ${editClosing ? "is-closing" : ""}`}>
+            <div className={`modal ${editClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
+              <h3><Edit2 size={22} className="muted"/> Edit Expense</h3>
+              <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
+                Update details for this expense record.
+              </p>
+              <form onSubmit={handleEditExpense} className="flex flex-col gap-4">
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+                  <label className="field">
+                    Date
+                    <input
+                      type="date"
+                      required
+                      value={editing?.date || ""}
+                      onChange={(e) => setEditing({ ...editing, date: e.target.value })}
+                      style={{ height: "36px" }}
+                    />
+                  </label>
+                  <label className="field">
+                    Amount (PHP)
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      required
+                      value={editing?.amount || ""}
+                      onChange={(e) => setEditing({ ...editing, amount: e.target.value })}
+                    />
+                  </label>
+                </div>
+                
+                <label className="field">
+                  Vendor / Supplier
+                  <input
+                    type="text"
+                    required
+                    value={editing?.vendor || ""}
+                    onChange={(e) => setEditing({ ...editing, vendor: e.target.value })}
+                  />
+                </label>
+                
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+                  <label className="field">
+                    Category
+                    <Select
+                      value={editing?.category || "Supplies"}
+                      onChange={(val) => setEditing({ ...editing, category: val })}
+                      options={formCategoryOptions}
+                    />
+                  </label>
+                  <label className="field">
+                    Cart Assignment
+                    <Select
+                      value={editing?.locationCode || ""}
+                      onChange={(val) => setEditing({ ...editing, locationCode: val })}
+                      options={formLocationOptions}
+                    />
+                  </label>
+                </div>
+
+                <label className="field">
+                  Note (Optional)
+                  <input
+                    type="text"
+                    value={editing?.note || ""}
+                    onChange={(e) => setEditing({ ...editing, note: e.target.value })}
+                  />
+                </label>
+                
+                <div className="modal-actions">
+                  <button type="button" className="ghost" onClick={closeEditModal} disabled={isEditing || editClosing}>Cancel</button>
+                  <button type="submit" disabled={isEditing || editClosing}>
+                    {isEditing ? "Saving..." : "Save Changes"}
+                  </button>
+                </div>
+                {editError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{editError}</p>}
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* --- DELETE CONFIRMATION --- */}
         <ConfirmDialog
           open={Boolean(confirming)}
           title="Delete expense?"

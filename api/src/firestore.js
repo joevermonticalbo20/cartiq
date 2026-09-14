@@ -344,9 +344,10 @@ async function applyInclude(model, docs, include, reader) {
   return out;
 }
 
-// ---------- read cache (TTL + write invalidation) ----------
+// ---------- read cache (TTL + write invalidation + LRU cap) ----------
 const CACHE_TTL_MS = Number(process.env.FIRESTORE_CACHE_TTL_MS) || 60 * 1000;
-const _cache = new Map(); // key -> { exp, value }
+const CACHE_MAX_KEYS = Number(process.env.FIRESTORE_CACHE_MAX_KEYS) || 500;
+const _cache = new Map(); // key -> { exp, value } (insertion-order = LRU)
 function cacheGet(key) {
   const rec = _cache.get(key);
   if (!rec) return undefined;
@@ -354,20 +355,32 @@ function cacheGet(key) {
     _cache.delete(key);
     return undefined;
   }
+  // LRU touch: re-insert to mark as recently used.
+  _cache.delete(key);
+  _cache.set(key, rec);
   return rec.value;
 }
 function cacheSet(key, value) {
+  if (_cache.has(key)) _cache.delete(key);
   _cache.set(key, { exp: Date.now() + CACHE_TTL_MS, value });
+  while (_cache.size > CACHE_MAX_KEYS) {
+    // Evict oldest (first inserted = least recently used).
+    const oldest = _cache.keys().next().value;
+    _cache.delete(oldest);
+  }
 }
+// Collections whose writes affect joined reads elsewhere (explicit set —
+// no fragile regex on cache keys).
+const JOIN_DEPENDENTS = new Set(["locations", "users", "flavors", "inventoryItems"]);
 function invalidateModel(model) {
   const prefix = `${model}|`;
   for (const key of [..._cache.keys()]) {
     if (key.startsWith(prefix)) _cache.delete(key);
   }
   // Relation dependents: joined reads embed these collections.
-  if (model === "locations" || model === "users" || model === "flavors" || model === "inventoryItems") {
+  if (JOIN_DEPENDENTS.has(model)) {
     for (const key of [..._cache.keys()]) {
-      if (/^\w+\|.*"include"/.test(key)) _cache.delete(key);
+      if (key.includes('"include"')) _cache.delete(key);
     }
   }
 }
@@ -729,8 +742,14 @@ export const db = {
   // Prisma-name alias so swapped imports keep working verbatim.
   $transaction: (fn) => db.runTransaction(fn),
   async runTransaction(fn) {
-    const touched = new Set();
-    const result = await fs.runTransaction(async (txn) => {
+    // Contention retry: concurrent POS sales serialize on _counters docs.
+    // Retry ABORTED/CONTENTION a few times with backoff instead of 500ing.
+    const MAX_ATTEMPTS = 4;
+    let lastErr;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const touched = new Set();
+      try {
+        const result = await fs.runTransaction(async (txn) => {
       const tx = {
         ...buildDb({ txn, touched }),
         txn,
@@ -770,6 +789,19 @@ export const db = {
     });
     for (const m of touched) invalidateModel(m);
     return result;
+      } catch (err) {
+        lastErr = err;
+        const msg = String(err?.message ?? "");
+        const code = err?.code;
+        const retryable =
+          code === 10 || // ABORTED
+          code === "ABORTED" ||
+          /contention|aborted|read.after.write|READ_AFTER_WRITE/i.test(msg);
+        if (!retryable || attempt === MAX_ATTEMPTS) throw err;
+        await new Promise((r) => setTimeout(r, 100 * 2 ** (attempt - 1)));
+      }
+    }
+    throw lastErr;
   },
   // Read a single doc by ID (orderRefs guard docs, etc.).
   async getDoc(collection, id) {

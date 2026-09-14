@@ -38,8 +38,8 @@ router.post("/expenses", requireAuth, async (req, res, next) => {
   try {
     const { vendor, locationCode, amount, date, source, note, lines, category } =
       req.body ?? {};
-    if (!vendor || !Number.isFinite(+amount) || +amount <= 0) {
-      return res.status(400).json({ error: "vendor and positive amount are required" });
+    if (!vendor || !Number.isFinite(+amount) || +amount <= 0 || +amount > 10000000) {
+      return res.status(400).json({ error: "vendor and amount 0-10000000 are required" });
     }
     const src = source === "OCR" ? "OCR" : "MANUAL";
     const cat = category ?? "Supplies";
@@ -167,8 +167,8 @@ router.patch("/expenses/:id", requireAuth, requireRole("OWNER"), async (req, res
       data.category = category;
     }
     if (amount !== undefined) {
-      if (!Number.isFinite(+amount) || +amount <= 0) {
-        return res.status(400).json({ error: "amount must be a positive number" });
+      if (!Number.isFinite(+amount) || +amount <= 0 || +amount > 10000000) {
+        return res.status(400).json({ error: "amount must be 0-10000000" });
       }
       data.amount = +amount;
     }

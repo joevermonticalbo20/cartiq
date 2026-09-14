@@ -26,6 +26,8 @@ int readingCount = 0;
 struct ShiftEvent { String uid; String event; unsigned long epoch; };
 ShiftEvent shiftBuf[BUF_SIZE];
 int shiftCount = 0;
+unsigned long droppedReadings = 0;
+unsigned long droppedShifts = 0;
 
 unsigned long lastSample = 0;
 unsigned long lastFlush = 0;
@@ -44,14 +46,14 @@ void connectWifi() {
   Serial.println(WiFi.status() == WL_CONNECTED ? "\nWi-Fi OK" : "\nWi-Fi unavailable - buffering offline");
 }
 
-bool postBatch(const char* path, const String& body) {
+int postBatch(const char* path, const String& body) {
   HTTPClient http;
   http.begin(String(API_BASE_URL) + path);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", String("Bearer ") + API_DEVICE_TOKEN);
   int code = http.POST(body);
   http.end();
-  return code >= 200 && code < 300;
+  return code;
 }
 
 String nowIso() {
@@ -68,6 +70,9 @@ String nowIso() {
 void queueReading(const char* channel, float kg) {
   if (readingCount < BUF_SIZE) {
     readingBuf[readingCount++] = {channel, kg, millis()};
+  } else {
+    droppedReadings++;
+    Serial.printf("reading buffer full - dropped %lu total\n", droppedReadings);
   }
 }
 
@@ -80,6 +85,9 @@ void queueShift(const String& uid) {
 
   if (shiftCount < BUF_SIZE) {
     shiftBuf[shiftCount++] = {uid, isOpen ? "IN" : "OUT", millis()};
+  } else {
+    droppedShifts++;
+    Serial.printf("shift buffer full - dropped %lu total\n", droppedShifts);
   }
   digitalWrite(LED_PIN, HIGH);
   delay(80);
@@ -88,21 +96,30 @@ void queueShift(const String& uid) {
 }
 
 void flushShifts() {
+  const int BATCH = 10;
   while (shiftCount > 0) {
     JsonDocument doc;
     doc["cart_id"] = DEVICE_CART_ID;
     doc["device_id"] = DEVICE_ID;
     JsonArray events = doc["events"].to<JsonArray>();
-    JsonObject e = events.add<JsonObject>();
-    e["staff_uid"] = shiftBuf[0].uid;
-    e["event"] = shiftBuf[0].event;
+    int n = shiftCount < BATCH ? shiftCount : BATCH;
     String ts = nowIso();
-    if (ts.length() > 0) e["ts"] = ts;
+    for (int i = 0; i < n; i++) {
+      JsonObject e = events.add<JsonObject>();
+      e["staff_uid"] = shiftBuf[i].uid;
+      e["event"] = shiftBuf[i].event;
+      if (ts.length() > 0) e["ts"] = ts;
+    }
     String body;
     serializeJson(doc, body);
-    if (!postBatch("/shifts", body)) return;  // server down: retry later
-    for (int i = 1; i < shiftCount; i++) shiftBuf[i - 1] = shiftBuf[i];
-    shiftCount--;
+    int code = postBatch("/shifts", body);
+    if (code == 401 || code == 403) {
+      Serial.printf("AUTH FAILED %d on /shifts - check API_DEVICE_TOKEN\n", code);
+      return;  // keep buffer, don't burn radio retrying a bad token
+    }
+    if (code < 200 || code >= 300) return;  // server down: retry later
+    for (int i = n; i < shiftCount; i++) shiftBuf[i - n] = shiftBuf[i];
+    shiftCount -= n;
   }
 }
 
@@ -123,7 +140,12 @@ void flushReadings() {
     }
     String body;
     serializeJson(doc, body);
-    if (!postBatch("/iot/readings", body)) return;
+    int code = postBatch("/iot/readings", body);
+    if (code == 401 || code == 403) {
+      Serial.printf("AUTH FAILED %d on /iot/readings - check API_DEVICE_TOKEN\n", code);
+      return;
+    }
+    if (code < 200 || code >= 300) return;
     for (int i = n; i < readingCount; i++) readingBuf[i - n] = readingBuf[i];
     readingCount -= n;
   }
@@ -151,11 +173,12 @@ void setup() {
 void loop() {
   if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
     String uid = "";
+    uid.reserve(11);
     for (byte i = 0; i < rfid.uid.size; i++) {
       if (rfid.uid.uidByte[i] < 0x10) uid += "0";
       uid += String(rfid.uid.uidByte[i], HEX);
-      uid.toUpperCase();
     }
+    uid.toUpperCase();
     rfid.PICC_HaltA();
     queueShift(uid);
   }

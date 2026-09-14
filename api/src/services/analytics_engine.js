@@ -18,10 +18,13 @@ function dayKey(date) {
 }
 
 export function daysAgoStart(n) {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - n);
-  return d;
+  // Manila business day (server runs on UTC in prod) — shared with
+  // services/timezone.js to avoid a circular import here.
+  const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
+  const manilaNow = new Date(Date.now() + MANILA_OFFSET_MS);
+  manilaNow.setUTCHours(0, 0, 0, 0);
+  manilaNow.setUTCDate(manilaNow.getUTCDate() - n);
+  return new Date(manilaNow.getTime() - MANILA_OFFSET_MS);
 }
 
 // ---------- statistics helpers (practical/statistical tier) ----------

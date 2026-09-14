@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db as prisma } from "../firestore.js";
+import { requireAuth } from "../middleware/auth.js";
 
 const healthRouter = Router();
 const startedAt = Date.now();
@@ -25,6 +26,12 @@ healthRouter.get("/health", async (_req, res) => {
     time: new Date().toISOString(),
   };
   res.status(body.ok ? 200 : 503).json(body);
+});
+
+// GET /api/secure-ping (Bearer) -> { pong, user } — auth smoke test
+// listed in docs/api-contract.md Phase 0.
+healthRouter.get("/secure-ping", requireAuth, (req, res) => {
+  res.json({ pong: true, user: req.user });
 });
 
 export default healthRouter;

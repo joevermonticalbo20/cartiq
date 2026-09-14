@@ -7,16 +7,23 @@ import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import { useToast } from "../components/Toast.jsx";
+import Select from "../components/Select.jsx";
 
-async function downloadExport(dataset, month) {
+async function downloadExport(dataset, params = {}) {
   const res = await api.get(`/export/${dataset}`, {
-    params: month ? { month } : {},
+    params,
     responseType: "blob",
   });
   const url = URL.createObjectURL(res.data);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `cartiq-${dataset}${month ? `-${month}` : ""}.xlsx`;
+  
+  let filename = `cartiq-${dataset}`;
+  if (params.month) filename += `-${params.month}`;
+  else if (params.startDate && params.endDate) filename += `-${params.startDate}-to-${params.endDate}`;
+  else filename += `-all`;
+  
+  a.download = `${filename}.xlsx`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -27,20 +34,50 @@ export default function DataPage() {
   const toast = useToast();
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
+  
   const nowMonth = new Date().toISOString().slice(0, 7);
+  
+  // --- NEW STATES FOR UPGRADED EXPORT FILTERS ---
+  const [exportType, setExportType] = useState("month"); // "month", "custom", "all"
   const [month, setMonth] = useState(nowMonth);
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+
   const [busyExport, setBusyExport] = useState(null);
   const [busyImport, setBusyImport] = useState(false);
   const [preview, setPreview] = useState(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  
   const fileRef = useRef(null);
   const pendingFile = useRef(null);
 
+  // --- UPDATED EXPORT HANDLER ---
   async function doExport(dataset) {
     setBusyExport(dataset);
     try {
-      await downloadExport(dataset, month);
-      toast(`Downloaded cartiq-${dataset}-${month || "all"}.xlsx`, "success");
+      const params = {};
+      if (exportType === "month" && month) {
+        params.month = month;
+      } else if (exportType === "custom" && customStart && customEnd) {
+        params.startDate = customStart;
+        params.endDate = customEnd;
+      }
+      
+      await downloadExport(dataset, params);
+      toast(`Exported ${dataset} successfully`, "success");
+    } catch (err) {
+      toast(getErrorMessage(err, "Export failed"), "error");
+    } finally {
+      setBusyExport(null);
+    }
+  }
+
+  // --- CATALOG EXPORT HANDLER (For 'Current' Button) ---
+  async function doExportCatalog() {
+    setBusyExport('products');
+    try {
+      await downloadExport('products', {}); // No date filter needed for catalog
+      toast(`Exported current catalog successfully`, "success");
     } catch (err) {
       toast(getErrorMessage(err, "Export failed"), "error");
     } finally {
@@ -92,7 +129,6 @@ export default function DataPage() {
     }
   }
 
-  // Function para i-trigger ang download gamit ang totoong button
   function downloadTemplate() {
     const link = document.createElement("a");
     link.href = "/templates/products-template.xlsx";
@@ -110,13 +146,12 @@ export default function DataPage() {
           title="Data Hub"
           sub="Excel out, product workbooks in - previewed before anything commits."
         />
-
         <div 
           className="settings-grid" 
-          style={{ 
-            gap: "var(--space-4)", 
+          style={{
+            gap: "var(--space-4)",
             gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))",
-            alignItems: "start" 
+            alignItems: "start"
           }}
         >
           
@@ -133,15 +168,45 @@ export default function DataPage() {
               </p>
             </div>
             
-            <label className="field" style={{ marginBottom: "var(--space-4)" }}>
-              Select Period
-              <input 
-                type="month" 
-                value={month} 
-                onChange={(e) => setMonth(e.target.value)} 
-                style={{ height: "36px" }}
+            <label className="field" style={{ marginBottom: "var(--space-2)" }}>
+              Export Period
+              <Select
+                value={exportType}
+                onChange={setExportType}
+                options={[
+                  { value: "month", label: "Specific Month" },
+                  { value: "custom", label: "Custom Date Range" },
+                  { value: "all", label: "All Time" }
+                ]}
               />
             </label>
+
+            <div style={{ marginBottom: "var(--space-4)", minHeight: "36px" }}>
+              {exportType === "month" && (
+                <input 
+                  type="month" 
+                  value={month} 
+                  onChange={(e) => setMonth(e.target.value)} 
+                  style={{ height: "36px", width: "100%" }}
+                />
+              )}
+              {exportType === "custom" && (
+                <div className="flex gap-2" style={{ animation: "rise-in 0.2s ease" }}>
+                  <input 
+                    type="date" 
+                    value={customStart} 
+                    onChange={(e) => setCustomStart(e.target.value)} 
+                    style={{ height: "36px", width: "100%" }}
+                  />
+                  <input 
+                    type="date" 
+                    value={customEnd} 
+                    onChange={(e) => setCustomEnd(e.target.value)} 
+                    style={{ height: "36px", width: "100%" }}
+                  />
+                </div>
+              )}
+            </div>
             
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "auto" }}>
               {["sales", "inventory", "expenses", "shifts"].map((ds) => (
@@ -172,22 +237,32 @@ export default function DataPage() {
               </p>
             </div>
             
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-              {/* Ginawa na nating totoong <button> ito para makuha niya ang base CSS styles */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
               <button
                 className="ghost small-btn"
                 onClick={downloadTemplate}
-                style={{ height: "36px", justifyContent: "center" }}
+                style={{ height: "36px", justifyContent: "center", padding: "0 4px" }}
+                title="Download Blank Template"
               >
                 <FileDown size={14} /> Template
+              </button>
+              <button
+                className="ghost small-btn"
+                onClick={doExportCatalog}
+                disabled={busyExport !== null}
+                style={{ height: "36px", justifyContent: "center", padding: "0 4px" }}
+                title="Export Current Product Database"
+              >
+                <Download size={14} /> {busyExport === 'products' ? "..." : "Current"}
               </button>
               <button
                 className="small-btn"
                 disabled={busyImport}
                 onClick={() => fileRef.current?.click()}
-                style={{ height: "36px", justifyContent: "center" }}
+                style={{ height: "36px", justifyContent: "center", padding: "0 4px" }}
+                title="Upload Excel File"
               >
-                <FileUp size={14} /> {busyImport ? "Reading..." : "Upload .xlsx"}
+                <FileUp size={14} /> {busyImport ? "..." : "Upload"}
               </button>
             </div>
             
@@ -210,7 +285,6 @@ export default function DataPage() {
                     {(preview.errors ?? []).length > 0 ? `${(preview.errors ?? []).length} Errors` : "Valid"}
                   </Badge>
                 </div>
-
                 <div className="table-wrap" tabIndex={0} role="region" aria-label="Import preview" style={{ maxHeight: "250px", overflowY: "auto" }}>
                   <table className="data table-fixed">
                     <thead>
