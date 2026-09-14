@@ -245,8 +245,20 @@
   transform: translateY(-50%);
 }
 
-.password-toggle:active:not(:disabled) {
+/* Beat the global button:hover (translateY + red glow) and button:active
+   (press-scale): the toggle must stay perfectly still in every state. */
+button.password-toggle:hover:not(:disabled),
+button.password-toggle:focus-visible:not(:disabled) {
+  color: var(--text-muted);
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
   transform: translateY(-50%);
+}
+
+button.password-toggle:active:not(:disabled) {
+  transform: translateY(-50%);
+  box-shadow: none;
 }
 
 /* --- Submit Button --- */
