@@ -3,6 +3,9 @@ import {
   sanitizeMoneyInput,
   parseMoney,
   MAX_MONEY,
+  sanitizeQtyInput,
+  parseQty,
+  MAX_QTY,
 } from "./format.js";
 
 describe("sanitizeMoneyInput", () => {
@@ -52,5 +55,22 @@ describe("parseMoney", () => {
     expect(parseMoney("-5")).toBeNull();
     expect(parseMoney("10000000")).toBeNull();
     expect(parseMoney(MAX_MONEY)).toBe(MAX_MONEY);
+  });
+});
+
+describe("sanitizeQtyInput", () => {
+  it("caps whole units at 5 digits and decimals at 2", () => {
+    expect(sanitizeQtyInput("150")).toBe("150");
+    expect(sanitizeQtyInput("123456")).toBe("12345");
+    expect(sanitizeQtyInput("2.555")).toBe("2.55");
+  });
+});
+
+describe("parseQty", () => {
+  it("parses valid counts, rejects over-cap", () => {
+    expect(parseQty("10")).toBe(10);
+    expect(parseQty("")).toBeNull();
+    expect(parseQty("100000")).toBeNull();
+    expect(parseQty(MAX_QTY)).toBe(MAX_QTY);
   });
 });

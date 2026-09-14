@@ -3,6 +3,7 @@ import {
   sanitizeTextInput,
   validateVendor,
   validateNote,
+  validateItemName,
   countLetters,
 } from "./text.js";
 
@@ -62,5 +63,24 @@ describe("validateNote", () => {
     const long = validateNote("b".repeat(41));
     expect(long.ok).toBe(true);
     expect(long.value).toBe("b".repeat(40));
+  });
+});
+
+describe("validateItemName", () => {
+  it("accepts normal names with numbers and symbols", () => {
+    expect(validateItemName("Cheese Powder").ok).toBe(true);
+    expect(validateItemName("LPG Tank 11kg").ok).toBe(true);
+  });
+
+  it("rejects empty and letter-less values", () => {
+    expect(validateItemName("").ok).toBe(false);
+    expect(validateItemName("12").ok).toBe(false);
+    expect(validateItemName("A1").ok).toBe(false);
+  });
+
+  it("truncates over-30 values to 30 (live cap, still valid)", () => {
+    const long = validateItemName("c".repeat(31));
+    expect(long.ok).toBe(true);
+    expect(long.value).toBe("c".repeat(30));
   });
 });

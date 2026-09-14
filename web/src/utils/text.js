@@ -1,10 +1,12 @@
-// Shared text-input rules for vendor/note fields (single source so web and
-// mobile validate identically):
-//  - length 2-40 chars (note is optional: empty is allowed, non-empty needs 2+)
-//  - at least 2 LETTER characters (Unicode-aware; digits/symbols don't count)
+// Shared text-input rules for vendor/note/item-name fields (single source
+// so web and mobile validate identically):
+//  - vendor/note: 2-40 chars; item names: 2-30 chars
+//  - at least 2 LETTER characters (Unicode-aware; digits/symbols don't count
+//    but are allowed)
 //  - single spaces only: runs collapse to one, ends trimmed
 export const TEXT_MIN_LETTERS = 2;
 export const TEXT_MAX = 40;
+export const ITEM_NAME_MAX = 30;
 
 export function countLetters(s) {
   const m = String(s ?? "").match(/\p{L}/gu);
@@ -41,6 +43,18 @@ export function validateNote(raw) {
   }
   if (countLetters(value) < TEXT_MIN_LETTERS) {
     return { ok: false, value, error: "Note needs at least 2 letters when provided (max 40 characters)." };
+  }
+  return { ok: true, value };
+}
+
+export function validateItemName(raw) {
+  const value = sanitizeTextInput(raw, ITEM_NAME_MAX).trim();
+  if (!value) return { ok: false, value, error: "Item name is required (min 2 letters, max 30 characters)." };
+  if (value.length > ITEM_NAME_MAX) {
+    return { ok: false, value, error: "Item name must be at most 30 characters." };
+  }
+  if (countLetters(value) < TEXT_MIN_LETTERS) {
+    return { ok: false, value, error: "Item name needs at least 2 letters (max 30 characters)." };
   }
   return { ok: true, value };
 }

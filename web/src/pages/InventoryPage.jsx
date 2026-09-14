@@ -10,6 +10,8 @@ import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import Select from "../components/Select.jsx";
 import { useToast } from "../components/Toast.jsx";
+import { sanitizeQtyInput, parseQty } from "../utils/format.js";
+import { sanitizeTextInput, validateItemName } from "../utils/text.js";
 
 const STATUS_LABEL = { ok: "OK", low: "LOW", critical: "CRITICAL" };
 
@@ -111,9 +113,9 @@ export default function InventoryPage() {
 
   async function saveAdjustment() {
     if (!adjusting) return;
-    const value = Number(newStock);
-    if (!Number.isFinite(value) || value < 0) {
-      setAdjustError("Enter a valid non-negative stock count.");
+    const value = parseQty(newStock);
+    if (value === null) {
+      setAdjustError("Enter a stock count from 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).");
       return;
     }
     if (value === adjusting.stock) {
@@ -142,20 +144,31 @@ export default function InventoryPage() {
   async function handleAddItem(e) {
     e.preventDefault();
     setAddError("");
+    const name = validateItemName(newItem.name);
+    if (!name.ok) {
+      setAddError(name.error);
+      return;
+    }
+    const stock = parseQty(newItem.stock);
+    const threshold = parseQty(newItem.threshold);
+    if (stock === null || threshold === null) {
+      setAddError("Stock and threshold must be 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).");
+      return;
+    }
     setIsAdding(true);
     
     try {
       await api.post("/inventory/items", {
         locationCode: selected,
-        name: newItem.name,
+        name: name.value,
         category: newItem.category,
         unit: newItem.unit,
-        threshold: Number(newItem.threshold),
-        stock: Number(newItem.stock),
+        threshold,
+        stock,
         source: "MANUAL"
       });
       
-      toast(`${newItem.name} added successfully to ${selected}`, "success");
+      toast(`${name.value} added successfully to ${selected}`, "success");
       closeAddModal();
       setNewItem({ name: "", category: "Ingredients", unit: "pcs", threshold: "", stock: "" });
       refresh();
@@ -172,9 +185,9 @@ export default function InventoryPage() {
   async function handleEditItem(e) {
     e.preventDefault();
     setEditError("");
-    const nextThreshold = Number(editing.threshold);
-    if (!Number.isFinite(nextThreshold) || nextThreshold < 0 || nextThreshold > 100000) {
-      setEditError("Enter a threshold between 0 and 100000.");
+    const nextThreshold = parseQty(editing.threshold);
+    if (nextThreshold === null) {
+      setEditError("Enter a threshold from 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).");
       return;
     }
     const original = currentItems.find((it) => it.id === editing.id);
@@ -233,9 +246,9 @@ export default function InventoryPage() {
   }
 
   async function commitBulk() {
-    const value = Number(bulkValue);
-    if (!Number.isFinite(value) || value < 0) {
-      toast("Enter a valid non-negative stock count", "error");
+    const value = parseQty(bulkValue);
+    if (value === null) {
+      toast("Enter a stock count from 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).", "error");
       return;
     }
     if (selectedIds.size === 0) return;
@@ -502,10 +515,12 @@ export default function InventoryPage() {
             <input
               type="number"
               min="0"
-              step="any"
+              max="99999.99"
+              step="0.01"
               placeholder="New stock value"
+              title="Max 5 whole digits, up to 2 decimals"
               value={bulkValue}
-              onChange={(e) => setBulkValue(e.target.value)}
+              onChange={(e) => setBulkValue(sanitizeQtyInput(e.target.value))}
               className="bulk-input"
               aria-label="New stock value for selected items"
             />
@@ -633,9 +648,12 @@ export default function InventoryPage() {
                   <input
                     type="text"
                     required
+                    minLength={2}
+                    maxLength={30}
                     placeholder="e.g. Cheese Powder"
+                    title="Min 2 letters, max 30 characters, single spaces only"
                     value={newItem.name}
-                    onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
+                    onChange={(e) => setNewItem({ ...newItem, name: sanitizeTextInput(e.target.value, 30) })}
                     autoFocus
                   />
                 </label>
@@ -666,11 +684,13 @@ export default function InventoryPage() {
                     <input
                       type="number"
                       min="0"
-                      step="any"
+                      max="99999.99"
+                      step="0.01"
                       required
                       placeholder="e.g. 10"
+                      title="Max 5 whole digits, up to 2 decimals"
                       value={newItem.stock}
-                      onChange={(e) => setNewItem({ ...newItem, stock: e.target.value })}
+                      onChange={(e) => setNewItem({ ...newItem, stock: sanitizeQtyInput(e.target.value) })}
                     />
                   </label>
                   
@@ -679,11 +699,13 @@ export default function InventoryPage() {
                     <input
                       type="number"
                       min="0"
-                      step="any"
+                      max="99999.99"
+                      step="0.01"
                       required
                       placeholder="e.g. 2"
+                      title="Max 5 whole digits, up to 2 decimals"
                       value={newItem.threshold}
-                      onChange={(e) => setNewItem({ ...newItem, threshold: e.target.value })}
+                      onChange={(e) => setNewItem({ ...newItem, threshold: sanitizeQtyInput(e.target.value) })}
                     />
                   </label>
                 </div>
@@ -715,12 +737,13 @@ export default function InventoryPage() {
                   <input
                     type="number"
                     min="0"
-                    max="100000"
-                    step="any"
+                    max="99999.99"
+                    step="0.01"
                     required
                     autoFocus
+                    title="Max 5 whole digits, up to 2 decimals"
                     value={editing?.threshold ?? ""}
-                    onChange={(e) => setEditing({ ...editing, threshold: e.target.value })}
+                    onChange={(e) => setEditing({ ...editing, threshold: sanitizeQtyInput(e.target.value) })}
                   />
                 </label>
                 
@@ -750,9 +773,11 @@ export default function InventoryPage() {
                 <input
                   type="number"
                   min="0"
-                  step="any"
+                  max="99999.99"
+                  step="0.01"
+                  title="Max 5 whole digits, up to 2 decimals"
                   value={newStock}
-                  onChange={(e) => setNewStock(e.target.value)}
+                  onChange={(e) => setNewStock(sanitizeQtyInput(e.target.value))}
                   autoFocus
                 />
               </label>
