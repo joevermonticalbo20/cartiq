@@ -116,11 +116,15 @@ erDiagram
   to one unread row per item; unknown-card alerts dedupe per UID.
 - **`Device`** registry: one ESP32 node per cart, bearer token bcrypt-hashed
   at rest, `lastSeenAt` updated on every reading/shift, `online = lastSeen < 5min`.
-- **No device provisioning endpoint by design:** devices are seeded and
-  managed directly in the database (`GET /devices` is OWNER read-only).
-  If remote provisioning is ever required, it needs an OWNER-gated
-  register endpoint plus token issuance/rotation - deliberately not built
-  until a real deployment needs it.
+- **No manual device provisioning:** devices are issued automatically by
+  `POST /locations` (token shown once in the dashboard, bcrypt-hashed at
+  rest). `GET /devices` stays OWNER read-only; there is still no token
+  regeneration endpoint — deactivate the cart or rotate via a new cart if a
+  token leaks.
+- **Cart lifecycle:** `ACTIVE` carts appear in `/catalog` (POS + filters);
+  `INACTIVE` hides them while preserving all history. Codes are immutable.
+- **Product lifecycle:** names are unique; renames rewrite recipe rows
+  atomically (history keeps old names); delete is blocked while referenced.
 - **Sensor → inventory mapping:** `LPG_TANK` mirrors into the `LPG Tank` row,
   `CHEESE_BIN` into `Cheese Powder` (source flips to `SENSOR`). Recipe-tracked
   items (pouches, frozen packs, powders via `IngredientMap`) deduct on POS orders.

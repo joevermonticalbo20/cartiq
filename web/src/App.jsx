@@ -12,6 +12,7 @@ import StaffPage from "./pages/StaffPage.jsx";
 import AnalyticsPage from "./pages/AnalyticsPage.jsx";
 import ExpensesPage from "./pages/ExpensesPage.jsx";
 import DataPage from "./pages/DataPage.jsx";
+import ProductsPage from "./pages/ProductsPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
 
 function RequireAuth({ children }) {
@@ -55,6 +56,7 @@ export default function App() {
             <Route path="/staff" element={<StaffPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/expenses" element={<ExpensesPage />} />
+            <Route path="/products" element={<ProductsPage />} />
             <Route path="/data" element={<DataPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>

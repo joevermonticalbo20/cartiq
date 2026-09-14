@@ -221,6 +221,16 @@ router.delete("/products/:id", requireAuth, requireRole("OWNER"), async (req, re
   }
 });
 
+// GET /api/flavors (any auth) — global flavor list for pickers.
+router.get("/flavors", requireAuth, async (_req, res, next) => {
+  try {
+    const flavors = await prisma.flavor.findMany({ orderBy: { name: "asc" } });
+    return res.json({ data: flavors });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // POST /api/flavors (OWNER) — create a global flavor for linking.
 // Body: { name* }
 router.post("/flavors", requireAuth, requireRole("OWNER"), async (req, res, next) => {

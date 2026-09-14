@@ -29,6 +29,20 @@ boundaries are Asia/Manila. Alert dedupe is by structured `dedupeKey`
 | `/inventory/adjustments` | POST | Manual count correction `{inventoryItemId, newStock 0-100000, reason}` (auth required; reason required for STAFF); creates an alert if the result is below threshold. |
 | `/inventory/adjustments` | POST | Manual count correction `{inventoryItemId, newStock, reason}` (auth required); creates an alert if the result is below threshold. |
 | `/inventory/items/:id` | PATCH | Threshold update `{threshold 0-100000}` — apply target for threshold calibration. |
+
+### Carts & catalog (IMPLEMENTED)
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `/locations` | GET | OWNER cart registry: every cart incl. INACTIVE, with item counts + node online status. |
+| `/locations` | POST | OWNER `{code*, name*, address?, seedInventory?=true}` — code `A-Z0-9-` 3-12 chars (unique→409); provisions location + starter inventory + ESP32 device. Returns `{location, items, device, deviceToken}` — token shown **once** (hashed at rest). 20/hour/IP. |
+| `/locations/:id` | PATCH | OWNER `{name?, address?, status?}` — rename/address; `ACTIVE\|INACTIVE` (code immutable). INACTIVE hides the cart from `/catalog`/POS but keeps history. |
+| `/products` | GET | Products with flavors + recipe/order-line counts (delete safety info). |
+| `/products` | POST | OWNER `{name*, category?, basePrice*, flavorIds?[]}` — unique name→409. |
+| `/products/:id` | PATCH | OWNER `{category?, basePrice?, addFlavorIds?, removeFlavorIds?}` — price affects future sales only. |
+| `/products/:id/rename` | PATCH | OWNER `{name*}` — atomic rename + recipe rewrite; past orders keep the old name. |
+| `/products/:id` | DELETE | OWNER — 409 with counts while order lines/recipes reference it; else deletes. |
+| `/flavors` | GET/POST | List (any auth) / create OWNER (unique→409). |
 | `/catalog` | GET | Products with flavors + active locations (POS bootstrap payload). |
 | `/alerts?unread_only=true&limit` | GET | Alert feed, newest first. |
 | `/alerts/:id/read` | PATCH | OWNER-only mark-read. |

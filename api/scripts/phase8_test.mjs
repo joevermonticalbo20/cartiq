@@ -176,6 +176,10 @@ async function main() {
     method: "POST", token: tok, body: { name: "Test Salt & Vinegar" },
   });
   check("create flavor 201", newFlavor.status === 201);
+  const flavorList = await req("/flavors", { token: tok });
+  check("flavor list includes new + seed flavors",
+    (flavorList.data?.data ?? []).some((f) => f.name === "Test Salt & Vinegar") &&
+    (flavorList.data?.data ?? []).some((f) => f.name === "Cheese"));
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

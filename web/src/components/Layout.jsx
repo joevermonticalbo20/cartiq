@@ -8,6 +8,7 @@ import {
   Menu,
   Moon,
   ReceiptText,
+  Package,
   Settings as SettingsIcon,
   Sun,
   TrendingUp,
@@ -32,6 +33,7 @@ const NAV_GROUPS = [
     items: [
       { to: "/analytics", label: "Analytics", icon: TrendingUp },
       { to: "/expenses", label: "Expenses", icon: Wallet },
+      { to: "/products", label: "Products", icon: Package },
     ]
   },
   {

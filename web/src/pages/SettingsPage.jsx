@@ -10,6 +10,7 @@ import PageHeader from "../components/PageHeader.jsx";
 import PasswordStrengthMeter from "../components/PasswordStrengthMeter.jsx";
 import { useToast } from "../components/Toast.jsx";
 import Select from "../components/Select.jsx";
+import { sanitizeTextInput, countLetters } from "../utils/text.js";
 
 export default function SettingsPage() {
   const toast = useToast();
@@ -66,6 +67,20 @@ export default function SettingsPage() {
   const [isDeviceEditing, setIsDeviceEditing] = useState(false);
   const [deviceDeleting, setDeviceDeleting] = useState(null);
 
+  // -- CART STATES --
+  const [carts, setCarts] = useState([]);
+  const [cartAddOpen, setCartAddOpen] = useState(false);
+  const [cartAddClosing, setCartAddClosing] = useState(false);
+  const [isCartAdding, setIsCartAdding] = useState(false);
+  const [cartError, setCartError] = useState("");
+  const [newCart, setNewCart] = useState({ code: "", name: "", address: "", seedInventory: true });
+  const [cartToken, setCartToken] = useState(null);
+  const [cartTokenCopied, setCartTokenCopied] = useState(false);
+  const [cartEditing, setCartEditing] = useState(null);
+  const [cartEditClosing, setCartEditClosing] = useState(false);
+  const [isCartEditing, setIsCartEditing] = useState(false);
+  const [cartToggling, setCartToggling] = useState(null);
+
   // Modal Closers
   function closeAddModal() {
     setAddClosing(true);
@@ -87,6 +102,14 @@ export default function SettingsPage() {
     setDeviceEditClosing(true);
     setTimeout(() => { setDeviceEditing(null); setDeviceEditClosing(false); }, 150);
   }
+  function closeCartAddModal() {
+    setCartAddClosing(true);
+    setTimeout(() => { setCartAddOpen(false); setCartAddClosing(false); }, 150);
+  }
+  function closeCartEditModal() {
+    setCartEditClosing(true);
+    setTimeout(() => { setCartEditing(null); setCartEditClosing(false); }, 150);
+  }
 
   // Background Scroll Lock
   const isAnyModalOpen = 
@@ -96,7 +119,11 @@ export default function SettingsPage() {
     staffEditing || staffEditClosing ||
     deviceAddOpen || deviceAddClosing ||
     deviceEditing || deviceEditClosing ||
-    Boolean(deviceDeleting);
+    Boolean(deviceDeleting) ||
+    cartAddOpen || cartAddClosing ||
+    Boolean(cartToken) ||
+    cartEditing || cartEditClosing ||
+    Boolean(cartToggling);
 
   useEffect(() => {
     if (isAnyModalOpen) document.body.style.overflow = "hidden";
@@ -108,6 +135,7 @@ export default function SettingsPage() {
     if (!isOwner) return;
     api.get("/devices").then(({ data }) => setDevices(data?.data ?? [])).catch(() => {});
     api.get("/auth/staff").then(({ data }) => setStaff(data?.data ?? [])).catch(() => {});
+    api.get("/locations").then(({ data }) => setCarts(data?.data ?? [])).catch(() => {});
   }
 
   function loadProfile() {
@@ -300,6 +328,104 @@ export default function SettingsPage() {
     }
   }
 
+  // --- CART ACTIONS (OWNER) ---
+  function sanitizeCartCode(v) {
+    return String(v ?? "").toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 12);
+  }
+
+  async function createCart(e) {
+    e.preventDefault();
+    setCartError("");
+    const code = sanitizeCartCode(newCart.code);
+    if (!/^[A-Z0-9-]{3,12}$/.test(code)) {
+      setCartError("Code must be 3-12 chars: A-Z, 0-9, dash (e.g. CART-04).");
+      return;
+    }
+    const name = sanitizeTextInput(newCart.name, 120).trim();
+    if (name.length < 2 || countLetters(name) < 2) {
+      setCartError("Name needs at least 2 letters.");
+      return;
+    }
+    setIsCartAdding(true);
+    try {
+      const { data } = await api.post("/locations", {
+        code,
+        name,
+        address: newCart.address.trim() || null,
+        seedInventory: newCart.seedInventory,
+      });
+      toast(`Cart ${code} created with starter inventory`, "success");
+      closeCartAddModal();
+      setNewCart({ code: "", name: "", address: "", seedInventory: true });
+      // One-shot token display: never stored, cleared on close.
+      setCartTokenCopied(false);
+      setCartToken({ code, deviceId: data?.device?.deviceId ?? "", token: data?.deviceToken ?? "" });
+      loadOwnerData();
+    } catch (err) {
+      setCartError(getErrorMessage(err, "Create failed - is the code already taken?"));
+    } finally {
+      setIsCartAdding(false);
+    }
+  }
+
+  async function copyCartToken() {
+    if (!cartToken?.token) return;
+    try {
+      await navigator.clipboard.writeText(cartToken.token);
+      setCartTokenCopied(true);
+      toast("Device token copied", "success");
+    } catch {
+      setCartError("Copy failed - select the token manually.");
+    }
+  }
+
+  async function handleEditCart(e) {
+    e.preventDefault();
+    setCartError("");
+    const name = sanitizeTextInput(cartEditing.name, 120).trim();
+    const address = sanitizeTextInput(cartEditing.address ?? "", 200).trim();
+    const original = carts.find((c) => c.id === cartEditing.id);
+    if (name.length < 2 || countLetters(name) < 2) {
+      setCartError("Name needs at least 2 letters.");
+      return;
+    }
+    if (original && name === original.name && (address || "") === (original.address || "")) {
+      toast("No changes — nothing to update on this cart.", "info");
+      closeCartEditModal();
+      return;
+    }
+    setIsCartEditing(true);
+    try {
+      await api.patch(`/locations/${cartEditing.id}`, {
+        name,
+        address: address || null,
+      });
+      toast(`Cart ${original?.code ?? ""} updated`, "success");
+      closeCartEditModal();
+      loadOwnerData();
+    } catch (err) {
+      setCartError(getErrorMessage(err, "Update failed."));
+    } finally {
+      setIsCartEditing(false);
+    }
+  }
+
+  async function toggleCart() {
+    if (!cartToggling) return;
+    const toInactive = cartToggling.status !== "INACTIVE";
+    try {
+      await api.patch(`/locations/${cartToggling.id}`, {
+        status: toInactive ? "INACTIVE" : "ACTIVE",
+      });
+      toast(`Cart ${cartToggling.code} ${toInactive ? "deactivated" : "reactivated"}`, "success");
+      loadOwnerData();
+    } catch (err) {
+      toast(getErrorMessage(err, "Update failed"), "error");
+    } finally {
+      setCartToggling(null);
+    }
+  }
+
   // (duplicate locationOptions removed — safe version above is used)
   
   const toggleBtnStyle = {
@@ -323,7 +449,7 @@ export default function SettingsPage() {
         <PageHeader
           eyebrow="Administration"
           title="Settings"
-          sub="Your profile, password, devices, and staff accounts."
+          sub="Your profile, password, carts, devices, and staff accounts."
         />
         
         <div className="settings-grid" style={{ gap: "var(--space-4)", alignItems: "start" }}>
@@ -614,6 +740,76 @@ export default function SettingsPage() {
                 </table>
               </div>
             </section>
+
+            <section className="panel" style={{ padding: "var(--space-5)" }}>
+              <div className="flex items-center justify-between" style={{ marginBottom: "var(--space-4)" }}>
+                <h3 className="section-title m-0 p-0" style={{ borderBottom: "none" }}>Carts</h3>
+                <button onClick={() => { setCartError(""); setCartAddOpen(true); }}>
+                  <Plus size={15} /> Add cart
+                </button>
+              </div>
+              <div className="table-wrap">
+                <table className="data table-fixed">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 130 }}>Code</th>
+                      <th>Name</th>
+                      <th style={{ width: 90 }}>Items</th>
+                      <th style={{ width: 130 }}>Status</th>
+                      <th style={{ width: 170 }}>Node</th>
+                      <th className="t-center" style={{ width: 170 }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {carts.map((c) => (
+                      <tr key={c.id} className={c.status === "INACTIVE" ? "row-disabled" : undefined}>
+                        <td><strong>{c.code}</strong></td>
+                        <td>{c.name}</td>
+                        <td className="muted">{c.itemCount}</td>
+                        <td>
+                          <Badge variant={c.status === "INACTIVE" ? "danger" : "ok"}>
+                            {c.status === "INACTIVE" ? "INACTIVE" : "ACTIVE"}
+                          </Badge>
+                        </td>
+                        <td className="muted small">
+                          {c.device ? (
+                            <>{c.device.deviceId} · {c.device.online ? "ONLINE" : "IDLE"}</>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="t-center nowrap">
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              className="ghost small-btn"
+                              onClick={() => { setCartEditing({ ...c }); setCartError(""); }}
+                              title="Rename cart"
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                            <button
+                              className={`small-btn ${c.status === "INACTIVE" ? "ghost" : "danger-ghost"}`}
+                              onClick={() => setCartToggling(c)}
+                              title={c.status === "INACTIVE" ? "Reactivate" : "Deactivate"}
+                            >
+                              {c.status === "INACTIVE" ? "Activate" : "Deactivate"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {carts.length === 0 && (
+                      <tr>
+                        <td colSpan="6" className="muted t-center" style={{ padding: "var(--space-4)" }}>No carts yet.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <p className="muted small" style={{ marginTop: "var(--space-3)" }}>
+                INACTIVE carts disappear from the POS and filters but keep their history.
+              </p>
+            </section>
           </div>
         )}
 
@@ -887,6 +1083,157 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
+
+        {/* ADD CART MODAL */}
+        {(cartAddOpen || cartAddClosing) && (
+          <div className={`modal-backdrop ${cartAddClosing ? "is-closing" : ""}`}>
+            <div className={`modal ${cartAddClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
+              <h3><Plus size={22} className="muted"/> Add Cart</h3>
+              <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
+                Provision a cart with starter inventory and its ESP32 device token.
+              </p>
+              <form onSubmit={createCart} className="flex flex-col gap-4">
+                <label className="field">
+                  Cart Code
+                  <input
+                    type="text"
+                    required
+                    minLength={3}
+                    maxLength={12}
+                    placeholder="e.g. CART-04"
+                    title="3-12 chars: A-Z, 0-9, dash"
+                    value={newCart.code}
+                    onChange={(e) => setNewCart({ ...newCart, code: sanitizeCartCode(e.target.value) })}
+                    autoFocus
+                  />
+                </label>
+                <label className="field">
+                  Cart Name
+                  <input
+                    type="text"
+                    required
+                    minLength={2}
+                    maxLength={120}
+                    placeholder="e.g. New Canteen"
+                    title="Min 2 letters"
+                    value={newCart.name}
+                    onChange={(e) => setNewCart({ ...newCart, name: sanitizeTextInput(e.target.value, 120) })}
+                  />
+                </label>
+                <label className="field">
+                  Address (Optional)
+                  <input
+                    type="text"
+                    maxLength={200}
+                    placeholder="e.g. Sta. Cruz, Laguna"
+                    value={newCart.address}
+                    onChange={(e) => setNewCart({ ...newCart, address: sanitizeTextInput(e.target.value, 200) })}
+                  />
+                </label>
+                <label className="field" style={{ flexDirection: "row", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={newCart.seedInventory}
+                    onChange={(e) => setNewCart({ ...newCart, seedInventory: e.target.checked })}
+                    style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                  />
+                  Seed starter inventory (6 template rows)
+                </label>
+                <div className="modal-actions">
+                  <button type="button" className="ghost" onClick={closeCartAddModal} disabled={isCartAdding || cartAddClosing}>Cancel</button>
+                  <button type="submit" disabled={isCartAdding || cartAddClosing}>
+                    {isCartAdding ? "Creating..." : "Create Cart"}
+                  </button>
+                </div>
+                {cartError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{cartError}</p>}
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* DEVICE TOKEN ONE-SHOT */}
+        {cartToken && (
+          <div className="modal-backdrop">
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h3>Cart {cartToken.code} created</h3>
+              <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
+                Copy the ESP32 device token now — it is stored hashed and
+                <strong> will never be shown again</strong>.
+              </p>
+              <label className="field">
+                Device Token ({cartToken.deviceId})
+                <input type="text" readOnly value={cartToken.token} onFocus={(e) => e.target.select()} />
+              </label>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={copyCartToken}
+                >
+                  {cartTokenCopied ? "Copied!" : "Copy token"}
+                </button>
+                <button type="button" onClick={() => { setCartToken(null); setCartTokenCopied(false); }}>
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* EDIT CART MODAL */}
+        {(cartEditing || cartEditClosing) && (
+          <div className={`modal-backdrop ${cartEditClosing ? "is-closing" : ""}`}>
+            <div className={`modal ${cartEditClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
+              <h3><Edit2 size={22} className="muted"/> Edit Cart {cartEditing?.code}</h3>
+              <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
+                The cart code is immutable (devices and history reference it).
+              </p>
+              <form onSubmit={handleEditCart} className="flex flex-col gap-4">
+                <label className="field">
+                  Cart Name
+                  <input
+                    type="text"
+                    required
+                    minLength={2}
+                    maxLength={120}
+                    value={cartEditing?.name || ""}
+                    onChange={(e) => setCartEditing({ ...cartEditing, name: sanitizeTextInput(e.target.value, 120) })}
+                    autoFocus
+                  />
+                </label>
+                <label className="field">
+                  Address (Optional)
+                  <input
+                    type="text"
+                    maxLength={200}
+                    value={cartEditing?.address || ""}
+                    onChange={(e) => setCartEditing({ ...cartEditing, address: sanitizeTextInput(e.target.value, 200) })}
+                  />
+                </label>
+                <div className="modal-actions">
+                  <button type="button" className="ghost" onClick={closeCartEditModal} disabled={isCartEditing || cartEditClosing}>Cancel</button>
+                  <button type="submit" disabled={isCartEditing || cartEditClosing}>
+                    {isCartEditing ? "Saving..." : "Save Changes"}
+                  </button>
+                </div>
+                {cartError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{cartError}</p>}
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* DEACTIVATE / REACTIVATE CART CONFIRMATION */}
+        <ConfirmDialog
+          open={Boolean(cartToggling)}
+          title={cartToggling?.status === "INACTIVE" ? `Reactivate ${cartToggling?.code}?` : `Deactivate ${cartToggling?.code}?`}
+          message={cartToggling?.status === "INACTIVE"
+            ? `"${cartToggling?.code}" will reappear in the POS and filters.`
+            : `"${cartToggling?.code}" will disappear from the POS and filters. History is kept.`}
+          confirmLabel={cartToggling?.status === "INACTIVE" ? "Reactivate" : "Deactivate"}
+          danger={cartToggling?.status !== "INACTIVE"}
+          onConfirm={toggleCart}
+          onCancel={() => setCartToggling(null)}
+        />
 
         {/* DELETE IOT DEVICE CONFIRMATION */}
         <ConfirmDialog
