@@ -182,6 +182,19 @@ export default function SettingsPage() {
   async function handleEditStaff(e) {
     e.preventDefault();
     setStaffError("");
+    // Only name/location/rfid reach the API (username is immutable
+    // server-side), so no-change is measured on those fields.
+    const original = staff.find((s) => s.id === staffEditing.id);
+    if (
+      original &&
+      staffEditing.name === original.name &&
+      (staffEditing.location?.code || null) === (original.location?.code || null) &&
+      (staffEditing.rfidUid || null) === (original.rfidUid || null)
+    ) {
+      toast("No changes — staff details are already up to date.", "info");
+      closeStaffEditModal();
+      return;
+    }
     setIsStaffEditing(true);
     try {
       await api.patch(`/auth/staff/${staffEditing.id}`, {

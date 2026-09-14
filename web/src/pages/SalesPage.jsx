@@ -91,6 +91,12 @@ export default function SalesPage() {
   async function handleEditOrder(e) {
     e.preventDefault();
     setEditError("");
+    const original = rows.find((o) => o.id === editing.id);
+    if (original && (editing.paymentMethod || "CASH") === (original.paymentMethod || "CASH")) {
+      toast(`No changes — order #${editing.id} is already ${original.paymentMethod || "CASH"}.`, "info");
+      closeEditModal();
+      return;
+    }
     setIsEditing(true);
     try {
       // Payment correction only — the API rejects any status except VOID,

@@ -116,6 +116,11 @@ export default function InventoryPage() {
       setAdjustError("Enter a valid non-negative stock count.");
       return;
     }
+    if (value === adjusting.stock) {
+      toast(`No changes — ${adjusting.name} is already ${adjusting.stock} ${adjusting.unit}.`, "info");
+      closeAdjustModal();
+      return;
+    }
     setAdjustError("");
     setSaving(true);
     try {
@@ -162,19 +167,29 @@ export default function InventoryPage() {
   }
 
   // --- NEW HANDLERS FOR EDIT & DELETE ---
+  // Note: the API applies threshold only (name/category/unit have no backing
+  // fields), so the edit form is threshold-only and no-change is measured on it.
   async function handleEditItem(e) {
     e.preventDefault();
     setEditError("");
+    const nextThreshold = Number(editing.threshold);
+    if (!Number.isFinite(nextThreshold) || nextThreshold < 0 || nextThreshold > 100000) {
+      setEditError("Enter a threshold between 0 and 100000.");
+      return;
+    }
+    const original = currentItems.find((it) => it.id === editing.id);
+    if (original && nextThreshold === original.threshold) {
+      toast(`No changes — threshold is already ${original.threshold}.`, "info");
+      closeEditModal();
+      return;
+    }
     setIsEditing(true);
 
     try {
       await api.patch(`/inventory/items/${editing.id}`, {
-        name: editing.name,
-        category: editing.category,
-        unit: editing.unit,
-        threshold: Number(editing.threshold)
+        threshold: nextThreshold
       });
-      toast(`${editing.name} updated successfully`, "success");
+      toast(`Threshold updated to ${nextThreshold}`, "success");
       closeEditModal();
       refresh();
     } catch (err) {
@@ -225,9 +240,15 @@ export default function InventoryPage() {
     }
     if (selectedIds.size === 0) return;
     setSaving(true);
+    const byId = new Map(currentItems.map((it) => [it.id, it]));
+    let skipped = 0;
     let success = 0;
     let failed = 0;
     for (const id of selectedIds) {
+      if (byId.get(id)?.stock === value) {
+        skipped++;
+        continue;
+      }
       try {
         await api.post("/inventory/adjustments", {
           inventoryItemId: id,
@@ -238,6 +259,9 @@ export default function InventoryPage() {
       } catch {
         failed++;
       }
+    }
+    if (success === 0 && failed === 0 && skipped > 0) {
+      toast(`No changes — ${skipped} item(s) already at ${value}.`, "info");
     }
     if (success > 0) {
       toast(`Bulk updated ${success} item(s) to ${value}`, "success");
@@ -680,51 +704,22 @@ export default function InventoryPage() {
         {(editing || editClosing) && (
           <div className={`modal-backdrop ${editClosing ? "is-closing" : ""}`}>
             <div className={`modal ${editClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
-              <h3><Edit2 size={22} className="muted"/> Edit Item</h3>
+              <h3><Edit2 size={22} className="muted"/> Edit Threshold</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                Update details for <strong>{editing?.name}</strong>. Stock adjustments should be made using the Adjust tool.
+                Low-stock threshold for <strong>{editing?.name}</strong> ({editing?.unit}). Stock counts are changed with the Adjust tool.
               </p>
               
               <form onSubmit={handleEditItem} className="flex flex-col gap-4">
-                <label className="field">
-                  Item Name
-                  <input
-                    type="text"
-                    required
-                    value={editing?.name || ""}
-                    onChange={(e) => setEditing({ ...editing, name: e.target.value })}
-                    autoFocus
-                  />
-                </label>
-                
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
-                  <label className="field">
-                    Category
-                    <Select
-                      value={editing?.category || "Ingredients"}
-                      onChange={(val) => setEditing({ ...editing, category: val })}
-                      options={categoryOptions}
-                    />
-                  </label>
-                  
-                  <label className="field">
-                    Unit
-                    <Select
-                      value={editing?.unit || "pcs"}
-                      onChange={(val) => setEditing({ ...editing, unit: val })}
-                      options={unitOptions}
-                    />
-                  </label>
-                </div>
-
                 <label className="field">
                   Low Threshold
                   <input
                     type="number"
                     min="0"
+                    max="100000"
                     step="any"
                     required
-                    value={editing?.threshold || ""}
+                    autoFocus
+                    value={editing?.threshold ?? ""}
                     onChange={(e) => setEditing({ ...editing, threshold: e.target.value })}
                   />
                 </label>

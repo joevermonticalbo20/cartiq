@@ -152,9 +152,25 @@ export default function ExpensesPage() {
   }
 
   // --- EDIT EXPENSE HANDLER ---
+  // Only vendor/amount/date/category/note reach the API (location is not
+  // editable server-side), so no-change is measured on those fields.
   async function handleEditExpense(e) {
     e.preventDefault();
     setEditError("");
+    const original = rows.find((r) => r.id === editing.id);
+    const sameDay = (d) => String(d ?? "").split("T")[0];
+    if (
+      original &&
+      editing.vendor === original.vendor &&
+      Number(editing.amount) === Number(original.amount) &&
+      sameDay(editing.date) === sameDay(original.date) &&
+      editing.category === original.category &&
+      (editing.note || "") === (original.note || "")
+    ) {
+      toast("No changes — nothing to update on this expense.", "info");
+      closeEditModal();
+      return;
+    }
     setIsEditing(true);
     try {
       await api.patch(`/expenses/${editing.id}`, {
