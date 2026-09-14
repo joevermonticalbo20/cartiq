@@ -411,17 +411,19 @@ async function rawRead(model, where) {
   return docs;
 }
 
-// Cached read used by all non-transaction paths.
-async function cachedRead(model, rawWhere, orderBy, include, select) {
+// Cached read used by all non-transaction paths. Pass nocache:true for
+// correctness-critical bootstrap reads (POS catalog) that must never serve
+// a stale TTL window after a write on another request.
+async function cachedRead(model, rawWhere, orderBy, include, select, nocache) {
   const where = await resolveRelationWhere(model, rawWhere, cachedOne);
   const key = stableKey(model, where, orderBy, include, select);
-  let docs = cacheGet(key);
+  let docs = nocache ? undefined : cacheGet(key);
   if (docs === undefined) {
     docs = await rawRead(model, where);
     docs = applyOrderBy(docs, orderBy);
     docs = await applyInclude(model, docs, include, cachedOne);
     if (select) docs = docs.map((d) => project(d, select));
-    cacheSet(key, docs);
+    if (!nocache) cacheSet(key, docs);
   }
   return docs;
 }
@@ -502,7 +504,7 @@ function modelApi(model, ctx) {
   }
 
   async function readMany(args = {}) {
-    const { where, orderBy, include, select } = args;
+    const { where, orderBy, include, select, nocache } = args;
     if (isTxn) {
       let docs = await txnDocs(where);
       docs = applyOrderBy(docs, orderBy);
@@ -517,7 +519,7 @@ function modelApi(model, ctx) {
       if (select) docs = docs.map((d) => project(d, select));
       return docs;
     }
-    return cachedRead(model, where, orderBy, include, select);
+    return cachedRead(model, where, orderBy, include, select, nocache);
   }
 
   return {

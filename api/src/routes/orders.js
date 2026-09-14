@@ -79,12 +79,14 @@ router.post("/orders", requireAuth, async (req, res, next) => {
         // ---- READ PHASE ----
         const guard = await tx.getDoc("orderRefs", ref);
         if (guard) return { dup: true };
-        const [maps, invRows, unreadAlerts] = await Promise.all([
+        const [maps, invRows, unreadAlerts, catalogProducts] = await Promise.all([
           tx.ingredientMap.findMany(),
           tx.inventoryItem.findMany({ where: { locationId: location.id } }),
           tx.alert.findMany({ where: { type: "LOW_STOCK", isRead: false } }),
+          tx.product.findMany({ select: { name: true } }),
         ]);
         const invByName = new Map(invRows.map((r) => [r.name, r]));
+        const knownProducts = new Set(catalogProducts.map((p) => p.name));
 
         // ---- COMPUTE PHASE (pure; mirrors the original per-item loop) ----
         // Server is the source of truth for the total - never trust the client.
@@ -100,6 +102,12 @@ router.post("/orders", requireAuth, async (req, res, next) => {
         const createdNeedles = new Set();
         const newAlerts = [];
         for (const row of itemRows) {
+          // Unknown product (e.g. deleted after the POS loaded its catalog):
+          // record the sale but warn loudly — nothing was deducted.
+          if (!knownProducts.has(row.productName)) {
+            warnings.push(`unknown product "${row.productName}" — recorded without deduction`);
+            continue;
+          }
           const flavorKey = row.flavor ?? "";
           const byItem = new Map();
           for (const m of maps) {

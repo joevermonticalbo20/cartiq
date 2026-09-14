@@ -70,7 +70,7 @@ class PosScreen extends StatefulWidget {
   State<PosScreen> createState() => _PosScreenState();
 }
 
-class _PosScreenState extends State<PosScreen> {
+class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   late Future<List<Map<String, dynamic>>> _catalogFuture;
   String _search = '';
   String _categoryFilter = 'All';
@@ -83,13 +83,22 @@ class _PosScreenState extends State<PosScreen> {
   void initState() {
     super.initState();
     _catalogFuture = _loadCatalog();
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // New/removed products show up on their own when the cashier returns
+    // to the app — no manual refresh needed. Cart + search are untouched.
+    if (state == AppLifecycleState.resumed) _reloadCatalog();
   }
 
   void _onSearchChanged(String v) {
@@ -102,6 +111,17 @@ class _PosScreenState extends State<PosScreen> {
 
   void _reloadCatalog() {
     setState(() => _catalogFuture = _loadCatalog());
+  }
+
+  /// Pull-to-refresh / resume entry point: refetches and settles so the
+  /// indicator only completes once the new catalog is in (or failed).
+  Future<void> _refreshCatalog() async {
+    _reloadCatalog();
+    try {
+      await _catalogFuture;
+    } catch (_) {
+      // Failure surfaces in the FutureBuilder (error UI + Retry).
+    }
   }
 
   Future<List<Map<String, dynamic>>> _loadCatalog() async {
@@ -572,25 +592,35 @@ class _PosScreenState extends State<PosScreen> {
                     )
                     .toList();
                 if (products.isEmpty) {
-                  return AppEmptyState(
-                    compact: true,
-                    icon: Icons.search_off_rounded,
-                    title: 'No products match',
-                    subtitle: _search.isNotEmpty
-                        ? 'Try a different name or category.'
-                        : 'Pull down to refresh the catalog.',
+                  return RefreshIndicator(
+                    onRefresh: _refreshCatalog,
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(14, 60, 14, 14),
+                      children: [
+                        AppEmptyState(
+                          compact: true,
+                          icon: Icons.search_off_rounded,
+                          title: 'No products match',
+                          subtitle: _search.isNotEmpty
+                              ? 'Try a different name or category.'
+                              : 'Pull down to refresh the catalog.',
+                        ),
+                      ],
+                    ),
                   );
                 }
-                return GridView.builder(
-                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 190,
-                    childAspectRatio: 0.95,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                  ),
-                  itemCount: products.length,
-                  itemBuilder: (context, i) {
+                return RefreshIndicator(
+                  onRefresh: _refreshCatalog,
+                  child: GridView.builder(
+                    padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
+                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: 190,
+                      childAspectRatio: 0.95,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                    ),
+                    itemCount: products.length,
+                    itemBuilder: (context, i) {
                     final product = products[i];
                     final flavorCount = (product['flavors'] as List).length;
                     final cart = context.watch<CartState>();
@@ -628,6 +658,7 @@ class _PosScreenState extends State<PosScreen> {
                           : null,
                     );
                   },
+                  ),
                 );
               },
             ),
