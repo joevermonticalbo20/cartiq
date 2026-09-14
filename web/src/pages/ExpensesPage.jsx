@@ -11,6 +11,7 @@ import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import { useToast } from "../components/Toast.jsx";
 import Select from "../components/Select.jsx";
+import { sanitizeMoneyInput, parseMoney } from "../utils/format.js";
 
 const CATEGORY_CLASS = {
   Supplies: "brand",
@@ -122,6 +123,11 @@ export default function ExpensesPage() {
   async function handleAddExpense(e) {
     e.preventDefault();
     setAddError("");
+    const amount = parseMoney(newExpense.amount);
+    if (amount === null || amount <= 0) {
+      setAddError("Enter an amount from P0.01 to P9,999,999.99 (whole pesos max 7 digits, up to 2 decimals).");
+      return;
+    }
     setIsAdding(true);
     try {
       await api.post("/expenses", {
@@ -129,7 +135,7 @@ export default function ExpensesPage() {
         vendor: newExpense.vendor,
         locationCode: newExpense.locationCode || null,
         category: newExpense.category,
-        amount: Number(newExpense.amount),
+        amount,
         note: newExpense.note,
         source: "MANUAL"
       });
@@ -157,12 +163,17 @@ export default function ExpensesPage() {
   async function handleEditExpense(e) {
     e.preventDefault();
     setEditError("");
+    const amount = parseMoney(editing.amount);
+    if (amount === null || amount <= 0) {
+      setEditError("Enter an amount from P0.01 to P9,999,999.99 (whole pesos max 7 digits, up to 2 decimals).");
+      return;
+    }
     const original = rows.find((r) => r.id === editing.id);
     const sameDay = (d) => String(d ?? "").split("T")[0];
     if (
       original &&
       editing.vendor === original.vendor &&
-      Number(editing.amount) === Number(original.amount) &&
+      amount === Math.round(Number(original.amount) * 100) / 100 &&
       sameDay(editing.date) === sameDay(original.date) &&
       editing.category === original.category &&
       (editing.note || "") === (original.note || "")
@@ -178,7 +189,7 @@ export default function ExpensesPage() {
         vendor: editing.vendor,
         locationCode: editing.locationCode || null,
         category: editing.category,
-        amount: Number(editing.amount),
+        amount,
         note: editing.note
       });
       toast(`Expense for ${editing.vendor} updated`, "success");
@@ -455,11 +466,13 @@ export default function ExpensesPage() {
                     <input
                       type="number"
                       min="0"
-                      step="any"
+                      max="9999999.99"
+                      step="0.01"
                       required
                       placeholder="0.00"
+                      title="Whole pesos max 7 digits, up to 2 decimals"
                       value={newExpense.amount}
-                      onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })}
+                      onChange={(e) => setNewExpense({ ...newExpense, amount: sanitizeMoneyInput(e.target.value) })}
                     />
                   </label>
                 </div>
@@ -541,10 +554,12 @@ export default function ExpensesPage() {
                     <input
                       type="number"
                       min="0"
-                      step="any"
+                      max="9999999.99"
+                      step="0.01"
                       required
+                      title="Whole pesos max 7 digits, up to 2 decimals"
                       value={editing?.amount || ""}
-                      onChange={(e) => setEditing({ ...editing, amount: e.target.value })}
+                      onChange={(e) => setEditing({ ...editing, amount: sanitizeMoneyInput(e.target.value) })}
                     />
                   </label>
                 </div>

@@ -13,6 +13,7 @@ import '../services/sync_service.dart';
 import '../state/cart_state.dart';
 import '../theme.dart';
 import '../utils/haptics.dart';
+import '../utils/money_input.dart';
 import '../widgets/app_badge.dart';
 import '../widgets/app_skeleton.dart';
 import '../widgets/empty_state.dart';
@@ -1195,6 +1196,7 @@ class _CartSheetState extends State<_CartSheet> {
                 textInputAction: TextInputAction.done,
                 inputFormatters: [
                   FilteringTextInputFormatter.allow(RegExp(r'[\d.]')),
+                  MoneyInputFormatter(),
                 ],
                 decoration: const InputDecoration(
                   labelText: 'Cash tendered (PHP)',

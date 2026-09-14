@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../services/receipt_scanner.dart';
+import '../utils/money_input.dart';
 import '../theme.dart';
 
 class ScanReceiptScreen extends StatefulWidget {
@@ -91,9 +92,10 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
   }
 
   Future<void> _save(bool ocrSource) async {
-    final amount = double.tryParse(_amount.text.trim());
+    final amount = MoneyInput.tryParse(_amount.text);
     if (_vendor.text.trim().isEmpty || amount == null || amount <= 0) {
-      setState(() => _message = 'Vendor and a positive amount are required.');
+      setState(() => _message =
+          'Vendor and an amount from P0.01 to P9,999,999.99 are required.');
       return;
     }
     // Expenses are online-only (not queued offline). Surface connectivity
@@ -289,8 +291,10 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
                   TextField(
                     controller: _amount,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [MoneyInputFormatter()],
                     decoration: const InputDecoration(
                       labelText: 'Amount (PHP) *',
+                      helperText: 'Max 7 digits, up to 2 decimals',
                       border: OutlineInputBorder(),
                     ),
                   ),
