@@ -312,18 +312,44 @@ export default function SalesPage() {
                                 </button>
                               </>
                             ) : (
-                              /* Status badge centered across the actions cell,
-                                 i.e. in the middle of where pen/X sit. */
+                              /* VOID badge centered on the midpoint between the
+                                 pen and X buttons: invisible twins preserve the
+                                 exact buttons box, badge overlays its center. */
                               <span
                                 style={{
+                                  position: "relative",
                                   display: "inline-flex",
-                                  justifyContent: "center",
-                                  width: "100%",
                                 }}
                               >
-                                <Badge variant={o.status === "REFUNDED" ? "warn" : "danger"}>
-                                  {o.status}
-                                </Badge>
+                                <span
+                                  aria-hidden="true"
+                                  style={{
+                                    visibility: "hidden",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "8px",
+                                  }}
+                                >
+                                  <button className="ghost small-btn" disabled tabIndex={-1}>
+                                    <Edit2 size={13} />
+                                  </button>
+                                  <button className="danger-ghost small-btn" disabled tabIndex={-1}>
+                                    <X size={13} />
+                                  </button>
+                                </span>
+                                <span
+                                  style={{
+                                    position: "absolute",
+                                    inset: 0,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                  }}
+                                >
+                                  <Badge variant={o.status === "REFUNDED" ? "warn" : "danger"}>
+                                    {o.status}
+                                  </Badge>
+                                </span>
                               </span>
                             )}
                           </div>
