@@ -15,6 +15,8 @@ import analyticsRoutes from "./routes/analytics.js";
 import expenseRoutes from "./routes/expenses.js";
 import excelRoutes from "./routes/excel.js";
 import deviceRoutes from "./routes/devices.js";
+import locationRoutes from "./routes/locations.js";
+import productRoutes from "./routes/products.js";
 import eventRoutes from "./routes/events.js";
 import { requireAuth } from "./middleware/auth.js";
 import { errorHandler, notFound } from "./middleware/error.js";
@@ -61,10 +63,12 @@ app.use((_req, res, next) => {
 const refreshLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60 });
 const ordersLimiter = rateLimit({ windowMs: 60 * 1000, max: 120 });
 const importLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 20 });
+const locationsLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 20 });
 app.use("/api/auth/refresh", refreshLimiter);
 app.use("/api/auth/logout", refreshLimiter);
 app.use("/api/orders", ordersLimiter);
 app.use("/api/import", importLimiter);
+app.use("/api/locations", locationsLimiter);
 
 app.use("/api/auth", authRoutes);
 app.use("/api", catalogRoutes);
@@ -77,6 +81,8 @@ app.use("/api", analyticsRoutes);
 app.use("/api", expenseRoutes);
 app.use("/api", excelRoutes);
 app.use("/api", deviceRoutes);
+app.use("/api", locationRoutes);
+app.use("/api", productRoutes);
 // SSE must be registered so its handler is added to the broadcaster.
 app.use("/api", eventRoutes);
 app.use("/api", healthRouter);
