@@ -483,7 +483,7 @@ export default function SettingsPage() {
                       <th style={{ width: 140 }}>Cart</th>
                       <th style={{ width: 140 }}>Status</th>
                       <th>Last heartbeat</th>
-                      <th className="t-right" style={{ width: 100 }}>Actions</th>
+                      <th className="t-center" style={{ width: 140 }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -499,8 +499,8 @@ export default function SettingsPage() {
                         <td className="muted small">
                           {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "never"}
                         </td>
-                        <td className="t-right nowrap">
-                          <div className="flex items-center justify-end gap-1">
+                        <td className="t-center nowrap">
+                          <div className="flex items-center justify-center gap-1">
                             <button
                               className="ghost small-btn"
                               onClick={() => { setDeviceEditing(d); setDeviceError(""); }}
@@ -549,7 +549,7 @@ export default function SettingsPage() {
                       <th style={{ width: 120 }}>Cart</th>
                       <th style={{ width: 140 }}>RFID UID</th>
                       <th style={{ width: 120 }}>Status</th>
-                      <th className="t-right" style={{ width: 220 }}>Actions</th>
+                      <th className="t-center" style={{ width: 220 }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -565,8 +565,8 @@ export default function SettingsPage() {
                             {s.active ? "ACTIVE" : "DISABLED"}
                           </Badge>
                         </td>
-                        <td className="t-right nowrap">
-                          <div className="flex items-center justify-end gap-1">
+                        <td className="t-center nowrap">
+                          <div className="flex items-center justify-center gap-1">
                             <button
                               className="ghost small-btn"
                               onClick={() => { setStaffEditing({...s}); setStaffError(""); }}
