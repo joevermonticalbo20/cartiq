@@ -283,26 +283,41 @@ export default function SalesPage() {
                         align: "right",
                         render: (o) => (
                           <div className="flex items-center justify-end gap-2">
-                            {o.status !== "VOID" && (
-                              <button
-                                className="ghost small-btn"
-                                onClick={() => {
-                                  setEditing({ ...o, paymentMethod: o.paymentMethod || "CASH" });
-                                  setEditError("");
-                                }}
-                                title="Edit order"
+                            {o.status !== "VOID" ? (
+                              <>
+                                <button
+                                  className="ghost small-btn"
+                                  onClick={() => {
+                                    setEditing({ ...o, paymentMethod: o.paymentMethod || "CASH" });
+                                    setEditError("");
+                                  }}
+                                  title="Edit order"
+                                >
+                                  <Edit2 size={13} />
+                                </button>
+                                <button
+                                  className="danger-ghost small-btn"
+                                  onClick={() => setConfirming(o)}
+                                  title="Void order"
+                                >
+                                  <X size={13} />
+                                </button>
+                              </>
+                            ) : (
+                              /* Invisible placeholder: keeps the actions column
+                                 the same width so TOTAL stays aligned. */
+                              <span
+                                aria-hidden="true"
+                                className="flex items-center justify-end gap-2"
+                                style={{ visibility: "hidden" }}
                               >
-                                <Edit2 size={13} />
-                              </button>
-                            )}
-                            {o.status !== "VOID" && (
-                              <button
-                                className="danger-ghost small-btn"
-                                onClick={() => setConfirming(o)}
-                                title="Void order"
-                              >
-                                <X size={13} />
-                              </button>
+                                <button className="ghost small-btn" disabled tabIndex={-1}>
+                                  <Edit2 size={13} />
+                                </button>
+                                <button className="danger-ghost small-btn" disabled tabIndex={-1}>
+                                  <X size={13} />
+                                </button>
+                              </span>
                             )}
                           </div>
                         )
