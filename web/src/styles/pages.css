@@ -136,12 +136,12 @@
 }
 
 /* ============================================================
- * NEW LAYOUT: Sales Page Modernization
+ * NEW LAYOUT: Sales Page Modernization (SCROLLABLE TABLE)
  * ============================================================ */
+
 .sales-panel {
   padding: var(--space-5);
   background: var(--surface);
-  min-height: 65vh;
   display: flex;
   flex-direction: column;
 }
@@ -150,9 +150,6 @@
   flex: 1;
   justify-content: center;
   border: none;
-}
-.sales-panel > .table-wrap {
-  flex: 1;
 }
 
 .sales-filters-row {
@@ -173,7 +170,7 @@
 
 .sales-filters-left input[type="date"] {
   border: 1px solid var(--border);
-  border-radius: 14px; /* Sinabay sa modern inputs */
+  border-radius: 14px;
   padding: 12px 16px;
   font-size: 14px;
   background: var(--surface-alt);
@@ -188,16 +185,35 @@
   box-shadow: 0 4px 12px rgba(231, 54, 49, 0.1), 0 0 0 3px var(--primary-soft);
 }
 
+.sales-panel .table-wrap {
+  height: 500px;
+  width: 100%;
+  flex: none; 
+  overflow-y: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface);
+}
+
+.sales-panel .table-wrap table.data th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-alt);
+  z-index: 10;
+  box-shadow: inset 0 -1px 0 var(--border-strong);
+  border-bottom: none;
+}
+
 /* ============================================================
  * CUSTOM SELECT DROPDOWN (Reusable)
  * ============================================================ */
+
 .custom-select-wrapper {
   position: relative;
   min-width: 160px;
   user-select: none;
 }
 
-/* INO-MODIFIED: Pinantay sa text inputs (14px radius, chunky padding, gray background) */
 button.custom-select-trigger {
   width: 100%;
   display: flex;
@@ -282,7 +298,6 @@ button.custom-select-trigger.active {
  * NEW LAYOUT: Staff Page Modernization
  * ============================================================ */
 
-/* Modernized Staff Performance Cards (in-sync with kpi-card radius) */
 .staff-perf-card {
   background: var(--surface);
   padding: var(--space-4);
@@ -293,7 +308,6 @@ button.custom-select-trigger.active {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
 }
 
-/* Modernized On-shift Chips (Pill shape) */
 .staff-chip {
   border-radius: 99px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
@@ -305,29 +319,74 @@ button.custom-select-trigger.active {
   background: var(--surface); 
   font-size: var(--fs-sm);
 }
-
 [data-theme="dark"] .staff-chip {
   border: 1px solid var(--border);
   box-shadow: none;
 }
 
-/* Pangunahing panel para sa Shift History Table (mahaba) */
-.staff-panel {
-  min-height: 65vh;
+/* --- UNIFORM FIXED HEIGHT FOR ALL TABLES & EMPTY STATES --- */
+.staff-page-layout .table-wrap,
+.staff-page-layout .empty-state-card {
+  height: 320px; /* Pantay-pantay na lahat */
+  width: 100%;
+  flex: none; 
+  margin: 0;
+}
+
+/* Explicit Centering para sa Empty State */
+.staff-page-layout .empty-state-card {
   display: flex;
   flex-direction: column;
+  align-items: center;     
+  justify-content: center; 
+  text-align: center;
+}
+
+.staff-page-layout .table-wrap {
+  overflow-y: auto; 
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface);
+
+  /* Scroll Shadows Trick */
+  background-image:
+    linear-gradient(var(--surface) 30%, transparent),
+    linear-gradient(transparent, var(--surface) 70%),
+    radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.15), transparent),
+    radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.15), transparent);
+  background-repeat: no-repeat;
+  background-size: 100% 40px, 100% 40px, 100% 14px, 100% 14px;
+  background-position: top center, bottom center, top center, bottom center;
+  background-attachment: local, local, scroll, scroll;
+}
+
+.staff-page-layout .table-wrap::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.staff-page-layout .table-wrap::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+.staff-page-layout .table-wrap::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+  border-radius: 99px;
+}
+.staff-page-layout .table-wrap::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-muted);
+}
+
+.staff-page-layout .table-wrap table.data th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-alt);
+  z-index: 10;
+  box-shadow: inset 0 -1px 0 var(--border-strong);
+  border-bottom: none;
+}
+
+.staff-panel {
   padding: var(--space-5);
 }
-
-.staff-panel > .table-wrap {
-  flex: 1;
-}
-.staff-panel > .empty-state-card {
-  flex: 1;
-  justify-content: center;
-  border: none;
-}
-
 .staff-filters-row {
   display: flex;
   justify-content: space-between;
@@ -335,4 +394,12 @@ button.custom-select-trigger.active {
   margin-bottom: var(--space-5);
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.custom-select-dropdown.is-closing {
+  animation: dropdown-pop-out 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes dropdown-pop-out {
+  from { opacity: 1; transform: translateY(0) scaleY(1); }
+  to { opacity: 0; transform: translateY(-8px) scaleY(0.95); }
 }

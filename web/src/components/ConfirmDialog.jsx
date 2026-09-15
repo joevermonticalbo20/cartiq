@@ -1,73 +1,80 @@
-import { useEffect, useRef } from "react";
-import Button from "./Button.jsx";
+import { useEffect, useState } from "react";
 
-// Sticky confirm dialog: backdrop clicks and Escape NEVER dismiss — only an
-// explicit Cancel/confirm button closes it. This guards destructive actions
-// (logout, void, delete, disable, commit) against accidental dismissal.
 export default function ConfirmDialog({
   open,
-  title = "Are you sure?",
+  title,
   message,
   confirmLabel = "Confirm",
   danger = false,
   onConfirm,
   onCancel,
 }) {
-  const cancelRef = useRef(null);
-  const modalRef = useRef(null);
-  const previouslyFocused = useRef(null);
+  // renderOpen controls whether the component is actually in the DOM
+  const [renderOpen, setRenderOpen] = useState(open);
+  // isClosing controls the CSS animation classes
+  const [isClosing, setIsClosing] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
-    // Remember the invoker so focus returns to it on close.
-    previouslyFocused.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    cancelRef.current?.focus();
-    const onKey = (e) => {
-      // NOTE: Escape intentionally does nothing here (sticky dialog).
-      // Trap Tab inside the dialog while it is open.
-      if (e.key !== "Tab") return;
-      const root = modalRef.current;
-      if (!root) return;
-      const focusables = root.querySelectorAll("button:not([disabled])");
-      if (focusables.length === 0) return;
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      previouslyFocused.current?.focus?.();
-    };
-  }, [open, onCancel]);
+    if (open) {
+      // Kapag binuksan, i-render agad at tanggalin ang isClosing state
+      setRenderOpen(true);
+      setIsClosing(false);
+      // Background Scroll Lock
+      document.body.style.overflow = "hidden";
+    } else if (renderOpen) {
+      // Kapag sinara mula sa parent, i-trigger ang closing animation
+      setIsClosing(true);
+      document.body.style.overflow = "";
+      
+      // Maghintay ng 150ms bago tuluyang i-unmount para makapag-play ang fade-out
+      const timer = setTimeout(() => {
+        setRenderOpen(false);
+        setIsClosing(false);
+      }, 150);
+      
+      return () => clearTimeout(timer);
+    } else {
+      // Cleanup fallback
+      document.body.style.overflow = "";
+    }
+  }, [open, renderOpen]);
 
-  if (!open) return null;
+  // Kung hindi open at tapos na ang animation, huwag i-render
+  if (!renderOpen) return null;
+
   return (
-    <div className="modal-backdrop">
-      <div
-        ref={modalRef}
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="confirm-dialog-title"
+    // STRICT CLICK-TO-CLOSE: Walang onClick={onCancel} sa backdrop
+    <div className={`modal-backdrop ${isClosing ? "is-closing" : ""}`}>
+      <div 
+        className={`modal ${isClosing ? "is-closing" : ""}`} 
+        onClick={(e) => e.stopPropagation()} // Pigilan ang propagation kung sakali
       >
-        <h3 id="confirm-dialog-title">{title}</h3>
-        {message && <p className="muted">{message}</p>}
+        <h3>{title}</h3>
+        
+        {message && (
+          <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
+            {message}
+          </p>
+        )}
+        
         <div className="modal-actions">
-          <Button ref={cancelRef} variant="ghost" onClick={onCancel}>Cancel</Button>
-          <Button
-            variant={danger ? "danger" : "primary"}
+          <button 
+            type="button" 
+            className="ghost" 
+            onClick={onCancel}
+            disabled={isClosing} // Para hindi ma-spam ang click habang nagco-close
+          >
+            Cancel
+          </button>
+          
+          <button 
+            type="button" 
+            className={danger ? "danger" : ""} 
             onClick={onConfirm}
+            disabled={isClosing}
           >
             {confirmLabel}
-          </Button>
+          </button>
         </div>
       </div>
     </div>

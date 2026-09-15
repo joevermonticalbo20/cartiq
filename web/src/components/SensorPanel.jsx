@@ -1,373 +1,132 @@
-import { useEffect, useState, useRef, useCallback } from "react";
-import {
-  Activity,
-  Droplet,
-  Wifi,
-  WifiOff,
-  TrendingDown,
-  TrendingUp,
-  Minus,
-  Clock,
-  Zap,
-} from "lucide-react";
-import api, { getErrorMessage } from "../api.js";
-import EmptyState from "./EmptyState.jsx";
-import { clockTicks, timeX, formatTick, formatLastReading } from "./sensorTimeScale.js";
+import { useState, useEffect } from "react";
+import { Flame, ArrowDown, Activity } from "lucide-react";
+import { ResponsiveContainer, AreaChart, Area, YAxis } from "recharts";
+import api, { API_BASE } from "../api.js";
+import { useSSE } from "../hooks/useSSE.js";
 
-const CHANNELS = [
-  { id: "LPG_TANK", label: "LPG Tank", unit: "kg", icon: Zap, color: "var(--accent)", lowThreshold: 5, criticalThreshold: 2 },
-  { id: "CHEESE_BIN", label: "Cheese Bin", unit: "kg", icon: Droplet, color: "var(--highlight-strong)", lowThreshold: 2, criticalThreshold: 0.5 },
-];
+export default function SensorPanel({ code }) {
+  const [lpg, setLpg] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-export default function SensorPanel({ code = "CART-01" }) {
-  const [series, setSeries] = useState([]);
-  const [channel, setChannel] = useState("LPG_TANK");
-  const [error, setError] = useState("");
-  const [isLive, setIsLive] = useState(true);
-  const intervalRef = useRef(null);
-
-  const fetchData = useCallback(async () => {
-    try {
-      const { data } = await api.get(
-        `/readings/recent?code=${code}&channel=${channel}&limit=60`
-      );
-      setSeries(data?.readings ?? []);
-      setError("");
-    } catch (err) {
-      setError(getErrorMessage(err, "No readings yet"));
-      setIsLive(false);
-    }
-  }, [code, channel]);
-
+  // Fetch initial history para sa Sparkline Chart
   useEffect(() => {
-    const timer = setTimeout(fetchData, 0);
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    if (isLive) {
-      intervalRef.current = setInterval(fetchData, 5000);
+    let alive = true;
+    setLoading(true);
+    
+    api.get(`/readings/recent?location_code=${code}`)
+      .then(res => {
+        if (!alive) return;
+        const readings = res.data?.readings || [];
+        
+        // Paggawa ng graph points mula sa API data
+        setHistory(readings.map((r, i) => ({ time: i, value: r.value })));
+        
+        if (readings.length > 0) {
+          setLpg(readings[readings.length - 1].value);
+        } else {
+          setLpg(null); // Walang data
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        if (alive) setLoading(false);
+      });
+      
+    return () => { alive = false; };
+  }, [code]);
+
+  // Real-time listener para sa bagong LPG drops
+  useSSE(`${API_BASE}/events`, {
+    onEvent: (event, data) => {
+      if (event === "reading:new" && data.locationCode === code) {
+        setLpg(data.value);
+        setHistory(old => {
+          const newHistory = [...old.slice(1), { time: Date.now(), value: data.value }];
+          return newHistory.length > 0 ? newHistory : [{ time: Date.now(), value: data.value }];
+        });
+      }
     }
-    return () => {
-      clearTimeout(timer);
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [fetchData, isLive]);
-
-  const channelConfig = CHANNELS.find((c) => c.id === channel);
-  const Icon = channelConfig.icon;
-
-  // Stats — safeSeries guarantees array even if a stale/error payload slips through.
-  const safeSeries = Array.isArray(series) ? series : [];
-  const values = safeSeries.map((r) => r.kg);
-  const latest = safeSeries[safeSeries.length - 1];
-  const min = values.length ? Math.min(...values) : 0;
-  const max = values.length ? Math.max(...values) : 1;
-  const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
-  const firstVal = values[0] ?? 0;
-  const lastVal = values[values.length - 1] ?? 0;
-  const delta = lastVal - firstVal;
-  const trend = delta > 0.5 ? "up" : delta < -0.5 ? "down" : "stable";
-
-  // Status
-  let status = "ok";
-  if (lastVal <= channelConfig.criticalThreshold) status = "critical";
-  else if (lastVal <= channelConfig.lowThreshold) status = "low";
-
-  // SVG sparkline dimensions
-  const W = 600;
-  const H = 160;
-  const padX = 8;
-  const padTop = 16;
-  const padBottom = 28;
-
-  // Time scale: x-position is clock time (sorted copy), never sample
-  // order, so bursts compress honestly and gaps read as gaps.
-  // Readings with unparseable timestamps (e.g. "" from an NTP-unsynced
-  // node) are dropped from the chart — one bad ts must never stretch
-  // the whole axis back to 1970.
-  const ordered = [...safeSeries]
-    .filter((r) => Number.isFinite(new Date(r.ts).getTime()))
-    .sort((a, b) => new Date(a.ts) - new Date(b.ts));
-  const startMs = ordered.length ? new Date(ordered[0].ts).getTime() : 0;
-  const endMs = ordered.length ? new Date(ordered[ordered.length - 1].ts).getTime() : 0;
-  const hasSpan = endMs > startMs;
-  const xOfTime = (ts) =>
-    hasSpan
-      ? timeX(new Date(ts).getTime(), startMs, endMs, padX, W)
-      : (W - padX * 2) / 2 + padX;
-  const pts = (hasSpan ? ordered : safeSeries).map((r) => {
-    const x = hasSpan
-      ? xOfTime(r.ts)
-      : (ordered.indexOf(r) / Math.max(ordered.length - 1, 1)) * (W - padX * 2) + padX;
-    const y = H - padBottom - ((r.kg - min) / (max - min || 1)) * (H - padTop - padBottom);
-    return [x, y, r.ts];
   });
 
-  const pointsStr = pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
-  const areaStr = pts.length
-    ? `${padX},${H - padBottom} ${pointsStr} ${W - padX},${H - padBottom}`
-    : "";
+  // UI Status Handling
+  const isCritical = lpg !== null && lpg < 20;
+  const isLow = lpg !== null && lpg >= 20 && lpg < 40;
 
-  // Y-axis labels
-  const yLabels = [max, (max + min) / 2, min].map((v) => v.toFixed(1));
-
-  // X-axis: round clock ticks across the true time span — distinct
-  // labels by construction, so "12:29 AM" can never repeat.
-  const xTicks = hasSpan ? clockTicks(startMs, endMs) : [];
+  const lpgStatusClass = isCritical ? "status-critical" : isLow ? "status-low" : "";
+  const textStatusClass = isCritical ? "text-danger" : isLow ? "text-warn" : "text-ok";
+  const statusLabel = isCritical ? "CRITICAL" : isLow ? "LOW" : "STABLE";
 
   return (
-    <section className="panel sensor-panel">
-      <div className="panel-head">
-        <h3>
-          <Activity size={16} style={{ verticalAlign: "middle", marginRight: 6 }} />
-          Live sensor
+    <section className="panel sensor-panel" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      {/* Header with Live Dot */}
+      <div className="panel-head" style={{ marginBottom: "16px" }}>
+        <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
+          Live Sensor
         </h3>
-        <div className="seg" role="group" aria-label="Sensor channel">
-          {CHANNELS.map((c) => {
-            const Ic = c.icon;
-            const selected = channel === c.id;
-            return (
-              <button
-                key={c.id}
-                className={`ghost small-btn ${selected ? "active" : ""}`}
-                onClick={() => setChannel(c.id)}
-                aria-pressed={selected}
-              >
-                <Ic size={13} style={{ marginRight: 4, verticalAlign: "middle" }} />
-                {c.label}
-              </button>
-            );
-          })}
+        <div className="live-dot">
+          <div className="live-pulse" />
+          <span className="live-label">LIVE</span>
         </div>
       </div>
 
-      {error ? (
-        <EmptyState
-          icon={WifiOff}
-          title="Sensor offline"
-          subtitle={error}
-          action={{ label: "Retry", onClick: fetchData }}
-        />
-      ) : safeSeries.length === 0 ? (
-        <EmptyState
-          icon={Icon}
-          title="Waiting for readings"
-          subtitle="Start iot/simulator.mjs to see live data"
-        />
+      {loading ? (
+        <div className="muted small flex justify-center items-center" style={{ flex: 1 }}>
+          Connecting to sensor...
+        </div>
       ) : (
         <>
-          {/* Top stats row */}
-          <div className="sensor-stats">
-            <div className={`sensor-stat sensor-stat-main status-${status}`}>
+          <div className="sensor-stats" style={{ display: 'flex', flex: 1, marginBottom: 0 }}>
+            {/* MAIN STAT: LPG Level Only (Spans the whole width now) */}
+            <div className={`sensor-stat ${lpgStatusClass}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
               <div className="sensor-stat-head">
-                <Icon size={18} />
-                <span className="muted small">{channelConfig.label}</span>
-                {isLive && (
-                  <span className="live-dot" title="Live">
-                    <span className="live-pulse" />
-                    <span className="live-label">LIVE</span>
-                  </span>
-                )}
+                <Flame size={14} className="muted" />
+                <span className="muted small font-bold">LPG Tank Level</span>
               </div>
               <div className="sensor-stat-value">
-                <span className="big-num">{lastVal.toFixed(1)}</span>
-                <span className="unit">{channelConfig.unit}</span>
+                <span className="big-num">{lpg !== null ? lpg.toFixed(1) : "--"}</span>
+                <span className="unit">%</span>
               </div>
               <div className="sensor-stat-foot">
-                {trend === "up" && (
-                  <span className="trend-pill trend-up">
-                    <TrendingUp size={12} /> +{delta.toFixed(2)}
-                  </span>
-                )}
-                {trend === "down" && (
-                  <span className="trend-pill trend-down">
-                    <TrendingDown size={12} /> {delta.toFixed(2)}
-                  </span>
-                )}
-                {trend === "stable" && (
-                  <span className="trend-pill trend-stable">
-                    <Minus size={12} /> stable
-                  </span>
-                )}
-                <span className="muted small">
-                  {status === "critical" && <span className="text-danger">● Critical</span>}
-                  {status === "low" && <span className="text-warn">● Low</span>}
-                  {status === "ok" && <span className="text-ok">● OK</span>}
-                </span>
-              </div>
-            </div>
-
-            <div className="sensor-stat-grid">
-              <div className="sensor-stat-mini">
-                <span className="muted small">Min</span>
-                <strong>{min.toFixed(2)} <span className="unit-sm">{channelConfig.unit}</span></strong>
-              </div>
-              <div className="sensor-stat-mini">
-                <span className="muted small">Avg</span>
-                <strong>{avg.toFixed(2)} <span className="unit-sm">{channelConfig.unit}</span></strong>
-              </div>
-              <div className="sensor-stat-mini">
-                <span className="muted small">Max</span>
-                <strong>{max.toFixed(2)} <span className="unit-sm">{channelConfig.unit}</span></strong>
-              </div>
-              <div className="sensor-stat-mini">
-                <span className="muted small">Samples</span>
-                <strong>{safeSeries.length}</strong>
+                {lpg !== null && <span className={textStatusClass}>{statusLabel}</span>}
               </div>
             </div>
           </div>
 
-          {/* Chart */}
-          <div className="sensor-chart-wrap">
-            <svg
-              viewBox={`0 0 ${W} ${H}`}
-              className="sensor-chart"
-              preserveAspectRatio="none"
-              role="img"
-              aria-label={`${channelConfig.label} weight over time: latest ${lastVal.toFixed(1)} ${channelConfig.unit}, low limit ${channelConfig.lowThreshold}, critical limit ${channelConfig.criticalThreshold}`}
-            >
-              <title>{`${channelConfig.label} — latest ${lastVal.toFixed(1)} ${channelConfig.unit}`}</title>
-              <defs>
-                <linearGradient id="sensorGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={channelConfig.color} stopOpacity="0.35" />
-                  <stop offset="100%" stopColor={channelConfig.color} stopOpacity="0" />
-                </linearGradient>
-              </defs>
-
-              {/* Threshold lines (clamped to the plot so they never leave the chart) */}
-              {[
-                { v: channelConfig.lowThreshold, label: `Low ${channelConfig.lowThreshold}`, color: "var(--warn)" },
-                { v: channelConfig.criticalThreshold, label: `Critical ${channelConfig.criticalThreshold}`, color: "var(--danger)" },
-              ].map(({ v, label, color }) => {
-                const y = Math.min(
-                  Math.max(
-                    H - padBottom - ((v - min) / (max - min || 1)) * (H - padTop - padBottom),
-                    padTop
-                  ),
-                  H - padBottom
-                );
-                return (
-                  <g key={label}>
-                    <line
-                      x1={padX}
-                      y1={y}
-                      x2={W - padX}
-                      y2={y}
-                      stroke={color}
-                      strokeWidth="1"
-                      strokeDasharray="4 4"
-                      opacity="0.5"
-                    />
-                    <text
-                      x={padX + 3}
-                      y={y - 3}
-                      fontSize="9"
-                      fill={color}
-                    >
-                      {label}
-                    </text>
-                  </g>
-                );
-              })}
-
-              {/* Vertical gridlines at each clock tick */}
-              {xTicks.map((ts) => (
-                <line
-                  key={`grid-${ts}`}
-                  x1={xOfTime(ts)}
-                  y1={padTop - 6}
-                  x2={xOfTime(ts)}
-                  y2={H - padBottom}
-                  stroke="var(--border)"
-                  strokeWidth="1"
-                  opacity="0.7"
-                />
-              ))}
-
-              {/* Area fill */}
-              {pts.length > 0 && (
-                <polygon fill="url(#sensorGrad)" points={areaStr} />
-              )}
-
-              {/* Line */}
-              <polyline
-                fill="none"
-                stroke={channelConfig.color}
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                points={pointsStr}
-              />
-
-              {/* Latest point dot */}
-              {pts.length > 0 && (
-                <circle
-                  cx={pts[pts.length - 1][0]}
-                  cy={pts[pts.length - 1][1]}
-                  r="5"
-                  fill={channelConfig.color}
-                  stroke="var(--surface)"
-                  strokeWidth="2"
-                >
-                  <animate
-                    attributeName="r"
-                    values="5;7;5"
-                    dur="1.5s"
-                    repeatCount="indefinite"
-                  />
-                </circle>
-              )}
-
-              {/* Y-axis labels */}
-              {yLabels.map((label, i) => {
-                const y = H - padBottom - (i / 2) * (H - padTop - padBottom);
-                return (
-                  <text
-                    key={i}
-                    x={W - padX - 2}
-                    y={y - 2}
-                    fontSize="9"
-                    fill="var(--text-muted)"
-                    textAnchor="end"
-                  >
-                    {label}
-                  </text>
-                );
-              })}
-
-              {/* X-axis labels */}
-              {xTicks.map((ts, i) => {
-                const x = xOfTime(ts);
-                return (
-                  <text
-                    key={ts}
-                    x={x}
-                    y={H - 6}
-                    fontSize="9"
-                    fill="var(--text-muted)"
-                    textAnchor={i === 0 ? "start" : i === xTicks.length - 1 ? "end" : "middle"}
-                  >
-                    {formatTick(ts, startMs, endMs)}
-                  </text>
-                );
-              })}
-            </svg>
-          </div>
-
-          {/* Footer */}
-          <div className="sensor-footer">
-            <span className="muted small">
-              <Clock size={11} style={{ verticalAlign: "middle", marginRight: 3 }} />
-              Last reading: {latest ? formatLastReading(latest.ts) : "—"}
+          {/* SPARKLINE CHART */}
+          <div className="sensor-chart-wrap mt-3" style={{ flex: 1, minHeight: '120px', display: 'flex', flexDirection: 'column' }}>
+            <span className="muted small flex items-center gap-1 mb-2">
+              <Activity size={12} /> Consumption Trend
             </span>
-            <button
-              className="ghost small-btn"
-              onClick={() => setIsLive(!isLive)}
-              title={isLive ? "Pause auto-refresh" : "Resume auto-refresh"}
-              aria-pressed={isLive}
-              aria-label={isLive ? "Pause live updates" : "Resume live updates"}
-            >
-              {isLive ? <Wifi size={12} /> : <WifiOff size={12} />}
-              {isLive ? "Live" : "Paused"}
-            </button>
+            <div className="sensor-chart" style={{ flex: 1, height: 'auto' }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={history.length > 0 ? history : [{ time: 0, value: 0 }]}>
+                  <defs>
+                    <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="var(--primary)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  {/* Nakatago ang YAxis para malinis ang sparkline style */}
+                  <YAxis domain={['dataMin - 5', 'dataMax + 5']} hide />
+                  <Area
+                    type="monotone"
+                    dataKey="value"
+                    stroke="var(--primary)"
+                    strokeWidth={2}
+                    fillOpacity={1}
+                    fill="url(#colorValue)"
+                    isAnimationActive={false} // Disable animation to prevent glitching upon real-time update
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+          
+          {/* FOOTER */}
+          <div className="sensor-footer mt-3">
+             <span className="muted small font-mono">ID: ESP32-{code?.split("-")[1] || "01"}</span>
+             <span className="muted small">Real-time IoT Sync</span>
           </div>
         </>
       )}

@@ -15,32 +15,43 @@
   z-index: 80;
   padding: 16px;
 }
+
+/* OUT-ANIMATION PARA SA MODAL BACKDROP */
+.modal-backdrop.is-closing {
+  animation: backdrop-fade-out 0.15s ease forwards;
+}
+
 .modal {
   background: var(--surface);
-  border-radius: 24px; 
-  padding: 32px; 
+  border-radius: 24px;
+  padding: 32px;
   width: 100%;
-  max-width: 560px; 
-  overflow: visible; 
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.2); 
+  max-width: 560px;
+  overflow: visible;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.2);
   animation: pop 0.14s ease;
 }
 
+/* OUT-ANIMATION PARA SA MODAL CONTENT */
+.modal.is-closing {
+  animation: modal-pop-out 0.15s ease forwards;
+}
+
 /* INO-MODIFIED: Modern Header Styling para sa Modals */
-.modal h3 { 
-  margin: 0 0 8px 0; 
-  font-weight: 800; 
-  font-size: var(--fs-xl); 
+.modal h3 {
+  margin: 0 0 8px 0;
+  font-weight: 800;
+  font-size: var(--fs-xl);
   letter-spacing: -0.5px;
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.modal-actions { 
-  display: flex; 
-  justify-content: flex-end; 
-  gap: 10px; 
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
   margin-top: 32px; /* Pinalayo ng konti sa content */
 }
 
@@ -49,9 +60,18 @@
   to { transform: none; opacity: 1; }
 }
 
+@keyframes backdrop-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes modal-pop-out {
+  from { transform: none; opacity: 1; }
+  to { transform: scale(0.96); opacity: 0; }
+}
+
 /* ----- Overlays: toast ----- */
 /* ================= toast ================= */
-
 /* INO-MODIFIED: Nilipat sa bottom-right at pinalitan ang stacking */
 .toast-host {
   position: fixed;
@@ -71,7 +91,7 @@
   align-items: center;
   gap: 12px;
   padding: 16px 20px;
-  border-radius: 16px;
+  border-radius: 99px; /* UPDATED: Perfect Pill Shape */
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.2);
   font-size: var(--fs-md);
   font-weight: 600;
@@ -87,11 +107,13 @@
   color: #fff;
   border: none;
 }
+
 .toast.success {
-  background: #16A34A; /* Rich vibrant green */
+  background: var(--success); /* UPDATED: Solid Theme Green */
   color: #fff;
   border: none;
 }
+
 .toast.error {
   background: var(--danger); /* Bright red */
   color: #fff;
@@ -124,27 +146,27 @@
 
 /* Bounce and Fade-up Animation */
 @keyframes toast-slide-up {
-  from { 
-    transform: translateY(40px) scale(0.9); 
-    opacity: 0; 
+  from {
+    transform: translateY(40px) scale(0.9);
+    opacity: 0;
   }
-  to { 
-    transform: translateY(0) scale(1); 
-    opacity: 1; 
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
   }
 }
 
 /* ----- Responsive (max-width: 480px): small phones - toast dock sa ibaba ----- */
 @media (max-width: 480px) {
-  .toast-host { 
-    bottom: 24px; 
-    right: 16px; 
-    left: 16px; 
+  .toast-host {
+    bottom: 24px;
+    right: 16px;
+    left: 16px;
     align-items: stretch; /* Para humaba sa buong screen width sa mobile */
   }
-  .toast { 
-    max-width: 100%; 
-    min-width: 0; 
+  .toast {
+    max-width: 100%;
+    min-width: 0;
   }
   .modal { padding: 20px; }
 }

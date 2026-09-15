@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { ReceiptText, RefreshCw, X, Download, Edit2 } from "lucide-react";
+
 import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
@@ -16,12 +17,11 @@ export default function SalesPage() {
   const toast = useToast();
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
-  
+
   const [locations, setLocations] = useState([]);
   const [loc, setLoc] = useState("");
   const [date, setDate] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
-  
   const [confirming, setConfirming] = useState(null);
   const [exporting, setExporting] = useState(false);
 
@@ -37,7 +37,8 @@ export default function SalesPage() {
 
   const { rows, meta, loading, error, gotoPage, refresh } = usePagedData(
     (p) =>
-      `/orders?page=${p}&pageSize=10` +
+      // INO-MODIFIED: Binago ang pageSize=10 naging pageSize=50 para mas maraming laman ang scrollable table
+      `/orders?page=${p}&pageSize=50` +
       (loc ? `&location_code=${loc}` : "") +
       (date ? `&date=${date}` : ""),
     [loc, date]
@@ -45,13 +46,13 @@ export default function SalesPage() {
 
   useEffect(() => {
     if (!loading) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional clock sync when loading flips
       setLastUpdated(new Date());
     }
   }, [loading]);
 
-  // UX Fix: Global scroll lock para sa Edit modal (gawa niya)
+  // UX Fix: Global scroll lock para sa Edit modal
   const isAnyModalOpen = editing || editClosing || Boolean(confirming);
+
   useEffect(() => {
     if (isAnyModalOpen) document.body.style.overflow = "hidden";
     else document.body.style.overflow = "";
@@ -63,7 +64,7 @@ export default function SalesPage() {
     setTimeout(() => { setEditing(null); setEditClosing(false); }, 150);
   }
 
-  // --- EXPORT HANDLER (gawa niya) ---
+  // --- EXPORT HANDLER ---
   async function handleExport() {
     setExporting(true);
     try {
@@ -87,20 +88,20 @@ export default function SalesPage() {
     }
   }
 
-  // --- EDIT HANDLER (gawa niya) ---
+  // --- EDIT HANDLER ---
   async function handleEditOrder(e) {
     e.preventDefault();
     setEditError("");
+
     const original = rows.find((o) => o.id === editing.id);
     if (original && (editing.paymentMethod || "CASH") === (original.paymentMethod || "CASH")) {
-      toast(`No changes — order #${editing.id} is already ${original.paymentMethod || "CASH"}.`, "info");
+      toast(`No changes - order #${editing.id} is already ${original.paymentMethod || "CASH"}.`, "info");
       closeEditModal();
       return;
     }
+
     setIsEditing(true);
     try {
-      // Payment correction only — the API rejects any status except VOID,
-      // which has its own confirm dialog on the table.
       await api.patch(`/orders/${editing.id}`, {
         paymentMethod: editing.paymentMethod,
       });
@@ -114,7 +115,6 @@ export default function SalesPage() {
     }
   }
 
-  // Guards para hindi mag-crash pag null ang locations
   const safeLocations = Array.isArray(locations) ? locations : [];
   const locationOptions = [
     { value: "", label: "All carts" },
@@ -133,9 +133,6 @@ export default function SalesPage() {
       setConfirming(null);
     }
   }
-
-  // (duplicate locationOptions removed — safe version above is used)
-
 
   return (
     <PageErrorBoundary>
@@ -259,8 +256,6 @@ export default function SalesPage() {
                 {
                   key: "total",
                   label: (
-                    // Mirror of the amount slot below: "Total" is left-aligned
-                    // in a 52px slot so its T sits exactly above every P.
                     <span style={{ display: "inline-flex", gap: "8px", whiteSpace: "nowrap" }}>
                       <span style={{ minWidth: "52px", textAlign: "left" }}>Total</span>
                       <span style={{ minWidth: "62px" }} />
@@ -281,11 +276,7 @@ export default function SalesPage() {
                       <strong style={{ minWidth: "52px", textAlign: "left" }}>
                         P{o.total}
                       </strong>
-                      {/* Empty spacer keeps every amount in the same slot;
-                         the VOID badge now lives in the actions cell. */}
-                      <span
-                        style={{ minWidth: "62px", display: "inline-block" }}
-                      />
+                      <span style={{ minWidth: "62px", display: "inline-block" }} />
                     </span>
                   ),
                 },
@@ -319,15 +310,7 @@ export default function SalesPage() {
                                 </button>
                               </>
                             ) : (
-                              /* VOID badge centered on the midpoint between the
-                                 pen and X buttons: invisible twins preserve the
-                                 exact buttons box, badge overlays its center. */
-                              <span
-                                style={{
-                                  position: "relative",
-                                  display: "inline-flex",
-                                }}
-                              >
+                              <span style={{ position: "relative", display: "inline-flex" }}>
                                 <span
                                   aria-hidden="true"
                                   style={{

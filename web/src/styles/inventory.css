@@ -4,15 +4,34 @@
 
 /* Pangunahing panel para sa Inventory Table (mahaba) */
 .inventory-panel {
-  min-height: 65vh;
+  padding: var(--space-5);
+  background: var(--surface);
+  /* INO-MODIFIED: Fixed height para hindi humaba ang page pababa */
+  height: calc(100vh - 140px);
+  min-height: 500px;
   display: flex;
   flex-direction: column;
-  padding: var(--space-5);
 }
 
+/* INO-MODIFIED: Auto Scroll para sa Table Wrapper */
 .inventory-panel > .table-wrap {
   flex: 1;
+  overflow-y: auto;
+  min-height: 0; /* Critical para hindi bumulwak ang height ng table */
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
 }
+
+/* INO-MODIFIED: Solid and Sticky Headers para sa Inventory Table */
+.inventory-panel > .table-wrap table.data th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-alt); /* Solid background para hindi sumilip data */
+  z-index: 10;
+  box-shadow: inset 0 -1px 0 var(--border-strong); /* Pamalit sa border-bottom */
+  border-bottom: none;
+}
+
 .inventory-panel > .empty-state-card {
   flex: 1;
   justify-content: center;
@@ -44,6 +63,7 @@
   box-shadow: 0 12px 32px rgba(231, 54, 49, 0.15); /* Brand-tinted elegant shadow */
   z-index: 10;
 }
+
 [data-theme="dark"] .bulk-action-bar {
   border: 1px solid var(--border-strong);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
@@ -60,12 +80,14 @@
   outline: none;
   height: 36px;
 }
+
 .bulk-action-bar input:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px var(--primary-soft);
 }
-.bulk-input { 
-  width: 140px; 
+
+.bulk-input {
+   width: 140px; 
 }
 
 /* ================= table checkbox ================= */
@@ -81,16 +103,20 @@ button.table-checkbox {
   border-radius: var(--radius-sm);
   transition: color var(--transition-fast), background var(--transition-fast);
 }
+
 button.table-checkbox:hover {
   background: var(--surface-alt);
   color: var(--text);
 }
+
 button.table-checkbox.checked {
   color: var(--primary);
 }
+
 button.table-checkbox.checked:hover {
   background: var(--primary-tint);
 }
+
 [data-theme="dark"] button.table-checkbox.checked:hover {
   background: var(--primary-soft);
 }

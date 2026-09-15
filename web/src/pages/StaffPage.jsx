@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useOutletContext } from "react-router-dom";
-import { Trophy, Users, RefreshCw, X, Plus, Edit2, Trash2, Clock } from "lucide-react";
+import { Trophy, Users, RefreshCw, X, Plus, Edit2, Trash2, Clock, Calendar } from "lucide-react";
 import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
@@ -17,6 +17,12 @@ import { useToast } from "../components/Toast.jsx";
 function toLocalISOString(date) {
   const tzOffset = date.getTimezoneOffset() * 60000;
   return new Date(date - tzOffset).toISOString().slice(0, 16);
+}
+
+// Helper para sa initials sa Avatar
+function initials(name) {
+  if (!name) return "?";
+  return name.split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("");
 }
 
 export default function StaffPage() {
@@ -43,15 +49,13 @@ export default function StaffPage() {
     event: "IN",
     ts: toLocalISOString(new Date())
   });
-  // Tracks whether the manager hand-edited the timestamp. The live clock
-  // below only ticks an untouched field, so typing is never overwritten.
   const [tsTouched, setTsTouched] = useState(false);
 
   const [editing, setEditing] = useState(null);
   const [editClosing, setEditClosing] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editError, setEditError] = useState("");
-  
+
   const [deleting, setDeleting] = useState(null);
 
   const { rows, meta, loading: tableLoading, error, gotoPage, refresh: refreshTable } = usePagedData(
@@ -83,18 +87,14 @@ export default function StaffPage() {
   }, [isOwner]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial mount fetch via stable callback
     fetchTopData();
   }, [fetchTopData]);
 
   useEffect(() => {
     if (tableLoading || perfLoading) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional clock sync when loading flips
     setLastUpdated(new Date());
   }, [tableLoading, perfLoading]);
 
-  // Live clock for Exact Date & Time: ticks every second while the manual
-  // entry modal is open, until the manager hand-edits the field.
   useEffect(() => {
     if (!addOpen || tsTouched) return undefined;
     const timer = setInterval(() => {
@@ -108,9 +108,7 @@ export default function StaffPage() {
     refreshTable();
   }
 
-  // --- MODAL UX & HELPERS ---
   const isAnyModalOpen = addOpen || addClosing || editing || editClosing || Boolean(deleting);
-  
   useEffect(() => {
     if (isAnyModalOpen) document.body.style.overflow = "hidden";
     else document.body.style.overflow = "";
@@ -127,11 +125,10 @@ export default function StaffPage() {
     setTimeout(() => { setEditing(null); setEditClosing(false); }, 150);
   }
 
-  // --- MANUAL ENTRY HANDLER (OWNER user-JWT endpoint; the device-only
-  // POST /shifts would 401 a user token and must never be used here) ---
   async function handleAddShift(e) {
     e.preventDefault();
     setAddError("");
+    
     if (!newShift.staffId) {
       setAddError("Select a staff member.");
       return;
@@ -141,6 +138,7 @@ export default function StaffPage() {
       setAddError("Enter a valid date and time.");
       return;
     }
+    
     setIsAdding(true);
     try {
       await api.post("/shifts/manual", {
@@ -166,28 +164,16 @@ export default function StaffPage() {
     }
   }
 
-  // --- EDIT SHIFT HANDLER ---
   async function handleEditShift(e) {
     e.preventDefault();
     setEditError("");
-    const at = editing.ts ? new Date(editing.ts) : null;
+
+    const at = editing?.ts ? new Date(editing.ts) : null;
     if (!at || !Number.isFinite(at.getTime())) {
       setEditError("Enter a valid date and time.");
       return;
     }
-    // Timestamps compare at minute precision (the input has no seconds).
-    const sameMinute = (a, b) => Math.floor(new Date(a).getTime() / 60000) === Math.floor(new Date(b).getTime() / 60000);
-    const original = rows.find((r) => r.id === editing.id);
-    if (
-      original &&
-      editing.event === original.event &&
-      editing.locationCode === (original.location?.code || "") &&
-      sameMinute(editing.ts, original.ts)
-    ) {
-      toast("No changes — nothing to update on this shift log.", "info");
-      closeEditModal();
-      return;
-    }
+
     setIsEditing(true);
     try {
       await api.patch(`/shifts/${editing.id}`, {
@@ -195,7 +181,7 @@ export default function StaffPage() {
         event: editing.event,
         ts: at.toISOString()
       });
-      toast(`Shift event updated`, "success");
+      toast(`Shift log updated successfully`, "success");
       closeEditModal();
       handleRefreshAll();
     } catch (err) {
@@ -205,243 +191,233 @@ export default function StaffPage() {
     }
   }
 
-  // --- DELETE SHIFT HANDLER ---
   async function handleDeleteShift() {
     if (!deleting) return;
     try {
       await api.del(`/shifts/${deleting.id}`);
-      toast(`Shift log deleted successfully`, "success");
+      toast("Shift log deleted successfully", "success");
       handleRefreshAll();
     } catch (err) {
-      toast(getErrorMessage(err, "Failed to delete shift log."), "error");
+      toast(getErrorMessage(err, "Failed to delete shift log"), "error");
     } finally {
       setDeleting(null);
     }
   }
 
-  const safeLocations = Array.isArray(locations) ? locations : [];
-  const locationOptions = [
-    { value: "", label: "All carts" },
-    ...safeLocations.map((l) => ({ value: l.code, label: l.code }))
-  ];
-  
-  const formLocationOptions = safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
-  const formStaffOptions = [
-    { value: "", label: "Select staff..." },
-    ...staffList.map((s) => ({ value: s.id, label: s.name }))
-  ];
-
-  const isLoading = tableLoading || perfLoading;
-
   return (
     <PageErrorBoundary>
-      <div className="page-container wide staff-page">
+      {/* INO-MODIFIED: Added staff-page-layout class for CSS scoping */}
+      <div className="page-container wide staff-page-layout">
         <PageHeader
           eyebrow="Operations"
-          title="Staff & Shifts"
-          sub="Who tapped in, who sold what, and the full tap log."
+          title="Staff Activity"
+          sub="Track shifts, monitor top performers, and manage manual logs."
           actions={
-            <>
-              <span className="muted small" style={{ marginRight: "4px" }}>
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="muted small" style={{ marginLeft: "4px" }}>
                 Last updated {lastUpdated?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) ?? "just now"}
               </span>
               <button
                 className="ghost small-btn"
                 onClick={handleRefreshAll}
-                disabled={isLoading}
-                title="Refresh staff data"
+                disabled={tableLoading || perfLoading}
+                title="Refresh data"
               >
-                <RefreshCw size={14} className={isLoading ? "spin" : ""} /> Refresh
+                <RefreshCw size={14} className={tableLoading || perfLoading ? "spin" : ""} /> Refresh
               </button>
-            </>
-          }
-        />
-        
-        <div className="dashboard-top-row" style={{ gridTemplateColumns: "1fr 2fr", marginBottom: "var(--space-5)" }}>
-          {/* SECTION 1: Currently On Shift */}
-          <section className="panel" style={{ display: 'flex', flexDirection: 'column' }}>
-            <div className="panel-head">
-              <h3>Currently on shift</h3>
-              <Badge variant="brand">{onShift.length} on duty</Badge>
-            </div>
-            {perfLoading ? (
-              <Skeleton rows={3} height={36} />
-            ) : onShift.length === 0 ? (
-              <EmptyState
-                icon={Users}
-                title="Nobody tapped IN"
-                subtitle="Shift events appear when staff tap RFID cards at a cart node."
-                compact
-              />
-            ) : (
-              <div className="flex flex-wrap gap-3">
-                {onShift.map((s) => (
-                  <div key={`${s.name}-${s.location_code}`} className="staff-chip">
-                    <span className="staff-avatar">
-                      {s.name.split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("")}
-                    </span>
-                    <div>
-                      <div className="fw-semibold">{s.name}</div>
-                      <div className="muted text-xs">{s.location_name}</div>
-                    </div>
-                    <Badge variant={s.registered ? "ok" : "danger"}>
-                      {s.registered ? "ON" : "UNREG"}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* SECTION 2: Staff Performance (owner-only data) */}
-          {isOwner && (
-          <section className="panel" style={{ display: 'flex', flexDirection: 'column' }}>
-            <div className="panel-head">
-              <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
-                <Trophy size={16} />
-                Staff performance (last 28 days)
-              </h3>
-              <span className="muted small">
-                {performance?.staff?.length ?? 0} staff tracked
-              </span>
-            </div>
-            {perfLoading ? (
-              <div style={{ display: 'flex', gap: '14px' }}>
-                <div style={{ flex: 1 }}><Skeleton rows={4} /></div>
-                <div style={{ flex: 1 }}><Skeleton rows={4} /></div>
-              </div>
-            ) : !performance?.staff?.length ? (
-              <EmptyState
-                icon={Trophy}
-                title="No performance data yet"
-                subtitle="Staff performance is calculated from completed sales and shift events."
-                compact
-              />
-            ) : (
-              <div className="flex flex-wrap gap-4">
-                {performance.staff.map((s, i) => (
-                  <div key={s.staff_id} className="staff-perf-card">
-                    <div className="flex items-center justify-between gap-2">
-                      <strong>{s.name}</strong>
-                      {i === 0 && <Badge variant="brand" title="Top performer"><Trophy size={11} /></Badge>}
-                    </div>
-                    <div className="muted text-xs" style={{ marginTop: "var(--space-1)" }}>
-                      {s.orders} order{s.orders !== 1 ? "s" : ""} - avg P{s.avg_ticket}
-                    </div>
-                    <div className="fw-semibold" style={{ fontSize: "var(--fs-xl)", marginTop: "var(--space-2)" }}>
-                      P{Number(s.total_sales).toLocaleString()}
-                    </div>
-                    {s.shifts_completed > 0 && (
-                      <div className="muted text-xs" style={{ marginTop: "var(--space-1)" }}>
-                        {s.shifts_completed} shift{s.shifts_completed !== 1 ? "s" : ""} completed
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-          )}
-        </div>
-
-        {/* SECTION 3: Shift Event History (Long Panel) */}
-        <section className="panel staff-panel">
-          <div className="staff-filters-row">
-            <h3 className="section-title" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
-              Shift event history
-            </h3>
-            <div className="flex items-center gap-2">
-              <Select
-                value={loc}
-                onChange={(val) => setLoc(val)}
-                options={locationOptions}
-                placeholder="Select a cart..."
-              />
-              {loc && (
-                <button
-                  className="danger-ghost small-btn"
-                  onClick={() => setLoc("")}
-                >
-                  <X size={14} /> Clear filter
-                </button>
-              )}
               {isOwner && (
                 <button
                   className="small-btn"
                   onClick={() => {
-                    if(!newShift.locationCode && locations.length > 0) {
-                      setNewShift(prev => ({ ...prev, locationCode: locations[0].code }));
-                    }
-                    // Fresh timestamp + re-arm the live clock on every open.
-                    setNewShift(prev => ({ ...prev, ts: toLocalISOString(new Date()) }));
+                    setAddError("");
+                    setNewShift({
+                      staffId: "",
+                      locationCode: locations[0]?.code || "",
+                      event: "IN",
+                      ts: toLocalISOString(new Date())
+                    });
                     setTsTouched(false);
                     setAddOpen(true);
                   }}
+                  title="Manually log a shift"
                 >
-                  <Plus size={14} /> Manual Entry
+                  <Plus size={14} /> Manual Log
                 </button>
               )}
             </div>
+          }
+        />
+
+        {/* 1. CURRENTLY ON SHIFT */}
+        <section className="panel staff-panel">
+          <div className="flex items-center justify-between" style={{ marginBottom: "var(--space-4)" }}>
+            <h3 className="section-title m-0 p-0" style={{ borderBottom: "none" }}>Currently on shift</h3>
+            <Badge variant={onShift.length > 0 ? "ok" : "neutral"}>{onShift.length} Active</Badge>
           </div>
-          {error ? (
+          {perfLoading ? (
+            <Skeleton rows={3} />
+          ) : onShift.length === 0 ? (
+            <EmptyState 
+              icon={Clock} 
+              title="There are no active shifts at the moment." 
+              subtitle="When your staff taps in, their active sessions will be displayed here." 
+            />
+          ) : (
+            <div className="flex flex-wrap gap-3">
+              {onShift.map((s) => (
+                <div key={`${s.name}-${s.location_code}`} className="staff-chip">
+                  <span className="staff-avatar">{initials(s.name)}</span>
+                  <div className="flex flex-col">
+                    <strong>{s.name}</strong>
+                    <span className="muted small">
+                      {s.location_name} - {new Date(s.since).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* 2. TOP PERFORMERS */}
+        <section className="panel staff-panel">
+          <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
+            <h3 className="section-title m-0 p-0 flex items-center gap-2" style={{ borderBottom: "none" }}>
+              <Trophy size={20} color="var(--primary)" /> Top Performers
+            </h3>
+            <span className="muted small">(Last 28 Days)</span>
+          </div>
+          {perfLoading ? (
+            <Skeleton rows={3} />
+          ) : !performance || performance.staff.length === 0 ? (
+            <EmptyState 
+              icon={Trophy} 
+              title="No performance data is currently available." 
+              subtitle="Top performers will be ranked here once enough sales and orders are recorded." 
+            />
+          ) : (
+            <div className="table-wrap">
+              <table className="data table-fixed">
+                <thead>
+                  <tr>
+                    <th style={{ width: 80 }}>Rank</th>
+                    <th>Staff Name</th>
+                    <th className="t-right">Sales</th>
+                    <th className="t-right">Orders</th>
+                    <th className="t-right">Avg Ticket</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {performance.staff.map((s, idx) => (
+                    <tr key={s.name}>
+                      <td>
+                        <Badge variant={idx === 0 ? "danger" : idx === 1 ? "warn" : "neutral"}>
+                          #{idx + 1}
+                        </Badge>
+                      </td>
+                      <td>
+                        <div className="flex items-center gap-2">
+                          <span className="staff-avatar" style={{ width: 24, height: 24, fontSize: 10 }}>
+                            {initials(s.name)}
+                          </span>
+                          <strong>{s.name}</strong>
+                        </div>
+                      </td>
+                      <td className="t-right"><strong>P{Number(s.total_sales).toLocaleString()}</strong></td>
+                      <td className="t-right">{s.orders}</td>
+                      <td className="t-right muted">P{Math.round(s.total_sales / (s.orders || 1))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/* 3. SHIFT HISTORY */}
+        <section className="panel staff-panel">
+          <div className="flex items-center justify-between flex-wrap gap-3" style={{ marginBottom: "var(--space-4)" }}>
+            <h3 className="section-title m-0 p-0 flex items-center gap-2" style={{ borderBottom: "none" }}>
+              <Calendar size={20} className="muted" /> Shift History
+            </h3>
+            <Select
+              value={loc}
+              onChange={(val) => setLoc(val)}
+              options={[
+                { value: "", label: "All carts" },
+                ...locations.map((l) => ({ value: l.code, label: l.code }))
+              ]}
+              placeholder="All carts"
+            />
+          </div>
+
+          {tableLoading ? (
+            <div className="table-wrap" style={{ padding: "var(--space-5)" }}>
+              <Skeleton rows={5} />
+            </div>
+          ) : error ? (
             <div className="error-box">{error}</div>
-          ) : !tableLoading && (!rows || rows.length === 0) ? (
-            <EmptyState
-              icon={Users}
-              title="No shift events found"
-              subtitle={
-                loc 
-                  ? "Try clearing the filter to see events from other carts."
-                  : "Tap an RFID card at a cart node and the IN/OUT event will appear here."
-              }
+          ) : (!rows || rows.length === 0) ? (
+            <EmptyState 
+              icon={Calendar} 
+              title="We couldn't find any shift history for your current selection." 
+              subtitle="Try adjusting your cart filters, or wait for your staff to complete their shifts." 
             />
           ) : (
             <DataTable
               loading={tableLoading}
               fixedLayout={true}
-              emptyMessage="No shift events found"
+              emptyMessage="No shift history found."
               columns={[
                 {
-                  key: "ts",
-                  label: "Date & time",
-                  width: 160,
-                  render: (s) =>
-                    new Date(s.ts).toLocaleString([], {
-                      month: "short",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    }),
-                },
-                {
-                  key: "staffName",
-                  label: "Staff",
-                  render: (s) =>
-                    s.staffName ? <strong>{s.staffName}</strong> : (
-                      <Badge variant="danger">UNREGISTERED</Badge>
-                    ),
-                },
-                {
-                  key: "staffUid",
-                  label: "RFID UID",
+                  key: "time",
+                  label: "Time",
                   width: 150,
-                  render: (s) => <span className="muted small">{s.staffUid}</span>,
+                  render: (s) => (
+                    <span className="muted">
+                      {new Date(s.timestamp).toLocaleString([], {
+                        month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
+                      })}
+                    </span>
+                  ),
+                },
+                {
+                  key: "staff",
+                  label: "Staff",
+                  render: (s) => (
+                    <div className="flex items-center gap-2">
+                      <span className="staff-avatar" style={{ width: 24, height: 24, fontSize: 10 }}>
+                        {initials(s.staff?.name)}
+                      </span>
+                      <strong>{s.staff?.name ?? "Unknown"}</strong>
+                    </div>
+                  ),
+                },
+                {
+                  key: "cart",
+                  label: "Cart",
+                  width: 120,
+                  render: (s) => <Badge variant="info">{s.location?.code}</Badge>,
                 },
                 {
                   key: "event",
                   label: "Event",
                   width: 100,
                   render: (s) => (
-                    <Badge variant={s.event === "IN" ? "ok" : "neutral"}>
+                    <Badge variant={s.event === "IN" ? "ok" : "warn"}>
                       {s.event}
                     </Badge>
                   ),
                 },
                 {
-                  key: "location",
-                  label: "Cart",
-                  width: 150,
-                  render: (s) => <Badge variant="info">{s.location?.code}</Badge>,
+                  key: "source",
+                  label: "Source",
+                  width: 100,
+                  render: (s) => (
+                    <Badge variant={s.source === "MANUAL" ? "danger" : "neutral"}>
+                      {s.source}
+                    </Badge>
+                  ),
                 },
                 ...(isOwner
                   ? [
@@ -455,21 +431,17 @@ export default function StaffPage() {
                             <button
                               className="ghost small-btn"
                               onClick={() => {
-                                setEditing({
-                                  ...s,
-                                  locationCode: s.location?.code || "",
-                                  ts: toLocalISOString(new Date(s.ts))
-                                });
+                                setEditing({ ...s, ts: toLocalISOString(new Date(s.timestamp)) });
                                 setEditError("");
                               }}
-                              title="Edit shift log"
+                              title="Edit Log"
                             >
                               <Edit2 size={13} />
                             </button>
                             <button
                               className="danger-ghost small-btn"
                               onClick={() => setDeleting(s)}
-                              title="Delete shift log"
+                              title="Delete Log"
                             >
                               <Trash2 size={13} />
                             </button>
@@ -485,71 +457,64 @@ export default function StaffPage() {
           )}
         </section>
 
-        {/* --- MANUAL ENTRY MODAL --- */}
+        {/* --- ADD SHIFT MODAL --- */}
         {(addOpen || addClosing) && (
           <div className={`modal-backdrop ${addClosing ? "is-closing" : ""}`}>
             <div className={`modal ${addClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
-              <h3><Clock size={22} className="muted"/> Manual Shift Entry</h3>
-              <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                Log an IN or OUT event if a staff member forgot to tap their RFID card.
-              </p>
-              
-              <form onSubmit={handleAddShift} className="flex flex-col gap-4">
+              <h3><Clock size={22} className="muted"/> Log Manual Shift</h3>
+              <form onSubmit={handleAddShift} className="flex flex-col gap-4" style={{ marginTop: "var(--space-3)" }}>
                 <label className="field">
                   Staff Member
                   <Select
                     value={newShift.staffId}
                     onChange={(val) => setNewShift({ ...newShift, staffId: val })}
-                    options={formStaffOptions}
-                    placeholderValue=""
+                    options={[
+                      { value: "", label: "Select staff..." },
+                      ...staffList.map((st) => ({ value: st.id, label: `${st.name} (${st.username})` }))
+                    ]}
                   />
                 </label>
-                
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
                   <label className="field">
-                    Event Type
+                    Cart
+                    <Select
+                      value={newShift.locationCode}
+                      onChange={(val) => setNewShift({ ...newShift, locationCode: val })}
+                      options={locations.map((l) => ({ value: l.code, label: l.code }))}
+                    />
+                  </label>
+                  <label className="field">
+                    Event
                     <Select
                       value={newShift.event}
                       onChange={(val) => setNewShift({ ...newShift, event: val })}
                       options={[
-                        { value: "IN", label: "Time IN" },
-                        { value: "OUT", label: "Time OUT" }
+                        { value: "IN", label: "Clock IN" },
+                        { value: "OUT", label: "Clock OUT" }
                       ]}
                     />
                   </label>
-                  
-                  <label className="field">
-                    Cart Assignment
-                    <Select
-                      value={newShift.locationCode}
-                      onChange={(val) => setNewShift({ ...newShift, locationCode: val })}
-                      options={formLocationOptions}
-                    />
-                  </label>
                 </div>
-
                 <label className="field">
-                  Exact Date & Time
+                  Date & Time
                   <input
                     type="datetime-local"
                     required
                     value={newShift.ts}
                     onChange={(e) => {
-                      setTsTouched(true);
                       setNewShift({ ...newShift, ts: e.target.value });
+                      setTsTouched(true);
                     }}
-                    title="Live clock — edit to set a custom time"
                     style={{ height: "36px" }}
                   />
                 </label>
-                
                 <div className="modal-actions">
                   <button type="button" className="ghost" onClick={closeAddModal} disabled={isAdding || addClosing}>Cancel</button>
-                  <button type="submit" disabled={isAdding || addClosing || !newShift.staffId}>
+                  <button type="submit" disabled={isAdding || addClosing}>
                     {isAdding ? "Saving..." : "Log Shift"}
                   </button>
                 </div>
-                {addError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{addError}</p>}
+                {addError && <p className="error-box" role="alert">{addError}</p>}
               </form>
             </div>
           </div>
@@ -560,36 +525,31 @@ export default function StaffPage() {
           <div className={`modal-backdrop ${editClosing ? "is-closing" : ""}`}>
             <div className={`modal ${editClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
               <h3><Edit2 size={22} className="muted"/> Edit Shift Log</h3>
-              <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                Update the event details for <strong>{editing?.staffName || "Unregistered"}</strong>.
-              </p>
-              
-              <form onSubmit={handleEditShift} className="flex flex-col gap-4">
+              <form onSubmit={handleEditShift} className="flex flex-col gap-4" style={{ marginTop: "var(--space-3)" }}>
+                <p className="muted small">Updating log for <strong>{editing?.staff?.name}</strong>.</p>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
                   <label className="field">
-                    Event Type
+                    Cart
                     <Select
-                      value={editing?.event || "IN"}
+                      value={editing?.locationCode}
+                      onChange={(val) => setEditing({ ...editing, locationCode: val })}
+                      options={locations.map((l) => ({ value: l.code, label: l.code }))}
+                    />
+                  </label>
+                  <label className="field">
+                    Event
+                    <Select
+                      value={editing?.event}
                       onChange={(val) => setEditing({ ...editing, event: val })}
                       options={[
-                        { value: "IN", label: "Time IN" },
-                        { value: "OUT", label: "Time OUT" }
+                        { value: "IN", label: "Clock IN" },
+                        { value: "OUT", label: "Clock OUT" }
                       ]}
                     />
                   </label>
-                  
-                  <label className="field">
-                    Cart Assignment
-                    <Select
-                      value={editing?.locationCode || ""}
-                      onChange={(val) => setEditing({ ...editing, locationCode: val })}
-                      options={formLocationOptions}
-                    />
-                  </label>
                 </div>
-
                 <label className="field">
-                  Exact Date & Time
+                  Date & Time
                   <input
                     type="datetime-local"
                     required
@@ -598,30 +558,28 @@ export default function StaffPage() {
                     style={{ height: "36px" }}
                   />
                 </label>
-                
                 <div className="modal-actions">
                   <button type="button" className="ghost" onClick={closeEditModal} disabled={isEditing || editClosing}>Cancel</button>
                   <button type="submit" disabled={isEditing || editClosing}>
                     {isEditing ? "Saving..." : "Save Changes"}
                   </button>
                 </div>
-                {editError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{editError}</p>}
+                {editError && <p className="error-box" role="alert">{editError}</p>}
               </form>
             </div>
           </div>
         )}
 
-        {/* --- DELETE SHIFT CONFIRMATION --- */}
+        {/* --- DELETE LOG CONFIRMATION --- */}
         <ConfirmDialog
           open={Boolean(deleting)}
-          title="Delete shift log?"
-          message={`Are you sure you want to delete the ${deleting?.event} event for "${deleting?.staffName}"? This action cannot be undone.`}
+          title="Delete Shift Log?"
+          message={`Are you sure you want to permanently delete the ${deleting?.event} log for ${deleting?.staff?.name}? This action cannot be undone.`}
           confirmLabel="Delete Log"
-          danger={true}
+          danger
           onConfirm={handleDeleteShift}
           onCancel={() => setDeleting(null)}
         />
-        
       </div>
     </PageErrorBoundary>
   );

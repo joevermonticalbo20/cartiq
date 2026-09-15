@@ -9,7 +9,6 @@
   flex-direction: column;
   position: relative;
 }
-
 @media (min-width: 1024px) {
   .login-split {
     flex-direction: row;
@@ -30,13 +29,11 @@
   box-shadow: var(--shadow-lg);
   z-index: 0;
 }
-
 @media (min-width: 1024px) {
   .login-mobile-header {
     display: none;
   }
 }
-
 .login-mobile-content {
   position: relative;
   z-index: 10;
@@ -44,7 +41,6 @@
   flex-direction: column;
   align-items: center;
 }
-
 .login-logo-header {
   display: flex;
   flex-direction: column;
@@ -52,15 +48,6 @@
   gap: 12px;
   margin-bottom: 32px;
 }
-
-/* Lumang CSS Mark */
-.login-logo-header .logo-mark {
-  width: 48px;
-  height: 48px;
-  font-size: 18px;
-  margin: 0;
-}
-
 /* BAGONG IMAGE LOGO (Mobile) */
 .logo-icon-large {
   width: 52px;
@@ -70,7 +57,6 @@
   border-radius: 14px; /* <-- Curved edges para sa malaking logo */
   filter: drop-shadow(0 6px 16px rgba(231, 54, 49, 0.4));
 }
-
 /* BAGONG IMAGE LOGO (Desktop) */
 .logo-icon-medium {
   width: 44px;
@@ -95,7 +81,6 @@
   z-index: 10;
   margin-top: -64px; 
 }
-
 @media (min-width: 1024px) {
   .login-form-side {
     width: 50%; /* EXACT 50/50 SPLIT */
@@ -104,7 +89,6 @@
     padding: 32px;
   }
 }
-
 .login-form-container {
   max-width: 400px;
   width: 100%;
@@ -114,7 +98,6 @@
   box-shadow: var(--shadow);
   border: 1px solid var(--border);
 }
-
 @media (min-width: 1024px) {
   .login-form-container {
     background: transparent;
@@ -123,11 +106,9 @@
     border: none;
   }
 }
-
 .login-logo-desktop {
   display: none;
 }
-
 @media (min-width: 1024px) {
   .login-logo-desktop {
     display: flex;
@@ -135,35 +116,16 @@
     gap: 12px;
     margin-bottom: 40px;
   }
-  
-  /* Lumang CSS Mark */
-  .login-logo-desktop .logo-mark {
-    width: 40px;
-    height: 40px;
-    font-size: 16px;
-  }
-  
-  /* BAGONG IMAGE LOGO (Desktop) */
-  .logo-icon-medium {
-    width: 44px;
-    height: 44px;
-    flex: 0 0 44px;
-    object-fit: contain;
-    filter: drop-shadow(0 4px 12px rgba(231, 54, 49, 0.35));
-  }
 }
-
 .login-form-header {
   margin-bottom: 32px;
   text-align: center;
 }
-
 @media (min-width: 1024px) {
   .login-form-header {
     text-align: left;
   }
 }
-
 .login-form-title {
   font-size: var(--fs-3xl);
   font-weight: var(--fw-extrabold);
@@ -171,7 +133,6 @@
   margin: 0 0 8px;
   letter-spacing: -0.5px;
 }
-
 .login-form-subtitle {
   color: var(--text-muted);
   font-weight: var(--fw-medium);
@@ -183,7 +144,6 @@
 .input-group {
   margin-bottom: 24px;
 }
-
 .field-label {
   display: block;
   font-size: var(--fs-sm);
@@ -191,11 +151,9 @@
   color: var(--accent);
   margin-bottom: 8px;
 }
-
 .input-wrapper {
   position: relative;
 }
-
 .input-icon {
   position: absolute;
   left: 16px;
@@ -204,11 +162,9 @@
   color: var(--text-muted);
   transition: color var(--transition-fast);
 }
-
 .input-icon.focused {
   color: var(--accent);
 }
-
 .input-wrapper input {
   width: 100%;
   padding: 16px 48px;
@@ -220,14 +176,12 @@
   font-weight: var(--fw-medium);
   transition: all var(--transition-fast);
 }
-
 .input-wrapper input:focus {
   background: var(--surface);
   border-color: var(--primary);
   box-shadow: 0 0 0 3px var(--primary-soft);
   outline: none;
 }
-
 .password-toggle {
   position: absolute;
   right: 16px;
@@ -239,12 +193,6 @@
   cursor: pointer;
   padding: 0;
 }
-
-.password-toggle:hover {
-  color: var(--text-muted);
-  transform: translateY(-50%);
-}
-
 /* Beat the global button:hover (translateY + red glow) and button:active
    (press-scale): the toggle must stay perfectly still in every state. */
 button.password-toggle:hover:not(:disabled),
@@ -255,52 +203,39 @@ button.password-toggle:focus-visible:not(:disabled) {
   box-shadow: none;
   transform: translateY(-50%);
 }
-
 button.password-toggle:active:not(:disabled) {
   transform: translateY(-50%);
   box-shadow: none;
 }
 
-/* --- Submit Button --- */
+/* --- Submit Button (UPDATED to Solid Brand Red) --- */
 .login-submit-btn {
   position: relative;
   overflow: hidden;
   width: 100%;
-  background: var(--accent);
+  background: var(--primary);
   color: #fff;
   padding: 16px;
   border-radius: var(--radius);
   font-weight: var(--fw-extrabold);
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  box-shadow: var(--shadow-sm);
-  transition: all 0.3s;
+  box-shadow: 0 4px 12px rgba(231, 54, 49, 0.4);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   border: 1px solid transparent;
   cursor: pointer;
   margin-top: 16px;
 }
 
 .login-submit-btn:hover {
-  border-color: var(--accent);
+  background: var(--primary-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(231, 54, 49, 0.5);
 }
 
 .login-submit-btn:active {
   transform: scale(0.96);
-}
-
-.btn-slide-bg {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 0;
-  background: var(--primary); 
-  transition: height 0.3s ease-out;
-  z-index: 0;
-}
-
-.login-submit-btn:hover .btn-slide-bg {
-  height: 100%;
+  box-shadow: none;
 }
 
 .btn-content {
@@ -312,11 +247,9 @@ button.password-toggle:active:not(:disabled) {
   gap: 8px;
   transition: color 0.3s;
 }
-
 .btn-arrow {
   transition: transform 0.3s;
 }
-
 .login-submit-btn:hover .btn-arrow {
   transform: translateX(6px);
 }
@@ -328,11 +261,9 @@ button.password-toggle:active:not(:disabled) {
   gap: 8px;
   margin-bottom: 24px;
 }
-
 .error-icon {
   flex-shrink: 0;
 }
-
 .login-security-badge {
   margin-top: 32px;
   display: flex;
@@ -345,7 +276,6 @@ button.password-toggle:active:not(:disabled) {
   letter-spacing: 0.1em;
   color: var(--text-muted);
 }
-
 .login-demo-hint {
   margin-top: 16px;
   display: flex;
@@ -355,7 +285,6 @@ button.password-toggle:active:not(:disabled) {
   font-size: var(--fs-sm);
   color: var(--text-muted);
 }
-
 .linklike {
   background: none;
   border: none;
@@ -365,7 +294,6 @@ button.password-toggle:active:not(:disabled) {
   cursor: pointer;
   text-decoration: underline;
 }
-
 .login-footer {
   margin-top: 32px;
   text-align: center;
@@ -376,7 +304,6 @@ button.password-toggle:active:not(:disabled) {
   color: var(--text-muted);
   opacity: 0.6;
 }
-
 @media (min-width: 1024px) {
   .login-footer {
     text-align: left;
@@ -390,7 +317,6 @@ button.password-toggle:active:not(:disabled) {
 .login-brand-side {
   display: none;
 }
-
 @media (min-width: 1024px) {
   .login-brand-side {
     display: flex;
@@ -404,7 +330,6 @@ button.password-toggle:active:not(:disabled) {
     padding: 64px;
     border-left: 1px solid var(--border);
   }
-
   /* Grid Texture para hindi flat */
   .login-brand-side::before {
     content: "";
@@ -428,7 +353,6 @@ button.password-toggle:active:not(:disabled) {
   overflow: hidden;
   pointer-events: none;
 }
-
 .orb {
   position: absolute;
   border-radius: 50%;
@@ -436,7 +360,6 @@ button.password-toggle:active:not(:disabled) {
   opacity: 0.5;
   animation: orb-drift 12s ease-in-out infinite alternate;
 }
-
 .orb-1 {
   top: 10%;
   left: 10%;
@@ -444,7 +367,6 @@ button.password-toggle:active:not(:disabled) {
   height: 400px;
   background: var(--primary-soft);
 }
-
 .orb-2 {
   bottom: 10%;
   right: 5%;
@@ -453,7 +375,6 @@ button.password-toggle:active:not(:disabled) {
   background: var(--highlight-soft);
   animation-delay: -5s;
 }
-
 .orb-3 {
   top: 50%;
   left: 50%;
@@ -463,7 +384,6 @@ button.password-toggle:active:not(:disabled) {
   background: color-mix(in srgb, var(--primary) 20%, transparent);
   animation-delay: -8s;
 }
-
 @keyframes orb-drift {
   0% { transform: translate(0, 0) scale(1); }
   100% { transform: translate(30px, -30px) scale(1.05); }
@@ -485,7 +405,6 @@ button.password-toggle:active:not(:disabled) {
   text-align: center;
   margin-bottom: 40px;
 }
-
 .login-hero-text h2 {
   font-size: clamp(32px, 3.5vw, 42px);
   font-weight: var(--fw-extrabold);
@@ -493,7 +412,6 @@ button.password-toggle:active:not(:disabled) {
   letter-spacing: -1px;
   margin: 0 0 12px;
 }
-
 .login-hero-text p {
   font-size: var(--fs-md);
   color: var(--text-muted);
@@ -511,7 +429,6 @@ button.password-toggle:active:not(:disabled) {
   max-width: 380px;
   transition: transform 0.4s ease;
 }
-
 .login-tilted-wrapper:hover {
   transform: perspective(1000px) rotateY(0deg) rotateX(0deg) rotateZ(0deg);
 }
@@ -551,12 +468,10 @@ button.password-toggle:active:not(:disabled) {
   box-shadow: 0 8px 16px rgba(0,0,0,0.05);
   transition: transform 0.3s ease;
 }
-
 .floating-pill.pill-1 {
   top: -20px;
   right: -24px;
 }
-
 .floating-pill.pill-2 {
   bottom: -20px;
   left: -28px;
@@ -564,7 +479,6 @@ button.password-toggle:active:not(:disabled) {
   color: #fff;
   border-color: var(--accent);
 }
-
 .pill-dot {
   width: 8px;
   height: 8px;
@@ -577,7 +491,6 @@ button.password-toggle:active:not(:disabled) {
 .login-preview-header {
   margin-bottom: 24px;
 }
-
 .login-preview-label {
   display: block;
   font-size: var(--fs-xs);
@@ -586,20 +499,17 @@ button.password-toggle:active:not(:disabled) {
   color: var(--text-muted);
   margin-bottom: 4px;
 }
-
 .login-preview-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
-
 .login-preview-value {
   font-size: var(--fs-3xl);
   font-weight: var(--fw-extrabold);
   color: var(--accent); 
   letter-spacing: -1px;
 }
-
 .login-preview-trend {
   font-size: var(--fs-xs);
   font-weight: var(--fw-bold);
@@ -615,7 +525,6 @@ button.password-toggle:active:not(:disabled) {
   padding-top: 16px;
   margin-bottom: 24px;
 }
-
 .login-preview-bars {
   display: flex;
   align-items: flex-end;
@@ -627,7 +536,6 @@ button.password-toggle:active:not(:disabled) {
   background-size: 100% 33.33%;
   border-bottom: 1px solid var(--border-strong);
 }
-
 .login-preview-barcol {
   flex: 1;
   display: flex;
@@ -638,7 +546,6 @@ button.password-toggle:active:not(:disabled) {
   position: relative;
   gap: 8px;
 }
-
 .bar-wrapper {
   position: relative;
   width: 18px;
@@ -647,7 +554,6 @@ button.password-toggle:active:not(:disabled) {
   background: var(--surface-alt); 
   overflow: hidden;
 }
-
 .bar-wrapper .bar {
   position: absolute;
   bottom: 0;
@@ -657,11 +563,9 @@ button.password-toggle:active:not(:disabled) {
   background: linear-gradient(to top, var(--primary-soft), var(--primary));
   border-radius: 4px 4px 0 0;
 }
-
 .bar-wrapper.peak .bar {
   background: linear-gradient(to top, var(--highlight-strong), var(--highlight));
 }
-
 .login-preview-peak {
   position: absolute;
   top: -24px;
@@ -674,7 +578,6 @@ button.password-toggle:active:not(:disabled) {
   padding: 3px 6px;
   white-space: nowrap;
 }
-
 .login-preview-peak::after {
   content: "";
   position: absolute;
@@ -685,7 +588,6 @@ button.password-toggle:active:not(:disabled) {
   border-style: solid;
   border-color: var(--accent) transparent transparent transparent;
 }
-
 .bar-label {
   font-size: 10px;
   font-weight: var(--fw-bold);
@@ -702,19 +604,16 @@ button.password-toggle:active:not(:disabled) {
   font-weight: var(--fw-bold);
   color: var(--text-muted);
 }
-
 .login-preview-carts span {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
-
 .login-preview-carts .dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
 }
-
 .login-preview-carts .dot.ok { background: var(--success); }
 .login-preview-carts .dot.warn { background: var(--highlight-strong); }
 
@@ -740,7 +639,6 @@ button.password-toggle:active:not(:disabled) {
 .login-brand-content > * {
   animation: rise-in 0.5s ease both;
 }
-
 .login-form-container > *:nth-child(2) { animation-delay: 0.05s; }
 .login-form-container > *:nth-child(3) { animation-delay: 0.1s; }
 .login-form-container > *:nth-child(4) { animation-delay: 0.15s; }
@@ -753,7 +651,6 @@ button.password-toggle:active:not(:disabled) {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: none; }
 }
-
 @media (prefers-reduced-motion: reduce) {
   .login-mobile-content > *,
   .login-form-container > *,
@@ -761,4 +658,41 @@ button.password-toggle:active:not(:disabled) {
   .orb {
     animation: none !important;
   }
+}
+
+/* =========================================
+   DARK MODE FIXES (Login Page)
+========================================= */
+
+/* 1. Gawing Dark Glass ang main card */
+[data-theme="dark"] .glass-panel {
+  background: rgba(24, 24, 24, 0.75); /* Dark charcoal transparent background */
+  border: 1px solid rgba(255, 255, 255, 0.08); /* Manipis at subtle na border */
+  box-shadow: 
+    0 24px 48px rgba(0, 0, 0, 0.6), /* Mas dark na shadow para lumutang */
+    inset 0 1px 0 rgba(255, 255, 255, 0.05); /* Subtle shiny edge sa taas */
+}
+
+/* 2. Gawing Dark Glass ang mga Floating Pills */
+[data-theme="dark"] .floating-pill {
+  background: rgba(36, 36, 36, 0.85);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* 3. Ang pill-2 (Live IoT Sync) ay dapat maging dark surface para solid */
+[data-theme="dark"] .floating-pill.pill-2 {
+  background: var(--surface-alt);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+/* 4. I-adjust ang "PEAK" tooltip */
+[data-theme="dark"] .login-preview-peak {
+  background: var(--surface-alt);
+  color: var(--text);
+}
+[data-theme="dark"] .login-preview-peak::after {
+  border-top-color: var(--surface-alt);
 }

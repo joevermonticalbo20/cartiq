@@ -104,3 +104,31 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
   visibility: hidden;
   pointer-events: none;
 }
+
+/* ============================================================
+ * GLOBAL SCROLLBAR (Smart Auto-Hide)
+ * ============================================================ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+  background-color: transparent;
+}
+
+::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 99px;
+  transition: background-color 0.8s ease; 
+}
+
+/* Lalabas ang manipis na scrollbar kapag nag-hover ang user */
+:hover::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-muted);
+}
