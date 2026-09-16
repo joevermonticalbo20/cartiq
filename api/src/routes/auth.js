@@ -46,14 +46,15 @@ router.post("/login", loginLimiter, async (req, res, next) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
     const accessToken = jwt.sign(
-      { sub: user.id, username: user.username, role: user.role, name: user.name },
+      { sub: user.id, username: user.username, role: user.role, name: user.name, type: "access" },
       process.env.JWT_SECRET,
       { expiresIn: "15m" }
     );
     const refreshToken = jwt.sign(
       // jti guarantees uniqueness: without it, two logins in the same
       // second produce byte-identical JWTs and collide on token UNIQUE.
-      { sub: user.id, username: user.username, role: user.role, name: user.name, jti: crypto.randomUUID() },
+      // type separates refresh from access so one can never pass as the other.
+      { sub: user.id, username: user.username, role: user.role, name: user.name, type: "refresh", jti: crypto.randomUUID() },
       process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
       { expiresIn: "30d" }
     );
@@ -93,8 +94,12 @@ router.post("/refresh", async (req, res, next) => {
     try {
       payload = jwt.verify(
         refreshToken,
-        process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET
+        process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
+        { algorithms: ["HS256"] }
       );
+      if (!payload || payload.type !== "refresh") {
+        return res.status(401).json({ error: "Invalid or expired refresh token" });
+      }
     } catch {
       return res.status(401).json({ error: "Invalid or expired refresh token" });
     }
@@ -105,8 +110,17 @@ router.post("/refresh", async (req, res, next) => {
     if (new Date() > tokenRecord.expiresAt) {
       return res.status(401).json({ error: "Refresh token expired" });
     }
-    // Rotate token: revoke old one, issue new one
-    await prisma.refreshToken.delete({ where: { id: tokenRecord.id } });
+    // Rotate token: revoke old one, issue new one. The delete can lose a
+    // same-token parallel race (already rotated) — that is a safe 401, not
+    // a 500/404: the other rotation won and the client should use it.
+    try {
+      await prisma.refreshToken.delete({ where: { id: tokenRecord.id } });
+    } catch (err) {
+      if (err?.code === "P2025") {
+        return res.status(401).json({ error: "Session already refreshed - please use the latest tokens" });
+      }
+      throw err;
+    }
 
     const user = await prisma.user.findUnique({
       where: { id: tokenRecord.userId },
@@ -118,13 +132,13 @@ router.post("/refresh", async (req, res, next) => {
     }
 
     const newAccessToken = jwt.sign(
-      { sub: user.id, username: user.username, role: user.role, name: user.name },
+      { sub: user.id, username: user.username, role: user.role, name: user.name, type: "access" },
       process.env.JWT_SECRET,
       { expiresIn: "15m" }
     );
     const newRefreshToken = jwt.sign(
       // jti: see login route - same-second rotations must not collide.
-      { sub: user.id, username: user.username, role: user.role, name: user.name, jti: crypto.randomUUID() },
+      { sub: user.id, username: user.username, role: user.role, name: user.name, type: "refresh", jti: crypto.randomUUID() },
       process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
       { expiresIn: "30d" }
     );
@@ -176,7 +190,11 @@ router.post("/change-password", requireAuth, async (req, res, next) => {
       where: { id: user.id },
       data: { passwordHash: await bcrypt.hash(newPassword, 10) },
     });
-    return res.json({ updated: true });
+    // Revoke every session: a stolen refresh token must die with the old
+    // password. Note the current access JWT stays valid up to 15m; clients
+    // should drop local tokens and re-login immediately after this call.
+    await prisma.refreshToken.deleteMany({ where: { userId: user.id } });
+    return res.json({ updated: true, sessionsRevoked: true });
   } catch (err) {
     return next(err);
   }
@@ -281,6 +299,11 @@ router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, n
     }
 
     const updated = await prisma.user.update({ where: { id: user.id }, data });
+    if (data.active === false) {
+      // Disabled accounts lose API access via requireAuth, but their refresh
+      // tokens must also die so no new access token can be minted.
+      await prisma.refreshToken.deleteMany({ where: { userId: user.id } });
+    }
     return res.json({ user: { id: updated.id, username: updated.username, name: updated.name, active: updated.active, rfidUid: updated.rfidUid } });
   } catch (err) {
     return next(err);

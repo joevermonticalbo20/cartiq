@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db as prisma } from "../firestore.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAuth, requireRole, assertOwnLocation } from "../middleware/auth.js";
 import { emit } from "./events.js";
 
 const router = Router();
@@ -133,6 +133,9 @@ router.post("/inventory/adjustments", requireAuth, async (req, res, next) => {
       // true pre-write stock and no deduction is silently clobbered.
       const fresh = await tx.inventoryItem.findUnique({ where: { id: item.id } });
       if (!fresh) throw Object.assign(new Error("Inventory item not found"), { status: 404 });
+      // STAFF may only adjust their assigned cart's stock (OWNERs bypass).
+      // Checked here — after the fresh read, before any write.
+      assertOwnLocation(req, fresh.locationId);
       // Allocate after all reads, before writes (counter reads are illegal
       // once the transaction has staged its first write).
       const [adjustmentId] = await tx.stockAdjustment.nextIds(1);

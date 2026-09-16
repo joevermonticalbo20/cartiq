@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db as prisma } from "../firestore.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAuth, requireRole, assertOwnLocation } from "../middleware/auth.js";
 import { fmtStock, oversellShortage } from "../services/inventory_rules.js";
 import { manilaDayRange } from "../services/timezone.js";
 import { emit } from "./events.js";
@@ -55,6 +55,8 @@ router.post("/orders", requireAuth, async (req, res, next) => {
       where: locationId !== undefined ? { id: +locationId } : { code: locationCode },
     });
     if (!location) return res.status(404).json({ error: "Location not found" });
+    // STAFF may only sell at their assigned cart (OWNERs bypass).
+    assertOwnLocation(req, location.id);
 
     const ref = clientRef ? String(clientRef) : randomRef();
 

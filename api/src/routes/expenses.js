@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db as prisma } from "../firestore.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, assertOwnLocation } from "../middleware/auth.js";
 import { requireRole } from "../middleware/auth.js";
 
 const router = Router();
@@ -57,6 +57,8 @@ router.post("/expenses", requireAuth, async (req, res, next) => {
     if (locationCode) {
       const loc = await prisma.location.findUnique({ where: { code: String(locationCode) } });
       if (!loc) return res.status(404).json({ error: "Location not found" });
+      // STAFF may only file expenses at their assigned cart (OWNERs bypass).
+      assertOwnLocation(req, loc.id);
       locationId = loc.id;
     }
 
