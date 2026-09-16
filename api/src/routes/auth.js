@@ -35,12 +35,16 @@ router.post("/login", loginLimiter, async (req, res, next) => {
     if (!username || !password) {
       return res.status(400).json({ error: "username and password are required" });
     }
+    // Usernames are matched trimmed (the POS keyboard may add spaces).
+    const cleanUsername = String(username).trim();
     const user = await prisma.user.findUnique({
-      where: { username },
+      where: { username: cleanUsername },
       include: { location: true },
     });
+    // One message for every failure: distinct "disabled account" vs
+    // "bad password" responses let attackers enumerate accounts.
     if (!user || user.active === false) {
-      return res.status(401).json({ error: "Invalid credentials or disabled account" });
+      return res.status(401).json({ error: "Invalid credentials" });
     }
     if (!(await bcrypt.compare(password, user.passwordHash))) {
       return res.status(401).json({ error: "Invalid credentials" });
@@ -178,8 +182,15 @@ router.post("/logout", async (req, res, next) => {
 router.post("/change-password", requireAuth, async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body ?? {};
-    if (!currentPassword || !newPassword || String(newPassword).length < 6) {
-      return res.status(400).json({ error: "currentPassword and newPassword (min 6 chars) are required" });
+    // bcrypt truncates past 72 bytes: reject long passwords instead of
+    // silently weakening them.
+    if (
+      !currentPassword ||
+      !newPassword ||
+      String(newPassword).length < 6 ||
+      Buffer.byteLength(String(newPassword)) > 72
+    ) {
+      return res.status(400).json({ error: "currentPassword and newPassword (6-72 chars) are required" });
     }
     const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
     if (!user) return res.status(404).json({ error: "User not found" });
@@ -228,11 +239,15 @@ router.get("/staff", requireAuth, requireRole("OWNER"), async (_req, res, next) 
 router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
     const { name, username, password, locationCode, rfidUid } = req.body ?? {};
-    if (!name || !username || !password || String(password).length < 6) {
+    const cleanUsername = String(username ?? "").trim();
+    if (!name || !cleanUsername || !password || String(password).length < 6) {
       return res.status(400).json({ error: "name, username and password (min 6 chars) required" });
     }
-    const exists = await prisma.user.findUnique({ where: { username } });
-    if (exists) return res.status(409).json({ error: `Username "${username}" already exists` });
+    if (Buffer.byteLength(String(password)) > 72) {
+      return res.status(400).json({ error: "password must be 6-72 chars (bcrypt limit)" });
+    }
+    const exists = await prisma.user.findUnique({ where: { username: cleanUsername } });
+    if (exists) return res.status(409).json({ error: `Username "${cleanUsername}" already exists` });
 
     let locationId = null;
     if (locationCode) {
@@ -248,7 +263,7 @@ router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) 
     const user = await prisma.user.create({
       data: {
         name,
-        username,
+        username: cleanUsername,
         passwordHash: await bcrypt.hash(String(password), 10),
         role: "STAFF",
         active: true,
@@ -267,6 +282,11 @@ router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, n
     const { active, password, name, locationCode, rfidUid } = req.body ?? {};
     const user = await prisma.user.findUnique({ where: { id: Number(req.params.id) } });
     if (!user) return res.status(404).json({ error: "User not found" });
+    // Owners must not lock themselves out: deactivating your own account
+    // would orphan the system with no admin login.
+    if (Number(req.params.id) === req.user.sub && active === false) {
+      return res.status(400).json({ error: "You cannot deactivate your own account" });
+    }
 
     const data = {};
     if (active !== undefined) data.active = Boolean(active);
@@ -274,6 +294,9 @@ router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, n
     if (password !== undefined) {
       if (String(password).length < 6) {
         return res.status(400).json({ error: "password min 6 chars" });
+      }
+      if (Buffer.byteLength(String(password)) > 72) {
+        return res.status(400).json({ error: "password must be 6-72 chars (bcrypt limit)" });
       }
       data.passwordHash = await bcrypt.hash(String(password), 10);
     }

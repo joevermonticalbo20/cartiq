@@ -1,58 +1,66 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Flame, Activity } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, YAxis } from "recharts";
-import api, { API_BASE } from "../api.js";
-import { useSSE } from "../hooks/useSSE.js";
+import api from "../api.js";
+import { useToast } from "./Toast.jsx";
 
-export default function SensorPanel({ code }) {
+export default function SensorPanel({ code = "CART-01" }) {
   const [lpg, setLpg] = useState(null);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const toast = useToast();
+  const errorShownRef = useRef(false);
 
-  // Fetch initial history para sa Sparkline Chart
+  // Fetch history para sa Sparkline Chart. API contract:
+  // GET /readings/recent?code=&channel=&limit= -> { readings: [{kg, ts, ...}] }.
+  // LPG-only panel (cheese channel removed by design).
   useEffect(() => {
     let alive = true;
+    let timer = null;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch hydrates loading state
     setLoading(true);
-    
-    api.get(`/readings/recent?location_code=${code}`)
-      .then(res => {
+
+    async function fetchData() {
+      try {
+        const { data } = await api.get(
+          `/readings/recent?code=${encodeURIComponent(code)}&channel=LPG_TANK&limit=60`
+        );
         if (!alive) return;
-        const readings = res.data?.readings || [];
-        
+        const readings = data?.readings ?? [];
+
         // Paggawa ng graph points mula sa API data
-        setHistory(readings.map((r, i) => ({ time: i, value: r.value })));
-        
+        setHistory(readings.map((r, i) => ({ time: i, value: r.kg })));
+
         if (readings.length > 0) {
-          setLpg(readings[readings.length - 1].value);
+          setLpg(readings[readings.length - 1].kg);
         } else {
           setLpg(null); // Walang data
         }
+        errorShownRef.current = false;
         setLoading(false);
-      })
-      .catch(() => {
-        if (alive) setLoading(false);
-      });
-      
-    return () => { alive = false; };
-  }, [code]);
-
-  // Real-time listener para sa bagong LPG drops
-  useSSE(`${API_BASE}/events`, {
-    onEvent: (event, data) => {
-      if (event === "reading:new" && data.locationCode === code) {
-        setLpg(data.value);
-        setHistory(old => {
-          const newHistory = [...old.slice(1), { time: Date.now(), value: data.value }];
-          return newHistory.length > 0 ? newHistory : [{ time: Date.now(), value: data.value }];
-        });
+      } catch (err) {
+        if (!alive) return;
+        setLoading(false);
+        // Toast once per outage, not on every 15s poll.
+        if (!errorShownRef.current) {
+          errorShownRef.current = true;
+          toast("Sensor offline - showing last known level", "error");
+        }
       }
     }
-  });
 
-  // UI Status Handling
-  const isCritical = lpg !== null && lpg < 20;
-  const isLow = lpg !== null && lpg >= 20 && lpg < 40;
+    fetchData();
+    // Live polling: the server emits no per-reading SSE events, so poll.
+    timer = setInterval(fetchData, 15000);
+    return () => {
+      alive = false;
+      if (timer) clearInterval(timer);
+    };
+  }, [code, toast]);
+
+  // UI Status Handling (kg bands matching the LPG Tank inventory thresholds)
+  const isCritical = lpg !== null && lpg < 2;
+  const isLow = lpg !== null && lpg >= 2 && lpg < 5;
 
   const lpgStatusClass = isCritical ? "status-critical" : isLow ? "status-low" : "";
   const textStatusClass = isCritical ? "text-danger" : isLow ? "text-warn" : "text-ok";
@@ -86,7 +94,7 @@ export default function SensorPanel({ code }) {
               </div>
               <div className="sensor-stat-value">
                 <span className="big-num">{lpg !== null ? lpg.toFixed(1) : "--"}</span>
-                <span className="unit">%</span>
+                <span className="unit">kg</span>
               </div>
               <div className="sensor-stat-foot">
                 {lpg !== null && <span className={textStatusClass}>{statusLabel}</span>}
