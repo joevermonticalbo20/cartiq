@@ -18,8 +18,19 @@ function pruneTickets(now = Date.now()) {
   for (const [ticket, rec] of _tickets) {
     if (rec.exp <= now) _tickets.delete(ticket);
   }
-  // Hard backstop against unbounded growth.
-  if (_tickets.size > MAX_TICKETS) _tickets.clear();
+  // Hard backstop against unbounded growth: evict oldest-inserted first
+  // (Map preserves insertion order). Never clear() — one spammer minting
+  // tickets must not disconnect every live SSE client.
+  evictOverflow(_tickets, MAX_TICKETS);
+}
+
+// Pure helper (unit-testable): cap a Map at max entries, oldest first.
+export function evictOverflow(map, max) {
+  while (map.size > max) {
+    const oldest = map.keys().next().value;
+    map.delete(oldest);
+  }
+  return map;
 }
 
 // POST /api/events/ticket (Bearer JWT) -> { ticket, expiresAt }

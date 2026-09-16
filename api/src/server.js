@@ -23,10 +23,11 @@ import { errorHandler, notFound } from "./middleware/error.js";
 
 const app = express();
 
-// Trust the first proxy hop (LAN reverse proxies, deploy front-ends) so
-// req.ip honors X-Forwarded-For. Required for correct login rate limiting
-// behind any proxy; harmless on direct LAN connections.
-app.set("trust proxy", 1);
+// Trust proxy hops only when explicitly enabled (Render sets TRUST_PROXY=1;
+// it terminates TLS at a proxy and needs real client IPs for rate limiting).
+// Default 0: on direct LAN connections a client could otherwise spoof
+// X-Forwarded-For to dodge the IP-based limiters below.
+app.set("trust proxy", Number(process.env.TRUST_PROXY ?? 0));
 
 // Fail fast when auth is misconfigured - otherwise every request 401s.
 if (!process.env.JWT_SECRET) {
@@ -60,15 +61,30 @@ app.use((_req, res, next) => {
 
 // Abuse guards (in-memory, single-instance — same caveat as login limiter
 // and SSE in README known limits). Generous caps so legit POS bursts pass.
-const refreshLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60 });
-const ordersLimiter = rateLimit({ windowMs: 60 * 1000, max: 120 });
-const importLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 20 });
-const locationsLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 20 });
+const limitMsg = { error: "Too many requests - please slow down and retry" };
+const refreshLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60, message: limitMsg });
+const ordersLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, message: limitMsg });
+const importLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 20, message: limitMsg });
+const locationsLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 20, message: limitMsg });
+const iotLimiter = rateLimit({ windowMs: 60 * 1000, max: 300, message: limitMsg });
+const ticketLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, message: limitMsg });
+const exportLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 30, message: limitMsg });
+const analyticsLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, message: limitMsg });
+const passwordLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, message: limitMsg });
+const expensesLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, message: limitMsg });
 app.use("/api/auth/refresh", refreshLimiter);
 app.use("/api/auth/logout", refreshLimiter);
 app.use("/api/orders", ordersLimiter);
 app.use("/api/import", importLimiter);
 app.use("/api/locations", locationsLimiter);
+app.use("/api/iot", iotLimiter);
+app.use("/api/shifts", iotLimiter);
+app.use("/api/events/ticket", ticketLimiter);
+app.use("/api/export", exportLimiter);
+app.use("/api/analytics", analyticsLimiter);
+app.use("/api/reorders", analyticsLimiter);
+app.use("/api/auth/change-password", passwordLimiter);
+app.use("/api/expenses", expensesLimiter);
 
 app.use("/api/auth", authRoutes);
 app.use("/api", catalogRoutes);

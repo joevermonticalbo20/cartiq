@@ -12,6 +12,8 @@ services:
     envVars:
       - key: HOST
         value: 0.0.0.0
+      - key: TRUST_PROXY
+        value: 1
       - key: FIREBASE_PROJECT_ID
         value: cartiq-8e46f
       - key: CORS_ORIGINS

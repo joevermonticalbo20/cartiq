@@ -36,14 +36,17 @@ router.post("/iot/readings", requireDevice, async (req, res, next) => {
         error: `cart_id "${req.body.cart_id}" does not match device location "${location.code}"`,
       });
     }
-    const accepted = [];
-    const rejected = [];
 
     // Firestore transactions require ALL reads before ALL writes:
     // read phase (stock rows + unread alerts), compute phase (same
     // validation/messages as before), then write phase. Sensor stock
     // updates keep the same threshold-alert rules as POS orders.
-    await prisma.runTransaction(async (tx) => {
+    // accepted/rejected are built INSIDE the txn and returned: runTransaction
+    // retries the whole fn on contention, so outer arrays would duplicate
+    // entries on retry.
+    const outcome = await prisma.runTransaction(async (tx) => {
+      const accepted = [];
+      const rejected = [];
       // ---- READ PHASE ----
       const [invRows, unreadAlerts] = await Promise.all([
         tx.inventoryItem.findMany({ where: { locationId: location.id } }),
@@ -159,9 +162,10 @@ router.post("/iot/readings", requireDevice, async (req, res, next) => {
         where: { id: req.device.id },
         data: { lastSeenAt: new Date() },
       });
+      return { accepted, rejected };
     });
 
-    return res.status(201).json({ accepted, rejected });
+    return res.status(201).json({ accepted: outcome.accepted, rejected: outcome.rejected });
   } catch (err) {
     return next(err);
   }
@@ -184,12 +188,14 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
         error: `cart_id "${req.body.cart_id}" does not match device location "${location.code}"`,
       });
     }
-    const accepted = [];
-    const rejected = [];
 
     // Same reads-first restructure as /iot/readings: users and unread
     // UNKNOWN_CARD alerts are prefetched, then shifts + alerts are written.
-    await prisma.runTransaction(async (tx) => {
+    // accepted/rejected live INSIDE the txn (see above) so contention
+    // retries cannot duplicate response entries.
+    const outcome = await prisma.runTransaction(async (tx) => {
+      const accepted = [];
+      const rejected = [];
       // ---- READ PHASE (users table is tiny; match UIDs in code) ----
       const [users, unreadAlerts] = await Promise.all([
         tx.user.findMany(),
@@ -269,9 +275,10 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
         where: { id: req.device.id },
         data: { lastSeenAt: new Date() },
       });
+      return { accepted, rejected };
     });
 
-    return res.status(201).json({ accepted, rejected });
+    return res.status(201).json({ accepted: outcome.accepted, rejected: outcome.rejected });
   } catch (err) {
     return next(err);
   }

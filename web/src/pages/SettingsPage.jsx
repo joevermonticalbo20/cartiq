@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useNavigate, useOutletContext } from "react-router-dom";
 import { KeyRound, Plus, RefreshCw, Eye, EyeOff, Edit2, Trash2, Cpu } from "lucide-react";
 import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
@@ -14,6 +14,7 @@ import { sanitizeTextInput, countLetters } from "../utils/text.js";
 
 export default function SettingsPage() {
   const toast = useToast();
+  const navigate = useNavigate();
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
   
@@ -176,9 +177,13 @@ export default function SettingsPage() {
         currentPassword: pw.current,
         newPassword: pw.next,
       });
-      toast("Password updated successfully", "success");
-      setPw({ current: "", next: "", confirm: "" });
-      setShowPw({ current: false, next: false, confirm: false });
+      // Server revokes ALL refresh tokens on password change, so this
+      // session is dead: drop local tokens and force a fresh login instead
+      // of lingering half-authenticated until the next 401.
+      localStorage.removeItem("cartiq_token");
+      localStorage.removeItem("cartiq_refresh_token");
+      toast("Password updated - please log in again", "success");
+      navigate("/login", { replace: true });
     } catch (err) {
       setPwError(getErrorMessage(err, "Change failed - is the current password correct?"));
     }

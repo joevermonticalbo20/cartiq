@@ -79,3 +79,37 @@ describe("SettingsPage profile states", () => {
     expect(await screen.findByText("Owner")).toBeInTheDocument();
   });
 });
+
+describe("SettingsPage password change", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("logs out and redirects to login after a successful change", async () => {
+    api.get.mockImplementation(emptyOk);
+    api.post.mockImplementation((url) => {
+      if (url === "/auth/change-password") return Promise.resolve({ data: { updated: true } });
+      return Promise.resolve({ data: {} });
+    });
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <ToastProvider>
+          <Routes>
+            <Route element={<Outlet context={{ user: { name: "Owner", role: "OWNER" } }} />}>
+              <Route element={<SettingsPage />} path="/" />
+              <Route element={<div>Login screen</div>} path="/login" />
+            </Route>
+          </Routes>
+        </ToastProvider>
+      </MemoryRouter>
+    );
+    fireEvent.change(screen.getByLabelText(/Current password/i), { target: { value: "oldpass123" } });
+    fireEvent.change(screen.getByLabelText(/New password \(min 8 chars\)/i), { target: { value: "newpass123" } });
+    fireEvent.change(screen.getByLabelText(/Confirm new password/i), { target: { value: "newpass123" } });
+    fireEvent.click(screen.getByText("Update password"));
+    expect(await screen.findByText("Login screen")).toBeInTheDocument();
+    // localStorage is mocked in test setup: assert the removal calls.
+    expect(localStorage.removeItem).toHaveBeenCalledWith("cartiq_token");
+    expect(localStorage.removeItem).toHaveBeenCalledWith("cartiq_refresh_token");
+  });
+});
