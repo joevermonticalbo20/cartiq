@@ -47,6 +47,17 @@ export default function DataPage() {
   const [busyImport, setBusyImport] = useState(false);
   const [preview, setPreview] = useState(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  // Custom-range guard: the backend 400s incomplete/inverted ranges, so
+  // block the export buttons upfront with an inline explanation instead.
+  const rangeError =
+    exportType === "custom"
+      ? !customStart || !customEnd
+        ? "Pick both start and end dates for a custom export."
+        : customStart > customEnd
+          ? "Start date must not be after end date."
+          : ""
+      : "";
   
   const fileRef = useRef(null);
   const pendingFile = useRef(null);
@@ -59,6 +70,10 @@ export default function DataPage() {
       if (exportType === "month" && month) {
         params.month = month;
       } else if (exportType === "custom" && customStart && customEnd) {
+        if (rangeError) {
+          toast(rangeError, "error");
+          return;
+        }
         params.startDate = customStart;
         params.endDate = customEnd;
       }
@@ -206,6 +221,9 @@ export default function DataPage() {
                   />
                 </div>
               )}
+              {rangeError && (
+                <p className="error-box" role="alert" style={{ marginTop: "var(--space-2)" }}>{rangeError}</p>
+              )}
             </div>
             
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "auto" }}>
@@ -213,7 +231,7 @@ export default function DataPage() {
                 <button
                   key={ds}
                   className="ghost small-btn"
-                  disabled={busyExport !== null}
+                  disabled={busyExport !== null || Boolean(rangeError)}
                   aria-busy={busyExport === ds}
                   onClick={() => doExport(ds)}
                   style={{ textTransform: "capitalize", justifyContent: "center" }}

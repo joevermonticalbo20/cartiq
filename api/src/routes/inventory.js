@@ -112,6 +112,33 @@ router.patch("/inventory/items/:id", requireAuth, requireRole("OWNER"), async (r
   }
 });
 
+// DELETE /api/inventory/items/:id (OWNER) — blocked while recipes reference
+// the name or the row is sensor-managed; otherwise removes the row.
+// Mirrors the products delete guard (products.js) so history is never orphaned.
+router.delete("/inventory/items/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
+  try {
+    const existing = await prisma.inventoryItem.findUnique({ where: { id: Number(req.params.id) } });
+    if (!existing) return res.status(404).json({ error: "Inventory item not found" });
+    if (existing.source === "SENSOR") {
+      return res.status(409).json({
+        error: `Cannot delete "${existing.name}": sensor-managed stock row`,
+      });
+    }
+    const maps = await prisma.ingredientMap.findMany({ where: { itemName: existing.name } });
+    if (maps.length > 0) {
+      return res.status(409).json({
+        error: `Cannot delete "${existing.name}": referenced by ${maps.length} recipe row(s)`,
+        recipeRows: maps.length,
+      });
+    }
+    await prisma.inventoryItem.delete({ where: { id: existing.id } });
+    return res.json({ deleted: true });
+  } catch (err) {
+    if (err.code === "P2025") return res.status(404).json({ error: "Inventory item not found" });
+    return next(err);
+  }
+});
+
 router.post("/inventory/adjustments", requireAuth, async (req, res, next) => {
   try {
     const { inventoryItemId, newStock, reason } = req.body ?? {};

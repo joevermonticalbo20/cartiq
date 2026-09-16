@@ -317,6 +317,17 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
     if (cart.isEmpty) return;
 
+    // A sale without a cart can never sync (the server drops
+    // MISSING_LOCATION_CODE records after cash is taken) — block before
+    // any money changes hands instead of enqueue-then-drop.
+    final cartCode = auth.locationCode;
+    if (cartCode == null || cartCode.isEmpty) {
+      if (!mounted) return;
+      await Haptics.error();
+      _showSnack('No cart assigned to this account - ask OWNER', error: true);
+      return;
+    }
+
     final snapshotTotal = cart.total;
     try {
       // Enqueue FIRST: cart.clear() below only runs after durable persist,
@@ -326,7 +337,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
         queue: _queue,
         buildPayload: () => {
           'clientRef': newClientRef(),
-          'locationCode': auth.locationCode,
+          'locationCode': cartCode,
           'items': cart.items.map((it) => it.toJson()).toList(),
           'total': cart.total,
           'status': 'PAID',

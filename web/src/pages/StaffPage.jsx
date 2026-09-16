@@ -135,6 +135,10 @@ export default function StaffPage() {
       setAddError("Select a staff member.");
       return;
     }
+    if (!newShift.locationCode) {
+      setAddError("Select a cart.");
+      return;
+    }
     const at = newShift.ts ? new Date(newShift.ts) : null;
     if (!at || !Number.isFinite(at.getTime())) {
       setAddError("Enter a valid date and time.");
@@ -377,7 +381,7 @@ export default function StaffPage() {
                   width: 150,
                   render: (s) => (
                     <span className="muted">
-                      {new Date(s.timestamp).toLocaleString([], {
+                      {new Date(s.ts).toLocaleString([], {
                         month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
                       })}
                     </span>
@@ -389,9 +393,9 @@ export default function StaffPage() {
                   render: (s) => (
                     <div className="flex items-center gap-2">
                       <span className="staff-avatar" style={{ width: 24, height: 24, fontSize: 10 }}>
-                        {initials(s.staff?.name)}
+                        {initials(s.staffName)}
                       </span>
-                      <strong>{s.staff?.name ?? "Unknown"}</strong>
+                      <strong>{s.staffName ?? `Unregistered card ${s.staffUid}`}</strong>
                     </div>
                   ),
                 },
@@ -433,7 +437,7 @@ export default function StaffPage() {
                             <button
                               className="ghost small-btn"
                               onClick={() => {
-                                setEditing({ ...s, ts: toLocalISOString(new Date(s.timestamp)) });
+                                setEditing({ ...s, ts: toLocalISOString(new Date(s.ts)), locationCode: s.location?.code ?? "" });
                                 setEditError("");
                               }}
                               title="Edit Log"
@@ -528,7 +532,7 @@ export default function StaffPage() {
             <div className={`modal ${editClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
               <h3><Edit2 size={22} className="muted"/> Edit Shift Log</h3>
               <form onSubmit={handleEditShift} className="flex flex-col gap-4" style={{ marginTop: "var(--space-3)" }}>
-                <p className="muted small">Updating log for <strong>{editing?.staff?.name}</strong>.</p>
+                <p className="muted small">Updating log for <strong>{editing?.staffName ?? `Unregistered card ${editing?.staffUid}`}</strong>.</p>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
                   <label className="field">
                     Cart
@@ -576,7 +580,7 @@ export default function StaffPage() {
         <ConfirmDialog
           open={Boolean(deleting)}
           title="Delete Shift Log?"
-          message={`Are you sure you want to permanently delete the ${deleting?.event} log for ${deleting?.staff?.name}? This action cannot be undone.`}
+          message={`Are you sure you want to permanently delete the ${deleting?.event} log for ${deleting?.staffName ?? `Unregistered card ${deleting?.staffUid}`}? This action cannot be undone.`}
           confirmLabel="Delete Log"
           danger
           onConfirm={handleDeleteShift}

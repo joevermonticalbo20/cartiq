@@ -4,7 +4,12 @@ import ExcelJS from "exceljs";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { splitFlavorCell, validateProductRow } from "../services/import_rules.js";
-import { manilaMonthRange, manilaDayKey, manilaTimeHM } from "../services/timezone.js";
+import {
+  manilaMonthRange,
+  manilaDayRange,
+  manilaDayKey,
+  manilaTimeHM,
+} from "../services/timezone.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -19,6 +24,28 @@ function monthRange(month) {
   return manilaMonthRange(month);
 }
 
+/**
+ * Resolve the export window from query params. `month=YYYY-MM` wins when
+ * present; otherwise an explicit Manila-calendar custom range. Returns
+ * { range } or { error } (caller responds 400).
+ */
+function resolveRange({ month, startDate, endDate }) {
+  if (month) return { range: monthRange(month) };
+  if (startDate === undefined && endDate === undefined) return { range: null };
+  if (!startDate || !endDate) {
+    return { error: "startDate and endDate are both required for a custom range" };
+  }
+  const start = manilaDayRange(String(startDate));
+  const end = manilaDayRange(String(endDate));
+  if (!start || !end) {
+    return { error: "startDate/endDate must be YYYY-MM-DD" };
+  }
+  if (start.start.getTime() > end.start.getTime()) {
+    return { error: "startDate must not be after endDate" };
+  }
+  return { range: { start: start.start, end: end.end } };
+}
+
 function styleHeader(sheet) {
   sheet.getRow(1).font = { bold: true };
   sheet.getRow(1).fill = {
@@ -29,8 +56,7 @@ function styleHeader(sheet) {
   sheet.columns.forEach((col) => col?.width && undefined);
 }
 
-async function buildSalesSheet(wb, month) {
-  const range = monthRange(month);
+async function buildSalesSheet(wb, range) {
   const newest = await prisma.order.findMany({
     where: {
       status: "PAID",
@@ -132,8 +158,7 @@ async function buildInventorySheet(wb) {
   styleHeader(sheet);
 }
 
-async function buildExpensesSheet(wb, month) {
-  const range = monthRange(month);
+async function buildExpensesSheet(wb, range) {
   const newest = await prisma.expense.findMany({
     where: range ? { date: { gte: range.start, lt: range.end } } : {},
     include: { location: { select: { code: true } } },
@@ -169,8 +194,7 @@ async function buildExpensesSheet(wb, month) {
   return truncated;
 }
 
-async function buildShiftsSheet(wb, month) {
-  const range = monthRange(month);
+async function buildShiftsSheet(wb, range) {
   const newest = await prisma.shift.findMany({
     where: range ? { ts: { gte: range.start, lt: range.end } } : {},
     include: { location: { select: { code: true } } },
@@ -200,7 +224,31 @@ async function buildShiftsSheet(wb, month) {
   return truncated;
 }
 
-// GET /api/export/:dataset?month=YYYY-MM
+async function buildProductsSheet(wb) {
+  const [products, flavors] = await Promise.all([
+    prisma.product.findMany({ orderBy: { name: "asc" } }),
+    prisma.flavor.findMany(),
+  ]);
+  const flavorName = new Map(flavors.map((f) => [f.id, f.name]));
+  const sheet = wb.addWorksheet("Products");
+  sheet.columns = [
+    { header: "Name", key: "name", width: 22 },
+    { header: "Category", key: "category", width: 14 },
+    { header: "Base Price", key: "basePrice", width: 11 },
+    { header: "Flavors", key: "flavors", width: 30 },
+  ];
+  for (const p of products) {
+    sheet.addRow({
+      name: p.name,
+      category: p.category,
+      basePrice: p.basePrice,
+      flavors: (p.flavorIds ?? []).map((id) => flavorName.get(id) ?? id).join("; "),
+    });
+  }
+  styleHeader(sheet);
+}
+
+// GET /api/export/:dataset?month=YYYY-MM&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
 router.get(
   "/export/:dataset",
   requireAuth,
@@ -209,28 +257,39 @@ router.get(
   try {
     const { dataset } = req.params;
     const month = req.query.month ? String(req.query.month) : undefined;
+    const startDate = req.query.startDate ? String(req.query.startDate) : undefined;
+    const endDate = req.query.endDate ? String(req.query.endDate) : undefined;
+    const { range, error } = resolveRange({ month, startDate, endDate });
+    if (error) return res.status(400).json({ error });
     const wb = new ExcelJS.Workbook();
     wb.creator = "CartIQ";
     let truncated = false;
 
     switch (dataset) {
       case "sales":
-        truncated = await buildSalesSheet(wb, month);
+        truncated = await buildSalesSheet(wb, range);
         break;
       case "inventory":
         await buildInventorySheet(wb);
         break;
       case "expenses":
-        truncated = await buildExpensesSheet(wb, month);
+        truncated = await buildExpensesSheet(wb, range);
         break;
       case "shifts":
-        truncated = await buildShiftsSheet(wb, month);
+        truncated = await buildShiftsSheet(wb, range);
+        break;
+      case "products":
+        await buildProductsSheet(wb);
         break;
       default:
-        return res.status(404).json({ error: `Unknown dataset "${dataset}" (sales|inventory|expenses|shifts)` });
+        return res.status(404).json({ error: `Unknown dataset "${dataset}" (sales|inventory|expenses|shifts|products)` });
     }
 
-    const suffix = month ? `-${month}` : "";
+    const suffix = month
+      ? `-${month}`
+      : startDate && endDate
+        ? `-${startDate}-to-${endDate}`
+        : "";
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
