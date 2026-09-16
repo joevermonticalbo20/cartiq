@@ -6,15 +6,16 @@ Multi-Location Food Cart Operations**
 SIA 2 & Mobile Application Development final project - Group 5, BSIT BA3B,
 Laguna University. Status: **deployed live (see "Deployment" below)** —
 Phases 0-8 + frontend UX polish P1-P4 + reliability/checkout/connectivity
-sprints + Firestore migration + auth hardening + cart provisioning + products
-catalog + instant POS catalog sync complete, pending hardware pilot and
-faculty approval.
+sprints + Firestore migration + auth hardening I & II + cart provisioning +
+products catalog + instant POS catalog sync + P0 stock-race fixes + rate-limit
++ device-registry + analytics Manila-unification + button/connection audit
+complete, pending hardware pilot and faculty approval.
 
 | Component | Path | Stack | Status |
 |---|---|---|---|
-| REST API | `api/` | Node.js 24, Express 5, Firestore (Spark free tier, via `api/src/firestore.js` data layer), JWT + rotating refresh tokens, login rate limiting, ExcelJS, Bonjour/mDNS advertise | done, tested, **live on Render** |
-| Web admin dashboard | `web/` | React 19, Vite, React Router, Axios | done, builds (lint 0 errors, P1-P4 UX polish), **live on Firebase Hosting** |
-| Mobile POS app | `mobile/` | Flutter (Android/Windows), offline-first sqflite queue, ML Kit OCR, shared-prod API default | done, analyzes clean (0 errors) |
+| REST API | `api/` | Node.js 24, Express 5, Firestore (Spark free tier, via `api/src/firestore.js` data layer), typed JWT (access/refresh) + rotating refresh + revocation, staff cart scoping, login + endpoint rate limiting, ExcelJS, Bonjour/mDNS advertise | done, tested (30 unit + 174 integration checks in CI), **live on Render** |
+| Web admin dashboard | `web/` | React 19, Vite, React Router, Axios | done, builds (lint 0 errors, 174 tests), **live on Firebase Hosting** |
+| Mobile POS app | `mobile/` | Flutter (Android/Windows), offline-first sqflite queue, ML Kit OCR, shared-prod API default | done, analyzes clean, 67 tests; release APK in `mobile/build/app/outputs/flutter-apk/` |
 | ESP32 IoT node | `iot/` | Arduino C++ firmware + **Node simulator** (`iot/simulator.mjs`) | code complete; hardware pending |
 
 Live URLs: web dashboard `https://cartiq-8e46f.web.app` · API
@@ -196,20 +197,45 @@ IPv4 address (e.g. `192.168.100.217`). The API must be running with
   include an id — quote it when reporting a failure.
 - **Auth:** 15-minute access JWT + rotating 30-day refresh tokens
   (`POST /auth/refresh`, `refreshTokens` collection) + `POST /auth/logout`
-  revocation. Refresh rejects disabled accounts; `JWT_REFRESH_SECRET` must
-  differ from `JWT_SECRET` in production (Render dashboard, never in git).
-  `/auth/login` is rate limited to 20 attempts per 15 minutes per IP.
-  Extra guards: `/auth/refresh` 60/15min, `/orders` 120/min, `/import` and
-  `/locations` 20/hour (all in-memory, single-instance).
+  revocation. Tokens carry `type: access|refresh` claims (HS256-pinned) so a
+  refresh can never pass as API auth; rotation races return 401, not 404.
+  Password change and staff disable revoke **all** refresh tokens; disabled
+  accounts fail `requireAuth` within ~60s (cached). STAFF writes are scoped
+  to their assigned cart (`POST /orders`, `/inventory/adjustments`,
+  `/expenses` → 403 outside it; OWNERs bypass). Usernames trim on login;
+  passwords capped at 72 bytes (bcrypt limit); self-deactivation blocked.
+  Refresh rejects disabled accounts. Extra guards: `/auth/refresh` 60/15min,
+  `/orders` 120/min, `/iot`+`/shifts` 300/min, `/events/ticket` 60/min,
+  `/export` 30/hr, `/analytics`+`/reorders` 120/min, `/expenses` 60/min,
+  `/auth/change-password` 10/hr, `/import` and `/locations` 20/hour
+  (all in-memory, single-instance). Trust proxy is env-driven
+  (`TRUST_PROXY`, auto-on when `NODE_ENV=production`) so per-IP buckets stay
+  fair behind Render's proxy.
 - **Manual shift tools (OWNER):** `POST /shifts/manual` (missed-tap correction),
   `PATCH /shifts/:id` (event/cart/time fix), `DELETE /shifts/:id`. The device
   `POST /shifts` stays device-token-only — user tokens there 401 by design.
-- **Carts & catalog (OWNER):** `POST /locations` provisions cart + starter
-  inventory + ESP32 device with a shown-once token; `PATCH /locations/:id`
-  renames or toggles `ACTIVE/INACTIVE` (code immutable, no hard delete).
+- **Carts, catalog & devices (OWNER):** `POST /locations` provisions cart +
+  starter inventory + ESP32 device with a shown-once token;
+  `PATCH /locations/:id` renames or toggles `ACTIVE/INACTIVE` (code immutable,
+  no hard delete). `POST /devices` registers a standalone node (one-shot
+  token modal), `PATCH /devices/:id` reassigns cart/toggles active,
+  `DELETE /devices/:id` unregisters (history keeps the deviceId string).
   `GET|POST /products`, `PATCH /products/:id`, rename (atomic recipe rewrite),
   guarded delete, `GET|POST /flavors`. `/catalog` is always-fresh (nocache)
   so POS pull-to-refresh shows adds/removes immediately.
+- **Stock safety:** VOID re-checks order status inside the transaction
+  (parallel double-VOID → 409, single restore only); inventory adjustments
+  re-read stock inside the txn (audit `before` is exact, concurrent
+  deductions survive via txn retry). Import rows are capped (name 120,
+  category 60, price ≤ 10M, ≤ 20 flavors/row) so one hostile file can't burn
+  the Firestore quota.
+- **Analytics honesty (Manila):** every calendar operation (trend buckets,
+  hourly matrix, forecast labels, prep calendar, depletion dates, month
+  filters, export date/time labels) uses `api/src/services/timezone.js`
+  (Asia/Manila, server-TZ independent). Forecast usage shares
+  `mapsForOrderLine()` with the POS deduction so multi-ingredient products
+  never undercount. Analytics UI offers trailing 7/14/30/90-day windows
+  (no fake custom ranges); exports support month or explicit custom ranges.
 - **LAN origins:** browser dashboard on a phone/laptop needs its origin in
   `CORS_ORIGINS` plus `HOST=0.0.0.0` and the Windows Firewall TCP 4000 rule.
 
@@ -225,17 +251,20 @@ node scripts/phase5_test.mjs   # hardening     - 33 checks (pagination/staff/pas
 node scripts/phase6_test.mjs   # categories    - 13 checks (expense buckets)
 node scripts/phase7_test.mjs   # void workflow + ack + idempotency race - 21 checks
 node scripts/phase8_test.mjs   # carts + products catalog - 33 checks
-node scripts/test_authz_fix.mjs # logout/revoke, 15min tokens, VOID restore - 13 checks
-node --test test/*.test.js     # api unit tests (run inside api/) - 7 checks
+node scripts/test_authz_fix.mjs # logout/revoke, 15min tokens, VOID restore, devices, scoping - 21 checks
+node --test test/*.test.js     # api unit tests (run inside api/) - 30 checks
 flutter analyze                # mobile static analysis
-flutter test                   # mobile unit tests - 68 checks (URL normalize, cart, receipt parser, sync, money/text input)
-cd web && npm run lint && npm run test && npm run build  # web lint + 173 tests + production build
+flutter test                   # mobile unit tests - 67 checks (URL normalize, cart, receipt parser, sync, money/text input)
+cd web && npm run lint && npm run test && npm run build  # web lint + 174 tests + production build
 ```
 
-Last full regression on a fresh database: **166 automated API checks passed**
-(phases 2-8 + authz fix) plus api unit tests, **68 mobile** checks and
-**173 web** checks — all green, all on emulator-backed local runs
-(never run phase suites against prod; they write test data).
+Regression totals: **153 phase checks + 21 authz checks + 30 api unit +
+67 mobile + 174 web**, all runnable in CI (`api-ci.yml` runs the full
+emulator-backed integration job: Java 21 → emulator → seed + 21-day
+history → API → every suite). Run phase suites against the emulator only —
+never prod; they write test data. (`@google-cloud/firestore` is pinned as a
+direct dependency so CI installs it; same 9.1.0 library, no billing impact —
+Spark plan untouched.)
 
 Manual acceptance: `docs/uat-script.md` (15-scenario supervised parallel-run).
 
@@ -312,15 +341,17 @@ React+Vite setup:
   crash on one screen doesn't take the app down.
 - **Quick cart switcher** on the dashboard — shows each cart with its
   current low-stock count, links to the Inventory page.
-- **Vitest test suite** — `npm run test` (173 unit tests covering api utils,
+- **Vitest test suite** — `npm run test` (174 unit tests covering api utils,
   money/text/qty input rules, DataTable, Select, ConfirmDialog, Pagination,
-  EmptyState, PasswordStrengthMeter, and custom hooks); `npm run lint`
+  EmptyState, PasswordStrengthMeter, Settings/DataHub flows, and custom
+  hooks); `npm run lint`
   (ESLint + React plugin + react-hooks rules); `npm run coverage` (text +
   HTML coverage reports). CI-ready: fails build on test or lint errors.
 - **GitHub Actions CI** — `web-ci.yml` (web lint + test + build),
-  `api-ci.yml` (`npm ci` + unit tests + syntax check), and
-  `mobile-ci.yml` (`flutter analyze` + `flutter test`) run on every push and
-  PR touching their paths.
+  `api-ci.yml` (`npm ci` + unit tests + syntax check + full emulator-backed
+  `integration` job: Java 21 → emulator → seed + history → API → phases
+  2-8 + authz), and `mobile-ci.yml` (`flutter analyze` + `flutter test`)
+  run on every push and PR touching their paths.
 - **Tailwind CSS v4** — `@tailwindcss/vite` plugin with a token-mapped
   `src/tailwind.css` (`@theme` references `theme.css` vars, `dark:` variant
   follows the `data-theme` toggle); sits alongside the legacy stylesheet,
@@ -424,3 +455,22 @@ React+Vite setup:
 - **Instant POS catalog** — pull-to-refresh + resume auto-reload on the POS
   grid, always-fresh `/catalog`, and an `unknown product` sale warning when
   the cart holds a since-deleted item.
+- **Double-submit guards** — `ConfirmDialog` takes `pending`/`pendingLabel`
+  and disables both buttons; wired to void/bulk/delete/commit/password/
+  staff/reset/disable/cart/device actions. Export failures parse the real
+  server message out of the blob; custom export ranges validate inline.
+- **Honest loading states** — Staff top sections and Settings owner tables
+  show named error-boxes with Retry instead of fake-empty; dashboard cart
+  filters use each endpoint's real param (`code` vs `location_code`).
+- **Sensor panel (LPG-only)** — live LPG tank level + sparkline with 15s
+  polling, kg bands, offline toast-once; cheese channel removed by design
+  (backend recipe/sensor paths unchanged).
+- **Brand + tab** — `CartIQ` title, rounded-corner favicons
+  (`public/favicon-32/64.png`, `apple-touch-icon.png`), CartIQ + Pota Fries
+  Operations branding on web sidebar, mobile login and boot splash.
+- **POS sale safety (mobile)** — one-shot `_paying` guard (no duplicate
+  charge), clear-order confirm, no-cart block before money moves, session-
+  expired result message, background-refresh snackbars, scan→receipts
+  auto-reload, 403 poison dropped distinctly, catalog refresh retry.
+- **Release APK** — `flutter build apk --release` (prod API default);
+  verify branding strings in the binary before handing to testers.
