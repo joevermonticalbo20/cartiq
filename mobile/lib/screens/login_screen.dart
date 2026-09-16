@@ -162,8 +162,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        'Pota Fries Operations',
-                        style: Theme.of(context).textTheme.bodySmall,
+                        'CartIQ',
+                        style: Theme.of(context).textTheme.headlineSmall,
                       ),
                       const SizedBox(height: 20),
                   Card(
