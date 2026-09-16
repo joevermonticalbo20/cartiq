@@ -23,11 +23,16 @@ import { errorHandler, notFound } from "./middleware/error.js";
 
 const app = express();
 
-// Trust proxy hops only when explicitly enabled (Render sets TRUST_PROXY=1;
-// it terminates TLS at a proxy and needs real client IPs for rate limiting).
+// Trust proxy hops when explicitly enabled (TRUST_PROXY=1) or on hosting
+// platforms (NODE_ENV=production — Render sets this and terminates TLS at
+// a proxy). Correct client IPs keep the per-IP rate limiters fair; without
+// this, all users behind the proxy would share one rate-limit bucket.
 // Default 0: on direct LAN connections a client could otherwise spoof
 // X-Forwarded-For to dodge the IP-based limiters below.
-app.set("trust proxy", Number(process.env.TRUST_PROXY ?? 0));
+const trustProxy = Number(
+  process.env.TRUST_PROXY ?? (process.env.NODE_ENV === "production" ? 1 : 0)
+);
+app.set("trust proxy", trustProxy);
 
 // Fail fast when auth is misconfigured - otherwise every request 401s.
 if (!process.env.JWT_SECRET) {
