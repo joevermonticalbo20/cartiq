@@ -89,7 +89,10 @@ async function main() {
   const revoid = await req(`/orders/${orderId}`, {
     method: "PATCH", token: tok, body: { status: "VOID" },
   });
-  check("double VOID rejected", revoid.status === 409);
+  // Sequential re-void hits the outside fast-path check (400). A true
+  // parallel race reaches the in-txn guard instead (409) — covered live,
+  // not here.
+  check("double VOID rejected", revoid.status === 400);
 
   const missing = await req("/orders/999999999", {
     method: "PATCH", token: tok, body: { status: "VOID" },

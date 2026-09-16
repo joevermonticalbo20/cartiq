@@ -58,7 +58,8 @@ if (prod) {
     const voided = await req("PATCH", `/orders/${oid}`, { token: t2, body: { status: "VOID", reason: "test" } });
     ok("void restores", voided.status === 200 && Array.isArray(voided.data?.restored) && Array.isArray(voided.data?.warnings), `got ${voided.status}`);
     const again = await req("PATCH", `/orders/${oid}`, { token: t2, body: { status: "VOID" } });
-    ok("double void -> 409", again.status === 409, `got ${again.status}`);
+    // Sequential re-void: outside fast-path 400 (parallel races get 409).
+    ok("double void -> 400", again.status === 400, `got ${again.status}`);
   }
   void invBefore;
 } else {
