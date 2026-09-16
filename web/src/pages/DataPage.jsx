@@ -30,6 +30,21 @@ async function downloadExport(dataset, params = {}) {
   URL.revokeObjectURL(url);
 }
 
+// Failures arrive as a Blob (responseType) hiding the server's JSON
+// {error} — parse it back out so users see the real reason.
+async function blobErrorMessage(err, fallback) {
+  try {
+    const blob = err?.response?.data;
+    if (blob instanceof Blob) {
+      const parsed = JSON.parse(await blob.text());
+      if (parsed?.error) return parsed.error;
+    }
+  } catch {
+    /* fall through to generic message */
+  }
+  return getErrorMessage(err, fallback);
+}
+
 export default function DataPage() {
   const toast = useToast();
   const { user } = useOutletContext();
@@ -81,7 +96,7 @@ export default function DataPage() {
       await downloadExport(dataset, params);
       toast(`Exported ${dataset} successfully`, "success");
     } catch (err) {
-      toast(getErrorMessage(err, "Export failed"), "error");
+      toast(await blobErrorMessage(err, "Export failed"), "error");
     } finally {
       setBusyExport(null);
     }
@@ -94,7 +109,7 @@ export default function DataPage() {
       await downloadExport('products', {}); // No date filter needed for catalog
       toast(`Exported current catalog successfully`, "success");
     } catch (err) {
-      toast(getErrorMessage(err, "Export failed"), "error");
+      toast(await blobErrorMessage(err, "Export failed"), "error");
     } finally {
       setBusyExport(null);
     }

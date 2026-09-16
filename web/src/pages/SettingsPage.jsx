@@ -20,6 +20,8 @@ export default function SettingsPage() {
   
   const [profile, setProfile] = useState(user ?? null);
   const [profileError, setProfileError] = useState("");
+  // Owner tables must not masquerade load failures as "none yet".
+  const [ownerError, setOwnerError] = useState([]);
   const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
   
   const [devices, setDevices] = useState([]);
@@ -143,9 +145,15 @@ export default function SettingsPage() {
 
   function loadOwnerData() {
     if (!isOwner) return;
-    api.get("/devices").then(({ data }) => setDevices(data?.data ?? [])).catch(() => {});
-    api.get("/auth/staff").then(({ data }) => setStaff(data?.data ?? [])).catch(() => {});
-    api.get("/locations").then(({ data }) => setCarts(data?.data ?? [])).catch(() => {});
+    setOwnerError("");
+    const track = (key, promise, apply) => {
+      promise.then(apply).catch(() => {
+        setOwnerError((prev) => (prev.includes(key) ? prev : [...prev, key]));
+      });
+    };
+    track("devices", api.get("/devices"), ({ data }) => setDevices(data?.data ?? []));
+    track("staff", api.get("/auth/staff"), ({ data }) => setStaff(data?.data ?? []));
+    track("carts", api.get("/locations"), ({ data }) => setCarts(data?.data ?? []));
   }
 
   function loadProfile() {
@@ -410,7 +418,9 @@ export default function SettingsPage() {
       setCartTokenCopied(true);
       toast("Device token copied", "success");
     } catch {
-      setCartError("Copy failed - select the token manually.");
+      // cartError only renders inside the (closed) add-cart modal, so a
+      // toast is the only visible surface here.
+      toast("Copy failed - select the token manually.", "error");
     }
   }
 
@@ -648,7 +658,13 @@ export default function SettingsPage() {
 
         {isOwner && (
           <div className="flex flex-col gap-4 mt-4">
-            
+            {ownerError.length > 0 && (
+              <div className="error-box" role="alert">
+                <span>Could not load {ownerError.join(", ")}. Showing cached data.</span>
+                <button className="ghost" onClick={loadOwnerData}>Retry</button>
+              </div>
+            )}
+
             {/* IOT DEVICE REGISTRY */}
             <section className="panel" style={{ padding: "var(--space-5)" }}>
               <div className="flex items-center justify-between" style={{ marginBottom: "var(--space-4)" }}>
@@ -958,12 +974,12 @@ export default function SettingsPage() {
                   />
                 </label>
                 <label className="field">
-                  Username *
+                  Username (immutable — set at creation)
                   <input
-                    required
                     value={staffEditing?.username || ""}
-                    onChange={(e) => setStaffEditing({ ...staffEditing, username: e.target.value })}
-                    style={{ height: "36px" }}
+                    disabled
+                    readOnly
+                    style={{ height: "36px", opacity: 0.7 }}
                   />
                 </label>
                 

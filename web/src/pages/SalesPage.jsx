@@ -67,6 +67,21 @@ export default function SalesPage() {
   }
 
   // --- EXPORT HANDLER ---
+  // Failures arrive as a Blob (responseType) hiding the server's JSON
+  // {error} — parse it back out so users see the real reason.
+  async function blobErrorMessage(err, fallback) {
+    try {
+      const blob = err?.response?.data;
+      if (blob instanceof Blob) {
+        const parsed = JSON.parse(await blob.text());
+        if (parsed?.error) return parsed.error;
+      }
+    } catch {
+      /* fall through to generic message */
+    }
+    return getErrorMessage(err, fallback);
+  }
+
   async function handleExport() {
     setExporting(true);
     try {
@@ -84,7 +99,7 @@ export default function SalesPage() {
       URL.revokeObjectURL(url);
       toast("Sales exported successfully", "success");
     } catch (err) {
-      toast(getErrorMessage(err, "Export failed"), "error");
+      toast(await blobErrorMessage(err, "Export failed"), "error");
     } finally {
       setExporting(false);
     }

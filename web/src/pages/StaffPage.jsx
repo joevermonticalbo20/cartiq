@@ -58,6 +58,9 @@ export default function StaffPage() {
 
   const [deleting, setDeleting] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  // Sections that fail to load must not masquerade as "empty": track which
+  // top-section requests failed so the UI can say so with a retry.
+  const [topErrors, setTopErrors] = useState([]);
 
   const { rows, meta, loading: tableLoading, error, gotoPage, refresh: refreshTable } = usePagedData(
     (p) => `/shifts/history?page=${p}&pageSize=10` + (loc ? `&code=${loc}` : ""),
@@ -66,14 +69,23 @@ export default function StaffPage() {
 
   const fetchTopData = useCallback(() => {
     setPerfLoading(true);
+    setTopErrors([]);
+    const track = async (key, promise, fallback) => {
+      try {
+        return await promise;
+      } catch {
+        setTopErrors((prev) => (prev.includes(key) ? prev : [...prev, key]));
+        return fallback;
+      }
+    };
     Promise.all([
-      api.get("/staff/on-shift").catch(() => ({ data: { on_shift: [] } })),
+      track("shifts", api.get("/staff/on-shift"), { data: { on_shift: [] } }),
       isOwner
-        ? api.get("/analytics/staff-performance?days=28").catch(() => ({ data: { staff: [] } }))
+        ? track("performance", api.get("/analytics/staff-performance?days=28"), { data: { staff: [] } })
         : Promise.resolve({ data: { staff: [] } }),
-      api.get("/catalog").catch(() => ({ data: { locations: [] } })),
+      track("catalog", api.get("/catalog"), { data: { locations: [] } }),
       isOwner
-        ? api.get("/auth/staff").catch(() => ({ data: { data: [] } }))
+        ? track("staff", api.get("/auth/staff"), { data: { data: [] } })
         : Promise.resolve({ data: { data: [] } })
     ]).then(([shiftRes, perfRes, catRes, staffRes]) => {
       setOnShift(shiftRes.data?.on_shift ?? []);
@@ -258,6 +270,12 @@ export default function StaffPage() {
         />
 
         {/* 1. CURRENTLY ON SHIFT */}
+        {topErrors.length > 0 && !perfLoading && (
+          <div className="error-box" role="alert" style={{ marginBottom: "var(--space-4)" }}>
+            <span>Could not load {topErrors.join(", ")}. Showing cached data.</span>
+            <button className="ghost" onClick={handleRefreshAll}>Retry</button>
+          </div>
+        )}
         <section className="panel staff-panel">
           <div className="flex items-center justify-between" style={{ marginBottom: "var(--space-4)" }}>
             <h3 className="section-title m-0 p-0" style={{ borderBottom: "none" }}>Currently on shift</h3>
