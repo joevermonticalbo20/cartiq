@@ -1,4 +1,17 @@
 import { db as prisma } from "../firestore.js";
+import {
+  manilaDayKey as dayKey,
+  manilaDayStart as daysAgoStart,
+  manilaDow,
+  manilaHour,
+  manilaDowOfKey,
+  manilaCalendarToday,
+} from "./timezone.js";
+import { mapsForOrderLine } from "./inventory_rules.js";
+
+// Re-exported so existing import sites keep working; canonical impl lives
+// in services/timezone.js (single source of truth, no drift).
+export { daysAgoStart };
 
 export const ANALYTICS_CONFIG = {
   MIN_DAYS_FOR_FORECAST: 14, // proposal: forecasts activate after 2-4 weeks of data
@@ -9,23 +22,6 @@ export const ANALYTICS_CONFIG = {
 };
 
 const DAY_MS = 86400000;
-
-function dayKey(date) {
-  const d = new Date(date);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-    d.getDate()
-  ).padStart(2, "0")}`;
-}
-
-export function daysAgoStart(n) {
-  // Manila business day (server runs on UTC in prod) — shared with
-  // services/timezone.js to avoid a circular import here.
-  const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
-  const manilaNow = new Date(Date.now() + MANILA_OFFSET_MS);
-  manilaNow.setUTCHours(0, 0, 0, 0);
-  manilaNow.setUTCDate(manilaNow.getUTCDate() - n);
-  return new Date(manilaNow.getTime() - MANILA_OFFSET_MS);
-}
 
 // ---------- statistics helpers (practical/statistical tier) ----------
 
@@ -55,7 +51,7 @@ export function weekdayFactors(dayKeys, values) {
   const sums = Array(7).fill(0);
   const counts = Array(7).fill(0);
   dayKeys.forEach((key, i) => {
-    const dow = new Date(`${key}T00:00:00`).getDay();
+    const dow = manilaDowOfKey(key);
     sums[dow] += values[i];
     counts[dow] += 1;
   });
@@ -109,20 +105,10 @@ export async function buildDailyUsage(locationId, windowDays) {
   for (const order of orders) {
     const key = dayKey(order.createdAt);
     for (const item of order.items) {
-      const specific = maps.find(
-        (m) =>
-          m.productName === item.productName &&
-          m.flavor !== "" &&
-          m.flavor === (item.flavor ?? "")
-      );
-      const generic = maps.find(
-        (m) => m.productName === item.productName && m.flavor === ""
-      );
-      const applied = [];
-      if (generic) applied.push(generic);
-      if (specific && specific.itemName !== generic?.itemName) applied.push(specific);
-      else if (specific && !generic) applied.push(specific);
-      for (const map of applied) {
+      // Same recipe resolution as the POS deduction (mapsForOrderLine):
+      // every matching generic + the best specific per itemName, so usage
+      // can never undercount multi-ingredient products.
+      for (const map of mapsForOrderLine(maps, item.productName, item.flavor ?? "")) {
         bump(map.itemName, key, map.amountPerUnit * item.qty);
       }
     }
@@ -162,7 +148,7 @@ export function buildHourlyMatrix(orders) {
   const key = (dow, hour) => `${dow}:${hour}`;
   for (const o of orders) {
     const d = new Date(o.createdAt);
-    const k = key(d.getDay(), d.getHours());
+    const k = key(manilaDow(d), manilaHour(d));
     const cell = cells.get(k) ?? { orders: 0, total_sales: 0 };
     cell.orders += 1;
     cell.total_sales += o.total;
@@ -273,7 +259,7 @@ export function forecastForSeries(seriesEntries, { horizon, minDays }) {
 
   const factors = weekdayFactors(keys, values);
   const deseasonalized = values.map(
-    (v, i) => v / (factors[new Date(`${keys[i]}T00:00:00`).getDay()] || 1)
+    (v, i) => v / (factors[manilaDowOfKey(keys[i])] || 1)
   );
 
   // Backtest MAPE on the last 3 observed days using prior data only.
@@ -287,7 +273,7 @@ export function forecastForSeries(seriesEntries, { horizon, minDays }) {
     const predValues = [];
     for (let d = 0; d < 3; d++) {
       const idx = trainCut + d;
-      const dow = new Date(`${keys[idx]}T00:00:00`).getDay();
+      const dow = manilaDowOfKey(keys[idx]);
       const trend = Math.max(0, intercept + slope * idx);
       const blended = 0.5 * trend + 0.5 * ma;
       predActual.push(values[idx]);
@@ -299,16 +285,17 @@ export function forecastForSeries(seriesEntries, { horizon, minDays }) {
   const ma = movingAverage(deseasonalized);
   const { slope, intercept } = linearRegression(deseasonalized);
   const forecast = [];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Manila-calendar arithmetic: labels stay on business days regardless of
+  // server timezone (UTC getters on a UTC-anchored calendar date).
+  const today = manilaCalendarToday();
   for (let h = 1; h <= horizon; h++) {
     const date = new Date(today);
-    date.setDate(date.getDate() + h);
-    const dow = date.getDay();
+    date.setUTCDate(date.getUTCDate() + h);
+    const dow = date.getUTCDay();
     const trend = Math.max(0, intercept + slope * deseasonalized.length + (h - 1) * slope);
     const blended = 0.5 * trend + 0.5 * ma; // conservative blend
     forecast.push({
-      date: dayKey(date),
+      date: date.toISOString().slice(0, 10),
       expected_use: Number((blended * (factors[dow] || 1)).toFixed(3)),
     });
   }

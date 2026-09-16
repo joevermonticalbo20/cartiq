@@ -7,13 +7,9 @@ import {
   sampleStdDev,
   daysAgoStart,
 } from "./analytics_engine.js";
+import { manilaDayKey } from "./timezone.js";
 
 const DAY_MS = 86400000;
-function dayKey(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-    date.getDate()
-  ).padStart(2, "0")}`;
-}
 
 // Shared predictive engine: consumption series per inventory item -> forecast.
 // Used by both /analytics/forecast and /reorders/suggestions.
@@ -30,7 +26,7 @@ export async function buildForecastForLocation(locationId) {
   ]);
 
   const allKeys = [];
-  for (let d = windowDays - 1; d >= 0; d--) allKeys.push(dayKey(daysAgoStart(d)));
+  for (let d = windowDays - 1; d >= 0; d--) allKeys.push(manilaDayKey(daysAgoStart(d)));
 
   const items = [];
   for (const inv of inventory) {
@@ -106,7 +102,7 @@ export async function buildForecastForLocation(locationId) {
       depletion_days: depletionDays !== null ? Number(depletionDays.toFixed(1)) : null,
       depletion_date:
         depletionDays !== null
-          ? new Date(Date.now() + depletionDays * DAY_MS).toISOString().slice(0, 10)
+          ? manilaDayKey(new Date(Date.now() + depletionDays * DAY_MS))
           : null,
       risk,
     });

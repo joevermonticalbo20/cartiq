@@ -13,14 +13,10 @@ import {
   movingAverage,
 } from "../services/analytics_engine.js";
 import { EXPENSE_CATEGORIES } from "./expenses.js";
+import { manilaDayKey as dayKey, manilaDow, manilaCalendarToday } from "../services/timezone.js";
 
 const router = Router();
 
-function dayKey(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-    date.getDate()
-  ).padStart(2, "0")}`;
-}
 const DOW_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 async function getLocation(codeOrId) {
@@ -63,7 +59,7 @@ router.get("/analytics/trends", requireAuth, async (req, res, next) => {
     const itemMap = new Map();
 
     for (const o of orders) {
-      const dow = new Date(o.createdAt).getDay();
+      const dow = manilaDow(o.createdAt);
       byWeekday[dow].total_sales += o.total;
       byWeekday[dow].orders += 1;
 
@@ -371,12 +367,12 @@ router.get("/reorders/prep", requireAuth, async (req, res, next) => {
     }
 
     const upcoming = [];
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Manila-calendar arithmetic (UTC getters on a UTC-anchored date).
+    const todayCal = manilaCalendarToday();
     for (let h = 0; h < days; h++) {
-      const d = new Date(today);
-      d.setDate(d.getDate() + h);
-      upcoming.push(d.getDay());
+      const d = new Date(todayCal);
+      d.setUTCDate(d.getUTCDate() + h);
+      upcoming.push(d.getUTCDay());
     }
 
     const prep = [];

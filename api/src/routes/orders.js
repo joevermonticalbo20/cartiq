@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole, assertOwnLocation } from "../middleware/auth.js";
-import { fmtStock, oversellShortage } from "../services/inventory_rules.js";
+import { fmtStock, mapsForOrderLine, oversellShortage } from "../services/inventory_rules.js";
 import { manilaDayRange } from "../services/timezone.js";
 import { emit } from "./events.js";
 
@@ -111,16 +111,7 @@ router.post("/orders", requireAuth, async (req, res, next) => {
             continue;
           }
           const flavorKey = row.flavor ?? "";
-          const byItem = new Map();
-          for (const m of maps) {
-            if (m.productName !== row.productName) continue;
-            if (m.flavor !== flavorKey && m.flavor !== "") continue;
-            const current = byItem.get(m.itemName);
-            if (!current || (m.flavor === flavorKey && current.flavor !== flavorKey)) {
-              byItem.set(m.itemName, m);
-            }
-          }
-          for (const map of byItem.values()) {
+          for (const map of mapsForOrderLine(maps, row.productName, flavorKey)) {
             const inv = invByName.get(map.itemName);
             if (!inv) {
               warnings.push(`no inventory row "${map.itemName}" at ${location.code}`);

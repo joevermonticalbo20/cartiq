@@ -4,6 +4,7 @@ import ExcelJS from "exceljs";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { splitFlavorCell, validateProductRow } from "../services/import_rules.js";
+import { manilaMonthRange, manilaDayKey, manilaTimeHM } from "../services/timezone.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -13,11 +14,9 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 *
 const MAX_EXPORT_ROWS = 5000;
 
 function monthRange(month) {
-  if (!month || !/^\d{4}-\d{2}$/.test(String(month))) return null;
-  const start = new Date(`${month}-01T00:00:00`);
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + 1);
-  return { start, end };
+  // Manila calendar month (server runs UTC in prod; a bare local-midnight
+  // start would shift the month edge by 8h).
+  return manilaMonthRange(month);
 }
 
 function styleHeader(sheet) {
@@ -69,8 +68,8 @@ async function buildSalesSheet(wb, month) {
     perCart.set(o.location.code, cartTotals);
     for (const it of o.items) {
       lines.addRow({
-        date: o.createdAt.toISOString().slice(0, 10),
-        time: o.createdAt.toTimeString().slice(0, 5),
+        date: manilaDayKey(o.createdAt),
+        time: manilaTimeHM(o.createdAt),
         cart: o.location.code,
         product: it.productName,
         flavor: it.flavor ?? "",
@@ -156,7 +155,7 @@ async function buildExpensesSheet(wb, month) {
   for (const e of expenses) {
     sum += e.amount;
     sheet.addRow({
-      date: e.date.toISOString().slice(0, 10),
+      date: manilaDayKey(e.date),
       vendor: e.vendor,
       cart: e.location?.code ?? "",
       amount: e.amount,

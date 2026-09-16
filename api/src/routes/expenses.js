@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, assertOwnLocation } from "../middleware/auth.js";
 import { requireRole } from "../middleware/auth.js";
+import { manilaMonthRange } from "../services/timezone.js";
 
 const router = Router();
 
@@ -94,10 +95,9 @@ router.get("/expenses", requireAuth, async (req, res, next) => {
       where.category = String(category);
     }
     if (month && /^\d{4}-\d{2}$/.test(String(month))) {
-      const start = new Date(`${month}-01T00:00:00`);
-      const end = new Date(start);
-      end.setMonth(end.getMonth() + 1);
-      where.date = { gte: start, lt: end };
+      // Manila calendar month boundaries (not server-local midnight).
+      const range = manilaMonthRange(month);
+      where.date = { gte: range.start, lt: range.end };
     }
 
     const [total, expenses, aggregate] = await Promise.all([

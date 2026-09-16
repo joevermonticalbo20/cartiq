@@ -18,6 +18,27 @@ export function fmtStock(n) {
   return trim3(n);
 }
 
+/**
+ * Recipe maps applying to one order line: every candidate map whose flavor
+ * matches the line or is generic (""), with the flavor-specific row winning
+ * per itemName. Single source of truth shared by the POS deduction
+ * (routes/orders.js) and the forecast usage builder
+ * (services/analytics_engine.js buildDailyUsage) — the two must agree or
+ * forecasts systematically undercount multi-ingredient products.
+ */
+export function mapsForOrderLine(maps, productName, flavorKey) {
+  const byItem = new Map();
+  for (const m of maps) {
+    if (m.productName !== productName) continue;
+    if (m.flavor !== flavorKey && m.flavor !== "") continue;
+    const current = byItem.get(m.itemName);
+    if (!current || (m.flavor === flavorKey && current.flavor !== flavorKey)) {
+      byItem.set(m.itemName, m);
+    }
+  }
+  return [...byItem.values()];
+}
+
 export async function applyStockChange(tx, { inv, newStock, location }) {
   const crossed = inv.stock > inv.threshold && newStock <= inv.threshold;
   await tx.inventoryItem.update({
