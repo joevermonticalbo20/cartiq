@@ -127,7 +127,7 @@ export default function DataPage() {
   }
 
   async function commit() {
-    if (!pendingFile.current) return;
+    if (!pendingFile.current || busyImport) return;
     setBusyImport(true);
     try {
       const form = new FormData();
@@ -358,6 +358,8 @@ export default function DataPage() {
             title="Commit products?"
             message={`${preview?.valid_count ?? 0} new product(s) will be added to the catalog. This action cannot be undone here.`}
             confirmLabel="Commit Data"
+            pending={busyImport}
+            pendingLabel="Committing..."
             onConfirm={commit}
             onCancel={() => setConfirmOpen(false)}
           />

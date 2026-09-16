@@ -33,6 +33,7 @@ export default function ExpensesPage() {
   const [month, setMonth] = useState(currentMonth);
   const [category, setCategory] = useState("");
   const [confirming, setConfirming] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [summary, setSummary] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
 
@@ -224,7 +225,8 @@ export default function ExpensesPage() {
   }
 
   async function doDelete() {
-    if (!confirming) return;
+    if (!confirming || isDeleting) return;
+    setIsDeleting(true);
     try {
       await api.del(`/expenses/${confirming.id}`);
       toast(`Deleted expense: ${confirming.vendor}`, "success");
@@ -232,6 +234,7 @@ export default function ExpensesPage() {
     } catch (err) {
       toast(getErrorMessage(err, "Delete failed"), "error");
     } finally {
+      setIsDeleting(false);
       setConfirming(null);
     }
   }
@@ -656,6 +659,8 @@ export default function ExpensesPage() {
           }
           confirmLabel="Delete"
           danger
+          pending={isDeleting}
+          pendingLabel="Deleting..."
           onConfirm={doDelete}
           onCancel={() => setConfirming(null)}
         />

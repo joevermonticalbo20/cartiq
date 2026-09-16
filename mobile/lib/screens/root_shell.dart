@@ -15,6 +15,9 @@ class RootShell extends StatefulWidget {
 
 class _RootShellState extends State<RootShell> {
   int _index = 0;
+  // Key into the receipts tab: after a scan flow pops, reload it so a
+  // newly saved expense is visible without a manual pull-to-refresh.
+  final _receiptsKey = GlobalKey<ReceiptsScreenState>();
 
   @override
   Widget build(BuildContext context) {
@@ -25,12 +28,15 @@ class _RootShellState extends State<RootShell> {
           index: _index,
           children: [
             HomeScreen(
-              onScanReceipt: () => _openScan(context),
+              onScanReceipt: () async {
+                await _openScan(context);
+                _receiptsKey.currentState?.reload();
+              },
               onGoPos: () => setState(() => _index = 1),
               onGoHistory: () => setState(() => _index = 3),
             ),
             const PosScreen(),
-            const ReceiptsScreen(),
+            ReceiptsScreen(key: _receiptsKey),
             HistoryScreen(
               onNewSale: () => setState(() => _index = 1),
             ),

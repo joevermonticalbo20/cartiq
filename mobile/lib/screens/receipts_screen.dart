@@ -17,10 +17,12 @@ class ReceiptsScreen extends StatefulWidget {
   final Future<void> Function()? onScanReceipt;
 
   @override
-  State<ReceiptsScreen> createState() => _ReceiptsScreenState();
+  State<ReceiptsScreen> createState() => ReceiptsScreenState();
 }
 
-class _ReceiptsScreenState extends State<ReceiptsScreen> {
+class ReceiptsScreenState extends State<ReceiptsScreen> {
+  /// Public reload handle so RootShell refreshes this tab after a scan.
+  void reload() => _loadMore(reset: true);
   final List<Map<String, dynamic>> _rows = [];
   int _page = 1;
   bool _loading = false;
@@ -60,6 +62,19 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
     return false;
   }
 
+  /// Records a load failure. When rows already exist the list branch hides
+  /// `_error`, so surface it as a SnackBar instead of failing silently.
+  void _fail(String message) {
+    if (!mounted) return;
+    final hadRows = _rows.isNotEmpty;
+    setState(() => _error = message);
+    if (hadRows && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Refresh failed: $message')),
+      );
+    }
+  }
+
   Future<void> _loadMore({bool reset = false}) async {
     if (_loading || (_done && !reset)) return;
     setState(() {
@@ -88,14 +103,11 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
         _done = batch.length < 10;
       });
     } on ApiException catch (e) {
-      if (!mounted) return;
-      setState(() => _error = e.message);
+      _fail(e.message);
     } on FormatException {
-      if (!mounted) return;
-      setState(() => _error = 'Server returned an unexpected response.');
+      _fail('Server returned an unexpected response.');
     } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = 'Unexpected error: $e');
+      _fail('Unexpected error: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }

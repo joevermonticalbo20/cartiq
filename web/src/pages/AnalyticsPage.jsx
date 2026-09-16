@@ -82,8 +82,6 @@ export default function AnalyticsPage() {
   const [cartCode, setCartCode] = useState("");
   
   const [range, setRange] = useState("30");
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
 
   const [trends, setTrends] = useState(null);
   const [prevTrends, setPrevTrends] = useState(null);
@@ -112,31 +110,13 @@ export default function AnalyticsPage() {
     let prevDateParams = "";
     const codeParam = cartCode ? `&code=${encodeURIComponent(cartCode)}` : "";
 
-    if (range === "custom") {
-      if (!customStart || !customEnd) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- custom range guard, intentional early-exit
-        setLoading(false);
-        return; 
-      }
-      dateParams = `&startDate=${customStart}&endDate=${customEnd}`;
-      
-      const startD = new Date(customStart);
-      const endD = new Date(customEnd);
-      const diffTime = Math.abs(endD - startD);
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
-      const prevEnd = new Date(startD);
-      prevEnd.setDate(prevEnd.getDate() - 1);
-      const prevStart = new Date(prevEnd);
-      prevStart.setDate(prevStart.getDate() - diffDays);
-      
-      prevDateParams = `&startDate=${prevStart.toISOString().split('T')[0]}&endDate=${prevEnd.toISOString().split('T')[0]}`;
-    } else {
-      const days = Number(range) || 30;
-      dateParams = `&days=${days}`;
-      prevDateParams = `&days=${days * 2}`;
-    }
+    // NOTE: the backend serves trailing-day windows only (no custom ranges),
+    // so the picker offers 7/14/30/90-day options that map straight to days.
+    const days = Number(range) || 30;
+    dateParams = `&days=${days}`;
+    prevDateParams = `&days=${days * 2}`;
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch trigger on filter change, mirrors other pages
     setLoading(true);
 
     Promise.all([
@@ -157,13 +137,13 @@ export default function AnalyticsPage() {
 
         const curSales = cur.data.total_sales;
         const extSales = ext.data.total_sales;
-        const prevSales = range === "custom" ? extSales : Math.max(0, extSales - curSales);
-        
+        const prevSales = Math.max(0, extSales - curSales);
+
         setTrends(cur.data);
         setPrevTrends({
           ...cur.data,
           total_sales: prevSales,
-          orders: range === "custom" ? (ext.data.orders ?? 0) : Math.max(0, (ext.data.orders ?? 0) - (cur.data.orders ?? 0)),
+          orders: Math.max(0, (ext.data.orders ?? 0) - (cur.data.orders ?? 0)),
         });
         
         setForecast(f.data);
@@ -182,7 +162,7 @@ export default function AnalyticsPage() {
       });
 
     return () => { alive = false; };
-  }, [range, cartCode, reload, isOwner, customStart, customEnd]);
+  }, [range, cartCode, reload, isOwner]);
 
   const revenueTrend = useMemo(() => {
     if (!trends || !prevTrends || prevTrends.total_sales <= 0) return null;
@@ -312,8 +292,7 @@ export default function AnalyticsPage() {
     { value: "7", label: "Last 7 days" },
     { value: "14", label: "Last 14 days" },
     { value: "30", label: "Last 30 days" },
-    { value: "90", label: "Last 90 days" },
-    { value: "custom", label: "Custom range..." }
+    { value: "90", label: "Last 90 days" }
   ];
 
   const renderSmartSummary = () => {
@@ -426,33 +405,16 @@ export default function AnalyticsPage() {
                 value={range}
                 onChange={(val) => {
                   setRange(val);
-                  if(val !== "custom") setLoading(true);
+                  setLoading(true);
                 }}
                 options={rangeOptions}
                 placeholder="Select range..."
               />
-              {range === "custom" && (
-                <div className="flex items-center gap-2" style={{ animation: "rise-in 0.2s ease" }}>
-                  <input
-                    type="date"
-                    value={customStart}
-                    onChange={(e) => { setCustomStart(e.target.value); setLoading(true); }}
-                    style={{ height: "36px", borderRadius: "14px", border: "1px solid var(--border)", padding: "0 12px", background: "var(--surface-alt)", color: "var(--text)" }}
-                  />
-                  <span className="muted small font-bold">to</span>
-                  <input
-                    type="date"
-                    value={customEnd}
-                    onChange={(e) => { setCustomEnd(e.target.value); setLoading(true); }}
-                    style={{ height: "36px", borderRadius: "14px", border: "1px solid var(--border)", padding: "0 12px", background: "var(--surface-alt)", color: "var(--text)" }}
-                  />
-                </div>
-              )}
             </div>
             {(cartCode || range !== "30") && (
               <button 
                 className="danger-ghost small-btn" 
-                onClick={() => { setCartCode(""); setRange("30"); setCustomStart(""); setCustomEnd(""); setLoading(true); }}
+                onClick={() => { setCartCode(""); setRange("30"); setLoading(true); }}
               >
                 <X size={14} /> Clear filters
               </button>

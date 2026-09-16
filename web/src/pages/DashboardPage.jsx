@@ -129,14 +129,17 @@ export default function DashboardPage() {
       return base.includes("?") ? `${base}&${query}` : `${base}?${query}`;
     };
 
+    // Param names must match each backend contract: reports/trends take
+    // `code`, orders take `location_code`, alerts have no cart filter
+    // (sending location_code there was silently ignored).
     await Promise.all([
-      settle("report", api.get(buildQ("/reports/daily", [dQ, lQ])), (r) => setReport(r.data)),
+      settle("report", api.get(buildQ("/reports/daily", [dQ, cQ])), (r) => setReport(r.data)),
       settle("inventory", api.get("/inventory"), (r) => setInventory(r.data?.locations ?? [])),
       settle("staff", api.get("/staff/on-shift"), (r) => setOnShift(r.data?.on_shift ?? [])),
       settle("sales", api.get(buildQ("/orders?page=1&pageSize=5", [dQ, lQ])), (r) => setLatestSales(r.data?.data ?? [])),
-      settle("alerts", api.get(buildQ("/alerts?unread_only=true&page=1&pageSize=5", [lQ])), (r) => setAlerts(r.data?.data ?? [])),
-      settle("trends", api.get(buildQ("/analytics/trends?days=7", [cQ, dQ])).catch(() => ({ data: null })), (r) => setTrends(r.data)),
-      settle("prev", api.get(buildQ("/reports/daily?daysAgo=1", [dQ, lQ])).catch(() => ({ data: null })), (r) => setPrev(r.data)),
+      settle("alerts", api.get("/alerts?unread_only=true&page=1&pageSize=5"), (r) => setAlerts(r.data?.data ?? [])),
+      settle("trends", api.get(buildQ("/analytics/trends?days=7", [cQ])).catch(() => ({ data: null })), (r) => setTrends(r.data)),
+      settle("prev", api.get(buildQ("/reports/daily?daysAgo=1", [dQ, cQ])).catch(() => ({ data: null })), (r) => setPrev(r.data)),
     ]);
 
     setSectionErrors(errs);

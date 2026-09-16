@@ -6,6 +6,10 @@ export default function ConfirmDialog({
   message,
   confirmLabel = "Confirm",
   danger = false,
+  // pending: async onConfirm in flight — disables both buttons so a
+  // double-click can't fire the action twice.
+  pending = false,
+  pendingLabel = null,
   onConfirm,
   onCancel,
 }) {
@@ -102,7 +106,7 @@ export default function ConfirmDialog({
             type="button"
             className="ghost"
             onClick={onCancel}
-            disabled={isClosing} // Para hindi ma-spam ang click habang nagco-close
+            disabled={isClosing || pending} // Para hindi ma-spam ang click habang nagco-close
           >
             Cancel
           </button>
@@ -111,9 +115,9 @@ export default function ConfirmDialog({
             type="button"
             className={danger ? "danger" : ""}
             onClick={onConfirm}
-            disabled={isClosing}
+            disabled={isClosing || pending}
           >
-            {confirmLabel}
+            {pending && pendingLabel ? pendingLabel : confirmLabel}
           </button>
         </div>
       </div>

@@ -15,6 +15,7 @@ import '../theme.dart';
 import '../utils/haptics.dart';
 import '../utils/money_input.dart';
 import '../widgets/app_badge.dart';
+import '../widgets/app_dialog.dart';
 import '../widgets/app_skeleton.dart';
 import '../widgets/empty_state.dart';
 
@@ -76,6 +77,9 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   String _categoryFilter = 'All';
   Timer? _searchDebounce;
   final _searchController = TextEditingController();
+  // One-shot sale guard: a second tap while persist+sync is in flight mints
+  // a second clientRef (a duplicate charge the server cannot dedupe).
+  bool _paying = false;
 
   OfflineQueue get _queue => PersistedOfflineQueue.instance;
 
@@ -126,12 +130,21 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
   Future<List<Map<String, dynamic>>> _loadCatalog() async {
     final auth = context.read<AuthState>();
-    final token = auth.token;
+    var token = auth.token;
     if (token == null) {
       throw ApiException('Session expired. Please log in again.');
     }
-    final data = await auth.api.catalog(token);
-    return (data['products'] as List).cast<Map<String, dynamic>>();
+    try {
+      final data = await auth.api.catalog(token);
+      return (data['products'] as List).cast<Map<String, dynamic>>();
+    } on ApiException catch (e) {
+      // Short-lived access may have lapsed: one silent refresh, like sync.
+      if (e.statusCode == 401 && await auth.refreshSession() && auth.token != null) {
+        final data = await auth.api.catalog(auth.token!);
+        return (data['products'] as List).cast<Map<String, dynamic>>();
+      }
+      rethrow;
+    }
   }
 
   void _showSnack(String message, {bool error = false, bool success = false}) {
@@ -316,69 +329,74 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     final sync = context.read<SyncService>();
 
     if (cart.isEmpty) return;
-
-    // A sale without a cart can never sync (the server drops
-    // MISSING_LOCATION_CODE records after cash is taken) — block before
-    // any money changes hands instead of enqueue-then-drop.
-    final cartCode = auth.locationCode;
-    if (cartCode == null || cartCode.isEmpty) {
-      if (!mounted) return;
-      await Haptics.error();
-      _showSnack('No cart assigned to this account - ask OWNER', error: true);
-      return;
-    }
-
-    final snapshotTotal = cart.total;
+    if (_paying) return;
+    _paying = true;
     try {
-      // Enqueue FIRST: cart.clear() below only runs after durable persist,
-      // so a storage failure keeps the sale intact for retry.
-      await persistCheckout(
-        cart: cart,
-        queue: _queue,
-        buildPayload: () => {
-          'clientRef': newClientRef(),
-          'locationCode': cartCode,
-          'items': cart.items.map((it) => it.toJson()).toList(),
-          'total': cart.total,
-          'status': 'PAID',
-          'paymentMethod': method.name.toUpperCase(),
-        },
-      );
-    } catch (_) {
+      // A sale without a cart can never sync (the server drops
+      // MISSING_LOCATION_CODE records after cash is taken) — block before
+      // any money changes hands instead of enqueue-then-drop.
+      final cartCode = auth.locationCode;
+      if (cartCode == null || cartCode.isEmpty) {
+        if (!mounted) return;
+        await Haptics.error();
+        _showSnack('No cart assigned to this account - ask OWNER', error: true);
+        return;
+      }
+
+      final snapshotTotal = cart.total;
+      try {
+        // Enqueue FIRST: cart.clear() below only runs after durable persist,
+        // so a storage failure keeps the sale intact for retry.
+        await persistCheckout(
+          cart: cart,
+          queue: _queue,
+          buildPayload: () => {
+            'clientRef': newClientRef(),
+            'locationCode': cartCode,
+            'items': cart.items.map((it) => it.toJson()).toList(),
+            'total': cart.total,
+            'status': 'PAID',
+            'paymentMethod': method.name.toUpperCase(),
+          },
+        );
+      } catch (_) {
+        if (!mounted) return;
+        await Haptics.error();
+        _showSnack('Could not save sale on this device - cart kept', error: true);
+        return;
+      }
+
+      if (sheetContext.mounted) Navigator.pop(sheetContext);
+
+      final result = await sync.syncAll();
       if (!mounted) return;
-      await Haptics.error();
-      _showSnack('Could not save sale on this device - cart kept', error: true);
-      return;
+      if (result.fullySynced) {
+        await Haptics.success();
+      } else if (result.dropped.isNotEmpty) {
+        await Haptics.error();
+      } else {
+        await Haptics.tap();
+      }
+      // Queued-offline is a normal flow, not an error - keep it neutral.
+      // Dropped is never reported as success (see SyncResult).
+      _showSnack(
+        result.fullySynced
+            ? 'Sale recorded · ${method.label} · P${snapshotTotal.toStringAsFixed(0)}'
+            : '${result.message} · P${snapshotTotal.toStringAsFixed(0)}',
+        success: result.fullySynced,
+        error: result.dropped.isNotEmpty,
+      );
+      if (!mounted) return;
+      await _showSaleResultSheet(
+        method: method,
+        total: snapshotTotal,
+        cashTendered: cashTendered,
+        synced: result.fullySynced,
+        queueMessage: result.fullySynced ? null : result.message,
+      );
+    } finally {
+      _paying = false;
     }
-
-    if (sheetContext.mounted) Navigator.pop(sheetContext);
-
-    final result = await sync.syncAll();
-    if (!mounted) return;
-    if (result.fullySynced) {
-      await Haptics.success();
-    } else if (result.dropped.isNotEmpty) {
-      await Haptics.error();
-    } else {
-      await Haptics.tap();
-    }
-    // Queued-offline is a normal flow, not an error - keep it neutral.
-    // Dropped is never reported as success (see SyncResult).
-    _showSnack(
-      result.fullySynced
-          ? 'Sale recorded · ${method.label} · P${snapshotTotal.toStringAsFixed(0)}'
-          : '${result.message} · P${snapshotTotal.toStringAsFixed(0)}',
-      success: result.fullySynced,
-      error: result.dropped.isNotEmpty,
-    );
-    if (!mounted) return;
-    await _showSaleResultSheet(
-      method: method,
-      total: snapshotTotal,
-      cashTendered: cashTendered,
-      synced: result.fullySynced,
-      queueMessage: result.fullySynced ? null : result.message,
-    );
   }
 
   /// Confirmation sheet so the change amount can't be missed in a rush.
@@ -1060,9 +1078,16 @@ class _CartSheetState extends State<_CartSheet> {
               ),
               if (!cart.isEmpty)
                 TextButton.icon(
-                  onPressed: () {
+                  onPressed: () async {
                     Haptics.tap();
-                    cart.clear();
+                    final confirmed = await showAppConfirm(
+                      context,
+                      title: 'Clear order?',
+                      message: 'This removes every item from the current order. This cannot be undone.',
+                      confirmLabel: 'Clear',
+                      danger: true,
+                    );
+                    if (confirmed) cart.clear();
                   },
                   icon: const Icon(Icons.delete_outline, size: 18),
                   label: const Text('Clear'),

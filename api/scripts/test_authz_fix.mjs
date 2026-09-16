@@ -58,7 +58,7 @@ if (prod) {
     const voided = await req("PATCH", `/orders/${oid}`, { token: t2, body: { status: "VOID", reason: "test" } });
     ok("void restores", voided.status === 200 && Array.isArray(voided.data?.restored) && Array.isArray(voided.data?.warnings), `got ${voided.status}`);
     const again = await req("PATCH", `/orders/${oid}`, { token: t2, body: { status: "VOID" } });
-    ok("double void -> 400", again.status === 400, `got ${again.status}`);
+    ok("double void -> 409", again.status === 409, `got ${again.status}`);
   }
   void invBefore;
 } else {
@@ -68,6 +68,30 @@ if (prod) {
 // device cart mismatch (needs device token; skip gracefully if unknown)
 ok("manila reports daily", (await req("GET", "/reports/daily", { token: t2 })).status === 200);
 ok("manila on-shift", (await req("GET", "/staff/on-shift", { token: t2 })).status === 200);
+
+// device registry CRUD (OWNER) + staff scoping
+const devId = `esp32-test-${Date.now().toString(36)}`;
+const devCreate = await req("POST", "/devices", { token: t2, body: { deviceId: devId, cart: "CART-01" } });
+ok("device register 201 + one-shot token", devCreate.status === 201 && typeof devCreate.data?.deviceToken === "string", `got ${devCreate.status}`);
+const devDup = await req("POST", "/devices", { token: t2, body: { deviceId: devId } });
+ok("device duplicate -> 409", devDup.status === 409, `got ${devDup.status}`);
+const devBad = await req("POST", "/devices", { token: t2, body: { deviceId: "x" } });
+ok("device bad id -> 400", devBad.status === 400, `got ${devBad.status}`);
+if (devCreate.status === 201) {
+  const did = devCreate.data.device.id;
+  const devPatch = await req("PATCH", `/devices/${did}`, { token: t2, body: { cart: "CART-02" } });
+  ok("device reassign 200", devPatch.status === 200, `got ${devPatch.status}`);
+  const devDel = await req("DELETE", `/devices/${did}`, { token: t2 });
+  ok("device delete 200", devDel.status === 200 && devDel.data?.deleted === true, `got ${devDel.status}`);
+  const devGone = await req("DELETE", `/devices/${did}`, { token: t2 });
+  ok("device re-delete -> 404", devGone.status === 404, `got ${devGone.status}`);
+}
+const staffLogin = await req("POST", "/auth/login", { body: { username: "staff01", password: "staff123" } });
+if (staffLogin.status === 200) {
+  const st = staffLogin.data.token;
+  ok("staff device register -> 403", (await req("POST", "/devices", { token: st, body: { deviceId: `esp32-staff-${Date.now().toString(36)}` } })).status === 403);
+  ok("staff cross-cart order -> 403", (await req("POST", "/orders", { token: st, body: { clientRef: `x-${Date.now()}`, locationCode: "CART-02", items: [{ productName: "Flavored Fries", flavor: "Cheese", qty: 1, unitPrice: 40 }] } })).status === 403);
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

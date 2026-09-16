@@ -57,6 +57,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return false;
   }
 
+  /// Records a load failure. When rows already exist the list branch hides
+  /// `_error`, so surface it as a SnackBar instead of failing silently.
+  void _fail(String message) {
+    if (!mounted) return;
+    final hadRows = _rows.isNotEmpty;
+    setState(() => _error = message);
+    if (hadRows && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Refresh failed: $message')),
+      );
+    }
+  }
+
   Future<void> _loadMore({bool reset = false}) async {
     if (_loading || (_done && !reset)) return;
     setState(() {
@@ -85,14 +98,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
         _done = batch.length < 10;
       });
     } on ApiException catch (e) {
-      if (!mounted) return;
-      setState(() => _error = e.message);
+      _fail(e.message);
     } on FormatException {
-      if (!mounted) return;
-      setState(() => _error = 'Server returned an unexpected response.');
+      _fail('Server returned an unexpected response.');
     } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = 'Unexpected error: $e');
+      _fail('Unexpected error: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }

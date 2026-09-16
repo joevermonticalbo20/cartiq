@@ -89,7 +89,7 @@ async function main() {
   const revoid = await req(`/orders/${orderId}`, {
     method: "PATCH", token: tok, body: { status: "VOID" },
   });
-  check("double VOID rejected", revoid.status === 400);
+  check("double VOID rejected", revoid.status === 409);
 
   const missing = await req("/orders/999999999", {
     method: "PATCH", token: tok, body: { status: "VOID" },

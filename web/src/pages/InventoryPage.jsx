@@ -246,6 +246,7 @@ export default function InventoryPage() {
   }
 
   async function commitBulk() {
+    if (saving) return;
     const value = parseQty(bulkValue);
     if (value === null) {
       toast("Enter a stock count from 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).", "error");
@@ -798,6 +799,8 @@ export default function InventoryPage() {
           title="Bulk stock adjustment"
           message={`Set ${selectedIds.size} selected item(s) to ${bulkValue} units. Sensor-tracked items will be overwritten by the next reading. This action cannot be undone.`}
           confirmLabel={`Update ${selectedIds.size} item(s)`}
+          pending={saving}
+          pendingLabel="Updating..."
           onConfirm={commitBulk}
           onCancel={() => setBulkConfirm(false)}
         />
@@ -807,8 +810,10 @@ export default function InventoryPage() {
           open={Boolean(deleting)}
           title="Delete Item?"
           message={`Are you sure you want to permanently remove "${deleting?.name}" from this cart's inventory? This action cannot be undone.`}
-          confirmLabel={isDeleting ? "Deleting..." : "Delete Item"}
+          confirmLabel="Delete Item"
           danger={true}
+          pending={isDeleting}
+          pendingLabel="Deleting..."
           onConfirm={handleDeleteItem}
           onCancel={() => setDeleting(null)}
         />

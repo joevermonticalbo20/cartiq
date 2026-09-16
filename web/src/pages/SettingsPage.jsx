@@ -29,12 +29,15 @@ export default function SettingsPage() {
   // -- STAFF STATES --
   const [addOpen, setAddOpen] = useState(false);
   const [addClosing, setAddClosing] = useState(false);
-  
+  const [isStaffAdding, setIsStaffAdding] = useState(false);
+
   const [resetting, setResetting] = useState(null);
   const [resetClosing, setResetClosing] = useState(false);
   const [resetPw, setResetPw] = useState("");
-  
+  const [isResetting, setIsResetting] = useState(false);
+
   const [disabling, setDisabling] = useState(null);
+  const [isDisabling, setIsDisabling] = useState(false);
   
   const [staffEditing, setStaffEditing] = useState(null);
   const [staffEditClosing, setStaffEditClosing] = useState(false);
@@ -67,6 +70,7 @@ export default function SettingsPage() {
   const [deviceEditClosing, setDeviceEditClosing] = useState(false);
   const [isDeviceEditing, setIsDeviceEditing] = useState(false);
   const [deviceDeleting, setDeviceDeleting] = useState(null);
+  const [isDeviceDeleting, setIsDeviceDeleting] = useState(false);
 
   // -- CART STATES --
   const [carts, setCarts] = useState([]);
@@ -77,10 +81,14 @@ export default function SettingsPage() {
   const [newCart, setNewCart] = useState({ code: "", name: "", address: "", seedInventory: true });
   const [cartToken, setCartToken] = useState(null);
   const [cartTokenCopied, setCartTokenCopied] = useState(false);
+  const [deviceToken, setDeviceToken] = useState(null);
+  const [deviceTokenCopied, setDeviceTokenCopied] = useState(false);
   const [cartEditing, setCartEditing] = useState(null);
   const [cartEditClosing, setCartEditClosing] = useState(false);
   const [isCartEditing, setIsCartEditing] = useState(false);
   const [cartToggling, setCartToggling] = useState(null);
+  const [isCartToggling, setIsCartToggling] = useState(false);
+  const [isChanging, setIsChanging] = useState(false);
 
   // Modal Closers
   function closeAddModal() {
@@ -123,6 +131,7 @@ export default function SettingsPage() {
     Boolean(deviceDeleting) ||
     cartAddOpen || cartAddClosing ||
     Boolean(cartToken) ||
+    Boolean(deviceToken) ||
     cartEditing || cartEditClosing ||
     Boolean(cartToggling);
 
@@ -172,6 +181,8 @@ export default function SettingsPage() {
       return;
     }
     setPwError("");
+    if (isChanging) return;
+    setIsChanging(true);
     try {
       await api.post("/auth/change-password", {
         currentPassword: pw.current,
@@ -186,6 +197,8 @@ export default function SettingsPage() {
       navigate("/login", { replace: true });
     } catch (err) {
       setPwError(getErrorMessage(err, "Change failed - is the current password correct?"));
+    } finally {
+      setIsChanging(false);
     }
   }
 
@@ -197,6 +210,8 @@ export default function SettingsPage() {
       return;
     }
     setStaffError("");
+    if (isStaffAdding) return;
+    setIsStaffAdding(true);
     try {
       await api.post("/auth/staff", {
         ...newStaff,
@@ -209,6 +224,8 @@ export default function SettingsPage() {
       loadOwnerData();
     } catch (err) {
       setStaffError(getErrorMessage(err, "Create failed - is the username or RFID already taken?"));
+    } finally {
+      setIsStaffAdding(false);
     }
   }
 
@@ -230,9 +247,10 @@ export default function SettingsPage() {
     }
     setIsStaffEditing(true);
     try {
+      // NOTE: username is immutable server-side — sending it is a no-op,
+      // so only name/location/rfid go out.
       await api.patch(`/auth/staff/${staffEditing.id}`, {
         name: staffEditing.name,
-        username: staffEditing.username,
         locationCode: staffEditing.location?.code || null,
         rfidUid: staffEditing.rfidUid || null
       });
@@ -247,23 +265,28 @@ export default function SettingsPage() {
   }
 
   async function toggleActive(s) {
+    if (isDisabling) return;
+    setIsDisabling(true);
     try {
       await api.patch(`/auth/staff/${s.id}`, { active: !s.active });
       toast(`${s.username} ${s.active ? "disabled" : "enabled"}`, "success");
       loadOwnerData();
     } catch (err) {
       toast(getErrorMessage(err, "Update failed"), "error");
+    } finally {
+      setIsDisabling(false);
     }
     setDisabling(null);
   }
 
   async function doResetPassword() {
-    if (!resetting) return;
+    if (!resetting || isResetting) return;
     if (resetPw.length < 8) {
       setResetError("New password must be at least 8 characters.");
       return;
     }
     setResetError("");
+    setIsResetting(true);
     try {
       await api.patch(`/auth/staff/${resetting.id}`, { password: resetPw });
       toast(`Password reset for ${resetting.username}`, "success");
@@ -272,6 +295,8 @@ export default function SettingsPage() {
       setShowResetPw(false);
     } catch (err) {
       setResetError(getErrorMessage(err, "Reset failed - try again."));
+    } finally {
+      setIsResetting(false);
     }
   }
 
@@ -281,13 +306,16 @@ export default function SettingsPage() {
     setDeviceError("");
     setIsDeviceAdding(true);
     try {
-      await api.post("/devices", {
+      const res = await api.post("/devices", {
         deviceId: newDevice.deviceId,
         cart: newDevice.locationCode
       });
-      toast(`Device ${newDevice.deviceId} registered`, "success");
       closeDeviceAddModal();
       setNewDevice({ deviceId: "", locationCode: safeLocations[0]?.code || "" });
+      // One-shot token: stored hashed server-side, never shown again.
+      setDeviceToken({ deviceId: newDevice.deviceId, token: res.data?.deviceToken });
+      setDeviceTokenCopied(false);
+      toast(`Device ${newDevice.deviceId} registered`, "success");
       loadOwnerData();
     } catch (err) {
       setDeviceError(getErrorMessage(err, "Registration failed. Device ID may already exist."));
@@ -321,7 +349,8 @@ export default function SettingsPage() {
   }
 
   async function handleDeleteDevice() {
-    if (!deviceDeleting) return;
+    if (!deviceDeleting || isDeviceDeleting) return;
+    setIsDeviceDeleting(true);
     try {
       await api.del(`/devices/${deviceDeleting.id}`);
       toast(`Device ${deviceDeleting.device_id} deleted`, "success");
@@ -329,6 +358,7 @@ export default function SettingsPage() {
     } catch (err) {
       toast(getErrorMessage(err, "Failed to delete device"), "error");
     } finally {
+      setIsDeviceDeleting(false);
       setDeviceDeleting(null);
     }
   }
@@ -384,6 +414,17 @@ export default function SettingsPage() {
     }
   }
 
+  async function copyDeviceToken() {
+    if (!deviceToken?.token) return;
+    try {
+      await navigator.clipboard.writeText(deviceToken.token);
+      setDeviceTokenCopied(true);
+      toast("Device token copied", "success");
+    } catch {
+      toast("Copy failed - select the token manually.", "error");
+    }
+  }
+
   async function handleEditCart(e) {
     e.preventDefault();
     setCartError("");
@@ -416,7 +457,8 @@ export default function SettingsPage() {
   }
 
   async function toggleCart() {
-    if (!cartToggling) return;
+    if (!cartToggling || isCartToggling) return;
+    setIsCartToggling(true);
     const toInactive = cartToggling.status !== "INACTIVE";
     try {
       await api.patch(`/locations/${cartToggling.id}`, {
@@ -427,6 +469,7 @@ export default function SettingsPage() {
     } catch (err) {
       toast(getErrorMessage(err, "Update failed"), "error");
     } finally {
+      setIsCartToggling(false);
       setCartToggling(null);
     }
   }
@@ -588,8 +631,8 @@ export default function SettingsPage() {
                 </div>
               </label>
               
-              <button type="submit" className="self-start mt-2">
-                <KeyRound size={15} /> Update password
+              <button type="submit" className="self-start mt-2" disabled={isChanging}>
+                <KeyRound size={15} /> {isChanging ? "Updating..." : "Update password"}
               </button>
               
               {pwError && <p className="error-box" role="alert" style={{ marginTop: "var(--space-2)" }}>{pwError}</p>}
@@ -891,7 +934,7 @@ export default function SettingsPage() {
                   <button type="button" className="ghost" onClick={closeAddModal} disabled={addClosing}>
                     Cancel
                   </button>
-                  <button type="submit" disabled={addClosing}>Create account</button>
+                  <button type="submit" disabled={addClosing || isStaffAdding}>{isStaffAdding ? "Creating..." : "Create account"}</button>
                 </div>
                 {staffError && <p className="error-box" role="alert">{staffError}</p>}
               </form>
@@ -987,7 +1030,7 @@ export default function SettingsPage() {
               
               <div className="modal-actions" style={{ marginTop: "var(--space-3)" }}>
                 <button className="ghost" onClick={closeResetModal} disabled={resetClosing}>Cancel</button>
-                <button onClick={doResetPassword} disabled={resetClosing}>Save new password</button>
+                <button onClick={doResetPassword} disabled={resetClosing || isResetting}>{isResetting ? "Saving..." : "Save new password"}</button>
               </div>
               {resetError && <p className="error-box" role="alert">{resetError}</p>}
             </div>
@@ -1005,6 +1048,8 @@ export default function SettingsPage() {
           }
           confirmLabel={disabling?.active ? "Disable" : "Enable"}
           danger={Boolean(disabling?.active)}
+          pending={isDisabling}
+          pendingLabel="Updating..."
           onConfirm={() => toggleActive(disabling)}
           onCancel={() => setDisabling(null)}
         />
@@ -1185,6 +1230,35 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* DEVICE TOKEN ONE-SHOT */}
+        {deviceToken && (
+          <div className="modal-backdrop">
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h3>Device {deviceToken.deviceId} registered</h3>
+              <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
+                Copy the ESP32 device token now — it is stored hashed and
+                <strong> will never be shown again</strong>.
+              </p>
+              <label className="field">
+                Device Token ({deviceToken.deviceId})
+                <input type="text" readOnly value={deviceToken.token ?? ""} onFocus={(e) => e.target.select()} />
+              </label>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={copyDeviceToken}
+                >
+                  {deviceTokenCopied ? "Copied!" : "Copy token"}
+                </button>
+                <button type="button" onClick={() => { setDeviceToken(null); setDeviceTokenCopied(false); }}>
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* EDIT CART MODAL */}
         {(cartEditing || cartEditClosing) && (
           <div className={`modal-backdrop ${cartEditClosing ? "is-closing" : ""}`}>
@@ -1236,6 +1310,8 @@ export default function SettingsPage() {
             : `"${cartToggling?.code}" will disappear from the POS and filters. History is kept.`}
           confirmLabel={cartToggling?.status === "INACTIVE" ? "Reactivate" : "Deactivate"}
           danger={cartToggling?.status !== "INACTIVE"}
+          pending={isCartToggling}
+          pendingLabel="Updating..."
           onConfirm={toggleCart}
           onCancel={() => setCartToggling(null)}
         />
@@ -1247,6 +1323,8 @@ export default function SettingsPage() {
           message={`Are you sure you want to unregister device "${deviceDeleting?.device_id}"? This will stop it from syncing data to the system.`}
           confirmLabel="Delete Device"
           danger={true}
+          pending={isDeviceDeleting}
+          pendingLabel="Deleting..."
           onConfirm={handleDeleteDevice}
           onCancel={() => setDeviceDeleting(null)}
         />

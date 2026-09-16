@@ -578,8 +578,10 @@ export default function ProductsPage() {
           message={deleting
             ? `"${deleting.name}" is used in ${deleting.recipeCount} recipe(s) and ${deleting.orderLines} order line(s). Delete is blocked while any reference exists.`
             : ""}
-          confirmLabel={isDeleting ? "Deleting..." : "Delete Product"}
+          confirmLabel="Delete Product"
           danger
+          pending={isDeleting}
+          pendingLabel="Deleting..."
           onConfirm={handleDelete}
           onCancel={() => setDeleting(null)}
         />

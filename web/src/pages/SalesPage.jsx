@@ -24,6 +24,7 @@ export default function SalesPage() {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [confirming, setConfirming] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const [isVoiding, setIsVoiding] = useState(false);
 
   // --- NEW STATES FOR EDIT ORDER ---
   const [editing, setEditing] = useState(null);
@@ -123,7 +124,8 @@ export default function SalesPage() {
   ];
 
   async function doVoid() {
-    if (!confirming) return;
+    if (!confirming || isVoiding) return;
+    setIsVoiding(true);
     try {
       await api.patch(`/orders/${confirming.id}`, { status: "VOID" });
       toast(`Voided order #${confirming.id}`, "success");
@@ -131,6 +133,7 @@ export default function SalesPage() {
     } catch (err) {
       toast(getErrorMessage(err, "Void failed"), "error");
     } finally {
+      setIsVoiding(false);
       setConfirming(null);
     }
   }
@@ -402,6 +405,8 @@ export default function SalesPage() {
           }
           confirmLabel="Void"
           danger
+          pending={isVoiding}
+          pendingLabel="Voiding..."
           onConfirm={doVoid}
           onCancel={() => setConfirming(null)}
         />

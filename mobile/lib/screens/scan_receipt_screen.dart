@@ -114,6 +114,10 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
     // Expenses are online-only (not queued offline). Surface connectivity
     // failures honestly instead of silently dropping them.
     final auth = context.read<AuthState>();
+    if (auth.token == null) {
+      setState(() => _message = 'Session expired — please log in again.');
+      return;
+    }
     try {
       final online = await auth.api.health();
       if (!mounted) return;
@@ -137,7 +141,7 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
       expenseDate = parseReceiptDate(dateText) ?? DateTime.now();
     }
     try {
-      await auth.api.createExpense(auth.token!, {
+      await auth.api.createExpense(auth.token ?? '', {
         'vendor': vendor,
         'locationCode': _locationCode,
         'amount': amount,

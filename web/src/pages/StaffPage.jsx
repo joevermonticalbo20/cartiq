@@ -57,6 +57,7 @@ export default function StaffPage() {
   const [editError, setEditError] = useState("");
 
   const [deleting, setDeleting] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const { rows, meta, loading: tableLoading, error, gotoPage, refresh: refreshTable } = usePagedData(
     (p) => `/shifts/history?page=${p}&pageSize=10` + (loc ? `&code=${loc}` : ""),
@@ -198,7 +199,8 @@ export default function StaffPage() {
   }
 
   async function handleDeleteShift() {
-    if (!deleting) return;
+    if (!deleting || isDeleting) return;
+    setIsDeleting(true);
     try {
       await api.del(`/shifts/${deleting.id}`);
       toast("Shift log deleted successfully", "success");
@@ -206,6 +208,7 @@ export default function StaffPage() {
     } catch (err) {
       toast(getErrorMessage(err, "Failed to delete shift log"), "error");
     } finally {
+      setIsDeleting(false);
       setDeleting(null);
     }
   }
@@ -583,6 +586,8 @@ export default function StaffPage() {
           message={`Are you sure you want to permanently delete the ${deleting?.event} log for ${deleting?.staffName ?? `Unregistered card ${deleting?.staffUid}`}? This action cannot be undone.`}
           confirmLabel="Delete Log"
           danger
+          pending={isDeleting}
+          pendingLabel="Deleting..."
           onConfirm={handleDeleteShift}
           onCancel={() => setDeleting(null)}
         />

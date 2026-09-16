@@ -25,12 +25,16 @@ class SyncResult {
   final int synced;
   final int remaining;
   final List<DroppedRecord> dropped;
+  /// True when the drain stopped because the session could not be
+  /// refreshed — the user must log in again (records stay queued).
+  final bool authExpired;
 
   const SyncResult({
     required this.online,
     required this.synced,
     required this.remaining,
     this.dropped = const [],
+    this.authExpired = false,
   });
 
   bool get allDone => online && remaining == 0;
@@ -41,6 +45,7 @@ class SyncResult {
 
   String get message {
     if (!online) return 'Offline - records saved on this device';
+    if (authExpired) return 'Session expired — please log in again';
     if (dropped.isNotEmpty) {
       final reasons = dropped.map((d) => d.reason).toSet().join(', ');
       if (remaining == 0 && synced == 0) {
@@ -107,6 +112,7 @@ class SyncService extends ChangeNotifier {
 
     var synced = 0;
     var activeToken = startToken;
+    var authExpired = false;
     final dropped = <DroppedRecord>[];
     final gen = _generation;
     for (final record in await queue.pending()) {
@@ -138,13 +144,31 @@ class SyncService extends ChangeNotifier {
         await queue.remove(record.id);
         synced++;
       } on ApiException catch (e) {
-        if (e.statusCode == 401 || e.statusCode == 403) {
+        if (e.statusCode == 403) {
+          // Staff outside their cart (or other permission denial): a refresh
+          // cannot fix it. Drop with a clear reason instead of retrying
+          // every 30s behind a poisoned record.
+          await queue.remove(record.id);
+          dropped.add(DroppedRecord(
+            id: record.id,
+            kind: record.kind,
+            reason: 'STAFF_OUTSIDE_CART',
+          ));
+          continue;
+        }
+        if (e.statusCode == 401) {
           // Access tokens are short-lived (15min). Recover once via the
           // refresh token and retry this record instead of stalling the
           // queue behind an expired session.
-          if (!await auth.refreshSession()) break;
+          if (!await auth.refreshSession()) {
+            authExpired = true;
+            break;
+          }
           final fresh = auth.token;
-          if (fresh == null) break;
+          if (fresh == null) {
+            authExpired = true;
+            break;
+          }
           activeToken = fresh;
           try {
             await api.submitOrder(record.payload, activeToken);
@@ -185,6 +209,7 @@ class SyncService extends ChangeNotifier {
       synced: synced,
       remaining: await queue.count,
       dropped: dropped,
+      authExpired: authExpired,
     );
   }
 
