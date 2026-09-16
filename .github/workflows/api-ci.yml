@@ -83,6 +83,13 @@ jobs:
           FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080"
           JWT_SECRET: "ci-test-secret"
 
+      - name: Seed 21-day sales history (phase3 forecast suites require it)
+        run: node scripts/seed_history.mjs 21
+        working-directory: api
+        env:
+          FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080"
+          JWT_SECRET: "ci-test-secret"
+
       - name: Start API against emulator
         run: node src/server.js > /tmp/api.log 2>&1 &
         working-directory: api
