@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Flame, ArrowDown, Activity } from "lucide-react";
+import { Flame, Activity } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, YAxis } from "recharts";
 import api, { API_BASE } from "../api.js";
 import { useSSE } from "../hooks/useSSE.js";
@@ -12,6 +12,7 @@ export default function SensorPanel({ code }) {
   // Fetch initial history para sa Sparkline Chart
   useEffect(() => {
     let alive = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch hydrates loading state
     setLoading(true);
     
     api.get(`/readings/recent?location_code=${code}`)

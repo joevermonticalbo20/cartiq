@@ -17,6 +17,7 @@ import {
   ShoppingBag,
   TrendingUp,
   Users,
+  X,
 } from "lucide-react";
 
 import api, { API_BASE, getErrorMessage } from "../api.js";
@@ -53,13 +54,6 @@ function TrendArrow({ dir }) {
   return <Minus size={12} />;
 }
 
-function activate(e, fn) {
-  if (e.key === "Enter" || e.key === " ") {
-    e.preventDefault();
-    fn();
-  }
-}
-
 function getLocalToday() {
   const tzOffset = new Date().getTimezoneOffset() * 60000;
   return new Date(Date.now() - tzOffset).toISOString().slice(0, 10);
@@ -69,7 +63,6 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const { user } = useOutletContext();
-  const isOwner = user?.role === "OWNER";
   const firstName = user?.name ? user.name.split(" ")[0] : "there";
 
   const [report, setReport] = useState(null);
@@ -333,7 +326,7 @@ export default function DashboardPage() {
               </div>
               <div className="kpi-card-body">
                 <div>
-                  <div className="kpi-card-value">{report ? <>P{Number(todaySales).toLocaleString()}</> : "--"}</div>
+                  <div className="kpi-card-value">{report ? <>P{Number(todaySales).toLocaleString()}</> : "—"}</div>
                   <div className="kpi-card-sub">{report ? `${todayOrders} orders - avg P${avgTicket.toFixed(0)} ticket` : "Sales unavailable"}</div>
                 </div>
                 <span className="kpi-card-trend"><TrendArrow dir={salesDir} /> {labelOf(salesDelta)}</span>
@@ -347,7 +340,7 @@ export default function DashboardPage() {
               </div>
               <div className="kpi-card-body">
                 <div>
-                  <div className="kpi-card-value">{report ? todayOrders : "--"}</div>
+                  <div className="kpi-card-value">{report ? todayOrders : "—"}</div>
                   <div className="kpi-card-sub">Across {activeInventory.length} active carts</div>
                 </div>
                 <span className={`kpi-card-trend ${ordersDir}`}><TrendArrow dir={ordersDir} /> {labelOf(ordersDelta)}</span>
@@ -476,7 +469,7 @@ export default function DashboardPage() {
                   </table>
                 </div>
                 <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
-                  Showing the 5 most recent orders. Click the "View all" button to see complete information.
+                  Showing the 5 most recent orders. Click the &quot;View all&quot; button to see complete information.
                 </div>
               </div>
             )}

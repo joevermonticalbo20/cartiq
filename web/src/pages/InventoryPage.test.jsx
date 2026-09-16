@@ -5,6 +5,7 @@ import { ToastProvider } from "../components/Toast.jsx";
 
 vi.mock("../api.js", () => ({
   default: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
+  API_BASE: "/api",
   getErrorMessage: (err, fallback) => err?.message || fallback,
 }));
 

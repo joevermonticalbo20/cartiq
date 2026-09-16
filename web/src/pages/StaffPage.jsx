@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useOutletContext } from "react-router-dom";
-import { Trophy, Users, RefreshCw, X, Plus, Edit2, Trash2, Clock, Calendar } from "lucide-react";
+import { Trophy, RefreshCw, Plus, Edit2, Trash2, Clock, Calendar } from "lucide-react";
 import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
@@ -87,11 +87,13 @@ export default function StaffPage() {
   }, [isOwner]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial top-data load on mount/filter change
     fetchTopData();
   }, [fetchTopData]);
 
   useEffect(() => {
     if (tableLoading || perfLoading) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional clock sync when loading flips
     setLastUpdated(new Date());
   }, [tableLoading, perfLoading]);
 
