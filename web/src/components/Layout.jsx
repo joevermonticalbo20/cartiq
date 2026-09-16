@@ -142,6 +142,7 @@ export default function Layout() {
           {showLabels && (
             <div className="logo-text">
               <strong>CartIQ</strong>
+              <span>Pota Fries Operations</span>
             </div>
           )}
         </div>

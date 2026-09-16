@@ -65,6 +65,10 @@ class BrandHero extends StatelessWidget {
             borderRadius: BorderRadius.circular(4),
           ),
         ),
+        Text(
+          'Pota Fries Operations',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
       ],
     );
   }

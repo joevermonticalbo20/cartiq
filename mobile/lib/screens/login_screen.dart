@@ -165,6 +165,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         'CartIQ',
                         style: Theme.of(context).textTheme.headlineSmall,
                       ),
+                      Text(
+                        'Pota Fries Operations',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                       const SizedBox(height: 20),
                   Card(
                     child: Padding(
