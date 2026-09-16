@@ -3,6 +3,7 @@ import multer from "multer";
 import ExcelJS from "exceljs";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { splitFlavorCell, validateProductRow } from "../services/import_rules.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -302,9 +303,15 @@ router.post(
           errors.push({ row: rowNumber, reason: `invalid basePrice "${basePriceRaw}"` });
           return;
         }
-        const flavorNames = flavorsRaw
-          ? flavorsRaw.split(/[;,]/).map((f) => f.trim()).filter(Boolean)
-          : [];
+        const flavorNames = splitFlavorCell(flavorsRaw);
+        // DoS/size caps (name/category/price/flavor bounds mirror
+        // routes/products.js). Rejections land in errors[] so commit stays
+        // blocked until the file is fixed.
+        const capReason = validateProductRow({ name, category, basePrice, flavorNames });
+        if (capReason) {
+          errors.push({ row: rowNumber, reason: capReason });
+          return;
+        }
         seenNames.add(name.toLowerCase());
         validRows.push({ row: rowNumber, name, category, basePrice, flavorNames });
       });

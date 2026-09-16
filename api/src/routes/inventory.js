@@ -126,10 +126,16 @@ router.post("/inventory/adjustments", requireAuth, async (req, res, next) => {
     const item = await prisma.inventoryItem.findUnique({ where: { id: +inventoryItemId } });
     if (!item) return res.status(404).json({ error: "Inventory item not found" });
 
-    // Numeric id allocated up front: counter reads are illegal once the
-    // transaction has staged its first write.
-    const [adjustmentId] = await prisma.stockAdjustment.nextIds(1);
     const result = await prisma.$transaction(async (tx) => {
+      // Re-read INSIDE the txn: the outside read can be stale when a POS
+      // sale or IoT reading deducts stock concurrently. Firestore optimistic
+      // concurrency retries the txn on conflict, so `before` below is the
+      // true pre-write stock and no deduction is silently clobbered.
+      const fresh = await tx.inventoryItem.findUnique({ where: { id: item.id } });
+      if (!fresh) throw Object.assign(new Error("Inventory item not found"), { status: 404 });
+      // Allocate after all reads, before writes (counter reads are illegal
+      // once the transaction has staged its first write).
+      const [adjustmentId] = await tx.stockAdjustment.nextIds(1);
       const updated = await tx.inventoryItem.update({
         where: { id: item.id },
         data: { stock: +newStock },
@@ -140,7 +146,7 @@ router.post("/inventory/adjustments", requireAuth, async (req, res, next) => {
           inventoryItemId: item.id,
           locationId: item.locationId,
           actorId: req.user.sub,
-          before: item.stock,
+          before: fresh.stock,
           after: +newStock,
           reason: reason ? String(reason).slice(0, 500) : null,
         },

@@ -331,6 +331,14 @@ router.patch("/orders/:id", requireAuth, requireRole("OWNER"), async (req, res, 
       return res.json({ order: updated, restored: [], warnings: [] });
     }
     const outcome = await prisma.$transaction(async (tx) => {
+      // Re-read order status INSIDE the txn: two parallel VOIDs both pass
+      // the outside check, so the loser must abort here instead of
+      // restoring stock a second time (tx.order.update is a blind write).
+      const fresh = await tx.order.findUnique({ where: { id: existing.id } });
+      if (!fresh) throw Object.assign(new Error("Order not found"), { status: 404 });
+      if (fresh.status === "VOID") {
+        throw Object.assign(new Error("Order is already void"), { status: 409 });
+      }
       const [maps, invRows] = await Promise.all([
         tx.ingredientMap.findMany(),
         tx.inventoryItem.findMany({ where: { locationId: existing.locationId } }),
