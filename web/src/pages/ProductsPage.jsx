@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { Plus, Edit2, Trash2, RefreshCw, Tag } from "lucide-react";
+import { Plus, Edit2, Trash2, RefreshCw, Tag, AlertTriangle } from "lucide-react";
 
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
@@ -726,7 +726,13 @@ export default function ProductsPage() {
                         >
                           {f.name}
                           {f.hasCustomPrice ? ` · P${Number(f.unitPrice).toLocaleString()}` : ""}
-                          {f.recipeCount === 0 ? " · no recipe" : ""}
+                          {f.recipeCount === 0 && (
+                            <AlertTriangle
+                              size={11}
+                              aria-label="No recipe"
+                              style={{ marginLeft: 4, verticalAlign: "-1px" }}
+                            />
+                          )}
                         </Badge>
                       ))}
                       {(p.flavors ?? []).length === 0 && <span className="muted small">—</span>}

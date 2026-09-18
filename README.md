@@ -491,8 +491,8 @@ React+Vite setup:
   now-unused basket request.
 - **By-flavor products** — Add/Edit product uses per-flavor rows (flavor
   picker + inline create, absolute per-flavor price defaulting to base,
-  optional recipe lines); table badges show custom prices + `no recipe`
-  hints. API: `POST/PATCH /products` accept `flavors[]`/`flavorPrices`/
+  optional recipe lines); table badges show custom prices + a `no recipe`
+  icon. API: `POST/PATCH /products` accept `flavors[]`/`flavorPrices`/
   `addRecipes`/`removeRecipes`, flavor remove guarded by recipe rows (409),
   new `PATCH/DELETE /flavors/:id` (rename rewrites recipes + price keys
   atomically).
