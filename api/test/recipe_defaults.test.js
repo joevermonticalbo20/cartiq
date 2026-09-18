@@ -20,10 +20,16 @@ describe("recipe_defaults (house convention)", () => {
 
   it("seasons with 15 g powder per serving (0.015 kg)", () => {
     assert.equal(POWDER_KG_PER_UNIT, 0.015);
-    for (const flavor of ["Cheese", "Sour Cream", "BBQ"]) {
+    for (const [flavor, powder] of [
+      ["Cheese", "Cheese Powder"],
+      ["Sour Cream", "Sour Cream Powder"],
+      ["BBQ", "BBQ Powder"],
+      ["Sinigang", "Sinigang Powder"],
+    ]) {
       const { rows, unknownFlavor } = flavorRecipeRows(flavor);
       assert.equal(unknownFlavor, false);
       assert.equal(rows.length, 1);
+      assert.equal(rows[0].itemName, powder);
       assert.equal(rows[0].amountPerUnit, 0.015);
     }
   });
@@ -34,7 +40,7 @@ describe("recipe_defaults (house convention)", () => {
   });
 
   it("reports unknown flavors instead of guessing", () => {
-    const { rows, unknownFlavor } = flavorRecipeRows("Sinigang");
+    const { rows, unknownFlavor } = flavorRecipeRows("Mystery Spice");
     assert.equal(unknownFlavor, true);
     assert.deepEqual(rows, []);
   });

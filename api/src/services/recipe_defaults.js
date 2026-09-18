@@ -24,6 +24,7 @@ const POWDER_BY_FLAVOR = new Map([
   ["cheese", "Cheese Powder"],
   ["sour cream", "Sour Cream Powder"],
   ["bbq", "BBQ Powder"],
+  ["sinigang", "Sinigang Powder"],
 ]);
 
 // Recipe rows for one flavor of a product. Returns { rows } or

@@ -500,8 +500,8 @@ React+Vite setup:
   Inventory rows show `Used by Product (Flavor)` so the deduction path is
   visible both ways.
 - **House recipes (1 pouch + 15 g powder/serving)** — convention lives in
-  `api/src/services/recipe_defaults.js`; `npm run recipes:check` (dry run)
-  / `recipes:apply` aligns every product-flavor and reports per-cart stock
+  `api/src/services/recipe_defaults.js` (Cheese / Sour Cream / BBQ /
+  Sinigang powders); `npm run recipes:check` (dry run) / `recipes:apply` aligns every product-flavor and reports per-cart stock
   gaps + unknown flavors. POS deduction (clamped, oversell warnings,
   threshold alerts, void restore) is untouched — exact-name match.
 - **Honest errors + loading everywhere** — shared `getFriendlyError`

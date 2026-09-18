@@ -68,6 +68,9 @@ async function main() {
   const cheese = await upsertFlavor("Cheese");
   const sourCream = await upsertFlavor("Sour Cream");
   const bbq = await upsertFlavor("BBQ");
+  // Known to the recipe convention but not linked to any product yet —
+  // linking is a business decision made in Products -> Edit, not in seed.
+  await upsertFlavor("Sinigang");
 
   let fries = await db.products.findUnique({ where: { name: "Flavored Fries" } });
   if (!fries) {
@@ -87,6 +90,7 @@ async function main() {
     { name: "Cheese Powder", unit: "kg", stock: 3.0, threshold: 1.0, source: "SENSOR" },
     { name: "Sour Cream Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
     { name: "BBQ Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
+    { name: "Sinigang Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
     { name: "Fries (frozen packs)", unit: "packs", stock: 12, threshold: 4, source: "MANUAL" },
     { name: "Pouches", unit: "pcs", stock: 150, threshold: 50, source: "MANUAL" },
   ];

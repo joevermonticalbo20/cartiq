@@ -15,6 +15,7 @@ const INVENTORY_TEMPLATE = [
   { name: "Cheese Powder", unit: "kg", stock: 3.0, threshold: 1.0, source: "SENSOR" },
   { name: "Sour Cream Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
   { name: "BBQ Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
+  { name: "Sinigang Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
   { name: "Fries (frozen packs)", unit: "packs", stock: 12, threshold: 4, source: "MANUAL" },
   { name: "Pouches", unit: "pcs", stock: 150, threshold: 50, source: "MANUAL" },
 ];
