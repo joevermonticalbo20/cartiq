@@ -44,6 +44,9 @@ export default function ProductsPage() {
 
   const [products, setProducts] = useState([]);
   const [flavors, setFlavors] = useState([]);
+  // Known stock item names (any cart) for the recipe picker. Deduction
+  // matches recipe itemName to inventory rows by exact name.
+  const [itemNames, setItemNames] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -81,10 +84,11 @@ export default function ProductsPage() {
 
   const load = useCallback(() => {
     setLoading(true);
-    Promise.all([api.get("/products"), api.get("/flavors")])
-      .then(([p, f]) => {
+    Promise.all([api.get("/products"), api.get("/flavors"), api.get("/inventory/names").catch(() => ({ data: { data: [] } }))])
+      .then(([p, f, n]) => {
         setProducts(p.data?.data ?? []);
         setFlavors(f.data?.data ?? []);
+        setItemNames(n.data?.data ?? []);
         setError("");
       })
       .catch((err) => setError(getFriendlyError(err, "Unable to load products.")))
@@ -168,6 +172,7 @@ export default function ProductsPage() {
   // rowErrors maps row.key -> inline message; any row edit clears them.
   function flavorRowsEditor(rows, setRows, basePriceText, rowErrors = {}) {
     const basePrice = parseMoney(basePriceText);
+    const knownItems = new Set(itemNames.map((n) => n.name.toLowerCase()));
     const optionsFor = (currentId) =>
       flavors
         .filter((f) => f.id === currentId || !rows.some((r) => r.flavorId === f.id))
@@ -175,6 +180,11 @@ export default function ProductsPage() {
 
     return (
       <div className="flex flex-col gap-3">
+        <datalist id="cartiq-inventory-items">
+          {itemNames.map((n) => (
+            <option key={n.name} value={n.name} />
+          ))}
+        </datalist>
         {rows.map((row) => {
           const picked = flavors.find((f) => f.id === row.flavorId);
           const newLines = (row.recipes ?? []).filter((l) => String(l.itemName ?? "").trim()).length;
@@ -248,34 +258,48 @@ export default function ProductsPage() {
                 </label>
               </div>
 
-              {(row.recipes ?? []).map((line) => (
-                <div key={line.key} style={{ display: "grid", gridTemplateColumns: "1fr 120px 32px", gap: "8px", marginTop: "8px" }}>
-                  <input
-                    type="text"
-                    maxLength={120}
-                    placeholder="Ingredient item (e.g. Cheese Powder)"
-                    value={line.itemName}
-                    onChange={(e) => updateRecipeLine(setRows, row.key, line.key, { itemName: sanitizeTextInput(e.target.value, 120) })}
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="Qty / unit"
-                    title="Amount deducted per unit sold"
-                    value={line.amount}
-                    onChange={(e) => updateRecipeLine(setRows, row.key, line.key, { amount: sanitizeQtyInput(e.target.value) })}
-                  />
-                  <button
-                    type="button"
-                    className="danger-ghost small-btn"
-                    title="Remove recipe line"
-                    onClick={() => updateFlavorRow(setRows, row.key, { recipes: (row.recipes ?? []).filter((l) => l.key !== line.key) })}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
+              {(row.recipes ?? []).map((line) => {
+                const typedName = String(line.itemName ?? "").trim();
+                const unknownItem = typedName !== "" && !knownItems.has(typedName.toLowerCase());
+                return (
+                  <div key={line.key}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 32px", gap: "8px", marginTop: "8px" }}>
+                      <input
+                        type="text"
+                        maxLength={120}
+                        placeholder="Ingredient item (e.g. Cheese Powder)"
+                        list="cartiq-inventory-items"
+                        title="Must match a stock item name exactly — pick from the list"
+                        value={line.itemName}
+                        onChange={(e) => updateRecipeLine(setRows, row.key, line.key, { itemName: sanitizeTextInput(e.target.value, 120) })}
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Qty / unit"
+                        title="Amount deducted per unit sold"
+                        value={line.amount}
+                        onChange={(e) => updateRecipeLine(setRows, row.key, line.key, { amount: sanitizeQtyInput(e.target.value) })}
+                      />
+                      <button
+                        type="button"
+                        className="danger-ghost small-btn"
+                        title="Remove recipe line"
+                        onClick={() => updateFlavorRow(setRows, row.key, { recipes: (row.recipes ?? []).filter((l) => l.key !== line.key) })}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    {unknownItem && (
+                      <p className="muted small" style={{ margin: "4px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
+                        <AlertTriangle size={12} aria-hidden="true" />
+                        No stock item named “{typedName}” — sales will warn instead of deducting.
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
 
               <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
                 <button
@@ -301,6 +325,12 @@ export default function ProductsPage() {
               {row.existingRecipeCount > 0 && (
                 <p className="muted small" style={{ margin: "8px 0 0" }}>
                   {row.existingRecipeCount} recipe row(s) already saved for {picked?.name ?? "this flavor"} — new lines below are added on save.
+                </p>
+              )}
+              {(row.existingMissing ?? []).length > 0 && (
+                <p className="muted small" style={{ margin: "4px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
+                  <AlertTriangle size={12} aria-hidden="true" />
+                  No stock row for: {(row.existingMissing ?? []).join(", ")}.
                 </p>
               )}
             </div>
@@ -605,6 +635,7 @@ export default function ProductsPage() {
         unitPrice: f.hasCustomPrice ? String(prices[f.name] ?? f.unitPrice ?? "") : "",
         recipes: [],
         existingRecipeCount: f.recipeCount ?? 0,
+        existingMissing: f.missingItems ?? [],
         // Saved rows start collapsed so long flavor lists stay scannable.
         collapsed: (f.recipeCount ?? 0) > 0,
       })),
@@ -721,15 +752,18 @@ export default function ProductsPage() {
                       {(p.flavors ?? []).map((f) => (
                         <Badge
                           key={f.id}
-                          variant={f.recipeCount === 0 ? "warn" : "info"}
-                          title={f.hasCustomPrice ? `P${Number(f.unitPrice).toLocaleString()} — custom price` : `P${Number(f.unitPrice ?? p.basePrice).toLocaleString()}`}
+                          variant={(f.recipeCount ?? 0) === 0 || (f.missingItems ?? []).length > 0 ? "warn" : "info"}
+                          title={[
+                            f.hasCustomPrice ? `P${Number(f.unitPrice).toLocaleString()} — custom price` : `P${Number(f.unitPrice ?? p.basePrice).toLocaleString()}`,
+                            ...((f.missingItems ?? []).map((m) => `No stock row for "${m}"`)),
+                          ].join(" · ")}
                         >
                           {f.name}
                           {f.hasCustomPrice ? ` · P${Number(f.unitPrice).toLocaleString()}` : ""}
-                          {f.recipeCount === 0 && (
+                          {((f.recipeCount ?? 0) === 0 || (f.missingItems ?? []).length > 0) && (
                             <AlertTriangle
                               size={11}
-                              aria-label="No recipe"
+                              aria-label={(f.missingItems ?? []).length > 0 ? `Missing stock: ${(f.missingItems ?? []).join(", ")}` : "No recipe"}
                               style={{ marginLeft: 4, verticalAlign: "-1px" }}
                             />
                           )}

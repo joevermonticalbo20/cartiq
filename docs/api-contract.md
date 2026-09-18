@@ -29,6 +29,7 @@ boundaries are Asia/Manila. Alert dedupe is by structured `dedupeKey`
 | `/inventory/adjustments` | POST | Manual count correction `{inventoryItemId, newStock 0-100000, reason}` (auth required; reason required for STAFF); creates an alert if the result is below threshold. |
 | `/inventory/adjustments` | POST | Manual count correction `{inventoryItemId, newStock, reason}` (auth required); creates an alert if the result is below threshold. |
 | `/inventory/items/:id` | PATCH | Threshold update `{threshold 0-100000}` — apply target for threshold calibration. |
+| `/inventory/names` | GET | Distinct stock item names (+ most common unit) across carts — feeds the Products recipe picker (deduction matches by exact name). |
 
 ### Carts & catalog (IMPLEMENTED)
 
@@ -37,9 +38,9 @@ boundaries are Asia/Manila. Alert dedupe is by structured `dedupeKey`
 | `/locations` | GET | OWNER cart registry: every cart incl. INACTIVE, with item counts + node online status. |
 | `/locations` | POST | OWNER `{code*, name*, address?, seedInventory?=true}` — code `A-Z0-9-` 3-12 chars (unique→409); provisions location + starter inventory + ESP32 device. Returns `{location, items, device, deviceToken}` — token shown **once** (hashed at rest). 20/hour/IP. |
 | `/locations/:id` | PATCH | OWNER `{name?, address?, status?}` — rename/address; `ACTIVE\|INACTIVE` (code immutable). INACTIVE hides the cart from `/catalog`/POS but keeps history. |
-| `/products` | GET | Products with per-flavor `unitPrice` (absolute, falls back to `basePrice`), per-flavor `recipeCount`, `flavorPrices` overrides + recipe/order-line counts (delete safety info). |
-| `/products` | POST | OWNER `{name*, category?, basePrice*, flavorIds?[], flavors?[]}` — unique name→409. `flavors[]` rows: `{flavorId? \| name?, unitPrice?, recipes?[{itemName*, amountPerUnit*}]}`; unknown names auto-created (max 20); bad price/recipe row→400. Returns `{product, flavorsCreated, recipesCreated}`. |
-| `/products/:id` | PATCH | OWNER `{category?, basePrice?, addFlavorIds?, removeFlavorIds?, flavorPrices?{[name]: price \| null}, addRecipes?[], removeRecipes?[]}` — price affects future sales only. Removing a flavor with recipe rows→409; `null` price clears the override. Returns `{product, recipesChanged}`. |
+| `/products` | GET | Products with per-flavor `unitPrice` (absolute, falls back to `basePrice`), per-flavor `recipeCount`, `recipes[]`, `missingItems[]` (recipe items with no stock row anywhere — sales warn instead of deducting), `flavorPrices` overrides + recipe/order-line counts (delete safety info). |
+| `/products` | POST | OWNER `{name*, category?, basePrice*, flavorIds?[], flavors?[]}` — unique name→409. `flavors[]` rows: `{flavorId? \| name?, unitPrice?, recipes?[{itemName*, amountPerUnit*}]}`; unknown names auto-created (max 20); bad price/recipe row→400. Returns `{product, flavorsCreated, recipesCreated, unmatchedItems[]}` (recipe items with no stock row — warn, don't block). |
+| `/products/:id` | PATCH | OWNER `{category?, basePrice?, addFlavorIds?, removeFlavorIds?, flavorPrices?{[name]: price \| null}, addRecipes?[], removeRecipes?[]}` — price affects future sales only. Removing a flavor with recipe rows→409; `null` price clears the override. Returns `{product, recipesChanged, unmatchedItems[]}`. |
 | `/products/:id/rename` | PATCH | OWNER `{name*}` — atomic rename + recipe rewrite; past orders keep the old name. |
 | `/products/:id` | DELETE | OWNER — 409 with counts while order lines/recipes reference it; else deletes. |
 | `/flavors` | GET/POST | List (any auth) / create OWNER (unique→409). |

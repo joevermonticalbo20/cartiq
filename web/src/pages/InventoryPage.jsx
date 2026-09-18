@@ -54,6 +54,8 @@ export default function InventoryPage() {
 
   const [forecast, setForecast] = useState(null);
   const [loadError, setLoadError] = useState("");
+  // Stock item name -> ["Product (Flavor)", ...] (from /products recipes).
+  const [usageByItem, setUsageByItem] = useState(new Map());
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkValue, setBulkValue] = useState("");
   const [bulkConfirm, setBulkConfirm] = useState(false);
@@ -88,17 +90,33 @@ export default function InventoryPage() {
   const refresh = useCallback(() => {
     const targetCode = selected || "CART-01";
     setLoading(true);
-    
+
     Promise.all([
       api.get("/inventory"),
       api.get(`/analytics/forecast?code=${targetCode}`).catch(() => ({ data: { items: [] } })),
       api.get(`/reorders/prep?code=${targetCode}&days=3`).catch(() => ({ data: null })),
+      api.get("/products").catch(() => ({ data: { data: [] } })),
     ])
-      .then(([inv, fc, pr]) => {
+      .then(([inv, fc, pr, prod]) => {
         const locs = inv.data?.locations ?? [];
         setLocations(locs);
         setForecast(fc.data?.items ?? []);
         setPrep(pr.data);
+        // Reverse map: stock item name -> ["Product (Flavor)", ...] so each
+        // row shows what consumes it (same recipe rows the POS deducts).
+        const usage = new Map();
+        for (const p of prod.data?.data ?? []) {
+          for (const f of p.flavors ?? []) {
+            for (const r of f.recipes ?? []) {
+              const name = String(r.itemName ?? "").trim();
+              if (!name) continue;
+              if (!usage.has(name)) usage.set(name, []);
+              const label = `${p.name}${f.name ? ` (${f.name})` : ""}`;
+              if (!usage.get(name).includes(label)) usage.get(name).push(label);
+            }
+          }
+        }
+        setUsageByItem(usage);
         setLoadError("");
 
         if (!locs.some((l) => l.code === selected) && locs[0]) {
@@ -448,6 +466,7 @@ export default function InventoryPage() {
                   {currentItems.map((item) => {
                     const fcItem = safeForecast.find((f) => f.name === item.name);
                     const isSelected = selectedIds.has(item.id);
+                    const usedBy = usageByItem.get(item.name) ?? [];
 
                     return (
                       <tr key={item.id} className={isSelected ? "row-selected" : undefined}>
@@ -462,7 +481,19 @@ export default function InventoryPage() {
                             {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
                           </button>
                         </td>
-                        <td><strong>{item.name}</strong></td>
+                        <td>
+                          <strong>{item.name}</strong>
+                          {usedBy.length > 0 && (
+                            <span
+                              className="muted small"
+                              style={{ display: "block" }}
+                              title={`Deducted when selling: ${usedBy.join(", ")}`}
+                            >
+                              Used by {usedBy.slice(0, 2).join(", ")}
+                              {usedBy.length > 2 ? ` +${usedBy.length - 2}` : ""}
+                            </span>
+                          )}
+                        </td>
                         <td className={item.status === "ok" ? "" : "stock-warn"}>
                           {item.stock} {item.unit}
                         </td>

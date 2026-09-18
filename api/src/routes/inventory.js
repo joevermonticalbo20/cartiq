@@ -41,6 +41,34 @@ router.get("/inventory", requireAuth, async (req, res, next) => {
   }
 });
 
+// GET /api/inventory/names — distinct stock item names (+ most common unit)
+// across all carts. Feeds the Products recipe picker so recipe rows use
+// exact names — deduction matches map.itemName to inventory rows by exact
+// name, so a typo means the sale warns instead of deducting.
+router.get("/inventory/names", requireAuth, async (_req, res, next) => {
+  try {
+    const rows = await prisma.inventoryItem.findMany({ select: { name: true, unit: true } });
+    const byName = new Map();
+    for (const r of rows) {
+      const name = String(r.name ?? "").trim();
+      if (!name) continue;
+      const hit = byName.get(name) ?? { name, units: new Map() };
+      hit.units.set(r.unit, (hit.units.get(r.unit) ?? 0) + 1);
+      byName.set(name, hit);
+    }
+    return res.json({
+      data: [...byName.values()]
+        .map(({ name, units }) => ({
+          name,
+          unit: [...units.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // POST /api/inventory/items - add a new stock row to a cart (any
 // authenticated staff; the dashboard Add Item form is not role-gated, same
 // as adjustments). The dashboard also sends `category`, which has no backing

@@ -194,6 +194,42 @@ describe("ProductsPage by-flavor add", () => {
     expect(api.post).not.toHaveBeenCalled();
   });
 
+  it("offers known stock items in the recipe picker", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/products") return Promise.resolve({ data: { data: [] } });
+      if (url === "/flavors") return Promise.resolve({ data: { data: seedFlavors } });
+      if (url === "/inventory/names") {
+        return Promise.resolve({ data: { data: [{ name: "Cheese Powder", unit: "kg" }] } });
+      }
+      return Promise.resolve({ data: null });
+    });
+    await openAddModal();
+    fireEvent.click(screen.getByText("+ Add flavor"));
+    const modal = screen.getByText("Add Product").closest(".modal");
+    const option = modal.querySelector('datalist#cartiq-inventory-items option[value="Cheese Powder"]');
+    expect(option).not.toBeNull();
+  });
+
+  it("hints when a recipe item matches no stock row", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/products") return Promise.resolve({ data: { data: [] } });
+      if (url === "/flavors") return Promise.resolve({ data: { data: seedFlavors } });
+      if (url === "/inventory/names") {
+        return Promise.resolve({ data: { data: [{ name: "Cheese Powder", unit: "kg" }] } });
+      }
+      return Promise.resolve({ data: null });
+    });
+    await openAddModal();
+    fillNameAndPrice();
+    fireEvent.click(screen.getByText("+ Add flavor"));
+    const modal = screen.getByText("Add Product").closest(".modal");
+    fireEvent.click(within(modal).getByText("+ Recipe line"));
+    fireEvent.change(within(modal).getByPlaceholderText("Ingredient item (e.g. Cheese Powder)"), {
+      target: { value: "Mystery Dust" },
+    });
+    expect(await within(modal).findByText(/No stock item named/)).toBeInTheDocument();
+  });
+
   it("creates the product with per-flavor rows (inline flavor + recipe line)", async () => {
     api.post.mockImplementation((url, body) => {
       if (url === "/flavors") {

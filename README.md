@@ -495,7 +495,10 @@ React+Vite setup:
   icon. API: `POST/PATCH /products` accept `flavors[]`/`flavorPrices`/
   `addRecipes`/`removeRecipes`, flavor remove guarded by recipe rows (409),
   new `PATCH/DELETE /flavors/:id` (rename rewrites recipes + price keys
-  atomically).
+  atomically). Recipes pick from real stock names (`GET /inventory/names`);
+  unknown names get an inline hint, uncovered flavors a `missingItems` icon;
+  Inventory rows show `Used by Product (Flavor)` so the deduction path is
+  visible both ways.
 - **Honest errors + loading everywhere** — shared `getFriendlyError`
   (server 4xx verbatim, plain text for offline/403/5xx incl. Render
   cold-start hint) + `ErrorBox` (`role=alert` + Retry) on every page;

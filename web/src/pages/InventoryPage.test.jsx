@@ -81,4 +81,40 @@ describe("InventoryPage loading/error states", () => {
     // Retry fires a fresh round of fetches.
     expect(api.get.mock.calls.length).toBeGreaterThan(callsBeforeRetry);
   });
+
+  it("shows what consumes each stock item", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/inventory") {
+        return Promise.resolve({
+          data: {
+            locations: [
+              {
+                code: "CART-01",
+                name: "Cart 1",
+                items: [
+                  { id: 1, name: "Cheese Powder", stock: 3, threshold: 1, unit: "kg", source: "MANUAL", status: "ok" },
+                ],
+              },
+            ],
+          },
+        });
+      }
+      if (url === "/products") {
+        return Promise.resolve({
+          data: {
+            data: [
+              {
+                id: 5,
+                name: "Flavored Fries",
+                flavors: [{ id: 1, name: "Cheese", recipes: [{ itemName: "Cheese Powder", amountPerUnit: 0.03 }] }],
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: null });
+    });
+    renderPage();
+    expect(await screen.findByText(/Used by Flavored Fries \(Cheese\)/)).toBeInTheDocument();
+  });
 });

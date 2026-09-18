@@ -114,21 +114,32 @@ async function upsertRecipeRows(productName, flavorName, rows) {
 // usage, and order-reference counts so the UI can explain delete blocks.
 router.get("/products", requireAuth, async (_req, res, next) => {
   try {
-    const [products, maps, orders] = await Promise.all([
+    const [products, maps, orders, invRows] = await Promise.all([
       prisma.product.findMany({
         include: { flavors: { orderBy: { name: "asc" } } },
         orderBy: { name: "asc" },
       }),
       prisma.ingredientMap.findMany(),
       prisma.order.findMany({ select: { items: true } }),
+      prisma.inventoryItem.findMany({ select: { name: true } }),
     ]);
+    // Deduction matches map.itemName to inventory rows by EXACT name, so
+    // surface coverage: recipe items with no stock row anywhere can never
+    // deduct (the sale warns instead). missingItems names them per flavor.
+    const knownItems = new Set(invRows.map((r) => String(r.name ?? "").trim()).filter(Boolean));
     const recipeCount = new Map();
     const recipeByFlavor = new Map();
+    const itemsByFlavor = new Map();
+    const rowsByFlavor = new Map();
     const flavorKey = (productName, flavor) => JSON.stringify([productName, flavor ?? ""]);
     for (const m of maps) {
       recipeCount.set(m.productName, (recipeCount.get(m.productName) ?? 0) + 1);
       const key = flavorKey(m.productName, m.flavor);
       recipeByFlavor.set(key, (recipeByFlavor.get(key) ?? 0) + 1);
+      if (!itemsByFlavor.has(key)) itemsByFlavor.set(key, []);
+      itemsByFlavor.get(key).push(m.itemName);
+      if (!rowsByFlavor.has(key)) rowsByFlavor.set(key, []);
+      rowsByFlavor.get(key).push({ itemName: m.itemName, amountPerUnit: m.amountPerUnit });
     }
     const orderRefs = new Map();
     for (const o of orders) {
@@ -153,6 +164,12 @@ router.get("/products", requireAuth, async (_req, res, next) => {
             unitPrice: Number(flavorPrices[f.name] ?? p.basePrice),
             hasCustomPrice: flavorPrices[f.name] !== undefined,
             recipeCount: recipeByFlavor.get(flavorKey(p.name, f.name)) ?? 0,
+            // Full recipe rows (powers the Inventory "Used by" mapping).
+            recipes: rowsByFlavor.get(flavorKey(p.name, f.name)) ?? [],
+            // Recipe items with no stock row in any cart: sales of this
+            // flavor warn instead of deducting. Empty = fully covered.
+            missingItems: (itemsByFlavor.get(flavorKey(p.name, f.name)) ?? [])
+              .filter((item) => !knownItems.has(String(item ?? "").trim())),
           })),
           recipeCount: recipeCount.get(p.name) ?? 0,
           orderLines: orderRefs.get(p.name) ?? 0,
@@ -247,9 +264,18 @@ router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, nex
       include: { flavors: true },
     });
     let recipesCreated = 0;
+    const unmatchedItems = [];
+    const invNames = new Set(
+      (await prisma.inventoryItem.findMany({ select: { name: true } }))
+        .map((r) => String(r.name ?? "").trim())
+        .filter(Boolean)
+    );
     for (const [id, rows] of recipesById) {
       const f = resolved.byId.get(Number(id));
       if (!f || rows.length === 0) continue;
+      for (const r of rows) {
+        if (!invNames.has(r.itemName)) unmatchedItems.push({ flavor: f.name, itemName: r.itemName });
+      }
       const out = await upsertRecipeRows(productName, f.name, rows);
       if (out.error) return res.status(400).json({ error: out.error });
       recipesCreated += out.created;
@@ -258,6 +284,10 @@ router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, nex
       product: { ...product, flavorPrices },
       flavorsCreated: resolved.created.length,
       recipesCreated,
+      // Recipe items with no stock row anywhere: warn, don't block (same as
+      // the Excel import philosophy). Sales using them warn instead of
+      // deducting until a matching inventory row exists.
+      unmatchedItems,
     });
   } catch (err) {
     if (err.code === "P2002") return res.status(409).json({ error: "Product already exists" });
@@ -370,6 +400,7 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
       include: { flavors: { orderBy: { name: "asc" } } },
     });
     let recipesChanged = 0;
+    const unmatchedItems = [];
     if (addRecipes !== undefined) {
       if (!Array.isArray(addRecipes)) {
         return res.status(400).json({ error: "addRecipes must be an array" });
@@ -384,7 +415,15 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
         if (!byFlavor.has(flavor)) byFlavor.set(flavor, []);
         byFlavor.get(flavor).push(row);
       }
+      const invNames = new Set(
+        (await prisma.inventoryItem.findMany({ select: { name: true } }))
+          .map((r) => String(r.name ?? "").trim())
+          .filter(Boolean)
+      );
       for (const [flavor, rows] of byFlavor) {
+        for (const r of rows) {
+          if (!invNames.has(r.itemName)) unmatchedItems.push({ flavor, itemName: r.itemName });
+        }
         const out = await upsertRecipeRows(existing.name, flavor, rows);
         if (out.error) return res.status(400).json({ error: out.error });
         recipesChanged += out.created;
@@ -403,7 +442,7 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
         await prisma.ingredientMap.deleteMany({ where: { productName: existing.name, flavor, itemName } });
       }
     }
-    return res.json({ product, recipesChanged });
+    return res.json({ product, recipesChanged, unmatchedItems });
   } catch (err) {
     return next(err);
   }

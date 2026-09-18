@@ -217,6 +217,8 @@ async function main() {
     wasabiRow?.unitPrice === 70 && wasabiRow?.recipeCount === 1 &&
     cheeseRow?.unitPrice === 60 && cheeseRow?.hasCustomPrice === false,
     JSON.stringify(wf?.flavors)?.slice(0, 200));
+  check("per-flavor recipes served for Used-by mapping",
+    (wasabiRow?.recipes ?? []).some((r) => r.itemName === "Test Wasabi Powder" && r.amountPerUnit === 0.04));
 
   const setPrice = await req(`/products/${wasabiProdId}`, {
     method: "PATCH", token: tok, body: { flavorPrices: { "Test Wasabi": 75 } },
@@ -260,6 +262,46 @@ async function main() {
   check("delete unlinked flavor 200", delFlavor.status === 200 && delFlavor.data?.deleted === true);
   const delProd = await req(`/products/${wasabiProdId}`, { method: "DELETE", token: tok });
   check("delete per-flavor test product 200", delProd.status === 200 && delProd.data?.deleted === true);
+
+  // ---- product <-> inventory connection ----
+  const names = await req("/inventory/names", { token: tok });
+  check("inventory names list", names.status === 200 &&
+    (names.data?.data ?? []).some((n) => n.name === "Cheese Powder"),
+    `got ${names.status}`);
+  const staffNames = await req("/inventory/names", { token: staffTok });
+  check("staff can read inventory names 200", staffNames.status === 200);
+
+  // Recipe item with no stock row anywhere: created (warn, don't block),
+  // reported as unmatched, and visible as missingItems on the product.
+  const ghost = await req("/products", {
+    method: "POST", token: tok,
+    body: {
+      name: "Test Ghost Fries", basePrice: 10,
+      flavors: [{ name: "Test Ghost", recipes: [{ itemName: "No Such Item XYZ", amountPerUnit: 1 }] }],
+    },
+  });
+  check("recipe with unknown item still 201", ghost.status === 201, `got ${ghost.status}`);
+  check("unmatchedItems names the ghost row",
+    (ghost.data?.unmatchedItems ?? []).some((u) => u.itemName === "No Such Item XYZ"));
+  const ghostId = ghost.data?.product?.id;
+  const plist4 = await req("/products", { token: tok });
+  const ghostRow = (plist4.data?.data ?? []).find((p) => p.name === "Test Ghost Fries");
+  const ghostFlavor = (ghostRow?.flavors ?? []).find((f) => f.name === "Test Ghost");
+  check("missingItems flags the ghost row",
+    (ghostFlavor?.missingItems ?? []).includes("No Such Item XYZ"),
+    JSON.stringify(ghostFlavor)?.slice(0, 200));
+  const ghostFlavorId = ghostFlavor?.id;
+  // Cleanup: remove recipe row, unlink + delete flavor, delete product.
+  await req(`/products/${ghostId}`, {
+    method: "PATCH", token: tok,
+    body: { removeRecipes: [{ flavor: "Test Ghost", itemName: "No Such Item XYZ" }] },
+  });
+  await req(`/products/${ghostId}`, {
+    method: "PATCH", token: tok, body: { removeFlavorIds: [ghostFlavorId] },
+  });
+  await req(`/flavors/${ghostFlavorId}`, { method: "DELETE", token: tok });
+  const ghostGone = await req(`/products/${ghostId}`, { method: "DELETE", token: tok });
+  check("ghost product cleanup 200", ghostGone.status === 200 && ghostGone.data?.deleted === true);
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
