@@ -164,8 +164,7 @@ export default function ProductsPage() {
   }
 
   // Per-flavor row editor shared by the Add and Edit modals. Recipes are
-  // optional (warn, don't block): rows without recipes show a warning but
-  // still submit — stock just won't deduct for those flavors yet.
+  // optional: rows without recipes still submit.
   // rowErrors maps row.key -> inline message; any row edit clears them.
   function flavorRowsEditor(rows, setRows, basePriceText, rowErrors = {}) {
     const basePrice = parseMoney(basePriceText);
@@ -173,9 +172,6 @@ export default function ProductsPage() {
       flavors
         .filter((f) => f.id === currentId || !rows.some((r) => r.flavorId === f.id))
         .map((f) => ({ value: f.id, label: f.name }));
-    const rowsMissingRecipes = rows
-      .filter((r) => r.flavorId && (r.recipes ?? []).every((l) => !String(l.itemName ?? "").trim()))
-      .map((r) => flavors.find((f) => f.id === r.flavorId)?.name ?? "a flavor");
 
     return (
       <div className="flex flex-col gap-3">
@@ -342,12 +338,6 @@ export default function ProductsPage() {
           </div>
           {flavorError && <p className="error-box" role="alert" style={{ marginTop: "8px" }}>{flavorError}</p>}
         </div>
-
-        {rowsMissingRecipes.length > 0 && (
-          <p className="muted small" style={{ margin: 0 }}>
-            No recipes for {rowsMissingRecipes.join(", ")} — stock won&apos;t deduct for those flavors until recipes are added.
-          </p>
-        )}
       </div>
     );
   }
@@ -390,12 +380,6 @@ export default function ProductsPage() {
         `Product "${name.value}" created${checked.payload.length ? ` with ${checked.payload.length} flavor(s)` : ""}${data?.recipesCreated ? `, ${data.recipesCreated} recipe row(s)` : ""}`,
         "success"
       );
-      if (checked.warnFlavors.length > 0) {
-        toast(
-          `No recipes for ${checked.warnFlavors.join(", ")} — stock won't deduct for those flavors until recipes are added.`,
-          "warn"
-        );
-      }
       closeAddModal();
       setNewProduct({ name: "", category: "Fries", basePrice: "" });
       setAddFlavorRows([]);
@@ -410,15 +394,15 @@ export default function ProductsPage() {
   }
 
   // Validate per-flavor rows shared by Add and Edit. Returns
-  // { ok, error?, payload?, warnFlavors?, rowErrors?, badKey? } where payload
-  // matches POST /products flavors[]. Failures carry a per-row message
-  // (shown inline under the row) plus badKey (auto-expanded on submit).
+  // { ok, error?, payload?, rowErrors?, badKey? } where payload matches
+  // POST /products flavors[]. Recipes are optional. Failures carry a
+  // per-row message (shown inline under the row) plus badKey
+  // (auto-expanded on submit).
   function checkFlavorRows(rows, basePrice) {
     const payload = [];
-    const warnFlavors = [];
     const seen = new Set();
     const fail = (row, error) => ({
-      ok: false, error, payload: [], warnFlavors: [],
+      ok: false, error, payload: [],
       rowErrors: { [row.key]: error }, badKey: row.key,
     });
     for (const row of rows) {
@@ -453,10 +437,9 @@ export default function ProductsPage() {
         recipes.push({ itemName, amountPerUnit: amount });
       }
       if (recipes.length > 0) entry.recipes = recipes;
-      else warnFlavors.push(flavor?.name ?? "a flavor");
       payload.push(entry);
     }
-    return { ok: true, payload, warnFlavors, rowErrors: {}, badKey: null };
+    return { ok: true, payload, rowErrors: {}, badKey: null };
   }
 
   async function handleEditProduct(e) {
@@ -560,12 +543,6 @@ export default function ProductsPage() {
         `Product "${editing.name}" updated${details.length ? ` (${details.join("; ")})` : ""}`,
         "success"
       );
-      if (checked.warnFlavors.length > 0) {
-        toast(
-          `No recipes for ${checked.warnFlavors.join(", ")} — stock won't deduct for those flavors until recipes are added.`,
-          "warn"
-        );
-      }
       closeEditModal();
       load();
     } catch (err) {

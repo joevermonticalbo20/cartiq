@@ -491,11 +491,11 @@ React+Vite setup:
   now-unused basket request.
 - **By-flavor products** — Add/Edit product uses per-flavor rows (flavor
   picker + inline create, absolute per-flavor price defaulting to base,
-  optional recipe lines with warn-don't-block when missing); table badges
-  show custom prices + `no recipe` warnings. API: `POST/PATCH /products`
-  accept `flavors[]`/`flavorPrices`/`addRecipes`/`removeRecipes`, flavor
-  remove guarded by recipe rows (409), new `PATCH/DELETE /flavors/:id`
-  (rename rewrites recipes + price keys atomically).
+  optional recipe lines); table badges show custom prices + `no recipe`
+  hints. API: `POST/PATCH /products` accept `flavors[]`/`flavorPrices`/
+  `addRecipes`/`removeRecipes`, flavor remove guarded by recipe rows (409),
+  new `PATCH/DELETE /flavors/:id` (rename rewrites recipes + price keys
+  atomically).
 - **Honest errors + loading everywhere** — shared `getFriendlyError`
   (server 4xx verbatim, plain text for offline/403/5xx incl. Render
   cold-start hint) + `ErrorBox` (`role=alert` + Retry) on every page;
