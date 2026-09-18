@@ -888,7 +888,7 @@ export default function AnalyticsPage() {
                             <th>Stock</th>
                             <th>Avg/day</th>
                             <th>Depletion</th>
-                            <th>MAPE</th>
+                            <th title="Symmetric mean absolute percentage error (0-200%)">sMAPE</th>
                             <th>Risk</th>
                           </tr>
                         </thead>
@@ -954,7 +954,7 @@ export default function AnalyticsPage() {
                     
                     <p className="muted small" style={{ marginBottom: "var(--space-2)", opacity: isFcReady ? 1 : 0.5 }}>
                       Same engine as inventory forecasts
-                      {isFcReady && salesFc.mape != null && <> - backtest MAPE <strong>{salesFc.mape}%</strong></>}.
+                      {isFcReady && salesFc.mape != null && <> - backtest sMAPE <strong>{salesFc.mape}%</strong></>}.
                       {" "}<span aria-hidden="true">-</span> dashed line = forecast, not history.
                     </p>
                     

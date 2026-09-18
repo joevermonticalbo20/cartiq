@@ -65,7 +65,7 @@ async function main() {
         cheese?.avg_daily_use > 0.01 && cheese?.avg_daily_use < 5,
         `${cheese?.avg_daily_use} kg/day`);
   check("7-day horizon returned", cheese?.forecast?.length === 7);
-  check("MAPE backtest numeric 0-200", typeof cheese?.mape_pct === "number" &&
+  check("sMAPE backtest numeric 0-200 (bounded by construction)", typeof cheese?.mape_pct === "number" &&
         cheese.mape_pct >= 0 && cheese.mape_pct <= 200, `${cheese?.mape_pct}%`);
   check("depletion date projected", Boolean(cheese?.depletion_date));
 

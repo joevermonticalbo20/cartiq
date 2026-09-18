@@ -73,8 +73,9 @@ Test: `node scripts/phase2_test.mjs` against a running API (11 checks).
 ## Phase 3 - analytics (IMPLEMENTED)
 
 Practical/statistical tier per proposal: moving average + linear regression
-with clamped weekday seasonal factors; backtested MAPE; reorder point =
-avg daily demand x lead time + z(1.65) x sigma x sqrt(lead).
+with clamped weekday seasonal factors; backtested sMAPE (symmetric MAPE,
+bounded 0-200 by construction — classic MAPE explodes on low-volume days);
+reorder point = avg daily demand x lead time + z(1.65) x sigma x sqrt(lead).
 `MIN_DAYS_FOR_FORECAST = 14` - items below that report `data_sufficient:false`
 with a reason (cold-start honesty). Demo history: `node scripts/seed_history.mjs`.
 

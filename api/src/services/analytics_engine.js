@@ -72,14 +72,24 @@ export function sampleStdDev(values) {
   return Math.sqrt(variance);
 }
 
-export function mape(actual, predicted) {
-  const pairs = actual
-    .map((a, i) => [a, predicted[i]])
-    .filter(([a]) => a > 0);
-  if (pairs.length === 0) return null;
-  const err =
-    pairs.reduce((acc, [a, p]) => acc + Math.abs(a - p) / a, 0) / pairs.length;
-  return Number((err * 100).toFixed(1));
+export function smape(actual, predicted) {
+  // Symmetric MAPE over aligned backtest pairs. Classic MAPE divides by the
+  // actual alone, so one low-volume day (a single serving) explodes past
+  // 200% and fails CI on pure noise. sMAPE divides by (|a|+|p|)/2 instead:
+  // each pair contributes at most 200, so with non-negative inputs the mean
+  // is bounded 0-200 BY CONSTRUCTION — no threshold luck involved.
+  // Zero/zero pairs are undefined and skipped; non-finite or negative
+  // inputs are skipped; null when nothing qualifies.
+  const errs = [];
+  for (let i = 0; i < Math.min(actual.length, predicted.length); i++) {
+    const a = Number(actual[i]);
+    const p = Number(predicted[i]);
+    if (!Number.isFinite(a) || !Number.isFinite(p) || a < 0 || p < 0) continue;
+    if (a === 0 && p === 0) continue;
+    errs.push((2 * Math.abs(a - p)) / (Math.abs(a) + Math.abs(p)) * 100);
+  }
+  if (errs.length === 0) return null;
+  return Number((errs.reduce((s, e) => s + e, 0) / errs.length).toFixed(1));
 }
 
 // ---------- consumption series per inventory item ----------
@@ -262,7 +272,7 @@ export function forecastForSeries(seriesEntries, { horizon, minDays }) {
     (v, i) => v / (factors[manilaDowOfKey(keys[i])] || 1)
   );
 
-  // Backtest MAPE on the last 3 observed days using prior data only.
+  // Backtest sMAPE on the last 3 observed days using prior data only.
   let mapeValue = null;
   if (deseasonalized.length >= 6) {
     const trainCut = deseasonalized.length - 3;
@@ -279,7 +289,7 @@ export function forecastForSeries(seriesEntries, { horizon, minDays }) {
       predActual.push(values[idx]);
       predValues.push(blended * (factors[dow] || 1));
     }
-    mapeValue = mape(predActual, predValues);
+    mapeValue = smape(predActual, predValues);
   }
 
   const ma = movingAverage(deseasonalized);

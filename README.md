@@ -335,7 +335,7 @@ React+Vite setup:
 - **Comparative period analytics** — AnalyticsPage shows `↑/↓ X% vs prior 28d`
   by diffing two trend calls (28d + 56d).
 - **Predictive inventory badges** — InventoryPage shows depletion date per
-  item, color-coded by risk (critical/low/ok), with MAPE tooltip.
+  item, color-coded by risk (critical/low/ok), with sMAPE tooltip.
 - **Bulk stock adjustment** — Multi-select checkboxes + sticky action bar
   for batched inventory recounts, with success/failure reporting.
 - **Staff performance panel** — `/api/analytics/staff-performance` feeds a
