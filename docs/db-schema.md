@@ -130,6 +130,13 @@ erDiagram
   flavor renames rewrite recipe rows + price keys atomically; removing a
   flavor with recipe rows is rejected (409) and deleting a flavor is blocked
   while products or recipes reference it.
+- **House recipe convention** (`api/src/services/recipe_defaults.js`): 1
+  `Pouches` + 0.05 `Fries (frozen packs)` per serving (generic rows) + 15 g
+  (0.015 kg) powder per flavored serving (Cheese/Sour Cream/BBQ powders).
+  `npm run recipes:check` dry-runs coverage for every product-flavor and
+  every ACTIVE cart; `npm run recipes:apply` writes missing rows and aligns
+  amounts. Flavors without a powder mapping and carts missing stock rows
+  are reported, never guessed.
 - **Sensor → inventory mapping:** `LPG_TANK` mirrors into the `LPG Tank` row,
   `CHEESE_BIN` into `Cheese Powder` (source flips to `SENSOR`). Recipe-tracked
   items (pouches, frozen packs, powders via `IngredientMap`) deduct on POS orders.

@@ -113,13 +113,15 @@ async function main() {
     });
   }
 
-  // Recipe maps for automatic inventory deduction per unit sold
+  // Recipe maps for automatic inventory deduction per unit sold.
+  // Amounts come from the house convention (services/recipe_defaults.js):
+  // 1 pouch + 0.05 frozen packs per serving, 15 g powder per flavored serving.
+  const { genericRecipeRows, flavorRecipeRows } = await import("../src/services/recipe_defaults.js");
   const recipes = [
-    { productName: fries.name, flavor: "", itemName: "Pouches", amountPerUnit: 1 },
-    { productName: fries.name, flavor: "", itemName: "Fries (frozen packs)", amountPerUnit: 0.05 },
-    { productName: fries.name, flavor: "Cheese", itemName: "Cheese Powder", amountPerUnit: 0.03 },
-    { productName: fries.name, flavor: "Sour Cream", itemName: "Sour Cream Powder", amountPerUnit: 0.03 },
-    { productName: fries.name, flavor: "BBQ", itemName: "BBQ Powder", amountPerUnit: 0.03 },
+    ...genericRecipeRows().map((r) => ({ productName: fries.name, flavor: "", ...r })),
+    ...["Cheese", "Sour Cream", "BBQ"].flatMap((flavor) =>
+      flavorRecipeRows(flavor).rows.map((r) => ({ productName: fries.name, flavor, ...r }))
+    ),
   ];
   for (const r of recipes) {
     const rows = await db.ingredientMaps.findMany({

@@ -499,6 +499,11 @@ React+Vite setup:
   unknown names get an inline hint, uncovered flavors a `missingItems` icon;
   Inventory rows show `Used by Product (Flavor)` so the deduction path is
   visible both ways.
+- **House recipes (1 pouch + 15 g powder/serving)** — convention lives in
+  `api/src/services/recipe_defaults.js`; `npm run recipes:check` (dry run)
+  / `recipes:apply` aligns every product-flavor and reports per-cart stock
+  gaps + unknown flavors. POS deduction (clamped, oversell warnings,
+  threshold alerts, void restore) is untouched — exact-name match.
 - **Honest errors + loading everywhere** — shared `getFriendlyError`
   (server 4xx verbatim, plain text for offline/403/5xx incl. Render
   cold-start hint) + `ErrorBox` (`role=alert` + Retry) on every page;
