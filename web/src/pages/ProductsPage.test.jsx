@@ -89,6 +89,63 @@ describe("ProductsPage loading/error states", () => {
   });
 });
 
+describe("ProductsPage edit change feedback", () => {
+  const seedProducts = [
+    {
+      id: 5,
+      name: "Flavored Fries",
+      category: "Fries",
+      basePrice: 40,
+      flavorPrices: {},
+      flavors: [
+        { id: 1, name: "Cheese", unitPrice: 40, hasCustomPrice: false, recipeCount: 1 },
+      ],
+      recipeCount: 1,
+      orderLines: 0,
+    },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.get.mockImplementation((url) => {
+      if (url === "/products") return Promise.resolve({ data: { data: seedProducts } });
+      if (url === "/flavors") return Promise.resolve({ data: { data: seedFlavors } });
+      return Promise.resolve({ data: null });
+    });
+    api.patch.mockResolvedValue({ data: { product: {}, recipesChanged: 0 } });
+  });
+
+  async function openEdit() {
+    renderPage();
+    await screen.findByText("Flavored Fries");
+    fireEvent.click(screen.getByTitle("Edit price, flavors, recipes"));
+    expect(await screen.findByText("Edit Flavored Fries")).toBeInTheDocument();
+  }
+
+  it("reports no changes when nothing was touched", async () => {
+    await openEdit();
+    fireEvent.click(screen.getByText("Save Changes"));
+    expect(await screen.findByText(/No changes — nothing to update/)).toBeInTheDocument();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it("names the price move in the success message", async () => {
+    await openEdit();
+    const modal = screen.getByText("Edit Flavored Fries").closest(".modal");
+    // Saved rows start collapsed — expand first.
+    fireEvent.click(within(modal).getByLabelText("Expand Cheese"));
+    fireEvent.change(within(modal).getByTitle("Leave blank to use the base price"), {
+      target: { value: "45" },
+    });
+    fireEvent.click(within(modal).getByText("Save Changes"));
+
+    await screen.findByText(/Cheese P40→P45/);
+    const [url, body] = api.patch.mock.calls[0];
+    expect(url).toBe("/products/5");
+    expect(body.flavorPrices).toEqual({ Cheese: 45 });
+  });
+});
+
 describe("ProductsPage by-flavor add", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -116,7 +173,24 @@ describe("ProductsPage by-flavor add", () => {
     fillNameAndPrice();
     fireEvent.click(screen.getByText("+ Add flavor"));
     fireEvent.click(screen.getByText("Create Product"));
-    expect(await screen.findByText(/Pick a flavor for every flavor row/)).toBeInTheDocument();
+    // Same message at modal level and inline under the bad row.
+    const matches = await screen.findAllByText(/Pick a flavor for this row/);
+    expect(matches.length).toBeGreaterThanOrEqual(2);
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("shows the row error inline under the bad row and expands it", async () => {
+    await openAddModal();
+    fillNameAndPrice();
+    fireEvent.click(screen.getByText("+ Add flavor"));
+    const modal = screen.getByText("Add Product").closest(".modal");
+    // Collapse the empty row: submit must expand it again with the error.
+    fireEvent.click(within(modal).getByLabelText("Collapse flavor row"));
+    expect(within(modal).queryByTitle("Leave blank to use the base price")).toBeNull();
+    fireEvent.click(within(modal).getByText("Create Product"));
+    const alerts = await within(modal).findAllByRole("alert");
+    expect(alerts.length).toBeGreaterThanOrEqual(2);
+    expect(within(modal).getByTitle("Leave blank to use the base price")).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
   });
 

@@ -55,6 +55,12 @@ export default function ProductsPage() {
   // Per-flavor rows: [{ key, flavorId, unitPrice, recipes: [{ key, itemName, amount }] }].
   // unitPrice blank = use the product base price.
   const [addFlavorRows, setAddFlavorRows] = useState([]);
+  const [addRowErrors, setAddRowErrors] = useState({});
+  // Row edits clear row-level errors so fixed rows stop showing red.
+  const setAddRows = (updater) => {
+    setAddFlavorRows(updater);
+    setAddRowErrors({});
+  };
 
   const [editing, setEditing] = useState(null);
   const [editClosing, setEditClosing] = useState(false);
@@ -160,7 +166,8 @@ export default function ProductsPage() {
   // Per-flavor row editor shared by the Add and Edit modals. Recipes are
   // optional (warn, don't block): rows without recipes show a warning but
   // still submit — stock just won't deduct for those flavors yet.
-  function flavorRowsEditor(rows, setRows, basePriceText) {
+  // rowErrors maps row.key -> inline message; any row edit clears them.
+  function flavorRowsEditor(rows, setRows, basePriceText, rowErrors = {}) {
     const basePrice = parseMoney(basePriceText);
     const optionsFor = (currentId) =>
       flavors
@@ -282,6 +289,11 @@ export default function ProductsPage() {
                   Remove flavor
                 </button>
               </div>
+              {rowErrors[row.key] && (
+                <p className="error-box" role="alert" style={{ margin: "8px 0 0" }}>
+                  {rowErrors[row.key]}
+                </p>
+              )}
               {row.existingRecipeCount > 0 && (
                 <p className="muted small" style={{ margin: "8px 0 0" }}>
                   {row.existingRecipeCount} recipe row(s) already saved for {picked?.name ?? "this flavor"} — new lines below are added on save.
@@ -351,6 +363,10 @@ export default function ProductsPage() {
     const checked = checkFlavorRows(addFlavorRows, price);
     if (!checked.ok) {
       setAddError(checked.error);
+      setAddRowErrors(checked.rowErrors);
+      if (checked.badKey) {
+        setAddFlavorRows((prev) => prev.map((r) => (r.key === checked.badKey ? { ...r, collapsed: false } : r)));
+      }
       return;
     }
 
@@ -375,6 +391,7 @@ export default function ProductsPage() {
       closeAddModal();
       setNewProduct({ name: "", category: "Fries", basePrice: "" });
       setAddFlavorRows([]);
+      setAddRowErrors({});
       setFlavorDraft("");
       load();
     } catch (err) {
@@ -385,18 +402,23 @@ export default function ProductsPage() {
   }
 
   // Validate per-flavor rows shared by Add and Edit. Returns
-  // { ok, error?, payload?, warnFlavors? } where payload matches
-  // POST /products flavors[] (only rows with a picked flavor).
+  // { ok, error?, payload?, warnFlavors?, rowErrors?, badKey? } where payload
+  // matches POST /products flavors[]. Failures carry a per-row message
+  // (shown inline under the row) plus badKey (auto-expanded on submit).
   function checkFlavorRows(rows, basePrice) {
     const payload = [];
     const warnFlavors = [];
     const seen = new Set();
+    const fail = (row, error) => ({
+      ok: false, error, payload: [], warnFlavors: [],
+      rowErrors: { [row.key]: error }, badKey: row.key,
+    });
     for (const row of rows) {
       if (!row.flavorId) {
-        return { ok: false, error: "Pick a flavor for every flavor row (or remove the row)." };
+        return fail(row, "Pick a flavor for this row (or remove the row).");
       }
       if (seen.has(row.flavorId)) {
-        return { ok: false, error: "Each flavor can only appear once per product." };
+        return fail(row, "This flavor is already added below — each flavor can only appear once.");
       }
       seen.add(row.flavorId);
       const flavor = flavors.find((f) => f.id === row.flavorId);
@@ -405,7 +427,7 @@ export default function ProductsPage() {
       if (unitText) {
         const unit = parseMoney(unitText);
         if (unit === null || unit <= 0) {
-          return { ok: false, error: `Enter a valid price for "${flavor?.name ?? "a flavor"}" (P0.01 to P9,999,999.99) or leave it blank to use the base price.` };
+          return fail(row, `Enter a valid price for "${flavor?.name ?? "this flavor"}" (P0.01 to P9,999,999.99) or leave it blank to use the base price.`);
         }
         if (unit !== basePrice) entry.unitPrice = unit;
       }
@@ -415,10 +437,10 @@ export default function ProductsPage() {
         const amount = parseQty(String(r.amount ?? ""));
         if (!itemName && (amount === null)) continue; // skip untouched blank lines
         if (!itemName || itemName.length > 120) {
-          return { ok: false, error: `Recipe rows for "${flavor?.name ?? "a flavor"}" need an item name (max 120 characters).` };
+          return fail(row, `Recipe rows for "${flavor?.name ?? "this flavor"}" need an item name (max 120 characters).`);
         }
         if (amount === null || amount <= 0) {
-          return { ok: false, error: `Recipe rows for "${flavor?.name ?? "a flavor"}" need an amount from 0.01 to 99,999.99.` };
+          return fail(row, `Recipe rows for "${flavor?.name ?? "this flavor"}" need an amount from 0.01 to 99,999.99.`);
         }
         recipes.push({ itemName, amountPerUnit: amount });
       }
@@ -426,7 +448,7 @@ export default function ProductsPage() {
       else warnFlavors.push(flavor?.name ?? "a flavor");
       payload.push(entry);
     }
-    return { ok: true, payload, warnFlavors };
+    return { ok: true, payload, warnFlavors, rowErrors: {}, badKey: null };
   }
 
   async function handleEditProduct(e) {
@@ -443,6 +465,13 @@ export default function ProductsPage() {
     const checked = checkFlavorRows(rows, price);
     if (!checked.ok) {
       setEditError(checked.error);
+      setEditing((prev) => {
+        if (!prev) return prev;
+        const nextRows = checked.badKey
+          ? (prev.flavorRows ?? []).map((r) => (r.key === checked.badKey ? { ...r, collapsed: false } : r))
+          : prev.flavorRows;
+        return { ...prev, flavorRows: nextRows, rowErrors: checked.rowErrors };
+      });
       return;
     }
 
@@ -451,8 +480,10 @@ export default function ProductsPage() {
     const sameLinks = origIds.length === nextIds.length &&
       origIds.every((id, i) => id === nextIds[i]);
 
-    // Per-flavor price overrides that changed vs the snapshot.
+    // Per-flavor price overrides that changed vs the snapshot, with labels
+    // for the success message (effective old price -> effective new price).
     const flavorPrices = {};
+    const priceChanges = [];
     let pricesChanged = false;
     const baseSnapshot = Number(editing._basePrice);
     for (const row of rows) {
@@ -466,6 +497,7 @@ export default function ProductsPage() {
       if (normNext !== normSnap) {
         pricesChanged = true;
         flavorPrices[flavor.name] = normNext;
+        priceChanges.push(`${flavor.name} P${normSnap ?? baseSnapshot}→P${normNext ?? price}`);
       }
     }
 
@@ -502,7 +534,24 @@ export default function ProductsPage() {
       if (pricesChanged) body.flavorPrices = flavorPrices;
       if (addRecipes.length > 0) body.addRecipes = addRecipes;
       const { data } = await api.patch(`/products/${editing.id}`, body);
-      toast(`Product "${editing.name}" updated${data?.recipesChanged ? ` (${data.recipesChanged} new recipe row(s))` : ""}`, "success");
+      // Say exactly what changed: added/removed flavors, price moves,
+      // new recipe rows — or category/base when those moved alone.
+      const details = [];
+      const nameOf = (id) => flavors.find((f) => f.id === id)?.name ?? "a flavor";
+      for (const id of adds) details.push(`+${nameOf(id)}`);
+      for (const id of removes) details.push(`−${nameOf(id)}`);
+      details.push(...priceChanges);
+      if ((data?.recipesChanged ?? 0) > 0) {
+        details.push(`${data.recipesChanged} new recipe row(s)`);
+      } else if (addRecipes.length > 0) {
+        details.push(`${addRecipes.length} recipe row(s) saved`);
+      }
+      if ((editing.category || "Fries") !== (editing._category || "Fries")) details.push("category updated");
+      if (price !== Number(editing._basePrice)) details.push(`base price P${Number(editing._basePrice)}→P${price}`);
+      toast(
+        `Product "${editing.name}" updated${details.length ? ` (${details.join("; ")})` : ""}`,
+        "success"
+      );
       if (checked.warnFlavors.length > 0) {
         toast(
           `No recipes for ${checked.warnFlavors.join(", ")} — stock won't deduct for those flavors until recipes are added.`,
@@ -578,10 +627,20 @@ export default function ProductsPage() {
       _basePrice: p.basePrice,
       _flavorIds: (p.flavors ?? []).map((f) => f.id),
       _flavorPrices: prices,
+      rowErrors: {},
     });
     setEditError("");
     setFlavorDraft("");
     setFlavorError("");
+  }
+
+  // Edit-modal row setter: supports updater fn or value, clears row errors.
+  function setEditRows(updater) {
+    setEditing((prev) => {
+      if (!prev) return prev;
+      const next = typeof updater === "function" ? updater(prev.flavorRows ?? []) : updater;
+      return { ...prev, flavorRows: next, rowErrors: {} };
+    });
   }
 
   if (user && !isOwner) {
@@ -611,6 +670,7 @@ export default function ProductsPage() {
                 className="small-btn"
                 onClick={() => {
                   setAddError("");
+                  setAddRowErrors({});
                   setFlavorDraft("");
                   setFlavorError("");
                   setAddOpen(true);
@@ -792,7 +852,7 @@ export default function ProductsPage() {
                 
                 <div className="field">
                   <span>Flavors — price &amp; recipes per flavor</span>
-                  {flavorRowsEditor(addFlavorRows, setAddFlavorRows, newProduct.basePrice)}
+                  {flavorRowsEditor(addFlavorRows, setAddRows, newProduct.basePrice, addRowErrors)}
                 </div>
                 
                 <div className="modal-actions">
@@ -847,8 +907,9 @@ export default function ProductsPage() {
                   <span>Flavors — price &amp; recipes per flavor</span>
                   {editing && flavorRowsEditor(
                     editing.flavorRows ?? [],
-                    (updater) => setEditing((prev) => prev ? { ...prev, flavorRows: typeof updater === "function" ? updater(prev.flavorRows ?? []) : updater } : prev),
-                    editing.basePrice
+                    setEditRows,
+                    editing.basePrice,
+                    editing.rowErrors ?? {}
                   )}
                 </div>
                 
