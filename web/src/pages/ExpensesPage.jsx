@@ -211,7 +211,7 @@ export default function ExpensesPage() {
       editing.category === original.category &&
       (note.value || "") === (original.note || "")
     ) {
-      toast("No changes   nothing to update on this expense.", "info");
+      toast("No changes — nothing to update on this expense.", "info");
       closeEditModal();
       return;
     }

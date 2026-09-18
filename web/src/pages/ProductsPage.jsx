@@ -165,7 +165,7 @@ export default function ProductsPage() {
       price === Number(editing._basePrice) &&
       sameFlavors
     ) {
-      toast("No changes   nothing to update on this product.", "info");
+      toast("No changes — nothing to update on this product.", "info");
       closeEditModal();
       return;
     }
@@ -197,7 +197,7 @@ export default function ProductsPage() {
       return;
     }
     if (name.value.toLowerCase() === renaming.name.toLowerCase()) {
-      toast("No changes   that is already the product name.", "info");
+      toast("No changes — that is already the product name.", "info");
       closeRenameModal();
       return;
     }
@@ -262,7 +262,7 @@ export default function ProductsPage() {
             {f.name}
           </label>
         ))}
-        {flavors.length === 0 && <span className="muted small">No flavors yet   create one below.</span>}
+        {flavors.length === 0 && <span className="muted small">No flavors yet — create one below.</span>}
       </div>
     );
   }
@@ -375,7 +375,7 @@ export default function ProductsPage() {
                       {(p.flavors ?? []).map((f) => (
                         <Badge key={f.id} variant="info">{f.name}</Badge>
                       ))}
-                      {(p.flavors ?? []).length === 0 && <span className="muted small"> </span>}
+                      {(p.flavors ?? []).length === 0 && <span className="muted small">—</span>}
                     </span>
                   ),
                 },
@@ -385,7 +385,7 @@ export default function ProductsPage() {
                   width: 130,
                   render: (p) => (
                     <span className="muted small">
-                      {p.recipeCount} recipe(s)   {p.orderLines} order line(s)
+                      {p.recipeCount} recipe(s) · {p.orderLines} order line(s)
                     </span>
                   ),
                 },

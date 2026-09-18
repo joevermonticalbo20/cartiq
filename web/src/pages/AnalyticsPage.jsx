@@ -84,7 +84,6 @@ export default function AnalyticsPage() {
   const [forecast, setForecast] = useState(null);
   const [profit, setProfit] = useState(null);
   const [hourly, setHourly] = useState(null);
-  const [basket, setBasket] = useState(null);
   const [salesFc, setSalesFc] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -108,6 +107,7 @@ export default function AnalyticsPage() {
     dateParams = `&days=${days}`;
     prevDateParams = `&days=${days * 2}`;
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch trigger on filter change, mirrors other pages
     setLoading(true);
     Promise.all([
       api.get(`/analytics/trends?1=1${dateParams}${codeParam}`),
@@ -115,10 +115,9 @@ export default function AnalyticsPage() {
       cartCode ? api.get(`/analytics/forecast?code=${encodeURIComponent(cartCode)}`).catch(() => ({ data: { code: cartCode, items: [] } })) : Promise.resolve({ data: { code: null, items: [] } }),
       isOwner ? api.get(`/analytics/profit?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })) : Promise.resolve({ data: null }),
       api.get(`/analytics/hourly?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })),
-      api.get(`/analytics/basket?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })),
       api.get(`/analytics/sales-forecast?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })),
     ])
-      .then(([cur, ext, f, pf, hr, bk, sf]) => {
+      .then(([cur, ext, f, pf, hr, sf]) => {
         if (!alive) return;
         setLoading(false);
         const curSales = cur.data.total_sales;
@@ -135,7 +134,6 @@ export default function AnalyticsPage() {
         setForecast(f.data);
         setProfit(pf.data);
         setHourly(hr.data);
-        setBasket(bk.data);
         setSalesFc(sf.data);
         setError("");
         setLastUpdated(new Date());
@@ -249,7 +247,7 @@ export default function AnalyticsPage() {
   }
   function sortIcon(col) {
     if (sortCol !== col) return <span className="sort-icon"> </span>;
-    return <span className="sort-icon active">{sortDir === "desc" ? " " : " "}</span>;
+    return <span className="sort-icon active">{sortDir === "desc" ? "↓" : "↑"}</span>;
   }
 
   const locationOptions = [
