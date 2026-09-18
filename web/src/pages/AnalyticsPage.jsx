@@ -8,9 +8,11 @@ import {
   DollarSign, BarChart2, PackageSearch, RefreshCw, X, Sparkles, Printer
 } from "lucide-react";
 import { useNavigate, useOutletContext } from "react-router-dom";
-import api, { getErrorMessage } from "../api.js";
+import api from "../api.js";
+import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
 import { SkeletonCards, SkeletonChart } from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
@@ -141,7 +143,7 @@ export default function AnalyticsPage() {
       .catch((err) => {
         if (!alive) return;
         setLoading(false);
-        const msg = getErrorMessage(err, "Unable to load analytics. Please try again.");
+        const msg = getFriendlyError(err, "Unable to load analytics. Please try again.");
         setError(msg);
       });
     return () => { alive = false; };
@@ -396,18 +398,14 @@ export default function AnalyticsPage() {
         </section>
 
         {error && (
-          <div className="error-box" role="alert" style={{ marginBottom: "var(--space-4)" }}>
-            <span>{error}</span>
-            <button
-              className="ghost"
-              onClick={() => {
-                setLoading(true);
-                setReload((n) => n + 1);
-              }}
-            >
-              Retry
-            </button>
-          </div>
+          <ErrorBox
+            message={error}
+            onRetry={() => {
+              setLoading(true);
+              setReload((n) => n + 1);
+            }}
+            style={{ marginBottom: "var(--space-4)" }}
+          />
         )}
 
         {trends && (

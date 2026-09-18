@@ -1,11 +1,13 @@
 import { useEffect, useState, useCallback } from "react";
 import { useOutletContext } from "react-router-dom";
 import { Trophy, RefreshCw, Plus, Edit2, Trash2, Clock, Calendar } from "lucide-react";
-import api, { getErrorMessage } from "../api.js";
+import api from "../api.js";
+import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
@@ -177,7 +179,7 @@ export default function StaffPage() {
       setTsTouched(false);
       handleRefreshAll();
     } catch (err) {
-      setAddError(getErrorMessage(err, "Failed to log manual shift."));
+      setAddError(getFriendlyError(err, "Failed to log manual shift."));
     } finally {
       setIsAdding(false);
     }
@@ -204,7 +206,7 @@ export default function StaffPage() {
       closeEditModal();
       handleRefreshAll();
     } catch (err) {
-      setEditError(getErrorMessage(err, "Failed to update shift log."));
+      setEditError(getFriendlyError(err, "Failed to update shift log."));
     } finally {
       setIsEditing(false);
     }
@@ -218,7 +220,7 @@ export default function StaffPage() {
       toast("Shift log deleted successfully", "success");
       handleRefreshAll();
     } catch (err) {
-      toast(getErrorMessage(err, "Failed to delete shift log"), "error");
+      toast(getFriendlyError(err, "Failed to delete shift log"), "error");
     } finally {
       setIsDeleting(false);
       setDeleting(null);
@@ -271,10 +273,11 @@ export default function StaffPage() {
 
         {/* 1. CURRENTLY ON SHIFT */}
         {topErrors.length > 0 && !perfLoading && (
-          <div className="error-box" role="alert" style={{ marginBottom: "var(--space-4)" }}>
-            <span>Could not load {topErrors.join(", ")}. Showing cached data.</span>
-            <button className="ghost" onClick={handleRefreshAll}>Retry</button>
-          </div>
+          <ErrorBox
+            message={`Could not load ${topErrors.join(", ")}. Showing cached data.`}
+            onRetry={handleRefreshAll}
+            style={{ marginBottom: "var(--space-4)" }}
+          />
         )}
         <section className="panel staff-panel">
           <div className="flex items-center justify-between" style={{ marginBottom: "var(--space-4)" }}>
@@ -383,7 +386,7 @@ export default function StaffPage() {
               <Skeleton rows={5} />
             </div>
           ) : error ? (
-            <div className="error-box">{error}</div>
+            <ErrorBox message={error} onRetry={handleRefreshAll} />
           ) : (!rows || rows.length === 0) ? (
             <EmptyState 
               icon={Calendar} 

@@ -45,6 +45,7 @@ erDiagram
         int id PK
         string name UK
         float basePrice
+        map flavorPrices "optional per-flavor absolute price overrides, keyed by flavor name; missing = basePrice"
     }
     INVENTORY_ITEM {
         int id PK
@@ -125,6 +126,10 @@ erDiagram
   `INACTIVE` hides them while preserving all history. Codes are immutable.
 - **Product lifecycle:** names are unique; renames rewrite recipe rows
   atomically (history keeps old names); delete is blocked while referenced.
+  Per-flavor absolute prices live in `flavorPrices` (missing = basePrice);
+  flavor renames rewrite recipe rows + price keys atomically; removing a
+  flavor with recipe rows is rejected (409) and deleting a flavor is blocked
+  while products or recipes reference it.
 - **Sensor → inventory mapping:** `LPG_TANK` mirrors into the `LPG Tank` row,
   `CHEESE_BIN` into `Cheese Powder` (source flips to `SENSOR`). Recipe-tracked
   items (pouches, frozen packs, powders via `IngredientMap`) deduct on POS orders.

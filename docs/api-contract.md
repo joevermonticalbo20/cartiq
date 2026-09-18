@@ -37,12 +37,14 @@ boundaries are Asia/Manila. Alert dedupe is by structured `dedupeKey`
 | `/locations` | GET | OWNER cart registry: every cart incl. INACTIVE, with item counts + node online status. |
 | `/locations` | POST | OWNER `{code*, name*, address?, seedInventory?=true}` — code `A-Z0-9-` 3-12 chars (unique→409); provisions location + starter inventory + ESP32 device. Returns `{location, items, device, deviceToken}` — token shown **once** (hashed at rest). 20/hour/IP. |
 | `/locations/:id` | PATCH | OWNER `{name?, address?, status?}` — rename/address; `ACTIVE\|INACTIVE` (code immutable). INACTIVE hides the cart from `/catalog`/POS but keeps history. |
-| `/products` | GET | Products with flavors + recipe/order-line counts (delete safety info). |
-| `/products` | POST | OWNER `{name*, category?, basePrice*, flavorIds?[]}` — unique name→409. |
-| `/products/:id` | PATCH | OWNER `{category?, basePrice?, addFlavorIds?, removeFlavorIds?}` — price affects future sales only. |
+| `/products` | GET | Products with per-flavor `unitPrice` (absolute, falls back to `basePrice`), per-flavor `recipeCount`, `flavorPrices` overrides + recipe/order-line counts (delete safety info). |
+| `/products` | POST | OWNER `{name*, category?, basePrice*, flavorIds?[], flavors?[]}` — unique name→409. `flavors[]` rows: `{flavorId? \| name?, unitPrice?, recipes?[{itemName*, amountPerUnit*}]}`; unknown names auto-created (max 20); bad price/recipe row→400. Returns `{product, flavorsCreated, recipesCreated}`. |
+| `/products/:id` | PATCH | OWNER `{category?, basePrice?, addFlavorIds?, removeFlavorIds?, flavorPrices?{[name]: price \| null}, addRecipes?[], removeRecipes?[]}` — price affects future sales only. Removing a flavor with recipe rows→409; `null` price clears the override. Returns `{product, recipesChanged}`. |
 | `/products/:id/rename` | PATCH | OWNER `{name*}` — atomic rename + recipe rewrite; past orders keep the old name. |
 | `/products/:id` | DELETE | OWNER — 409 with counts while order lines/recipes reference it; else deletes. |
 | `/flavors` | GET/POST | List (any auth) / create OWNER (unique→409). |
+| `/flavors/:id` | PATCH | OWNER `{name*}` — atomic rename rewriting recipe rows + per-flavor price keys. Returns `{flavor, mapsUpdated, pricesRewritten}`. |
+| `/flavors/:id` | DELETE | OWNER — 409 while products link it or recipe rows reference it; else deletes. |
 | `/catalog` | GET | Products with flavors + active locations (POS bootstrap payload). |
 | `/alerts?unread_only=true&limit` | GET | Alert feed, newest first. |
 | `/alerts/:id/read` | PATCH | OWNER-only mark-read. |

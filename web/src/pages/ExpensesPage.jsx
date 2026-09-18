@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { Trash2, ReceiptText, RefreshCw, X, Plus, Edit2, Wallet } from "lucide-react";
 
-import api, { getErrorMessage } from "../api.js";
+import api from "../api.js";
+import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
@@ -169,7 +171,7 @@ export default function ExpensesPage() {
       });
       handleRefresh();
     } catch (err) {
-      setAddError(getErrorMessage(err, "Failed to add expense."));
+      setAddError(getFriendlyError(err, "Failed to add expense."));
     } finally {
       setIsAdding(false);
     }
@@ -230,7 +232,7 @@ export default function ExpensesPage() {
       closeEditModal();
       handleRefresh();
     } catch (err) {
-      setEditError(getErrorMessage(err, "Failed to update expense."));
+      setEditError(getFriendlyError(err, "Failed to update expense."));
     } finally {
       setIsEditing(false);
     }
@@ -244,7 +246,7 @@ export default function ExpensesPage() {
       toast(`Deleted expense: ${confirming.vendor}`, "success");
       handleRefresh();
     } catch (err) {
-      toast(getErrorMessage(err, "Delete failed"), "error");
+      toast(getFriendlyError(err, "Delete failed"), "error");
     } finally {
       setIsDeleting(false);
       setConfirming(null);
@@ -362,7 +364,7 @@ export default function ExpensesPage() {
           )}
 
           {error ? (
-            <div className="error-box">{error}</div>
+            <ErrorBox message={error} onRetry={refresh} />
           ) : !loading && (!rows || rows.length === 0) ? (
             <EmptyState
               icon={ReceiptText}
@@ -370,8 +372,14 @@ export default function ExpensesPage() {
               subtitle="Add an expense manually or scan vendor receipts from the POS app."
             />
           ) : (
-            <DataTable
-              loading={loading}
+            <>
+              {loading && (
+                <p role="status" className="muted small" style={{ margin: "0 0 var(--space-2)" }}>
+                  Loading expenses…
+                </p>
+              )}
+              <DataTable
+                loading={loading}
               fixedLayout={true}
               emptyMessage="No expenses this period."
               columns={[
@@ -478,6 +486,7 @@ export default function ExpensesPage() {
               data={rows}
               pagination={meta ? { ...meta, onPageChange: gotoPage } : null}
             />
+            </>
           )}
         </section>
 

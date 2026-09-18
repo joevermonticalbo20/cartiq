@@ -20,9 +20,11 @@ import {
   X,
 } from "lucide-react";
 
-import api, { API_BASE, getErrorMessage } from "../api.js";
+import api, { API_BASE } from "../api.js";
+import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import SensorPanel from "../components/SensorPanel.jsx";
 import Select from "../components/Select.jsx";
@@ -115,7 +117,7 @@ export default function DashboardPage() {
       try {
         apply(await promise);
       } catch (err) {
-        errs[key] = getErrorMessage(err, "Couldn't load this section.");
+        errs[key] = getFriendlyError(err, "Couldn't load this section.");
       }
     };
 
@@ -292,11 +294,11 @@ export default function DashboardPage() {
       </div>
 
       {Object.keys(sectionErrors).length > 0 && !loading && (
-        <div className="error-box" role="alert" style={{ marginBottom: "var(--space-4)" }}>
-          Couldn&apos;t refresh:{" "}
-          {Object.keys(sectionErrors).map((k) => sectionLabels[k] ?? k).join(", ")}. Showing available data.{" "}
-          <button type="button" className="linklike" onClick={refresh}>Retry</button>
-        </div>
+        <ErrorBox
+          message={<>Couldn&apos;t refresh: {Object.keys(sectionErrors).map((k) => sectionLabels[k] ?? k).join(", ")}. Showing available data.</>}
+          onRetry={refresh}
+          style={{ marginBottom: "var(--space-4)" }}
+        />
       )}
 
       {loading ? (

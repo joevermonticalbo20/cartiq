@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import api, { getErrorMessage } from "../api.js";
+import api from "../api.js";
+import { getFriendlyError } from "../utils/errors.js";
 
 /**
  * Paged data fetcher for endpoints returning { data, meta }.
@@ -26,7 +27,7 @@ export function usePagedData(buildPath, deps = []) {
         setState((s) => ({
           ...s,
           loading: false,
-          error: getErrorMessage(err, "Failed to load data"),
+          error: getFriendlyError(err, "Failed to load data"),
         }));
       }
     },

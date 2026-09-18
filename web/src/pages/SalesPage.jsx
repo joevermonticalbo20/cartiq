@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { ReceiptText, RefreshCw, X, Download, Edit2 } from "lucide-react";
 
-import api, { getErrorMessage } from "../api.js";
+import api from "../api.js";
+import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import Select from "../components/Select.jsx";
@@ -79,7 +81,7 @@ export default function SalesPage() {
     } catch {
       /* fall through to generic message */
     }
-    return getErrorMessage(err, fallback);
+    return getFriendlyError(err, fallback);
   }
 
   async function handleExport() {
@@ -126,7 +128,7 @@ export default function SalesPage() {
       closeEditModal();
       refresh();
     } catch (err) {
-      setEditError(getErrorMessage(err, "Failed to update order."));
+      setEditError(getFriendlyError(err, "Failed to update order."));
     } finally {
       setIsEditing(false);
     }
@@ -146,7 +148,7 @@ export default function SalesPage() {
       toast(`Voided order #${confirming.id}`, "success");
       refresh();
     } catch (err) {
-      toast(getErrorMessage(err, "Void failed"), "error");
+      toast(getFriendlyError(err, "Void failed"), "error");
     } finally {
       setIsVoiding(false);
       setConfirming(null);
@@ -212,7 +214,7 @@ export default function SalesPage() {
           </div>
 
           {error ? (
-            <div className="error-box">{error}</div>
+            <ErrorBox message={error} onRetry={refresh} />
           ) : !loading && (!rows || rows.length === 0) ? (
             <EmptyState
               icon={ReceiptText}
@@ -224,8 +226,14 @@ export default function SalesPage() {
               }
             />
           ) : (
-            <DataTable
-              loading={loading}
+            <>
+              {loading && (
+                <p role="status" className="muted small" style={{ margin: "0 0 var(--space-2)" }}>
+                  Loading sales…
+                </p>
+              )}
+              <DataTable
+                loading={loading}
               fixedLayout={true}
               emptyMessage="No sales found - adjust the filters or record sales from the POS app."
               columns={[
@@ -370,6 +378,7 @@ export default function SalesPage() {
               data={rows}
               pagination={meta ? { ...meta, onPageChange: gotoPage } : null}
             />
+            </>
           )}
         </section>
 

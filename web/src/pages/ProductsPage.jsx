@@ -2,16 +2,39 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { Plus, Edit2, Trash2, RefreshCw, Tag } from "lucide-react";
 
-import api, { getErrorMessage } from "../api.js";
+import api from "../api.js";
+import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
+import Select from "../components/Select.jsx";
 import { useToast } from "../components/Toast.jsx";
-import { sanitizeMoneyInput, parseMoney } from "../utils/format.js";
+import { sanitizeMoneyInput, sanitizeQtyInput, parseMoney, parseQty } from "../utils/format.js";
 import { sanitizeTextInput, validateItemName } from "../utils/text.js";
+
+let flavorRowSeq = 1;
+function newFlavorRowState(overrides = {}) {
+  return {
+    key: `fr-${Date.now()}-${flavorRowSeq++}`,
+    flavorId: null,
+    unitPrice: "",
+    recipes: [],
+    ...overrides,
+  };
+}
+
+function newRecipeRowState(overrides = {}) {
+  return {
+    key: `rr-${Date.now()}-${flavorRowSeq++}`,
+    itemName: "",
+    amount: "",
+    ...overrides,
+  };
+}
 
 export default function ProductsPage() {
   const toast = useToast();
@@ -27,7 +50,10 @@ export default function ProductsPage() {
   const [addClosing, setAddClosing] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState("");
-  const [newProduct, setNewProduct] = useState({ name: "", category: "Fries", basePrice: "", flavorIds: [] });
+  const [newProduct, setNewProduct] = useState({ name: "", category: "Fries", basePrice: "" });
+  // Per-flavor rows: [{ key, flavorId, unitPrice, recipes: [{ key, itemName, amount }] }].
+  // unitPrice blank = use the product base price.
+  const [addFlavorRows, setAddFlavorRows] = useState([]);
 
   const [editing, setEditing] = useState(null);
   const [editClosing, setEditClosing] = useState(false);
@@ -54,7 +80,7 @@ export default function ProductsPage() {
         setFlavors(f.data?.data ?? []);
         setError("");
       })
-      .catch((err) => setError(getErrorMessage(err, "Unable to load products.")))
+      .catch((err) => setError(getFriendlyError(err, "Unable to load products.")))
       .finally(() => setLoading(false));
   }, []);
 
@@ -87,26 +113,186 @@ export default function ProductsPage() {
     setTimeout(() => { setRenaming(null); setRenameClosing(false); setRenameName(""); }, 150);
   }
 
-  function toggleFlavor(list, id) {
-    return list.includes(id) ? list.filter((f) => f !== id) : [...list, id];
-  }
-
-  async function createFlavorInline(selected, setSelected) {
+  async function createFlavorInlineForRows(setRows) {
     const name = sanitizeTextInput(flavorDraft, 60).trim();
     if (!name) {
       setFlavorError("Type a flavor name first.");
+      return;
+    }
+    const dupe = flavors.some((f) => f.name.toLowerCase() === name.toLowerCase());
+    if (dupe) {
+      setFlavorError(`Flavor "${name}" already exists — pick it from the list.`);
       return;
     }
     setFlavorError("");
     try {
       const { data } = await api.post("/flavors", { name });
       setFlavors((prev) => [...prev, data.flavor].sort((a, b) => a.name.localeCompare(b.name)));
-      setSelected([...selected, data.flavor.id]);
+      setRows((prev) => {
+        const emptyIdx = prev.findIndex((r) => !r.flavorId);
+        if (emptyIdx >= 0) {
+          return prev.map((r, i) => (i === emptyIdx ? { ...r, flavorId: data.flavor.id } : r));
+        }
+        return [...prev, newFlavorRowState({ flavorId: data.flavor.id })];
+      });
       setFlavorDraft("");
       toast(`Flavor "${data.flavor.name}" created`, "success");
     } catch (err) {
-      setFlavorError(getErrorMessage(err, "Could not create flavor."));
+      setFlavorError(getFriendlyError(err, "Could not create flavor."));
     }
+  }
+
+  function updateFlavorRow(setRows, key, patch) {
+    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  }
+
+  function updateRecipeLine(setRows, rowKey, lineKey, patch) {
+    setRows((prev) =>
+      prev.map((r) =>
+        r.key === rowKey
+          ? { ...r, recipes: (r.recipes ?? []).map((l) => (l.key === lineKey ? { ...l, ...patch } : l)) }
+          : r
+      )
+    );
+  }
+
+  // Per-flavor row editor shared by the Add and Edit modals. Recipes are
+  // optional (warn, don't block): rows without recipes show a warning but
+  // still submit — stock just won't deduct for those flavors yet.
+  function flavorRowsEditor(rows, setRows, basePriceText) {
+    const basePrice = parseMoney(basePriceText);
+    const optionsFor = (currentId) =>
+      flavors
+        .filter((f) => f.id === currentId || !rows.some((r) => r.flavorId === f.id))
+        .map((f) => ({ value: f.id, label: f.name }));
+    const rowsMissingRecipes = rows
+      .filter((r) => r.flavorId && (r.recipes ?? []).every((l) => !String(l.itemName ?? "").trim()))
+      .map((r) => flavors.find((f) => f.id === r.flavorId)?.name ?? "a flavor");
+
+    return (
+      <div className="flex flex-col gap-3">
+        {rows.map((row) => {
+          const picked = flavors.find((f) => f.id === row.flavorId);
+          return (
+            <div key={row.key} className="panel" style={{ padding: "12px", margin: 0 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <label className="field">
+                  Flavor
+                  <Select
+                    value={row.flavorId ?? ""}
+                    onChange={(v) => updateFlavorRow(setRows, row.key, { flavorId: Number(v) })}
+                    options={optionsFor(row.flavorId)}
+                    placeholder="Pick a flavor"
+                  />
+                </label>
+                <label className="field">
+                  Price (PHP, blank = base)
+                  <input
+                    type="number"
+                    min="0"
+                    max="9999999.99"
+                    step="0.01"
+                    placeholder={basePrice !== null ? String(basePrice) : "Base price"}
+                    title="Leave blank to use the base price"
+                    value={row.unitPrice}
+                    onChange={(e) => updateFlavorRow(setRows, row.key, { unitPrice: sanitizeMoneyInput(e.target.value) })}
+                  />
+                </label>
+              </div>
+
+              {(row.recipes ?? []).map((line) => (
+                <div key={line.key} style={{ display: "grid", gridTemplateColumns: "1fr 120px 32px", gap: "8px", marginTop: "8px" }}>
+                  <input
+                    type="text"
+                    maxLength={120}
+                    placeholder="Ingredient item (e.g. Cheese Powder)"
+                    value={line.itemName}
+                    onChange={(e) => updateRecipeLine(setRows, row.key, line.key, { itemName: sanitizeTextInput(e.target.value, 120) })}
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Qty / unit"
+                    title="Amount deducted per unit sold"
+                    value={line.amount}
+                    onChange={(e) => updateRecipeLine(setRows, row.key, line.key, { amount: sanitizeQtyInput(e.target.value) })}
+                  />
+                  <button
+                    type="button"
+                    className="danger-ghost small-btn"
+                    title="Remove recipe line"
+                    onClick={() => updateFlavorRow(setRows, row.key, { recipes: (row.recipes ?? []).filter((l) => l.key !== line.key) })}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+
+              <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
+                <button
+                  type="button"
+                  className="ghost small-btn"
+                  onClick={() => updateFlavorRow(setRows, row.key, { recipes: [...(row.recipes ?? []), newRecipeRowState()] })}
+                >
+                  + Recipe line
+                </button>
+                <button
+                  type="button"
+                  className="danger-ghost small-btn"
+                  onClick={() => setRows((prev) => prev.filter((r) => r.key !== row.key))}
+                >
+                  Remove flavor
+                </button>
+              </div>
+              {row.existingRecipeCount > 0 && (
+                <p className="muted small" style={{ margin: "8px 0 0" }}>
+                  {row.existingRecipeCount} recipe row(s) already saved for {picked?.name ?? "this flavor"} — new lines below are added on save.
+                </p>
+              )}
+            </div>
+          );
+        })}
+
+        <div style={{ display: "flex", gap: "8px" }}>
+          <button
+            type="button"
+            className="ghost small-btn"
+            onClick={() => setRows((prev) => [...prev, newFlavorRowState()])}
+          >
+            + Add flavor
+          </button>
+        </div>
+
+        <div className="field">
+          <span>Create flavor</span>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <input
+              type="text"
+              maxLength={60}
+              placeholder="New flavor name"
+              value={flavorDraft}
+              onChange={(e) => setFlavorDraft(sanitizeTextInput(e.target.value, 60))}
+              style={{ flex: 1 }}
+            />
+            <button
+              type="button"
+              className="ghost small-btn"
+              onClick={() => createFlavorInlineForRows(setRows)}
+            >
+              Add
+            </button>
+          </div>
+          {flavorError && <p className="error-box" role="alert" style={{ marginTop: "8px" }}>{flavorError}</p>}
+        </div>
+
+        {rowsMissingRecipes.length > 0 && (
+          <p className="muted small" style={{ margin: 0 }}>
+            No recipes for {rowsMissingRecipes.join(", ")} — stock won&apos;t deduct for those flavors until recipes are added.
+          </p>
+        )}
+      </div>
+    );
   }
 
   async function handleAddProduct(e) {
@@ -125,24 +311,85 @@ export default function ProductsPage() {
       return;
     }
 
+    const checked = checkFlavorRows(addFlavorRows, price);
+    if (!checked.ok) {
+      setAddError(checked.error);
+      return;
+    }
+
     setIsAdding(true);
     try {
-      await api.post("/products", {
+      const { data } = await api.post("/products", {
         name: name.value,
         category: newProduct.category.trim() || "Fries",
         basePrice: price,
-        flavorIds: newProduct.flavorIds,
+        flavors: checked.payload,
       });
-      toast(`Product "${name.value}" created`, "success");
+      toast(
+        `Product "${name.value}" created${checked.payload.length ? ` with ${checked.payload.length} flavor(s)` : ""}${data?.recipesCreated ? `, ${data.recipesCreated} recipe row(s)` : ""}`,
+        "success"
+      );
+      if (checked.warnFlavors.length > 0) {
+        toast(
+          `No recipes for ${checked.warnFlavors.join(", ")} — stock won't deduct for those flavors until recipes are added.`,
+          "warn"
+        );
+      }
       closeAddModal();
-      setNewProduct({ name: "", category: "Fries", basePrice: "", flavorIds: [] });
+      setNewProduct({ name: "", category: "Fries", basePrice: "" });
+      setAddFlavorRows([]);
       setFlavorDraft("");
       load();
     } catch (err) {
-      setAddError(getErrorMessage(err, "Failed to create product."));
+      setAddError(getFriendlyError(err, "Failed to create product."));
     } finally {
       setIsAdding(false);
     }
+  }
+
+  // Validate per-flavor rows shared by Add and Edit. Returns
+  // { ok, error?, payload?, warnFlavors? } where payload matches
+  // POST /products flavors[] (only rows with a picked flavor).
+  function checkFlavorRows(rows, basePrice) {
+    const payload = [];
+    const warnFlavors = [];
+    const seen = new Set();
+    for (const row of rows) {
+      if (!row.flavorId) {
+        return { ok: false, error: "Pick a flavor for every flavor row (or remove the row)." };
+      }
+      if (seen.has(row.flavorId)) {
+        return { ok: false, error: "Each flavor can only appear once per product." };
+      }
+      seen.add(row.flavorId);
+      const flavor = flavors.find((f) => f.id === row.flavorId);
+      const entry = { flavorId: row.flavorId };
+      const unitText = String(row.unitPrice ?? "").trim();
+      if (unitText) {
+        const unit = parseMoney(unitText);
+        if (unit === null || unit <= 0) {
+          return { ok: false, error: `Enter a valid price for "${flavor?.name ?? "a flavor"}" (P0.01 to P9,999,999.99) or leave it blank to use the base price.` };
+        }
+        if (unit !== basePrice) entry.unitPrice = unit;
+      }
+      const recipes = [];
+      for (const r of row.recipes ?? []) {
+        const itemName = String(r.itemName ?? "").trim();
+        const amount = parseQty(String(r.amount ?? ""));
+        if (!itemName && (amount === null)) continue; // skip untouched blank lines
+        if (!itemName || itemName.length > 120) {
+          return { ok: false, error: `Recipe rows for "${flavor?.name ?? "a flavor"}" need an item name (max 120 characters).` };
+        }
+        if (amount === null || amount <= 0) {
+          return { ok: false, error: `Recipe rows for "${flavor?.name ?? "a flavor"}" need an amount from 0.01 to 99,999.99.` };
+        }
+        recipes.push({ itemName, amountPerUnit: amount });
+      }
+      if (recipes.length > 0) entry.recipes = recipes;
+      else warnFlavors.push(flavor?.name ?? "a flavor");
+      payload.push(entry);
+    }
+    return { ok: true, payload, warnFlavors };
   }
 
   async function handleEditProduct(e) {
@@ -155,15 +402,50 @@ export default function ProductsPage() {
       return;
     }
 
-    const origFlavors = [...(editing._flavorIds ?? [])].sort((a, b) => a - b);
-    const nextFlavors = [...(editing.flavorIds ?? [])].sort((a, b) => a - b);
-    const sameFlavors = origFlavors.length === nextFlavors.length &&
-      origFlavors.every((id, i) => id === nextFlavors[i]);
+    const rows = editing.flavorRows ?? [];
+    const checked = checkFlavorRows(rows, price);
+    if (!checked.ok) {
+      setEditError(checked.error);
+      return;
+    }
+
+    const origIds = [...(editing._flavorIds ?? [])].sort((a, b) => a - b);
+    const nextIds = checked.payload.map((p) => p.flavorId).sort((a, b) => a - b);
+    const sameLinks = origIds.length === nextIds.length &&
+      origIds.every((id, i) => id === nextIds[i]);
+
+    // Per-flavor price overrides that changed vs the snapshot.
+    const flavorPrices = {};
+    let pricesChanged = false;
+    const baseSnapshot = Number(editing._basePrice);
+    for (const row of rows) {
+      const flavor = flavors.find((f) => f.id === row.flavorId);
+      if (!flavor) continue;
+      const snap = editing._flavorPrices?.[flavor.name];
+      const unitText = String(row.unitPrice ?? "").trim();
+      const next = unitText ? parseMoney(unitText) : null;
+      const normNext = next !== null && next !== price ? next : null;
+      const normSnap = snap !== undefined && snap !== baseSnapshot ? snap : null;
+      if (normNext !== normSnap) {
+        pricesChanged = true;
+        flavorPrices[flavor.name] = normNext;
+      }
+    }
+
+    const addRecipes = [];
+    for (const entry of checked.payload) {
+      const flavor = flavors.find((f) => f.id === entry.flavorId);
+      for (const r of entry.recipes ?? []) {
+        addRecipes.push({ flavor: flavor?.name ?? "", itemName: r.itemName, amountPerUnit: r.amountPerUnit });
+      }
+    }
 
     if (
       (editing.category || "Fries") === (editing._category || "Fries") &&
       price === Number(editing._basePrice) &&
-      sameFlavors
+      sameLinks &&
+      !pricesChanged &&
+      addRecipes.length === 0
     ) {
       toast("No changes — nothing to update on this product.", "info");
       closeEditModal();
@@ -172,17 +454,28 @@ export default function ProductsPage() {
 
     setIsEditing(true);
     try {
-      await api.patch(`/products/${editing.id}`, {
+      const body = {
         category: editing.category.trim() || "Fries",
         basePrice: price,
-        addFlavorIds: nextFlavors.filter((id) => !origFlavors.includes(id)),
-        removeFlavorIds: origFlavors.filter((id) => !nextFlavors.includes(id)),
-      });
-      toast(`Product "${editing.name}" updated`, "success");
+      };
+      const adds = nextIds.filter((id) => !origIds.includes(id));
+      const removes = origIds.filter((id) => !nextIds.includes(id));
+      if (adds.length > 0) body.addFlavorIds = adds;
+      if (removes.length > 0) body.removeFlavorIds = removes;
+      if (pricesChanged) body.flavorPrices = flavorPrices;
+      if (addRecipes.length > 0) body.addRecipes = addRecipes;
+      const { data } = await api.patch(`/products/${editing.id}`, body);
+      toast(`Product "${editing.name}" updated${data?.recipesChanged ? ` (${data.recipesChanged} new recipe row(s))` : ""}`, "success");
+      if (checked.warnFlavors.length > 0) {
+        toast(
+          `No recipes for ${checked.warnFlavors.join(", ")} — stock won't deduct for those flavors until recipes are added.`,
+          "warn"
+        );
+      }
       closeEditModal();
       load();
     } catch (err) {
-      setEditError(getErrorMessage(err, "Failed to update product."));
+      setEditError(getFriendlyError(err, "Failed to update product."));
     } finally {
       setIsEditing(false);
     }
@@ -209,7 +502,7 @@ export default function ProductsPage() {
       closeRenameModal();
       load();
     } catch (err) {
-      setRenameError(getErrorMessage(err, "Rename failed."));
+      setRenameError(getFriendlyError(err, "Rename failed."));
     } finally {
       setIsRenaming(false);
     }
@@ -223,7 +516,7 @@ export default function ProductsPage() {
       toast(`Product "${deleting.name}" deleted`, "success");
       load();
     } catch (err) {
-      toast(getErrorMessage(err, "Delete failed."), "error");
+      toast(getFriendlyError(err, "Delete failed."), "error");
     } finally {
       setDeleting(null);
       setIsDeleting(false);
@@ -231,62 +524,25 @@ export default function ProductsPage() {
   }
 
   function openEdit(p) {
+    const prices = p.flavorPrices ?? {};
     setEditing({
       ...p,
       category: p.category || "Fries",
       basePrice: String(p.basePrice ?? ""),
-      flavorIds: (p.flavors ?? []).map((f) => f.id),
+      flavorRows: (p.flavors ?? []).map((f) => newFlavorRowState({
+        flavorId: f.id,
+        unitPrice: f.hasCustomPrice ? String(prices[f.name] ?? f.unitPrice ?? "") : "",
+        recipes: [],
+        existingRecipeCount: f.recipeCount ?? 0,
+      })),
       _category: p.category || "Fries",
       _basePrice: p.basePrice,
       _flavorIds: (p.flavors ?? []).map((f) => f.id),
+      _flavorPrices: prices,
     });
     setEditError("");
     setFlavorDraft("");
     setFlavorError("");
-  }
-
-  function flavorCheckboxes(selected, setSelected) {
-    return (
-      <div className="flex flex-wrap gap-2">
-        {flavors.map((f) => (
-          <label
-            key={f.id}
-            style={{ display: "inline-flex", alignItems: "center", gap: "6px", cursor: "pointer" }}
-          >
-            <input
-              type="checkbox"
-              checked={selected.includes(f.id)}
-              onChange={() => setSelected(toggleFlavor(selected, f.id))}
-              style={{ width: "16px", height: "16px", cursor: "pointer" }}
-            />
-            {f.name}
-          </label>
-        ))}
-        {flavors.length === 0 && <span className="muted small">No flavors yet — create one below.</span>}
-      </div>
-    );
-  }
-
-  function newFlavorRow(selected, setSelected) {
-    return (
-      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-        <input
-          type="text"
-          maxLength={60}
-          placeholder="New flavor name"
-          value={flavorDraft}
-          onChange={(e) => setFlavorDraft(sanitizeTextInput(e.target.value, 60))}
-          style={{ flex: 1 }}
-        />
-        <button
-          type="button"
-          className="ghost small-btn"
-          onClick={() => createFlavorInline(selected, setSelected)}
-        >
-          Add
-        </button>
-      </div>
-    );
   }
 
   if (user && !isOwner) {
@@ -337,7 +593,7 @@ export default function ProductsPage() {
 
         <section className="panel sales-panel">
           {error ? (
-            <div className="error-box">{error}</div>
+            <ErrorBox message={error} onRetry={load} />
           ) : !loading && products.length === 0 ? (
             <EmptyState
               icon={Tag}
@@ -345,8 +601,14 @@ export default function ProductsPage() {
               subtitle="Click 'Add product' to start building your catalog."
             />
           ) : (
-            <DataTable
-              loading={loading}
+            <>
+              {loading && (
+                <p role="status" className="muted small" style={{ margin: "0 0 var(--space-2)" }}>
+                  Loading products…
+                </p>
+              )}
+              <DataTable
+                loading={loading}
               fixedLayout={true}
               columns={[
                 {
@@ -373,7 +635,15 @@ export default function ProductsPage() {
                   render: (p) => (
                     <span className="flex flex-wrap gap-1">
                       {(p.flavors ?? []).map((f) => (
-                        <Badge key={f.id} variant="info">{f.name}</Badge>
+                        <Badge
+                          key={f.id}
+                          variant={f.recipeCount === 0 ? "warn" : "info"}
+                          title={f.hasCustomPrice ? `P${Number(f.unitPrice).toLocaleString()} — custom price` : `P${Number(f.unitPrice ?? p.basePrice).toLocaleString()}`}
+                        >
+                          {f.name}
+                          {f.hasCustomPrice ? ` · P${Number(f.unitPrice).toLocaleString()}` : ""}
+                          {f.recipeCount === 0 ? " · no recipe" : ""}
+                        </Badge>
                       ))}
                       {(p.flavors ?? []).length === 0 && <span className="muted small">—</span>}
                     </span>
@@ -399,7 +669,7 @@ export default function ProductsPage() {
                       <button
                         className="ghost small-btn"
                         onClick={() => openEdit(p)}
-                        title="Edit price, category, flavors"
+                        title="Edit price, flavors, recipes"
                       >
                         <Edit2 size={13} />
                       </button>
@@ -427,6 +697,7 @@ export default function ProductsPage() {
               ]}
               data={products}
             />
+            </>
           )}
         </section>
 
@@ -436,7 +707,7 @@ export default function ProductsPage() {
             <div className={`modal ${addClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
               <h3><Plus size={22} className="muted"/> Add Product</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                New catalog item for the POS. Recipes can be added per flavor later.
+                New catalog item for the POS. Add each flavor below with its own price and recipe rows.
               </p>
 
               <form onSubmit={handleAddProduct} className="flex flex-col gap-4">
@@ -481,14 +752,8 @@ export default function ProductsPage() {
                 </div>
                 
                 <div className="field">
-                  <span>Flavors</span>
-                  {flavorCheckboxes(newProduct.flavorIds, (ids) => setNewProduct({ ...newProduct, flavorIds: ids }))}
-                </div>
-                
-                <div className="field">
-                  <span>Create flavor</span>
-                  {newFlavorRow(newProduct.flavorIds, (ids) => setNewProduct({ ...newProduct, flavorIds: ids }))}
-                  {flavorError && <p className="error-box" role="alert" style={{ marginTop: "8px" }}>{flavorError}</p>}
+                  <span>Flavors — price &amp; recipes per flavor</span>
+                  {flavorRowsEditor(addFlavorRows, setAddFlavorRows, newProduct.basePrice)}
                 </div>
                 
                 <div className="modal-actions">
@@ -509,7 +774,7 @@ export default function ProductsPage() {
             <div className={`modal ${editClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
               <h3><Edit2 size={22} className="muted"/> Edit {editing?.name}</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                Price changes affect future sales only   recorded orders keep their totals.
+                Price changes affect future sales only — recorded orders keep their totals.
               </p>
 
               <form onSubmit={handleEditProduct} className="flex flex-col gap-4">
@@ -540,14 +805,12 @@ export default function ProductsPage() {
                 </div>
                 
                 <div className="field">
-                  <span>Flavors</span>
-                  {editing && flavorCheckboxes(editing.flavorIds ?? [], (ids) => setEditing({ ...editing, flavorIds: ids }))}
-                </div>
-                
-                <div className="field">
-                  <span>Create flavor</span>
-                  {editing && newFlavorRow(editing.flavorIds ?? [], (ids) => setEditing({ ...editing, flavorIds: ids }))}
-                  {flavorError && <p className="error-box" role="alert" style={{ marginTop: "8px" }}>{flavorError}</p>}
+                  <span>Flavors — price &amp; recipes per flavor</span>
+                  {editing && flavorRowsEditor(
+                    editing.flavorRows ?? [],
+                    (updater) => setEditing((prev) => prev ? { ...prev, flavorRows: typeof updater === "function" ? updater(prev.flavorRows ?? []) : updater } : prev),
+                    editing.basePrice
+                  )}
                 </div>
                 
                 <div className="modal-actions">

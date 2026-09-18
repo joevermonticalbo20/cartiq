@@ -10,13 +10,13 @@ sprints + Firestore migration + auth hardening I & II + cart provisioning +
 products catalog + instant POS catalog sync + P0 stock-race fixes + rate-limit
 + device-registry + analytics Manila-unification + button/connection audit +
 analytics refresh batch (section renames, scrollable tables, forecast
-placeholders, cost-breakdown wording) complete, pending hardware pilot and
-faculty approval.
+placeholders, cost-breakdown wording) + by-flavor products + honest
+errors/loading pass complete, pending hardware pilot and faculty approval.
 
 | Component | Path | Stack | Status |
 |---|---|---|---|
 | REST API | `api/` | Node.js 24, Express 5, Firestore (Spark free tier, via `api/src/firestore.js` data layer), typed JWT (access/refresh) + rotating refresh + revocation, staff cart scoping, login + endpoint rate limiting, ExcelJS, Bonjour/mDNS advertise | done, tested (30 unit + 174 integration checks in CI), **live on Render** |
-| Web admin dashboard | `web/` | React 19, Vite, React Router, Axios | done, builds (lint 0 errors, 174 tests), **live on Firebase Hosting** |
+| Web admin dashboard | `web/` | React 19, Vite, React Router, Axios | done, builds (lint 0 errors, 191 tests), **live on Firebase Hosting** |
 | Mobile POS app | `mobile/` | Flutter (Android/Windows), offline-first sqflite queue, ML Kit OCR, shared-prod API default | done, analyzes clean, 67 tests; release APK in `mobile/build/app/outputs/flutter-apk/` |
 | ESP32 IoT node | `iot/` | Arduino C++ firmware + **Node simulator** (`iot/simulator.mjs`) | code complete; hardware pending |
 
@@ -261,11 +261,11 @@ node scripts/test_authz_fix.mjs # logout/revoke, 15min tokens, VOID restore, dev
 node --test test/*.test.js     # api unit tests (run inside api/) - 30 checks
 flutter analyze                # mobile static analysis
 flutter test                   # mobile unit tests - 67 checks (URL normalize, cart, receipt parser, sync, money/text input)
-cd web && npm run lint && npm run test && npm run build  # web lint + 174 tests + production build
+cd web && npm run lint && npm run test && npm run build  # web lint + 191 tests + production build
 ```
 
 Regression totals: **153 phase checks + 21 authz checks + 30 api unit +
-67 mobile + 174 web**, all runnable in CI (`api-ci.yml` runs the full
+67 mobile + 191 web**, all runnable in CI (`api-ci.yml` runs the full
 emulator-backed integration job: Java 21 → emulator → seed + 21-day
 history → API → every suite). Run phase suites against the emulator only —
 never prod; they write test data. (`@google-cloud/firestore` is pinned as a
@@ -347,7 +347,7 @@ React+Vite setup:
   crash on one screen doesn't take the app down.
 - **Quick cart switcher** on the dashboard — shows each cart with its
   current low-stock count, links to the Inventory page.
-- **Vitest test suite** — `npm run test` (174 unit tests covering api utils,
+- **Vitest test suite** — `npm run test` (191 unit tests covering error mapping, ErrorBox, by-flavor Products, api utils,
   money/text/qty input rules, DataTable, Select, ConfirmDialog, Pagination,
   EmptyState, PasswordStrengthMeter, Settings/DataHub flows, and custom
   hooks); `npm run lint`
@@ -489,3 +489,15 @@ React+Vite setup:
   no-inventory/no-products; follow-up fix restored sort `↓/↑` icons,
   `—`/`·` punctuation, the analytics fetch lint-suppress, and dropped the
   now-unused basket request.
+- **By-flavor products** — Add/Edit product uses per-flavor rows (flavor
+  picker + inline create, absolute per-flavor price defaulting to base,
+  optional recipe lines with warn-don't-block when missing); table badges
+  show custom prices + `no recipe` warnings. API: `POST/PATCH /products`
+  accept `flavors[]`/`flavorPrices`/`addRecipes`/`removeRecipes`, flavor
+  remove guarded by recipe rows (409), new `PATCH/DELETE /flavors/:id`
+  (rename rewrites recipes + price keys atomically).
+- **Honest errors + loading everywhere** — shared `getFriendlyError`
+  (server 4xx verbatim, plain text for offline/403/5xx incl. Render
+  cold-start hint) + `ErrorBox` (`role=alert` + Retry) on every page;
+  `role=status` loading text on table pages; Settings owner tables show
+  skeletons instead of false-empty states.

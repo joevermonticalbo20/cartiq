@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import { KeyRound, Plus, RefreshCw, Eye, EyeOff, Edit2, Trash2, Cpu, ShoppingCart, Users } from "lucide-react";
-import api, { getErrorMessage } from "../api.js";
+import api from "../api.js";
+import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
@@ -23,6 +25,7 @@ export default function SettingsPage() {
   const [profileError, setProfileError] = useState("");
   // Owner tables must not masquerade load failures as "none yet".
   const [ownerError, setOwnerError] = useState([]);
+  const [ownerLoading, setOwnerLoading] = useState(false);
 
   const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
   const [devices, setDevices] = useState([]);
@@ -146,15 +149,18 @@ export default function SettingsPage() {
 
   function loadOwnerData() {
     if (!isOwner) return;
-    setOwnerError("");
+    setOwnerError([]);
+    setOwnerLoading(true);
     const track = (key, promise, apply) => {
-      promise.then(apply).catch(() => {
+      return promise.then(apply).catch(() => {
         setOwnerError((prev) => (prev.includes(key) ? prev : [...prev, key]));
       });
     };
-    track("devices", api.get("/devices"), ({ data }) => setDevices(data?.data ?? []));
-    track("staff", api.get("/auth/staff"), ({ data }) => setStaff(data?.data ?? []));
-    track("carts", api.get("/locations"), ({ data }) => setCarts(data?.data ?? []));
+    Promise.allSettled([
+      track("devices", api.get("/devices"), ({ data }) => setDevices(data?.data ?? [])),
+      track("staff", api.get("/auth/staff"), ({ data }) => setStaff(data?.data ?? [])),
+      track("carts", api.get("/locations"), ({ data }) => setCarts(data?.data ?? [])),
+    ]).finally(() => setOwnerLoading(false));
   }
 
   function loadProfile() {
@@ -207,7 +213,7 @@ export default function SettingsPage() {
       toast("Password updated - please log in again", "success");
       navigate("/login", { replace: true });
     } catch (err) {
-      setPwError(getErrorMessage(err, "Change failed - is the current password correct?"));
+      setPwError(getFriendlyError(err, "Change failed - is the current password correct?"));
     } finally {
       setIsChanging(false);
     }
@@ -234,7 +240,7 @@ export default function SettingsPage() {
       setShowNewStaffPw(false);
       loadOwnerData();
     } catch (err) {
-      setStaffError(getErrorMessage(err, "Create failed - is the username or RFID already taken?"));
+      setStaffError(getFriendlyError(err, "Create failed - is the username or RFID already taken?"));
     } finally {
       setIsStaffAdding(false);
     }
@@ -271,7 +277,7 @@ export default function SettingsPage() {
       closeStaffEditModal();
       loadOwnerData();
     } catch (err) {
-      setStaffError(getErrorMessage(err, "Update failed - username or RFID may already exist."));
+      setStaffError(getFriendlyError(err, "Update failed - username or RFID may already exist."));
     } finally {
       setIsStaffEditing(false);
     }
@@ -285,7 +291,7 @@ export default function SettingsPage() {
       toast(`${s.username} ${s.active ? "disabled" : "enabled"}`, "success");
       loadOwnerData();
     } catch (err) {
-      toast(getErrorMessage(err, "Update failed"), "error");
+      toast(getFriendlyError(err, "Update failed"), "error");
     } finally {
       setIsDisabling(false);
     }
@@ -307,7 +313,7 @@ export default function SettingsPage() {
       setResetPw("");
       setShowResetPw(false);
     } catch (err) {
-      setResetError(getErrorMessage(err, "Reset failed - try again."));
+      setResetError(getFriendlyError(err, "Reset failed - try again."));
     } finally {
       setIsResetting(false);
     }
@@ -331,7 +337,7 @@ export default function SettingsPage() {
       toast(`Device ${newDevice.deviceId} registered`, "success");
       loadOwnerData();
     } catch (err) {
-      setDeviceError(getErrorMessage(err, "Registration failed. Device ID may already exist."));
+      setDeviceError(getFriendlyError(err, "Registration failed. Device ID may already exist."));
     } finally {
       setIsDeviceAdding(false);
     }
@@ -357,7 +363,7 @@ export default function SettingsPage() {
       closeDeviceEditModal();
       loadOwnerData();
     } catch (err) {
-      setDeviceError(getErrorMessage(err, "Update failed."));
+      setDeviceError(getFriendlyError(err, "Update failed."));
     } finally {
       setIsDeviceEditing(false);
     }
@@ -371,7 +377,7 @@ export default function SettingsPage() {
       toast(`Device ${deviceDeleting.device_id} deleted`, "success");
       loadOwnerData();
     } catch (err) {
-      toast(getErrorMessage(err, "Failed to delete device"), "error");
+      toast(getFriendlyError(err, "Failed to delete device"), "error");
     } finally {
       setIsDeviceDeleting(false);
       setDeviceDeleting(null);
@@ -413,7 +419,7 @@ export default function SettingsPage() {
       setCartToken({ code, deviceId: data?.device?.deviceId ?? "", token: data?.deviceToken ?? "" });
       loadOwnerData();
     } catch (err) {
-      setCartError(getErrorMessage(err, "Create failed - is the code already taken?"));
+      setCartError(getFriendlyError(err, "Create failed - is the code already taken?"));
     } finally {
       setIsCartAdding(false);
     }
@@ -472,7 +478,7 @@ export default function SettingsPage() {
       closeCartEditModal();
       loadOwnerData();
     } catch (err) {
-      setCartError(getErrorMessage(err, "Update failed."));
+      setCartError(getFriendlyError(err, "Update failed."));
     } finally {
       setIsCartEditing(false);
     }
@@ -489,7 +495,7 @@ export default function SettingsPage() {
       toast(`Cart ${cartToggling.code} ${toInactive ? "deactivated" : "reactivated"}`, "success");
       loadOwnerData();
     } catch (err) {
-      toast(getErrorMessage(err, "Update failed"), "error");
+      toast(getFriendlyError(err, "Update failed"), "error");
     } finally {
       setIsCartToggling(false);
       setCartToggling(null);
@@ -670,10 +676,10 @@ export default function SettingsPage() {
         {isOwner && (
           <div className="flex flex-col gap-4 mt-4">
             {ownerError.length > 0 && (
-              <div className="error-box" role="alert">
-                <span>Could not load {ownerError.join(", ")}. Showing cached data.</span>
-                <button className="ghost" onClick={loadOwnerData}>Retry</button>
-              </div>
+              <ErrorBox
+                message={`Could not load ${ownerError.join(", ")}. Showing cached data.`}
+                onRetry={loadOwnerData}
+              />
             )}
 
             {/* IOT DEVICE REGISTRY */}
@@ -690,7 +696,9 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {safeDevices.length === 0 ? (
+              {ownerLoading && safeDevices.length === 0 ? (
+                <Skeleton rows={3} />
+              ) : safeDevices.length === 0 ? (
                 <EmptyState
                   icon={Cpu}
                   title="No devices registered"
@@ -760,7 +768,9 @@ export default function SettingsPage() {
                 </button>
               </div>
 
-              {safeStaff.filter((s) => s.role !== "OWNER").length === 0 ? (
+              {ownerLoading && safeStaff.filter((s) => s.role !== "OWNER").length === 0 ? (
+                <Skeleton rows={3} />
+              ) : safeStaff.filter((s) => s.role !== "OWNER").length === 0 ? (
                 <EmptyState
                   icon={Users}
                   title="No staff accounts"
@@ -839,7 +849,9 @@ export default function SettingsPage() {
                 </button>
               </div>
 
-              {carts.length === 0 ? (
+              {ownerLoading && carts.length === 0 ? (
+                <Skeleton rows={3} />
+              ) : carts.length === 0 ? (
                 <EmptyState
                   icon={ShoppingCart}
                   title="No carts yet"

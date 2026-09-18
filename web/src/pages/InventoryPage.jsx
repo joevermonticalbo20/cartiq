@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { CheckSquare, SlidersHorizontal, Square, Boxes, RefreshCw, Plus, PackagePlus, Edit2, Trash2 } from "lucide-react";
-import api, { getErrorMessage } from "../api.js";
+import api from "../api.js";
+import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import SensorPanel from "../components/SensorPanel.jsx";
 import EmptyState from "../components/EmptyState.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import PageHeader from "../components/PageHeader.jsx";
@@ -105,7 +107,7 @@ export default function InventoryPage() {
         setSelectedIds(new Set());
         setLastUpdated(new Date());
       })
-      .catch((err) => setLoadError(getErrorMessage(err, "Unable to load inventory.")))
+      .catch((err) => setLoadError(getFriendlyError(err, "Unable to load inventory.")))
       .finally(() => setLoading(false));
   }, [selected]);
 
@@ -139,7 +141,7 @@ export default function InventoryPage() {
       closeAdjustModal();
       refresh();
     } catch (err) {
-      setAdjustError(getErrorMessage(err, "Adjustment failed - try again."));
+      setAdjustError(getFriendlyError(err, "Adjustment failed - try again."));
     } finally {
       setSaving(false);
     }
@@ -180,7 +182,7 @@ export default function InventoryPage() {
       setNewItem({ name: "", category: "Ingredients", unit: "pcs", threshold: "", stock: "" });
       refresh();
     } catch (err) {
-      setAddError(getErrorMessage(err, "Failed to add item. Backend endpoint may be missing."));
+      setAddError(getFriendlyError(err, "Failed to add item. Backend endpoint may be missing."));
     } finally {
       setIsAdding(false);
     }
@@ -216,7 +218,7 @@ export default function InventoryPage() {
       closeEditModal();
       refresh();
     } catch (err) {
-      setEditError(getErrorMessage(err, "Failed to update item."));
+      setEditError(getFriendlyError(err, "Failed to update item."));
     } finally {
       setIsEditing(false);
     }
@@ -231,7 +233,7 @@ export default function InventoryPage() {
       setDeleting(null);
       refresh();
     } catch (err) {
-      toast(getErrorMessage(err, "Failed to delete item."), "error");
+      toast(getFriendlyError(err, "Failed to delete item."), "error");
     } finally {
       setIsDeleting(false);
     }
@@ -368,7 +370,11 @@ export default function InventoryPage() {
           </div>
           
           {loading ? (
-            <div className="table-wrap" tabIndex={0} aria-label="Loading table">
+            <>
+              <p role="status" className="muted small" style={{ margin: "0 0 var(--space-2)" }}>
+                Loading inventory…
+              </p>
+              <div className="table-wrap" tabIndex={0} aria-label="Loading table">
               <table className="data">
                 <thead>
                   <tr>
@@ -398,13 +404,9 @@ export default function InventoryPage() {
                 </tbody>
               </table>
             </div>
+            </>
           ) : loadError ? (
-            <div className="error-box" role="alert">
-              {loadError}{" "}
-              <button type="button" className="linklike" onClick={refresh}>
-                Retry
-              </button>
-            </div>
+            <ErrorBox message={loadError} onRetry={refresh} />
           ) : !current ? (
             <EmptyState
               icon={Boxes}
@@ -637,7 +639,7 @@ export default function InventoryPage() {
                           toast(`Threshold for ${c.item} set to ${c.suggested_threshold}`, "success");
                           refresh();
                         } catch (err) {
-                          toast(getErrorMessage(err, "Update failed"), "error");
+                          toast(getFriendlyError(err, "Update failed"), "error");
                         } finally {
                           setApplyingId(null);
                         }

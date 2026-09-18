@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, User, Lock, ArrowRight, Shield, Zap } from "lucide-react";
-import api, { getErrorMessage } from "../api.js";
+import api from "../api.js";
+import { getFriendlyError } from "../utils/errors.js";
 import { useToast } from "../components/Toast.jsx";
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.1.0";
@@ -70,7 +71,7 @@ export default function Login() {
       }
       navigate("/dashboard");
     } catch (err) {
-      toast(getErrorMessage(err, "Login failed. Is the API running?"), "error");
+      toast(getFriendlyError(err, "Login failed. Is the API running?"), "error");
       passwordRef.current?.focus();
     } finally {
       setLoading(false);

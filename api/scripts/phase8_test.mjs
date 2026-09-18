@@ -181,6 +181,86 @@ async function main() {
     (flavorList.data?.data ?? []).some((f) => f.name === "Test Salt & Vinegar") &&
     (flavorList.data?.data ?? []).some((f) => f.name === "Cheese"));
 
+  // ---- per-flavor rows (by-flavor add) ----
+  const byFlavor = await req("/products", {
+    method: "POST", token: tok,
+    body: {
+      name: "Test Wasabi Fries", category: "Fries", basePrice: 60,
+      flavors: [
+        { name: "Test Wasabi", unitPrice: 70, recipes: [{ itemName: "Test Wasabi Powder", amountPerUnit: 0.04 }] },
+        { flavorId: cheeseId },
+      ],
+    },
+  });
+  check("create product with per-flavor rows 201", byFlavor.status === 201 &&
+    byFlavor.data?.flavorsCreated === 1 && byFlavor.data?.recipesCreated === 1,
+    `got ${byFlavor.status} ${JSON.stringify(byFlavor.data)?.slice(0, 160)}`);
+  const wasabiProdId = byFlavor.data?.product?.id;
+  const wasabiFlavorId = (byFlavor.data?.product?.flavors ?? []).find((f) => f.name === "Test Wasabi")?.id;
+
+  const badUnit = await req("/products", {
+    method: "POST", token: tok,
+    body: { name: "Test Bad Unit", basePrice: 10, flavors: [{ name: "Test Bad Flavor", unitPrice: -3 }] },
+  });
+  check("bad per-flavor unitPrice 400", badUnit.status === 400);
+  const badRecipe = await req("/products", {
+    method: "POST", token: tok,
+    body: { name: "Test Bad Recipe", basePrice: 10, flavors: [{ name: "Test Bad Flavor 2", recipes: [{ itemName: "X", amountPerUnit: 0 }] }] },
+  });
+  check("bad recipe row 400", badRecipe.status === 400);
+
+  const plist2 = await req("/products", { token: tok });
+  const wf = (plist2.data?.data ?? []).find((p) => p.name === "Test Wasabi Fries");
+  const wasabiRow = (wf?.flavors ?? []).find((f) => f.name === "Test Wasabi");
+  const cheeseRow = (wf?.flavors ?? []).find((f) => f.name === "Cheese");
+  check("per-flavor unitPrice + recipeCount served",
+    wasabiRow?.unitPrice === 70 && wasabiRow?.recipeCount === 1 &&
+    cheeseRow?.unitPrice === 60 && cheeseRow?.hasCustomPrice === false,
+    JSON.stringify(wf?.flavors)?.slice(0, 200));
+
+  const setPrice = await req(`/products/${wasabiProdId}`, {
+    method: "PATCH", token: tok, body: { flavorPrices: { "Test Wasabi": 75 } },
+  });
+  check("per-flavor price override", setPrice.status === 200 &&
+    setPrice.data?.product?.flavorPrices?.["Test Wasabi"] === 75, `got ${setPrice.status}`);
+
+  const guardedRemove = await req(`/products/${wasabiProdId}`, {
+    method: "PATCH", token: tok, body: { removeFlavorIds: [wasabiFlavorId] },
+  });
+  check("remove flavor with recipes blocked 409", guardedRemove.status === 409 &&
+    (guardedRemove.data?.flavors ?? []).includes("Test Wasabi"), `got ${guardedRemove.status}`);
+
+  const renameFlavor = await req(`/flavors/${wasabiFlavorId}`, {
+    method: "PATCH", token: tok, body: { name: "Test Wasabi v2" },
+  });
+  check("flavor rename rewrites maps + prices", renameFlavor.status === 200 &&
+    renameFlavor.data?.mapsUpdated === 1 && renameFlavor.data?.pricesRewritten === 1,
+    `got ${renameFlavor.status} ${JSON.stringify(renameFlavor.data)?.slice(0, 140)}`);
+
+  const plist3 = await req("/products", { token: tok });
+  const wf3 = (plist3.data?.data ?? []).find((p) => p.name === "Test Wasabi Fries");
+  const renamedRow = (wf3?.flavors ?? []).find((f) => f.name === "Test Wasabi v2");
+  check("renamed flavor keeps price + recipe", renamedRow?.unitPrice === 75 && renamedRow?.recipeCount === 1);
+
+  const rmRecipes = await req(`/products/${wasabiProdId}`, {
+    method: "PATCH", token: tok,
+    body: { removeRecipes: [{ flavor: "Test Wasabi v2", itemName: "Test Wasabi Powder" }] },
+  });
+  check("remove recipe rows 200", rmRecipes.status === 200, `got ${rmRecipes.status}`);
+  const unlinked = await req(`/products/${wasabiProdId}`, {
+    method: "PATCH", token: tok, body: { removeFlavorIds: [wasabiFlavorId] },
+  });
+  check("remove flavor after rows deleted 200", unlinked.status === 200, `got ${unlinked.status}`);
+
+  const cheeseFlavor = (flavorList.data?.data ?? []).find((f) => f.name === "Cheese");
+  const blockedFlavor = await req(`/flavors/${cheeseFlavor?.id}`, { method: "DELETE", token: tok });
+  check("delete linked flavor blocked 409", blockedFlavor.status === 409, `got ${blockedFlavor.status}`);
+
+  const delFlavor = await req(`/flavors/${wasabiFlavorId}`, { method: "DELETE", token: tok });
+  check("delete unlinked flavor 200", delFlavor.status === 200 && delFlavor.data?.deleted === true);
+  const delProd = await req(`/products/${wasabiProdId}`, { method: "DELETE", token: tok });
+  check("delete per-flavor test product 200", delProd.status === 200 && delProd.data?.deleted === true);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 }
