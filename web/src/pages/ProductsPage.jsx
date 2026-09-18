@@ -188,17 +188,21 @@ export default function ProductsPage() {
           const recipeLabel = row.existingRecipeCount > 0
             ? `${row.existingRecipeCount} saved${newLines > 0 ? ` + ${newLines} new` : ""}`
             : newLines > 0 ? `${newLines} new` : "no recipes";
+          const hasRecipes = row.existingRecipeCount > 0 || newLines > 0;
           if (row.collapsed) {
             return (
-              <div key={row.key} className="panel" style={{ padding: "10px 12px", margin: 0 }}>
+              <div key={row.key} className="flavor-card">
                 <button
                   type="button"
-                  className="flavor-card-toggle"
-                  style={{ marginBottom: 0 }}
+                  className="flavor-card-toggle flavor-card-toggle--flat"
                   onClick={() => updateFlavorRow(setRows, row.key, { collapsed: false })}
                   aria-expanded="false"
                   aria-label={`Expand ${picked?.name ?? "flavor row"}`}
                 >
+                  <span
+                    className={`flavor-card-dot ${hasRecipes ? "flavor-card-dot--ok" : "flavor-card-dot--empty"}`}
+                    aria-hidden="true"
+                  />
                   <span className="flavor-card-name">{picked?.name ?? "Pick a flavor"}</span>
                   <span className="flavor-card-meta">{priceLabel} · {recipeLabel}</span>
                   <span className="flavor-card-chevron" aria-hidden="true">▾</span>
@@ -207,7 +211,7 @@ export default function ProductsPage() {
             );
           }
           return (
-            <div key={row.key} className="panel" style={{ padding: "12px", margin: 0 }}>
+            <div key={row.key} className="flavor-card flavor-card--open">
               <button
                 type="button"
                 className="flavor-card-toggle"
@@ -215,6 +219,10 @@ export default function ProductsPage() {
                 aria-expanded="true"
                 aria-label={`Collapse ${picked?.name ?? "flavor row"}`}
               >
+                <span
+                  className={`flavor-card-dot ${hasRecipes ? "flavor-card-dot--ok" : "flavor-card-dot--empty"}`}
+                  aria-hidden="true"
+                />
                 <span className="flavor-card-name">{picked?.name ?? "New flavor"}</span>
                 <span className="flavor-card-meta">{priceLabel} · {recipeLabel}</span>
                 <span className="flavor-card-chevron" aria-hidden="true">▴</span>

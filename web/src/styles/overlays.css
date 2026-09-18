@@ -71,20 +71,52 @@
   margin-top: 20px;
 }
 
-/* Collapsible flavor card header (Products Add/Edit). */
-.flavor-card-toggle {
+/* Collapsible flavor card (Products Add/Edit). Neutral by design: red is
+   reserved for real validation errors and destructive actions, so these
+   rows use gray borders/text even though bare `button` is brand-red. */
+.flavor-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 10px 12px;
+  margin: 0;
+}
+
+.flavor-card--open {
+  padding: 12px;
+}
+
+button.flavor-card-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  background: none;
+  background: transparent;
+  background-image: none;
   border: none;
-  padding: 0;
+  border-radius: 10px;
+  box-shadow: none;
+  padding: 2px 4px;
   margin-bottom: 10px;
   cursor: pointer;
   font: inherit;
-  color: inherit;
+  color: var(--text);
   text-align: left;
+}
+
+button.flavor-card-toggle:hover:not(:disabled) {
+  background: var(--surface-alt);
+  box-shadow: none;
+  transform: none;
+}
+
+button.flavor-card-toggle:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 2px;
+}
+
+button.flavor-card-toggle--flat {
+  margin-bottom: 0;
 }
 
 .flavor-card-toggle .flavor-card-name {
@@ -94,12 +126,30 @@
 .flavor-card-toggle .flavor-card-meta {
   color: var(--text-muted);
   font-size: var(--fs-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .flavor-card-toggle .flavor-card-chevron {
   margin-left: auto;
   color: var(--text-muted);
   flex-shrink: 0;
+}
+
+.flavor-card-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+
+.flavor-card-dot--ok {
+  background: var(--success);
+}
+
+.flavor-card-dot--empty {
+  background: var(--border-strong);
 }
 
 @keyframes pop {
