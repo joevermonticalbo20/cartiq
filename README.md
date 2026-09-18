@@ -8,8 +8,10 @@ Laguna University. Status: **deployed live (see "Deployment" below)** —
 Phases 0-8 + frontend UX polish P1-P4 + reliability/checkout/connectivity
 sprints + Firestore migration + auth hardening I & II + cart provisioning +
 products catalog + instant POS catalog sync + P0 stock-race fixes + rate-limit
-+ device-registry + analytics Manila-unification + button/connection audit
-complete, pending hardware pilot and faculty approval.
++ device-registry + analytics Manila-unification + button/connection audit +
+analytics refresh batch (section renames, scrollable tables, forecast
+placeholders, cost-breakdown wording) complete, pending hardware pilot and
+faculty approval.
 
 | Component | Path | Stack | Status |
 |---|---|---|---|
@@ -47,6 +49,10 @@ Mobile POS ───────── API_BASE_URL (default) ──────
 
 * **Frontend:** `cd web && $env:VITE_API_BASE='https://cartiq-api-aswt.onrender.com/api'; npm run build`
   then `firebase deploy --only hosting --project cartiq-8e46f` (PowerShell: one line at a time).
+  `VITE_API_BASE` is baked into `web/dist` at build time — building without it
+  points the live site at `/api` (static hosting, no backend) and login fails.
+  First login after idle is slow (Render free cold start, ~30-60s vs the 10s
+  client timeout; login POSTs don't auto-retry) — retry once warm.
 * **Backend:** auto-deploys on push to `main` (Render → Root Directory `api`, `npm ci` / `npm start`).
   Service env vars live in the Render dashboard, never in git (see `render.yaml` + `api/.env.example`).
 * **Database:** seeded once (`npm run db:seed` against prod). Never run `seed_history` on prod;
@@ -474,3 +480,12 @@ React+Vite setup:
   auto-reload, 403 poison dropped distinctly, catalog refresh retry.
 - **Release APK** — `flutter build apk --release` (prod API default);
   verify branding strings in the binary before handing to testers.
+- **Analytics refresh batch** — renamed sections (Top Items → best-sellers,
+  Inventory Forecast → Stock Predictions, Revenue Forecast → Expected Sales
+  with a dimmed placeholder until 14 days of history), top-items/forecast
+  tables capped with 300px scroll, category axis ticks, profit cost-burn
+  wording (`₱1 → ¢` + biggest cost), Data Hub equal-height panels with
+  bottom-pinned buttons, Expenses page size 8 → 50, empty states for
+  no-inventory/no-products; follow-up fix restored sort `↓/↑` icons,
+  `—`/`·` punctuation, the analytics fetch lint-suppress, and dropped the
+  now-unused basket request.
