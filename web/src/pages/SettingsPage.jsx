@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
-import { KeyRound, Plus, RefreshCw, Eye, EyeOff, Edit2, Trash2, Cpu } from "lucide-react";
+import { KeyRound, Plus, RefreshCw, Eye, EyeOff, Edit2, Trash2, Cpu, ShoppingCart, Users } from "lucide-react";
 import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
@@ -10,6 +10,7 @@ import PageHeader from "../components/PageHeader.jsx";
 import PasswordStrengthMeter from "../components/PasswordStrengthMeter.jsx";
 import { useToast } from "../components/Toast.jsx";
 import Select from "../components/Select.jsx";
+import EmptyState from "../components/EmptyState.jsx";
 import { sanitizeTextInput, countLetters } from "../utils/text.js";
 
 export default function SettingsPage() {
@@ -17,42 +18,36 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
-  
+
   const [profile, setProfile] = useState(user ?? null);
   const [profileError, setProfileError] = useState("");
   // Owner tables must not masquerade load failures as "none yet".
   const [ownerError, setOwnerError] = useState([]);
+
   const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
-  
   const [devices, setDevices] = useState([]);
   const [staff, setStaff] = useState([]);
   const [locations, setLocations] = useState([]);
-  
+
   // -- STAFF STATES --
   const [addOpen, setAddOpen] = useState(false);
   const [addClosing, setAddClosing] = useState(false);
   const [isStaffAdding, setIsStaffAdding] = useState(false);
-
   const [resetting, setResetting] = useState(null);
   const [resetClosing, setResetClosing] = useState(false);
   const [resetPw, setResetPw] = useState("");
   const [isResetting, setIsResetting] = useState(false);
-
   const [disabling, setDisabling] = useState(null);
   const [isDisabling, setIsDisabling] = useState(false);
-  
   const [staffEditing, setStaffEditing] = useState(null);
   const [staffEditClosing, setStaffEditClosing] = useState(false);
   const [isStaffEditing, setIsStaffEditing] = useState(false);
-
   const [pwError, setPwError] = useState("");
   const [staffError, setStaffError] = useState("");
   const [resetError, setResetError] = useState("");
-  
   const [showPw, setShowPw] = useState({ current: false, next: false, confirm: false });
   const [showNewStaffPw, setShowNewStaffPw] = useState(false);
   const [showResetPw, setShowResetPw] = useState(false);
-  
   const [newStaff, setNewStaff] = useState({
     name: "",
     username: "",
@@ -67,7 +62,6 @@ export default function SettingsPage() {
   const [isDeviceAdding, setIsDeviceAdding] = useState(false);
   const [deviceError, setDeviceError] = useState("");
   const [newDevice, setNewDevice] = useState({ deviceId: "", locationCode: "" });
-
   const [deviceEditing, setDeviceEditing] = useState(null);
   const [deviceEditClosing, setDeviceEditClosing] = useState(false);
   const [isDeviceEditing, setIsDeviceEditing] = useState(false);
@@ -90,6 +84,7 @@ export default function SettingsPage() {
   const [isCartEditing, setIsCartEditing] = useState(false);
   const [cartToggling, setCartToggling] = useState(null);
   const [isCartToggling, setIsCartToggling] = useState(false);
+
   const [isChanging, setIsChanging] = useState(false);
 
   // Modal Closers
@@ -97,26 +92,32 @@ export default function SettingsPage() {
     setAddClosing(true);
     setTimeout(() => { setAddOpen(false); setAddClosing(false); }, 150);
   }
+
   function closeResetModal() {
     setResetClosing(true);
     setTimeout(() => { setResetting(null); setResetClosing(false); }, 150);
   }
+
   function closeStaffEditModal() {
     setStaffEditClosing(true);
     setTimeout(() => { setStaffEditing(null); setStaffEditClosing(false); }, 150);
   }
+
   function closeDeviceAddModal() {
     setDeviceAddClosing(true);
     setTimeout(() => { setDeviceAddOpen(false); setDeviceAddClosing(false); }, 150);
   }
+
   function closeDeviceEditModal() {
     setDeviceEditClosing(true);
     setTimeout(() => { setDeviceEditing(null); setDeviceEditClosing(false); }, 150);
   }
+
   function closeCartAddModal() {
     setCartAddClosing(true);
     setTimeout(() => { setCartAddOpen(false); setCartAddClosing(false); }, 150);
   }
+
   function closeCartEditModal() {
     setCartEditClosing(true);
     setTimeout(() => { setCartEditing(null); setCartEditClosing(false); }, 150);
@@ -191,11 +192,13 @@ export default function SettingsPage() {
     setPwError("");
     if (isChanging) return;
     setIsChanging(true);
+
     try {
       await api.post("/auth/change-password", {
         currentPassword: pw.current,
         newPassword: pw.next,
       });
+
       // Server revokes ALL refresh tokens on password change, so this
       // session is dead: drop local tokens and force a fresh login instead
       // of lingering half-authenticated until the next 401.
@@ -240,6 +243,7 @@ export default function SettingsPage() {
   async function handleEditStaff(e) {
     e.preventDefault();
     setStaffError("");
+
     // Only name/location/rfid reach the API (username is immutable
     // server-side), so no-change is measured on those fields.
     const original = staff.find((s) => s.id === staffEditing.id);
@@ -249,13 +253,14 @@ export default function SettingsPage() {
       (staffEditing.location?.code || null) === (original.location?.code || null) &&
       (staffEditing.rfidUid || null) === (original.rfidUid || null)
     ) {
-      toast("No changes — staff details are already up to date.", "info");
+      toast("No changes - staff details are already up to date.", "info");
       closeStaffEditModal();
       return;
     }
+
     setIsStaffEditing(true);
     try {
-      // NOTE: username is immutable server-side — sending it is a no-op,
+      // NOTE: username is immutable server-side - sending it is a no-op,
       // so only name/location/rfid go out.
       await api.patch(`/auth/staff/${staffEditing.id}`, {
         name: staffEditing.name,
@@ -308,7 +313,7 @@ export default function SettingsPage() {
     }
   }
 
-  // --- IOT DEVICE ACTIONS (gawa niya) ---
+  // --- IOT DEVICE ACTIONS ---
   async function handleAddDevice(e) {
     e.preventDefault();
     setDeviceError("");
@@ -335,12 +340,14 @@ export default function SettingsPage() {
   const safeLocations = Array.isArray(locations) ? locations : [];
   const safeDevices = Array.isArray(devices) ? devices : [];
   const safeStaff = Array.isArray(staff) ? staff : [];
+
   const locationOptions = safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
 
   async function handleEditDevice(e) {
     e.preventDefault();
     setDeviceError("");
     setIsDeviceEditing(true);
+
     try {
       await api.patch(`/devices/${deviceEditing.id}`, {
         cart: deviceEditing.cart,
@@ -389,6 +396,7 @@ export default function SettingsPage() {
       setCartError("Name needs at least 2 letters.");
       return;
     }
+
     setIsCartAdding(true);
     try {
       const { data } = await api.post("/locations", {
@@ -438,18 +446,22 @@ export default function SettingsPage() {
   async function handleEditCart(e) {
     e.preventDefault();
     setCartError("");
+
     const name = sanitizeTextInput(cartEditing.name, 120).trim();
     const address = sanitizeTextInput(cartEditing.address ?? "", 200).trim();
     const original = carts.find((c) => c.id === cartEditing.id);
+
     if (name.length < 2 || countLetters(name) < 2) {
       setCartError("Name needs at least 2 letters.");
       return;
     }
+
     if (original && name === original.name && (address || "") === (original.address || "")) {
-      toast("No changes — nothing to update on this cart.", "info");
+      toast("No changes - nothing to update on this cart.", "info");
       closeCartEditModal();
       return;
     }
+
     setIsCartEditing(true);
     try {
       await api.patch(`/locations/${cartEditing.id}`, {
@@ -484,8 +496,6 @@ export default function SettingsPage() {
     }
   }
 
-  // (duplicate locationOptions removed — safe version above is used)
-  
   const toggleBtnStyle = {
     position: "absolute",
     right: "10px",
@@ -510,7 +520,8 @@ export default function SettingsPage() {
           sub="Your profile, password, carts, devices, and staff accounts."
         />
         
-        <div className="settings-grid" style={{ gap: "var(--space-4)", alignItems: "start" }}>
+        {/* FIX: Pinalitan ang alignItems: "start" papuntang "stretch" para magpantay ang panel boxes */}
+        <div className="settings-grid" style={{ gap: "var(--space-4)", alignItems: "stretch" }}>
           
           {/* PROFILE PANEL */}
           <section className="panel" style={{ padding: "var(--space-5)" }}>
@@ -678,58 +689,63 @@ export default function SettingsPage() {
                   </button>
                 </div>
               </div>
-              <div className="table-wrap">
-                <table className="data table-fixed">
-                  <thead>
-                    <tr>
-                      <th style={{ width: 180 }}>Device ID</th>
-                      <th style={{ width: 120 }}>Cart</th>
-                      <th style={{ width: 110 }}>Status</th>
-                      <th style={{ width: 240 }}>Last heartbeat</th>
-                      <th className="t-center" style={{ width: 160 }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {safeDevices.map((d) => (
-                      <tr key={d.id}>
-                        <td><strong>{d.device_id}</strong></td>
-                        <td><Badge variant="info">{d.cart}</Badge></td>
-                        <td>
-                          <Badge variant={d.online ? "ok" : "neutral"}>
-                            {d.active ? (d.online ? "ONLINE" : "IDLE") : "DISABLED"}
-                          </Badge>
-                        </td>
-                        <td className="muted small">
-                          {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "never"}
-                        </td>
-                        <td className="t-center nowrap">
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              className="ghost small-btn"
-                              onClick={() => { setDeviceEditing(d); setDeviceError(""); }}
-                              title="Edit/Reassign Device"
-                            >
-                              <Edit2 size={13} />
-                            </button>
-                            <button
-                              className="danger-ghost small-btn"
-                              onClick={() => setDeviceDeleting(d)}
-                              title="Delete Device"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {safeDevices.length === 0 && (
+
+              {safeDevices.length === 0 ? (
+                <EmptyState
+                  icon={Cpu}
+                  title="No devices registered"
+                  subtitle="Register an ESP32 node to start syncing live data."
+                  compact
+                />
+              ) : (
+                <div className="table-wrap">
+                  <table className="data table-fixed">
+                    <thead>
                       <tr>
-                        <td colSpan="5" className="muted t-center" style={{ padding: "var(--space-4)" }}>No devices registered.</td>
+                        <th style={{ width: 180 }}>Device ID</th>
+                        <th style={{ width: 120 }}>Cart</th>
+                        <th style={{ width: 110 }}>Status</th>
+                        <th style={{ width: 240 }}>Last heartbeat</th>
+                        <th className="t-center" style={{ width: 160 }}>Actions</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {safeDevices.map((d) => (
+                        <tr key={d.id}>
+                          <td><strong>{d.device_id}</strong></td>
+                          <td><Badge variant="info">{d.cart}</Badge></td>
+                          <td>
+                            <Badge variant={d.online ? "ok" : "neutral"}>
+                              {d.active ? (d.online ? "ONLINE" : "IDLE") : "DISABLED"}
+                            </Badge>
+                          </td>
+                          <td className="muted small">
+                            {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "never"}
+                          </td>
+                          <td className="t-center nowrap">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                className="ghost small-btn"
+                                onClick={() => { setDeviceEditing(d); setDeviceError(""); }}
+                                title="Edit/Reassign Device"
+                              >
+                                <Edit2 size={13} />
+                              </button>
+                              <button
+                                className="danger-ghost small-btn"
+                                onClick={() => setDeviceDeleting(d)}
+                                title="Delete Device"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
               <p className="muted small" style={{ marginTop: "var(--space-3)" }}>
                 ONLINE = heard from the node in the last 5 minutes. Run <code>iot/simulator.mjs</code> to bring nodes online.
               </p>
@@ -743,66 +759,76 @@ export default function SettingsPage() {
                   <Plus size={15} /> Add staff
                 </button>
               </div>
-              <div className="table-wrap">
-                <table className="data table-fixed">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th style={{ width: 160 }}>Username</th>
-                      <th style={{ width: 120 }}>Cart</th>
-                      <th style={{ width: 140 }}>RFID UID</th>
-                      <th style={{ width: 120 }}>Status</th>
-                      <th className="t-center" style={{ width: 220 }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {/* Nilagyan ng filter para hindi na ipakita ang OWNER */}
-                    {safeStaff.filter((s) => s.role !== "OWNER").map((s) => (
-                      <tr key={s.id} className={!s.active ? "row-disabled" : undefined}>
-                        <td><strong>{s.name}</strong></td>
-                        <td>{s.username}</td>
-                        <td>{s.location ? s.location.code : "-"}</td>
-                        <td className="muted small">{s.rfidUid ?? "-"}</td>
-                        <td>
-                          <Badge variant={s.active ? "ok" : "danger"}>
-                            {s.active ? "ACTIVE" : "DISABLED"}
-                          </Badge>
-                        </td>
-                        <td className="t-center nowrap">
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              className="ghost small-btn"
-                              onClick={() => { setStaffEditing({...s}); setStaffError(""); }}
-                              title="Edit Staff Details"
-                            >
-                              <Edit2 size={13} />
-                            </button>
-                            <button
-                              className="ghost small-btn"
-                              onClick={() => {
-                                setResetting(s);
-                                setResetPw("");
-                                setResetError("");
-                                setShowResetPw(false);
-                              }}
-                              title="Reset Password"
-                            >
-                              <KeyRound size={13} />
-                            </button>
-                            <button
-                              className={`small-btn ${s.active ? "danger-ghost" : "ghost"}`}
-                              onClick={() => setDisabling(s)}
-                              title={s.active ? "Disable" : "Enable"}
-                            >
-                              {s.active ? "Disable" : "Enable"}
-                            </button>
-                          </div>
-                        </td>
+
+              {safeStaff.filter((s) => s.role !== "OWNER").length === 0 ? (
+                <EmptyState
+                  icon={Users}
+                  title="No staff accounts"
+                  subtitle="Add staff members to give them POS access."
+                  compact
+                />
+              ) : (
+                <div className="table-wrap">
+                  <table className="data table-fixed">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th style={{ width: 160 }}>Username</th>
+                        <th style={{ width: 120 }}>Cart</th>
+                        <th style={{ width: 140 }}>RFID UID</th>
+                        <th style={{ width: 120 }}>Status</th>
+                        <th className="t-center" style={{ width: 220 }}>Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {/* Nilagyan ng filter para hindi na ipakita ang OWNER */}
+                      {safeStaff.filter((s) => s.role !== "OWNER").map((s) => (
+                        <tr key={s.id} className={!s.active ? "row-disabled" : undefined}>
+                          <td><strong>{s.name}</strong></td>
+                          <td>{s.username}</td>
+                          <td>{s.location ? s.location.code : "-"}</td>
+                          <td className="muted small">{s.rfidUid ?? "-"}</td>
+                          <td>
+                            <Badge variant={s.active ? "ok" : "danger"}>
+                              {s.active ? "ACTIVE" : "DISABLED"}
+                            </Badge>
+                          </td>
+                          <td className="t-center nowrap">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                className="ghost small-btn"
+                                onClick={() => { setStaffEditing({...s}); setStaffError(""); }}
+                                title="Edit Staff Details"
+                              >
+                                <Edit2 size={13} />
+                              </button>
+                              <button
+                                className="ghost small-btn"
+                                onClick={() => {
+                                  setResetting(s);
+                                  setResetPw("");
+                                  setResetError("");
+                                  setShowResetPw(false);
+                                }}
+                                title="Reset Password"
+                              >
+                                <KeyRound size={13} />
+                              </button>
+                              <button
+                                className={`small-btn ${s.active ? "danger-ghost" : "ghost"}`}
+                                onClick={() => setDisabling(s)}
+                                title={s.active ? "Disable" : "Enable"}
+                              >
+                                {s.active ? "Disable" : "Enable"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </section>
 
             <section className="panel" style={{ padding: "var(--space-5)" }}>
@@ -812,64 +838,69 @@ export default function SettingsPage() {
                   <Plus size={15} /> Add cart
                 </button>
               </div>
-              <div className="table-wrap">
-                <table className="data table-fixed">
-                  <thead>
-                    <tr>
-                      <th style={{ width: 130 }}>Code</th>
-                      <th>Name</th>
-                      <th style={{ width: 90 }}>Items</th>
-                      <th style={{ width: 130 }}>Status</th>
-                      <th style={{ width: 170 }}>Node</th>
-                      <th className="t-center" style={{ width: 170 }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {carts.map((c) => (
-                      <tr key={c.id} className={c.status === "INACTIVE" ? "row-disabled" : undefined}>
-                        <td><strong>{c.code}</strong></td>
-                        <td>{c.name}</td>
-                        <td className="muted">{c.itemCount}</td>
-                        <td>
-                          <Badge variant={c.status === "INACTIVE" ? "danger" : "ok"}>
-                            {c.status === "INACTIVE" ? "INACTIVE" : "ACTIVE"}
-                          </Badge>
-                        </td>
-                        <td className="muted small">
-                          {c.device ? (
-                            <>{c.device.deviceId} · {c.device.online ? "ONLINE" : "IDLE"}</>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="t-center nowrap">
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              className="ghost small-btn"
-                              onClick={() => { setCartEditing({ ...c }); setCartError(""); }}
-                              title="Rename cart"
-                            >
-                              <Edit2 size={13} />
-                            </button>
-                            <button
-                              className={`small-btn ${c.status === "INACTIVE" ? "ghost" : "danger-ghost"}`}
-                              onClick={() => setCartToggling(c)}
-                              title={c.status === "INACTIVE" ? "Reactivate" : "Deactivate"}
-                            >
-                              {c.status === "INACTIVE" ? "Activate" : "Deactivate"}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {carts.length === 0 && (
+
+              {carts.length === 0 ? (
+                <EmptyState
+                  icon={ShoppingCart}
+                  title="No carts yet"
+                  subtitle="Provision a cart to start tracking sales and inventory."
+                  compact
+                />
+              ) : (
+                <div className="table-wrap">
+                  <table className="data table-fixed">
+                    <thead>
                       <tr>
-                        <td colSpan="6" className="muted t-center" style={{ padding: "var(--space-4)" }}>No carts yet.</td>
+                        <th style={{ width: 130 }}>Code</th>
+                        <th>Name</th>
+                        <th style={{ width: 90 }}>Items</th>
+                        <th style={{ width: 130 }}>Status</th>
+                        <th style={{ width: 170 }}>Node</th>
+                        <th className="t-center" style={{ width: 170 }}>Actions</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {carts.map((c) => (
+                        <tr key={c.id} className={c.status === "INACTIVE" ? "row-disabled" : undefined}>
+                          <td><strong>{c.code}</strong></td>
+                          <td>{c.name}</td>
+                          <td className="muted">{c.itemCount}</td>
+                          <td>
+                            <Badge variant={c.status === "INACTIVE" ? "danger" : "ok"}>
+                              {c.status === "INACTIVE" ? "INACTIVE" : "ACTIVE"}
+                            </Badge>
+                          </td>
+                          <td className="muted small">
+                            {c.device ? (
+                              <>{c.device.deviceId} - {c.device.online ? "ONLINE" : "IDLE"}</>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+                          <td className="t-center nowrap">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                className="ghost small-btn"
+                                onClick={() => { setCartEditing({ ...c }); setCartError(""); }}
+                                title="Rename cart"
+                              >
+                                <Edit2 size={13} />
+                              </button>
+                              <button
+                                className={`small-btn ${c.status === "INACTIVE" ? "ghost" : "danger-ghost"}`}
+                                onClick={() => setCartToggling(c)}
+                                title={c.status === "INACTIVE" ? "Reactivate" : "Deactivate"}
+                              >
+                                {c.status === "INACTIVE" ? "Activate" : "Deactivate"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
               <p className="muted small" style={{ marginTop: "var(--space-3)" }}>
                 INACTIVE carts disappear from the POS and filters but keep their history.
               </p>
@@ -974,7 +1005,7 @@ export default function SettingsPage() {
                   />
                 </label>
                 <label className="field">
-                  Username (immutable — set at creation)
+                  Username (immutable - set at creation)
                   <input
                     value={staffEditing?.username || ""}
                     disabled
@@ -1223,7 +1254,7 @@ export default function SettingsPage() {
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <h3>Cart {cartToken.code} created</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                Copy the ESP32 device token now — it is stored hashed and
+                Copy the ESP32 device token now - it is stored hashed and
                 <strong> will never be shown again</strong>.
               </p>
               <label className="field">
@@ -1252,7 +1283,7 @@ export default function SettingsPage() {
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <h3>Device {deviceToken.deviceId} registered</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                Copy the ESP32 device token now — it is stored hashed and
+                Copy the ESP32 device token now - it is stored hashed and
                 <strong> will never be shown again</strong>.
               </p>
               <label className="field">

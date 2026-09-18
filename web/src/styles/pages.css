@@ -150,6 +150,11 @@
   flex: 1;
   justify-content: center;
   border: none;
+  height: 500px; 
+  min-height: 500px;
+  margin: 0;
+  background-color: var(--surface-alt);
+  border-radius: var(--radius-sm);
 }
 
 .sales-filters-row {

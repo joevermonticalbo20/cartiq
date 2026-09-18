@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { Trash2, ReceiptText, RefreshCw, X, Plus, Edit2, Wallet } from "lucide-react";
+
 import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
@@ -26,12 +27,13 @@ export default function ExpensesPage() {
   const toast = useToast();
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
+
   const currentMonth = new Date().toISOString().slice(0, 7);
-  
   const [code, setCode] = useState("");
   const [locations, setLocations] = useState([]);
   const [month, setMonth] = useState(currentMonth);
   const [category, setCategory] = useState("");
+
   const [confirming, setConfirming] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [summary, setSummary] = useState(null);
@@ -61,7 +63,7 @@ export default function ExpensesPage() {
   }, []);
 
   const path = (p) =>
-    `/expenses?page=${p}&pageSize=8` +
+    `/expenses?page=${p}&pageSize=50` +
     (code ? `&code=${code}` : "") +
     (month ? `&month=${month}` : "") +
     (category ? `&category=${encodeURIComponent(category)}` : "");
@@ -125,21 +127,25 @@ export default function ExpensesPage() {
   async function handleAddExpense(e) {
     e.preventDefault();
     setAddError("");
+
     const amount = parseMoney(newExpense.amount);
     if (amount === null || amount <= 0) {
       setAddError("Enter an amount from P0.01 to P9,999,999.99 (whole pesos max 7 digits, up to 2 decimals).");
       return;
     }
+
     const vendor = validateVendor(newExpense.vendor);
     if (!vendor.ok) {
       setAddError(vendor.error);
       return;
     }
+
     const note = validateNote(newExpense.note);
     if (!note.ok) {
       setAddError(note.error);
       return;
     }
+
     setIsAdding(true);
     try {
       await api.post("/expenses", {
@@ -175,23 +181,28 @@ export default function ExpensesPage() {
   async function handleEditExpense(e) {
     e.preventDefault();
     setEditError("");
+
     const amount = parseMoney(editing.amount);
     if (amount === null || amount <= 0) {
       setEditError("Enter an amount from P0.01 to P9,999,999.99 (whole pesos max 7 digits, up to 2 decimals).");
       return;
     }
+
     const vendor = validateVendor(editing.vendor);
     if (!vendor.ok) {
       setEditError(vendor.error);
       return;
     }
+
     const note = validateNote(editing.note);
     if (!note.ok) {
       setEditError(note.error);
       return;
     }
+
     const original = rows.find((r) => r.id === editing.id);
     const sameDay = (d) => String(d ?? "").split("T")[0];
+
     if (
       original &&
       vendor.value === original.vendor &&
@@ -200,10 +211,11 @@ export default function ExpensesPage() {
       editing.category === original.category &&
       (note.value || "") === (original.note || "")
     ) {
-      toast("No changes — nothing to update on this expense.", "info");
+      toast("No changes   nothing to update on this expense.", "info");
       closeEditModal();
       return;
     }
+
     setIsEditing(true);
     try {
       await api.patch(`/expenses/${editing.id}`, {
@@ -245,7 +257,7 @@ export default function ExpensesPage() {
     { value: "", label: "All carts" },
     ...safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }))
   ];
-  
+
   // Para sa forms, ayaw natin ng "All carts" o "All categories" blank options
   const formLocationOptions = [
     { value: "", label: "General / No Cart Assigned" },
@@ -297,6 +309,7 @@ export default function ExpensesPage() {
             </div>
           }
         />
+
         <section className="panel sales-panel">
           <div className="sales-filters-row">
             <div className="sales-filters-left">
@@ -320,6 +333,7 @@ export default function ExpensesPage() {
                 placeholder="All categories"
               />
             </div>
+
             {(code || month !== currentMonth || category) && (
               <button
                 className="danger-ghost small-btn"
@@ -333,6 +347,7 @@ export default function ExpensesPage() {
               </button>
             )}
           </div>
+
           {summary && (summary.by_category ?? []).length > 0 && (
             <div className="flex flex-wrap gap-2" style={{ marginBottom: "var(--space-4)" }}>
               {(summary.by_category ?? []).map((c) => (
@@ -345,6 +360,7 @@ export default function ExpensesPage() {
               </Badge>
             </div>
           )}
+
           {error ? (
             <div className="error-box">{error}</div>
           ) : !loading && (!rows || rows.length === 0) ? (
@@ -473,6 +489,7 @@ export default function ExpensesPage() {
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
                 Record an expense directly if the receipt scanner isn&apos;t available.
               </p>
+
               <form onSubmit={handleAddExpense} className="flex flex-col gap-4">
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
                   <label className="field">
@@ -566,6 +583,7 @@ export default function ExpensesPage() {
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
                 Update details for this expense record.
               </p>
+
               <form onSubmit={handleEditExpense} className="flex flex-col gap-4">
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
                   <label className="field">

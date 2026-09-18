@@ -64,11 +64,16 @@ export default function ProfitSection({ profit }) {
       </div>
 
       <div className="profit-strip" aria-label="Cost burn">
-        <span><span className="muted">Burn rate</span> <strong>{burnPct.toFixed(1)}%</strong></span>
-        <span className="muted small">
-          of every peso, {(burnPct).toFixed(0)}¢ goes to costs
-          {topCost ? <> · biggest: {topCost.category} ({topCost.pct}%)</> : " · no expenses recorded"}
-        </span>
+        {burnPct === 0 ? (
+          <span className="muted">
+            No expenses recorded yet.
+          </span>
+        ) : (
+          <span>
+            <strong>Cost Breakdown:</strong> For every ₱1 you make, <strong>{Math.round(burnPct)}¢</strong> goes to expenses.
+            {topCost && <span className="muted small"> (Biggest cost: {topCost.category})</span>}
+          </span>
+        )}
       </div>
 
       <div className="profit-charts-row">
@@ -82,12 +87,14 @@ export default function ProfitSection({ profit }) {
           {nonZeroCategories.length > 0 ? (
             <ExpenseBreakdownChart data={nonZeroCategories} />
           ) : (
-            <EmptyState
-              icon={Wallet}
-              title="No expenses recorded"
-              subtitle="Snap a vendor receipt from the POS app to see the breakdown."
-              compact
-            />
+            <div className="expense-empty-state">
+              <EmptyState
+                icon={Wallet}
+                title="No expenses recorded"
+                subtitle="Snap a vendor receipt from the POS app to see the breakdown."
+                compact
+              />
+            </div>
           )}
         </div>
       </div>

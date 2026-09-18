@@ -19,10 +19,11 @@ export default function InventoryPage() {
   const toast = useToast();
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
+
   const [locations, setLocations] = useState([]);
   const [selected, setSelected] = useState("");
   const [loading, setLoading] = useState(true);
-  
+
   const [adjusting, setAdjusting] = useState(null);
   const [adjustClosing, setAdjustClosing] = useState(false);
   const [newStock, setNewStock] = useState("");
@@ -54,6 +55,7 @@ export default function InventoryPage() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkValue, setBulkValue] = useState("");
   const [bulkConfirm, setBulkConfirm] = useState(false);
+
   const [prep, setPrep] = useState(null);
   const [applyingId, setApplyingId] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -96,6 +98,7 @@ export default function InventoryPage() {
         setForecast(fc.data?.items ?? []);
         setPrep(pr.data);
         setLoadError("");
+
         if (!locs.some((l) => l.code === selected) && locs[0]) {
           setSelected(locs[0].code);
         }
@@ -119,10 +122,11 @@ export default function InventoryPage() {
       return;
     }
     if (value === adjusting.stock) {
-      toast(`No changes — ${adjusting.name} is already ${adjusting.stock} ${adjusting.unit}.`, "info");
+      toast(`No changes - ${adjusting.name} is already ${adjusting.stock} ${adjusting.unit}.`, "info");
       closeAdjustModal();
       return;
     }
+
     setAdjustError("");
     setSaving(true);
     try {
@@ -144,17 +148,20 @@ export default function InventoryPage() {
   async function handleAddItem(e) {
     e.preventDefault();
     setAddError("");
+
     const name = validateItemName(newItem.name);
     if (!name.ok) {
       setAddError(name.error);
       return;
     }
+
     const stock = parseQty(newItem.stock);
     const threshold = parseQty(newItem.threshold);
     if (stock === null || threshold === null) {
       setAddError("Stock and threshold must be 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).");
       return;
     }
+
     setIsAdding(true);
     
     try {
@@ -186,22 +193,25 @@ export default function InventoryPage() {
     e.preventDefault();
     setEditError("");
     const nextThreshold = parseQty(editing.threshold);
+
     if (nextThreshold === null) {
       setEditError("Enter a threshold from 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).");
       return;
     }
+
     const original = currentItems.find((it) => it.id === editing.id);
     if (original && nextThreshold === original.threshold) {
-      toast(`No changes — threshold is already ${original.threshold}.`, "info");
+      toast(`No changes - threshold is already ${original.threshold}.`, "info");
       closeEditModal();
       return;
     }
-    setIsEditing(true);
 
+    setIsEditing(true);
     try {
       await api.patch(`/inventory/items/${editing.id}`, {
         threshold: nextThreshold
       });
+      
       toast(`Threshold updated to ${nextThreshold}`, "success");
       closeEditModal();
       refresh();
@@ -253,11 +263,13 @@ export default function InventoryPage() {
       return;
     }
     if (selectedIds.size === 0) return;
+
     setSaving(true);
     const byId = new Map(currentItems.map((it) => [it.id, it]));
     let skipped = 0;
     let success = 0;
     let failed = 0;
+
     for (const id of selectedIds) {
       if (byId.get(id)?.stock === value) {
         skipped++;
@@ -274,8 +286,9 @@ export default function InventoryPage() {
         failed++;
       }
     }
+
     if (success === 0 && failed === 0 && skipped > 0) {
-      toast(`No changes — ${skipped} item(s) already at ${value}.`, "info");
+      toast(`No changes - ${skipped} item(s) already at ${value}.`, "info");
     }
     if (success > 0) {
       toast(`Bulk updated ${success} item(s) to ${value}`, "success");
@@ -283,6 +296,7 @@ export default function InventoryPage() {
     if (failed > 0) {
       toast(`${failed} item(s) failed to update`, "error");
     }
+
     setBulkConfirm(false);
     setBulkValue("");
     setSaving(false);
@@ -294,8 +308,9 @@ export default function InventoryPage() {
   const current = safeLocations.find((l) => l.code === selected);
   const currentItems = current?.items ?? [];
   const allSelected = current && selectedIds.size === currentItems.length && currentItems.length > 0;
-  const locationOptions = safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
 
+  const locationOptions = safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
+  
   // Options para sa Custom Select
   const categoryOptions = [
     { value: "Ingredients", label: "Ingredients" },
@@ -396,6 +411,12 @@ export default function InventoryPage() {
               title="No carts configured"
               subtitle="Add a cart from the catalog to start tracking inventory and sensor readings."
             />
+          ) : currentItems.length === 0 ? (
+            <EmptyState
+              icon={Boxes}
+              title="No inventory items"
+              subtitle={`Add items to ${selected} to start tracking stock.`}
+            />
           ) : (
             <div className="table-wrap">
               <table className="data">
@@ -425,6 +446,7 @@ export default function InventoryPage() {
                   {currentItems.map((item) => {
                     const fcItem = safeForecast.find((f) => f.name === item.name);
                     const isSelected = selectedIds.has(item.id);
+
                     return (
                       <tr key={item.id} className={isSelected ? "row-selected" : undefined}>
                         <td style={{ paddingLeft: 12 }}>
@@ -549,6 +571,7 @@ export default function InventoryPage() {
               Expected usage from trailing averages scaled by weekday patterns.
               Shortfall = what to prepare beyond current stock.
             </p>
+
             <div className="table-wrap">
               <table className="data">
                 <thead>
@@ -628,6 +651,7 @@ export default function InventoryPage() {
             )}
           </section>
         )}
+
         <div style={{ marginTop: "var(--space-3)" }}>
           <SensorPanel code={selected} />
         </div>
@@ -769,6 +793,7 @@ export default function InventoryPage() {
                 Manual recount after a physical check for <strong>{adjusting?.name}</strong>. Current: {adjusting?.stock}{" "}
                 {adjusting?.unit}. 
               </p>
+
               <label className="field">
                 New stock count ({adjusting?.unit})
                 <input
@@ -782,6 +807,7 @@ export default function InventoryPage() {
                   autoFocus
                 />
               </label>
+
               <div className="modal-actions">
                 <button className="ghost" onClick={closeAdjustModal} disabled={saving || adjustClosing}>Cancel</button>
                 <button disabled={saving || adjustClosing} onClick={saveAdjustment}>

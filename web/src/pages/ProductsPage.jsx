@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { Plus, Edit2, Trash2, RefreshCw, Tag } from "lucide-react";
+
 import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import DataTable from "../components/DataTable.jsx";
@@ -64,6 +65,7 @@ export default function ProductsPage() {
 
   const isAnyModalOpen = addOpen || addClosing || editing || editClosing ||
     renaming || renameClosing || Boolean(deleting);
+
   useEffect(() => {
     if (isAnyModalOpen) document.body.style.overflow = "hidden";
     else document.body.style.overflow = "";
@@ -74,10 +76,12 @@ export default function ProductsPage() {
     setAddClosing(true);
     setTimeout(() => { setAddOpen(false); setAddClosing(false); }, 150);
   }
+
   function closeEditModal() {
     setEditClosing(true);
     setTimeout(() => { setEditing(null); setEditClosing(false); }, 150);
   }
+
   function closeRenameModal() {
     setRenameClosing(true);
     setTimeout(() => { setRenaming(null); setRenameClosing(false); setRenameName(""); }, 150);
@@ -108,16 +112,19 @@ export default function ProductsPage() {
   async function handleAddProduct(e) {
     e.preventDefault();
     setAddError("");
+
     const name = validateItemName(newProduct.name);
     if (!name.ok) {
       setAddError(name.error);
       return;
     }
+
     const price = parseMoney(newProduct.basePrice);
     if (price === null || price <= 0) {
       setAddError("Enter a base price from P0.01 to P9,999,999.99.");
       return;
     }
+
     setIsAdding(true);
     try {
       await api.post("/products", {
@@ -141,24 +148,28 @@ export default function ProductsPage() {
   async function handleEditProduct(e) {
     e.preventDefault();
     setEditError("");
+
     const price = parseMoney(editing.basePrice);
     if (price === null || price <= 0) {
       setEditError("Enter a base price from P0.01 to P9,999,999.99.");
       return;
     }
+
     const origFlavors = [...(editing._flavorIds ?? [])].sort((a, b) => a - b);
     const nextFlavors = [...(editing.flavorIds ?? [])].sort((a, b) => a - b);
     const sameFlavors = origFlavors.length === nextFlavors.length &&
       origFlavors.every((id, i) => id === nextFlavors[i]);
+
     if (
       (editing.category || "Fries") === (editing._category || "Fries") &&
       price === Number(editing._basePrice) &&
       sameFlavors
     ) {
-      toast("No changes — nothing to update on this product.", "info");
+      toast("No changes   nothing to update on this product.", "info");
       closeEditModal();
       return;
     }
+
     setIsEditing(true);
     try {
       await api.patch(`/products/${editing.id}`, {
@@ -186,10 +197,11 @@ export default function ProductsPage() {
       return;
     }
     if (name.value.toLowerCase() === renaming.name.toLowerCase()) {
-      toast("No changes — that is already the product name.", "info");
+      toast("No changes   that is already the product name.", "info");
       closeRenameModal();
       return;
     }
+
     setIsRenaming(true);
     try {
       const { data } = await api.patch(`/products/${renaming.id}/rename`, { name: name.value });
@@ -250,7 +262,7 @@ export default function ProductsPage() {
             {f.name}
           </label>
         ))}
-        {flavors.length === 0 && <span className="muted small">No flavors yet — create one below.</span>}
+        {flavors.length === 0 && <span className="muted small">No flavors yet   create one below.</span>}
       </div>
     );
   }
@@ -323,14 +335,19 @@ export default function ProductsPage() {
           }
         />
 
-        <section className="panel">
+        <section className="panel sales-panel">
           {error ? (
             <div className="error-box">{error}</div>
+          ) : !loading && products.length === 0 ? (
+            <EmptyState
+              icon={Tag}
+              title="No products yet"
+              subtitle="Click 'Add product' to start building your catalog."
+            />
           ) : (
             <DataTable
               loading={loading}
               fixedLayout={true}
-              emptyMessage="No products yet"
               columns={[
                 {
                   key: "name",
@@ -358,7 +375,7 @@ export default function ProductsPage() {
                       {(p.flavors ?? []).map((f) => (
                         <Badge key={f.id} variant="info">{f.name}</Badge>
                       ))}
-                      {(p.flavors ?? []).length === 0 && <span className="muted small">—</span>}
+                      {(p.flavors ?? []).length === 0 && <span className="muted small"> </span>}
                     </span>
                   ),
                 },
@@ -368,7 +385,7 @@ export default function ProductsPage() {
                   width: 130,
                   render: (p) => (
                     <span className="muted small">
-                      {p.recipeCount} recipe(s) · {p.orderLines} order line(s)
+                      {p.recipeCount} recipe(s)   {p.orderLines} order line(s)
                     </span>
                   ),
                 },
@@ -421,6 +438,7 @@ export default function ProductsPage() {
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
                 New catalog item for the POS. Recipes can be added per flavor later.
               </p>
+
               <form onSubmit={handleAddProduct} className="flex flex-col gap-4">
                 <label className="field">
                   Product Name
@@ -461,15 +479,18 @@ export default function ProductsPage() {
                     />
                   </label>
                 </div>
+                
                 <div className="field">
                   <span>Flavors</span>
                   {flavorCheckboxes(newProduct.flavorIds, (ids) => setNewProduct({ ...newProduct, flavorIds: ids }))}
                 </div>
+                
                 <div className="field">
                   <span>Create flavor</span>
                   {newFlavorRow(newProduct.flavorIds, (ids) => setNewProduct({ ...newProduct, flavorIds: ids }))}
                   {flavorError && <p className="error-box" role="alert" style={{ marginTop: "8px" }}>{flavorError}</p>}
                 </div>
+                
                 <div className="modal-actions">
                   <button type="button" className="ghost" onClick={closeAddModal} disabled={isAdding || addClosing}>Cancel</button>
                   <button type="submit" disabled={isAdding || addClosing}>
@@ -488,8 +509,9 @@ export default function ProductsPage() {
             <div className={`modal ${editClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
               <h3><Edit2 size={22} className="muted"/> Edit {editing?.name}</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                Price changes affect future sales only — recorded orders keep their totals.
+                Price changes affect future sales only   recorded orders keep their totals.
               </p>
+
               <form onSubmit={handleEditProduct} className="flex flex-col gap-4">
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
                   <label className="field">
@@ -516,15 +538,18 @@ export default function ProductsPage() {
                     />
                   </label>
                 </div>
+                
                 <div className="field">
                   <span>Flavors</span>
                   {editing && flavorCheckboxes(editing.flavorIds ?? [], (ids) => setEditing({ ...editing, flavorIds: ids }))}
                 </div>
+                
                 <div className="field">
                   <span>Create flavor</span>
                   {editing && newFlavorRow(editing.flavorIds ?? [], (ids) => setEditing({ ...editing, flavorIds: ids }))}
                   {flavorError && <p className="error-box" role="alert" style={{ marginTop: "8px" }}>{flavorError}</p>}
                 </div>
+                
                 <div className="modal-actions">
                   <button type="button" className="ghost" onClick={closeEditModal} disabled={isEditing || editClosing}>Cancel</button>
                   <button type="submit" disabled={isEditing || editClosing}>
@@ -545,6 +570,7 @@ export default function ProductsPage() {
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
                 Recipe rows follow the new name automatically. Past orders keep the old name.
               </p>
+
               <form onSubmit={handleRename} className="flex flex-col gap-4">
                 <label className="field">
                   New Name
