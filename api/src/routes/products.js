@@ -394,11 +394,18 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
       }
       data.flavorPrices = merged;
     }
-    const product = await prisma.product.update({
-      where: { id: existing.id },
-      data,
-      include: { flavors: { orderBy: { name: "asc" } } },
-    });
+    const product = Object.keys(data).length > 0
+      ? await prisma.product.update({
+        where: { id: existing.id },
+        data,
+        include: { flavors: { orderBy: { name: "asc" } } },
+      })
+      // Recipe-only patches (addRecipes/removeRecipes) carry no product
+      // fields — Firestore rejects empty updates, so re-read instead.
+      : await prisma.product.findUnique({
+        where: { id: existing.id },
+        include: { flavors: { orderBy: { name: "asc" } } },
+      });
     let recipesChanged = 0;
     const unmatchedItems = [];
     if (addRecipes !== undefined) {
@@ -484,6 +491,9 @@ router.patch("/products/:id/rename", requireAuth, requireRole("OWNER"), async (r
       }
       return { updated, mapsUpdated: maps.length };
     });
+    // Recipe rows were rewritten through the raw txn handle (bypasses the
+    // read cache) — invalidate so the next GET sees the new names.
+    prisma._invalidateModel("ingredientMaps");
     return res.json({ product: outcome.updated, mapsUpdated: outcome.mapsUpdated });
   } catch (err) {
     return next(err);
@@ -592,6 +602,8 @@ router.patch("/flavors/:id", requireAuth, requireRole("OWNER"), async (req, res,
       }
       return { updated, mapsUpdated: maps.length, pricesRewritten };
     });
+    // Same as product rename: maps + price keys moved under the raw handle.
+    prisma._invalidateModel("ingredientMaps");
     return res.json({ flavor: outcome.updated, mapsUpdated: outcome.mapsUpdated, pricesRewritten: outcome.pricesRewritten });
   } catch (err) {
     return next(err);

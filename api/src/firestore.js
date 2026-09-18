@@ -829,4 +829,10 @@ export const db = {
   _invalidateAll() {
     _cache.clear();
   },
+  // Invalidate one model's cached reads. Needed after transactions that
+  // write a collection through the raw txn handle (tx.txn.update), which
+  // bypasses modelApi's write invalidation (e.g. recipe-row rewrites).
+  _invalidateModel(model) {
+    invalidateModel(model);
+  },
 };
