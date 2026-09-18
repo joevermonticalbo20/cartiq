@@ -33,8 +33,41 @@ function newRecipeRowState(overrides = {}) {
     key: `rr-${Date.now()}-${flavorRowSeq++}`,
     itemName: "",
     amount: "",
+    // Display unit picked by the user; "" = smart default (g for kg items,
+    // otherwise the stock unit). Converted to the stock unit on submit.
+    unit: "",
     ...overrides,
   };
+}
+
+// Mass units convertible between each other (factor to kg). Countable
+// units (pcs, packs, ...) only convert to themselves.
+const MASS_TO_KG = { g: 0.001, kg: 1 };
+
+function unitOptionsFor(stockUnit) {
+  const u = String(stockUnit ?? "").trim().toLowerCase();
+  if (MASS_TO_KG[u] !== undefined) return ["g", "kg"];
+  if (u) return [u];
+  return ["pcs", "g", "kg", "packs"];
+}
+
+function defaultUnitFor(stockUnit) {
+  const u = String(stockUnit ?? "").trim().toLowerCase();
+  if (MASS_TO_KG[u] !== undefined) return "g";
+  return u || "pcs";
+}
+
+// Convert a display amount+unit to the stock unit. Returns { ok, value? }.
+// Mass <-> countable mixing is rejected (proper validation, not a guess).
+function toStockUnit(displayAmount, displayUnit, stockUnit) {
+  const from = String(displayUnit ?? "").trim().toLowerCase();
+  const to = String(stockUnit ?? "").trim().toLowerCase();
+  if (!from || !to) return { ok: true, value: displayAmount };
+  if (from === to) return { ok: true, value: displayAmount };
+  if (MASS_TO_KG[from] !== undefined && MASS_TO_KG[to] !== undefined) {
+    return { ok: true, value: Math.round((displayAmount * MASS_TO_KG[from]) / MASS_TO_KG[to] * 1e6) / 1e6 };
+  }
+  return { ok: false };
 }
 
 export default function ProductsPage() {
@@ -173,6 +206,8 @@ export default function ProductsPage() {
   function flavorRowsEditor(rows, setRows, basePriceText, rowErrors = {}) {
     const basePrice = parseMoney(basePriceText);
     const knownItems = new Set(itemNames.map((n) => n.name.toLowerCase()));
+    const knownUnitOf = (name) =>
+      itemNames.find((n) => n.name.toLowerCase() === String(name ?? "").trim().toLowerCase())?.unit ?? "";
     const optionsFor = (currentId) =>
       flavors
         .filter((f) => f.id === currentId || !rows.some((r) => r.flavorId === f.id))
@@ -261,9 +296,12 @@ export default function ProductsPage() {
               {(row.recipes ?? []).map((line) => {
                 const typedName = String(line.itemName ?? "").trim();
                 const unknownItem = typedName !== "" && !knownItems.has(typedName.toLowerCase());
+                const stockUnit = knownUnitOf(line.itemName);
+                const unitChoices = unitOptionsFor(stockUnit);
+                const effUnit = line.unit || defaultUnitFor(stockUnit);
                 return (
                   <div key={line.key}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 32px", gap: "8px", marginTop: "8px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 84px 78px 32px", gap: "8px", marginTop: "8px" }}>
                       <input
                         type="text"
                         maxLength={120}
@@ -277,11 +315,21 @@ export default function ProductsPage() {
                         type="number"
                         min="0"
                         step="0.01"
-                        placeholder="Qty / unit"
-                        title="Amount deducted per unit sold"
+                        placeholder="Qty"
+                        title={`Amount deducted per unit sold, in ${effUnit}`}
                         value={line.amount}
                         onChange={(e) => updateRecipeLine(setRows, row.key, line.key, { amount: sanitizeQtyInput(e.target.value) })}
                       />
+                      <select
+                        aria-label="Unit"
+                        title={stockUnit ? `Stock unit is ${stockUnit} — converts automatically` : "Pick the unit"}
+                        value={effUnit}
+                        onChange={(e) => updateRecipeLine(setRows, row.key, line.key, { unit: e.target.value })}
+                      >
+                        {unitChoices.map((u) => (
+                          <option key={u} value={u}>{u}</option>
+                        ))}
+                      </select>
                       <button
                         type="button"
                         className="danger-ghost small-btn"
@@ -454,17 +502,28 @@ export default function ProductsPage() {
         if (unit !== basePrice) entry.unitPrice = unit;
       }
       const recipes = [];
+      const stockUnitOf = (name) =>
+        itemNames.find((n) => n.name.toLowerCase() === String(name ?? "").trim().toLowerCase())?.unit ?? "";
       for (const r of row.recipes ?? []) {
         const itemName = String(r.itemName ?? "").trim();
-        const amount = parseQty(String(r.amount ?? ""));
-        if (!itemName && (amount === null)) continue; // skip untouched blank lines
+        const rawAmount = parseQty(String(r.amount ?? ""));
+        if (!itemName && (rawAmount === null)) continue; // skip untouched blank lines
         if (!itemName || itemName.length > 120) {
           return fail(row, `Recipe rows for "${flavor?.name ?? "this flavor"}" need an item name (max 120 characters).`);
         }
-        if (amount === null || amount <= 0) {
-          return fail(row, `Recipe rows for "${flavor?.name ?? "this flavor"}" need an amount from 0.01 to 99,999.99.`);
+        if (rawAmount === null || rawAmount <= 0) {
+          return fail(row, `Recipe rows for "${flavor?.name ?? "this flavor"}" need an amount above 0.`);
         }
-        recipes.push({ itemName, amountPerUnit: amount });
+        const stockUnit = stockUnitOf(itemName);
+        const dispUnit = r.unit || defaultUnitFor(stockUnit);
+        const conv = toStockUnit(rawAmount, dispUnit, stockUnit || dispUnit);
+        if (!conv.ok) {
+          return fail(row, `"${dispUnit}" can't convert to "${stockUnit}" for "${itemName}" — amounts must use compatible units.`);
+        }
+        if (conv.value <= 0 || conv.value > 99999.99) {
+          return fail(row, `Recipe rows for "${flavor?.name ?? "this flavor"}" need an amount from 0.01 to 99,999.99 (in ${stockUnit || dispUnit}).`);
+        }
+        recipes.push({ itemName, amountPerUnit: conv.value });
       }
       if (recipes.length > 0) entry.recipes = recipes;
       payload.push(entry);

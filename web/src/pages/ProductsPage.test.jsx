@@ -230,6 +230,48 @@ describe("ProductsPage by-flavor add", () => {
     expect(await within(modal).findByText(/No stock item named/)).toBeInTheDocument();
   });
 
+  it("converts grams to the kg stock unit on submit", async () => {
+    api.post.mockImplementation((url, body) => {
+      if (url === "/flavors") {
+        return Promise.resolve({ data: { flavor: { id: 9, name: body.name } } });
+      }
+      if (url === "/products") {
+        return Promise.resolve({ data: { product: { id: 7, name: body.name }, recipesCreated: 1 } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    api.get.mockImplementation((url) => {
+      if (url === "/products") return Promise.resolve({ data: { data: [] } });
+      if (url === "/flavors") return Promise.resolve({ data: { data: seedFlavors } });
+      if (url === "/inventory/names") {
+        return Promise.resolve({ data: { data: [{ name: "Cheese Powder", unit: "kg" }] } });
+      }
+      return Promise.resolve({ data: null });
+    });
+    await openAddModal();
+    fillNameAndPrice();
+    fireEvent.click(screen.getByText("+ Add flavor"));
+    fireEvent.change(screen.getByPlaceholderText("New flavor name"), { target: { value: "Cheesy" } });
+    const modal = screen.getByText("Add Product").closest(".modal");
+    fireEvent.click(within(modal).getByText("Add", { selector: "button" }));
+    await screen.findByText('Flavor "Cheesy" created');
+
+    // Stock unit is kg, picker defaults to g: typing 15 stores 0.015.
+    fireEvent.click(within(modal).getByText("+ Recipe line"));
+    fireEvent.change(within(modal).getByPlaceholderText("Ingredient item (e.g. Cheese Powder)"), {
+      target: { value: "Cheese Powder" },
+    });
+    fireEvent.change(within(modal).getByPlaceholderText("Qty"), { target: { value: "15" } });
+    expect(within(modal).getByLabelText("Unit")).toHaveValue("g");
+
+    fireEvent.click(within(modal).getByText("Create Product"));
+    await screen.findByText(/created with 1 flavor/);
+    const call = api.post.mock.calls.find(([url]) => url === "/products");
+    expect(call[1].flavors).toEqual([
+      { flavorId: 9, recipes: [{ itemName: "Cheese Powder", amountPerUnit: 0.015 }] },
+    ]);
+  });
+
   it("creates the product with per-flavor rows (inline flavor + recipe line)", async () => {
     api.post.mockImplementation((url, body) => {
       if (url === "/flavors") {
@@ -255,7 +297,7 @@ describe("ProductsPage by-flavor add", () => {
     fireEvent.change(within(modal).getByPlaceholderText("Ingredient item (e.g. Cheese Powder)"), {
       target: { value: "Wasabi Powder" },
     });
-    fireEvent.change(within(modal).getByPlaceholderText("Qty / unit"), { target: { value: "0.04" } });
+    fireEvent.change(within(modal).getByPlaceholderText("Qty"), { target: { value: "0.04" } });
 
     fireEvent.click(within(modal).getByText("Create Product"));
     await screen.findByText(/created with 1 flavor/);
