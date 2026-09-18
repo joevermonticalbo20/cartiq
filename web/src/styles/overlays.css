@@ -55,6 +55,53 @@
   margin-top: 32px; /* Pinalayo ng konti sa content */
 }
 
+/* Tall content (e.g. Products per-flavor rows): cap at viewport height,
+   scroll the body, keep Save/Cancel pinned while scrolling. */
+.modal--tall {
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
+.modal--tall .modal-actions {
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  padding-top: 12px;
+  padding-bottom: 4px;
+  margin-top: 20px;
+}
+
+/* Collapsible flavor card header (Products Add/Edit). */
+.flavor-card-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  margin-bottom: 10px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.flavor-card-toggle .flavor-card-name {
+  font-weight: 700;
+}
+
+.flavor-card-toggle .flavor-card-meta {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.flavor-card-toggle .flavor-card-chevron {
+  margin-left: auto;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
 @keyframes pop {
   from { transform: scale(0.96); opacity: 0; }
   to { transform: none; opacity: 1; }

@@ -23,6 +23,7 @@ function newFlavorRowState(overrides = {}) {
     flavorId: null,
     unitPrice: "",
     recipes: [],
+    collapsed: false,
     ...overrides,
   };
 }
@@ -131,7 +132,7 @@ export default function ProductsPage() {
       setRows((prev) => {
         const emptyIdx = prev.findIndex((r) => !r.flavorId);
         if (emptyIdx >= 0) {
-          return prev.map((r, i) => (i === emptyIdx ? { ...r, flavorId: data.flavor.id } : r));
+          return prev.map((r, i) => (i === emptyIdx ? { ...r, flavorId: data.flavor.id, collapsed: false } : r));
         }
         return [...prev, newFlavorRowState({ flavorId: data.flavor.id })];
       });
@@ -173,8 +174,44 @@ export default function ProductsPage() {
       <div className="flex flex-col gap-3">
         {rows.map((row) => {
           const picked = flavors.find((f) => f.id === row.flavorId);
+          const newLines = (row.recipes ?? []).filter((l) => String(l.itemName ?? "").trim()).length;
+          const priceLabel = String(row.unitPrice ?? "").trim()
+            ? `P${Number(row.unitPrice).toLocaleString()}`
+            : `Base${basePrice !== null ? ` (P${basePrice.toLocaleString()})` : ""}`;
+          const recipeLabel = row.existingRecipeCount > 0
+            ? `${row.existingRecipeCount} saved${newLines > 0 ? ` + ${newLines} new` : ""}`
+            : newLines > 0 ? `${newLines} new` : "no recipes";
+          if (row.collapsed) {
+            return (
+              <div key={row.key} className="panel" style={{ padding: "10px 12px", margin: 0 }}>
+                <button
+                  type="button"
+                  className="flavor-card-toggle"
+                  style={{ marginBottom: 0 }}
+                  onClick={() => updateFlavorRow(setRows, row.key, { collapsed: false })}
+                  aria-expanded="false"
+                  aria-label={`Expand ${picked?.name ?? "flavor row"}`}
+                >
+                  <span className="flavor-card-name">{picked?.name ?? "Pick a flavor"}</span>
+                  <span className="flavor-card-meta">{priceLabel} · {recipeLabel}</span>
+                  <span className="flavor-card-chevron" aria-hidden="true">▾</span>
+                </button>
+              </div>
+            );
+          }
           return (
             <div key={row.key} className="panel" style={{ padding: "12px", margin: 0 }}>
+              <button
+                type="button"
+                className="flavor-card-toggle"
+                onClick={() => updateFlavorRow(setRows, row.key, { collapsed: true })}
+                aria-expanded="true"
+                aria-label={`Collapse ${picked?.name ?? "flavor row"}`}
+              >
+                <span className="flavor-card-name">{picked?.name ?? "New flavor"}</span>
+                <span className="flavor-card-meta">{priceLabel} · {recipeLabel}</span>
+                <span className="flavor-card-chevron" aria-hidden="true">▴</span>
+              </button>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <label className="field">
                   Flavor
@@ -534,6 +571,8 @@ export default function ProductsPage() {
         unitPrice: f.hasCustomPrice ? String(prices[f.name] ?? f.unitPrice ?? "") : "",
         recipes: [],
         existingRecipeCount: f.recipeCount ?? 0,
+        // Saved rows start collapsed so long flavor lists stay scannable.
+        collapsed: (f.recipeCount ?? 0) > 0,
       })),
       _category: p.category || "Fries",
       _basePrice: p.basePrice,
@@ -704,7 +743,7 @@ export default function ProductsPage() {
         {/* ADD PRODUCT MODAL */}
         {(addOpen || addClosing) && (
           <div className={`modal-backdrop ${addClosing ? "is-closing" : ""}`}>
-            <div className={`modal ${addClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
+            <div className={`modal modal--tall ${addClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
               <h3><Plus size={22} className="muted"/> Add Product</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
                 New catalog item for the POS. Add each flavor below with its own price and recipe rows.
@@ -771,7 +810,7 @@ export default function ProductsPage() {
         {/* EDIT PRODUCT MODAL */}
         {(editing || editClosing) && (
           <div className={`modal-backdrop ${editClosing ? "is-closing" : ""}`}>
-            <div className={`modal ${editClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
+            <div className={`modal modal--tall ${editClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
               <h3><Edit2 size={22} className="muted"/> Edit {editing?.name}</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
                 Price changes affect future sales only — recorded orders keep their totals.
