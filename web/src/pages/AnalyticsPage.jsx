@@ -263,7 +263,7 @@ export default function AnalyticsPage() {
 
   function sortIcon(col) {
     if (sortCol !== col) return <span className="sort-icon"> </span>;
-    return <span className="sort-icon active">{sortDir === "desc" ? " " : " "}</span>;
+    return <span className="sort-icon active">{sortDir === "desc" ? "↓" : "↑"}</span>;
   }
 
   const locationOptions = [
