@@ -1396,6 +1396,34 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
+
+        {/* DEACTIVATE / REACTIVATE CART CONFIRMATION */}
+        <ConfirmDialog
+          open={Boolean(cartToggling)}
+          title={cartToggling?.status === "INACTIVE" ? `Reactivate ${cartToggling?.code}?` : `Deactivate ${cartToggling?.code}?`}
+          message={cartToggling?.status === "INACTIVE"
+            ? `"${cartToggling?.code}" will reappear in the POS and filters.`
+            : `"${cartToggling?.code}" will disappear from the POS and filters. History is kept.`}
+          confirmLabel={cartToggling?.status === "INACTIVE" ? "Reactivate" : "Deactivate"}
+          danger={cartToggling?.status !== "INACTIVE"}
+          pending={isCartToggling}
+          pendingLabel="Updating..."
+          onConfirm={toggleCart}
+          onCancel={() => setCartToggling(null)}
+        />
+
+        {/* DELETE IOT DEVICE CONFIRMATION */}
+        <ConfirmDialog
+          open={Boolean(deviceDeleting)}
+          title="Delete IoT Device?"
+          message={`Are you sure you want to unregister device "${deviceDeleting?.device_id}"? This will stop it from syncing data to the system.`}
+          confirmLabel="Delete Device"
+          danger={true}
+          pending={isDeviceDeleting}
+          pendingLabel="Deleting..."
+          onConfirm={handleDeleteDevice}
+          onCancel={() => setDeviceDeleting(null)}
+        />
       </div>
     </PageErrorBoundary>
   );

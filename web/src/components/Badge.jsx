@@ -21,6 +21,7 @@ const CLASS = {
   brand: "brand",
 };
 
+// eslint-disable-next-line react-refresh/only-export-components -- variant list colocated with its only mapper
 export const BADGE_VARIANTS = Object.keys(CLASS);
 
 export default function Badge({ variant = "neutral", className = "", ...rest }) {

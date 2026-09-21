@@ -4,7 +4,7 @@ import { MemoryRouter, Routes, Route, Outlet } from "react-router-dom";
 import { ToastProvider } from "../components/Toast.jsx";
 
 vi.mock("../api.js", () => ({
-  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
+  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), del: vi.fn() },
 }));
 
 vi.mock("../utils/errors.js", () => ({
@@ -114,5 +114,65 @@ describe("SettingsPage password change", () => {
     // localStorage is mocked in test setup: assert the removal calls.
     expect(localStorage.removeItem).toHaveBeenCalledWith("cartiq_token");
     expect(localStorage.removeItem).toHaveBeenCalledWith("cartiq_refresh_token");
+  });
+});
+
+describe("SettingsPage cart/device confirmations", () => {
+  const seedCarts = [
+    { id: 11, code: "CART-01", name: "Cart 1", status: "ACTIVE", itemCount: 4, device: null },
+  ];
+  const seedDevices = [
+    { id: 21, device_id: "ESP32-A1", cart: "CART-01", active: true, online: false, last_seen_at: null },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.get.mockImplementation((url) => {
+      if (url === "/auth/me") {
+        return Promise.resolve({ data: { user: { name: "Owner", role: "OWNER" } } });
+      }
+      if (url === "/devices") return Promise.resolve({ data: { data: seedDevices } });
+      if (url === "/auth/staff") return Promise.resolve({ data: { data: [] } });
+      if (url === "/locations") return Promise.resolve({ data: { data: seedCarts } });
+      return emptyOk(url);
+    });
+    api.patch.mockResolvedValue({ data: {} });
+    api.del.mockResolvedValue({ data: {} });
+  });
+
+  function renderOwnerPage() {
+    return render(
+      <MemoryRouter initialEntries={["/"]}>
+        <ToastProvider>
+          <Routes>
+            <Route
+              element={<Outlet context={{ user: { name: "Owner", role: "OWNER" } }} />}
+            >
+              <Route element={<SettingsPage />} path="/" />
+            </Route>
+          </Routes>
+        </ToastProvider>
+      </MemoryRouter>
+    );
+  }
+
+  it("asks for confirmation before deactivating a cart", async () => {
+    renderOwnerPage();
+    fireEvent.click(await screen.findByTitle("Deactivate"));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Deactivate CART-01?");
+    fireEvent.click(within(dialog).getByText("Deactivate", { selector: "button" }));
+    expect(api.patch).toHaveBeenCalledWith("/locations/11", { status: "INACTIVE" });
+    expect(await screen.findByText("Cart CART-01 deactivated")).toBeInTheDocument();
+  });
+
+  it("asks for confirmation before deleting a device", async () => {
+    renderOwnerPage();
+    await screen.findByText("ESP32-A1");
+    fireEvent.click(screen.getByTitle("Delete Device"));
+    expect(await screen.findByText("Delete IoT Device?")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Delete Device", { selector: "button" }));
+    expect(api.del).toHaveBeenCalledWith("/devices/21");
+    expect(await screen.findByText("Device ESP32-A1 deleted")).toBeInTheDocument();
   });
 });

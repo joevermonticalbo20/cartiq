@@ -38,7 +38,7 @@ export default function SensorPanel({ code = "CART-01" }) {
         }
         errorShownRef.current = false;
         setLoading(false);
-      } catch (err) {
+      } catch {
         if (!alive) return;
         setLoading(false);
         // Toast once per outage, not on every 15s poll.

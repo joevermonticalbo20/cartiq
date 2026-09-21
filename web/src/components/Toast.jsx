@@ -10,6 +10,7 @@ const MAX_VISIBLE_TOASTS = 4;
 // api.js) can emit a toast without calling a hook.
 let toastPush = () => {};
 
+// eslint-disable-next-line react-refresh/only-export-components -- module bridge so non-React code (api.js) can push toasts
 export function toast(message, type = "info") {
   toastPush(message, type);
 }
@@ -82,6 +83,7 @@ export function ToastProvider({ children }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- context hook colocated with its provider by React docs pattern
 export function useToast() {
   return useContext(ToastContext);
 }

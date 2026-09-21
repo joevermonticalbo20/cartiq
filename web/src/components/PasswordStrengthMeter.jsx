@@ -1,3 +1,4 @@
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper colocated with its only consumer, unit-tested in place
 export function evaluatePassword(pw = "") {
   const checks = {
     length: pw.length >= 8,
