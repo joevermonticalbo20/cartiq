@@ -443,3 +443,69 @@
 [data-theme="dark"] .kpi-card.solid-brand {
   border: 1px solid color-mix(in srgb, #fff 24%, var(--primary));
 }
+
+/* ----- Dashboard loading skeletons (extracted from inline styles) ----- */
+.dashboard-body .panel .empty-state-card,
+.dashboard-trend-panel .empty-state-card {
+  flex: 1;
+  justify-content: center;
+  width: 100%;
+}
+.dash-skel-body {
+  align-items: stretch;
+}
+.dash-skel-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.dash-skel-panel-tall {
+  min-height: 320px;
+}
+.dash-skel-panel-short {
+  min-height: 280px;
+}
+.dash-skel-head {
+  margin-bottom: 16px;
+}
+.dash-skel-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.dash-skel-col-gap-16 {
+  gap: 16px;
+}
+.dash-skel-col-gap-12 {
+  gap: 12px;
+}
+.dash-skel-grid-2 {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.skel-title {
+  height: 24px;
+  border-radius: 6px;
+  margin: 0;
+}
+.skel-pill {
+  border-radius: 99px;
+  margin: 0;
+}
+.skel-box-80 {
+  height: 80px;
+  border-radius: 8px;
+}
+.skel-fill {
+  flex: 1;
+  min-height: 120px;
+  border-radius: 8px;
+}
+.skel-fill-tall {
+  flex: 1;
+  min-height: 140px;
+  margin-top: 16px;
+  border-radius: 8px;
+}

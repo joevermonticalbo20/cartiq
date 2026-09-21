@@ -20,7 +20,8 @@ import {
   X,
 } from "lucide-react";
 
-import api, { API_BASE, getErrorMessage } from "../api.js";
+import api, { API_BASE } from "../api.js";
+import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import Skeleton from "../components/Skeleton.jsx";
@@ -115,7 +116,7 @@ export default function DashboardPage() {
       try {
         apply(await promise);
       } catch (err) {
-        errs[key] = getErrorMessage(err, "Couldn't load this section.");
+        errs[key] = getFriendlyError(err, "Couldn't load this section.");
       }
     };
 
@@ -223,16 +224,6 @@ export default function DashboardPage() {
 
   return (
     <div className="page-container wide">
-      <style>{`
-        /* Stretches the gray dashed box to fill the panel naturally */
-        .dashboard-body .panel .empty-state-card,
-        .dashboard-trend-panel .empty-state-card {
-          flex: 1;
-          justify-content: center;
-          width: 100%;
-        }
-      `}</style>
-
       <div className="page-header">
         <div>
           <div className="flex items-center gap-3">
@@ -307,58 +298,58 @@ export default function DashboardPage() {
             </div>
             <div className="panel dashboard-trend-panel">
               <Skeleton rows={2} />
-              <div className="skel" style={{ flex: 1, minHeight: "140px", marginTop: "16px", borderRadius: "8px" }} />
+              <div className="skel skel-fill-tall" />
             </div>
           </div>
 
           {/* BOTTOM SECTION SKELETON */}
-          <div className="dashboard-body" style={{ alignItems: "stretch" }}>
+          <div className="dashboard-body dash-skel-body">
             
-            <section className="panel widget-orders" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: "320px" }}>
-              <div className="panel-head" style={{ marginBottom: "16px" }}>
-                <div className="skel" style={{ width: "140px", height: "24px", borderRadius: "6px", margin: 0 }} />
-                <div className="skel" style={{ width: "80px", height: "28px", borderRadius: "99px", margin: 0 }} />
+            <section className="panel widget-orders dash-skel-panel dash-skel-panel-tall">
+              <div className="panel-head dash-skel-head">
+                <div className="skel skel-title" style={{ width: "140px" }} />
+                <div className="skel skel-pill" style={{ width: "80px", height: "28px" }} />
               </div>
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div className="dash-skel-col dash-skel-col-gap-16">
                 <Skeleton rows={5} height={36} />
               </div>
             </section>
             
-            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: "320px" }}>
-              <div className="skel" style={{ width: "120px", height: "24px", borderRadius: "6px", marginBottom: "20px" }} />
-              <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "12px", marginBottom: "16px" }}>
-                <div className="skel" style={{ height: "80px", borderRadius: "8px" }} />
-                <div className="skel" style={{ height: "80px", borderRadius: "8px" }} />
+            <section className="panel dash-skel-panel dash-skel-panel-tall">
+              <div className="skel skel-title" style={{ width: "120px", marginBottom: "20px" }} />
+              <div className="dash-skel-grid-2">
+                <div className="skel skel-box-80" />
+                <div className="skel skel-box-80" />
               </div>
-              <div className="skel" style={{ flex: 1, minHeight: "120px", borderRadius: "8px" }} />
+              <div className="skel skel-fill" />
             </section>
 
-            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: "280px" }}>
-              <div className="panel-head" style={{ marginBottom: "16px" }}>
-                <div className="skel" style={{ width: "120px", height: "24px", borderRadius: "6px", margin: 0 }} />
-                <div className="skel" style={{ width: "90px", height: "28px", borderRadius: "99px", margin: 0 }} />
+            <section className="panel dash-skel-panel dash-skel-panel-short">
+              <div className="panel-head dash-skel-head">
+                <div className="skel skel-title" style={{ width: "120px" }} />
+                <div className="skel skel-pill" style={{ width: "90px", height: "28px" }} />
               </div>
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "12px" }}>
+              <div className="dash-skel-col dash-skel-col-gap-12">
                 <Skeleton rows={4} height={44} />
               </div>
             </section>
 
-            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: "280px" }}>
-              <div className="panel-head" style={{ marginBottom: "16px" }}>
-                <div className="skel" style={{ width: "110px", height: "24px", borderRadius: "6px", margin: 0 }} />
+            <section className="panel dash-skel-panel dash-skel-panel-short">
+              <div className="panel-head dash-skel-head">
+                <div className="skel skel-title" style={{ width: "110px" }} />
                 <div className="skel" style={{ width: "70px", height: "24px", borderRadius: "8px", margin: 0 }} />
               </div>
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "12px" }}>
+              <div className="dash-skel-col dash-skel-col-gap-12">
                 <Skeleton rows={4} height={44} />
               </div>
             </section>
 
-            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: "280px" }}>
-              <div className="panel-head" style={{ marginBottom: "16px" }}>
-                <div className="skel" style={{ width: "130px", height: "24px", borderRadius: "6px", margin: 0 }} />
+            <section className="panel dash-skel-panel dash-skel-panel-short">
+              <div className="panel-head dash-skel-head">
+                <div className="skel skel-title" style={{ width: "130px" }} />
                 <div className="skel" style={{ width: "80px", height: "24px", borderRadius: "8px", margin: 0 }} />
               </div>
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "12px" }}>
+              <div className="dash-skel-col dash-skel-col-gap-12">
                 <Skeleton rows={4} height={44} />
               </div>
             </section>
@@ -377,7 +368,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="kpi-card-body">
                   <div>
-                    <div className="kpi-card-value">{report ? <>P{Number(todaySales).toLocaleString()}</> : " "}</div>
+                    <div className="kpi-card-value">{report ? <>P{Number(todaySales).toLocaleString()}</> : "—"}</div>
                     <div className="kpi-card-sub">{report ? `${todayOrders} orders - avg P${avgTicket.toFixed(0)} ticket` : "Sales unavailable"}</div>
                   </div>
                   <span className="kpi-card-trend"><TrendArrow dir={salesDir} /> {labelOf(salesDelta)}</span>
@@ -390,7 +381,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="kpi-card-body">
                   <div>
-                    <div className="kpi-card-value">{report ? todayOrders : " "}</div>
+                    <div className="kpi-card-value">{report ? todayOrders : "—"}</div>
                     <div className="kpi-card-sub">Across {activeInventory.length} active carts</div>
                   </div>
                   <span className={`kpi-card-trend ${ordersDir}`}><TrendArrow dir={ordersDir} /> {labelOf(ordersDelta)}</span>
@@ -467,10 +458,10 @@ export default function DashboardPage() {
           </div>
 
           {/* BOTTOM SECTION DATA */}
-          <div className="dashboard-body" style={{ alignItems: "stretch" }}>
+          <div className="dashboard-body dash-skel-body">
             
-            <section className="panel widget-orders" aria-live="polite" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-              <div className="panel-head" style={{ marginBottom: "16px" }}>
+            <section className="panel widget-orders dash-skel-panel" aria-live="polite">
+              <div className="panel-head dash-skel-head">
                 <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
                   Recent orders
                 </h3>

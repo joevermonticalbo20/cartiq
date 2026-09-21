@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { Trash2, ReceiptText, RefreshCw, X, Plus, Edit2, Wallet } from "lucide-react";
 
-import api, { getErrorMessage } from "../api.js";
+import api from "../api.js";
+import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
 import DataTable from "../components/DataTable.jsx";
@@ -170,7 +171,7 @@ export default function ExpensesPage() {
       });
       handleRefresh();
     } catch (err) {
-      setAddError(getErrorMessage(err, "Failed to add expense."));
+      setAddError(getFriendlyError(err, "Failed to add expense."));
     } finally {
       setIsAdding(false);
     }
@@ -212,7 +213,7 @@ export default function ExpensesPage() {
       editing.category === original.category &&
       (note.value || "") === (original.note || "")
     ) {
-      toast("No changes   nothing to update on this expense.", "info");
+      toast("No changes — nothing to update on this expense.", "info");
       closeEditModal();
       return;
     }
@@ -231,7 +232,7 @@ export default function ExpensesPage() {
       closeEditModal();
       handleRefresh();
     } catch (err) {
-      setEditError(getErrorMessage(err, "Failed to update expense."));
+      setEditError(getFriendlyError(err, "Failed to update expense."));
     } finally {
       setIsEditing(false);
     }
@@ -245,7 +246,7 @@ export default function ExpensesPage() {
       toast(`Deleted expense: ${confirming.vendor}`, "success");
       handleRefresh();
     } catch (err) {
-      toast(getErrorMessage(err, "Delete failed"), "error");
+      toast(getFriendlyError(err, "Delete failed"), "error");
     } finally {
       setIsDeleting(false);
       setConfirming(null);

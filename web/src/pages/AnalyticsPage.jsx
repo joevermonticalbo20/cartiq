@@ -9,7 +9,8 @@ import {
 } from "lucide-react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 
-import api, { getErrorMessage } from "../api.js";
+import api from "../api.js";
+import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import { SkeletonCards, SkeletonChart } from "../components/Skeleton.jsx";
@@ -88,7 +89,6 @@ export default function AnalyticsPage() {
   const [forecast, setForecast] = useState(null);
   const [profit, setProfit] = useState(null);
   const [hourly, setHourly] = useState(null);
-  const [basket, setBasket] = useState(null);
   const [salesFc, setSalesFc] = useState(null);
 
   const [error, setError] = useState("");
@@ -116,6 +116,7 @@ export default function AnalyticsPage() {
     dateParams = `&days=${days}`;
     prevDateParams = `&days=${days * 2}`;
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch trigger on filter change, mirrors other pages
     setLoading(true);
 
     Promise.all([
@@ -124,10 +125,9 @@ export default function AnalyticsPage() {
       cartCode ? api.get(`/analytics/forecast?code=${encodeURIComponent(cartCode)}`).catch(() => ({ data: { code: cartCode, items: [] } })) : Promise.resolve({ data: { code: null, items: [] } }),
       isOwner ? api.get(`/analytics/profit?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })) : Promise.resolve({ data: null }),
       api.get(`/analytics/hourly?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })),
-      api.get(`/analytics/basket?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })),
       api.get(`/analytics/sales-forecast?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })),
     ])
-      .then(([cur, ext, f, pf, hr, bk, sf]) => {
+      .then(([cur, ext, f, pf, hr, sf]) => {
         if (!alive) return;
         setLoading(false);
 
@@ -145,7 +145,6 @@ export default function AnalyticsPage() {
         setForecast(f.data);
         setProfit(pf.data);
         setHourly(hr.data);
-        setBasket(bk.data);
         setSalesFc(sf.data);
         setError("");
         setLastUpdated(new Date());
@@ -153,7 +152,7 @@ export default function AnalyticsPage() {
       .catch((err) => {
         if (!alive) return;
         setLoading(false);
-        const msg = getErrorMessage(err, "Unable to load analytics. Please try again.");
+        const msg = getFriendlyError(err, "Unable to load analytics. Please try again.");
         setError(msg);
       });
 
@@ -904,7 +903,7 @@ export default function AnalyticsPage() {
                             <th>Stock</th>
                             <th>Avg/day</th>
                             <th>Depletion</th>
-                            <th>MAPE</th>
+                            <th title="Symmetric mean absolute percentage error (0-200%)">sMAPE</th>
                             <th>Risk</th>
                           </tr>
                         </thead>
@@ -970,7 +969,7 @@ export default function AnalyticsPage() {
                     
                     <p className="muted small" style={{ marginBottom: "var(--space-2)", opacity: isFcReady ? 1 : 0.5 }}>
                       Same engine as inventory forecasts
-                      {isFcReady && salesFc.mape != null && <> - backtest MAPE <strong>{salesFc.mape}%</strong></>}.
+                      {isFcReady && salesFc.mape != null && <> - backtest sMAPE <strong>{salesFc.mape}%</strong></>}.
                       {" "}<span aria-hidden="true">-</span> dashed line = forecast, not history.
                     </p>
                     
