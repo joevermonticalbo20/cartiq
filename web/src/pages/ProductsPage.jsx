@@ -887,8 +887,14 @@ export default function ProductsPage() {
         {/* ADD PRODUCT MODAL */}
         {(addOpen || addClosing) && (
           <div className={`modal-backdrop ${addClosing ? "is-closing" : ""}`}>
-            <div className={`modal modal--tall ${addClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
-              <h3><Plus size={22} className="muted"/> Add Product</h3>
+            <div
+              className={`modal modal--tall ${addClosing ? "is-closing" : ""}`}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="add-product-title"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 id="add-product-title"><Plus size={22} className="muted"/> Add Product</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
                 New catalog item for the POS. Add each flavor below with its own price and recipe rows.
               </p>
@@ -954,8 +960,14 @@ export default function ProductsPage() {
         {/* EDIT PRODUCT MODAL */}
         {(editing || editClosing) && (
           <div className={`modal-backdrop ${editClosing ? "is-closing" : ""}`}>
-            <div className={`modal modal--tall ${editClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
-              <h3><Edit2 size={22} className="muted"/> Edit {editing?.name}</h3>
+            <div
+              className={`modal modal--tall ${editClosing ? "is-closing" : ""}`}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="edit-product-title"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 id="edit-product-title"><Edit2 size={22} className="muted"/> Edit {editing?.name}</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
                 Price changes affect future sales only — recorded orders keep their totals.
               </p>

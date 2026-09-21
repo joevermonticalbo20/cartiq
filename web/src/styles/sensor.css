@@ -66,7 +66,7 @@
   50% { opacity: 0.4; transform: scale(0.8); }
 }
 .live-label {
-  font-size: 9px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: 0.5px;
   color: var(--success);

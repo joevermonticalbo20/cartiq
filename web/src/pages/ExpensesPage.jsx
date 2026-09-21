@@ -2,13 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { Trash2, ReceiptText, RefreshCw, X, Plus, Edit2, Wallet } from "lucide-react";
 
-import api from "../api.js";
-import { getFriendlyError } from "../utils/errors.js";
+import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
-import ErrorBox from "../components/ErrorBox.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
@@ -29,8 +27,8 @@ export default function ExpensesPage() {
   const toast = useToast();
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
-
   const currentMonth = new Date().toISOString().slice(0, 7);
+
   const [code, setCode] = useState("");
   const [locations, setLocations] = useState([]);
   const [month, setMonth] = useState(currentMonth);
@@ -38,6 +36,7 @@ export default function ExpensesPage() {
 
   const [confirming, setConfirming] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
   const [summary, setSummary] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
 
@@ -129,7 +128,7 @@ export default function ExpensesPage() {
   async function handleAddExpense(e) {
     e.preventDefault();
     setAddError("");
-
+    
     const amount = parseMoney(newExpense.amount);
     if (amount === null || amount <= 0) {
       setAddError("Enter an amount from P0.01 to P9,999,999.99 (whole pesos max 7 digits, up to 2 decimals).");
@@ -171,7 +170,7 @@ export default function ExpensesPage() {
       });
       handleRefresh();
     } catch (err) {
-      setAddError(getFriendlyError(err, "Failed to add expense."));
+      setAddError(getErrorMessage(err, "Failed to add expense."));
     } finally {
       setIsAdding(false);
     }
@@ -183,7 +182,7 @@ export default function ExpensesPage() {
   async function handleEditExpense(e) {
     e.preventDefault();
     setEditError("");
-
+    
     const amount = parseMoney(editing.amount);
     if (amount === null || amount <= 0) {
       setEditError("Enter an amount from P0.01 to P9,999,999.99 (whole pesos max 7 digits, up to 2 decimals).");
@@ -204,7 +203,7 @@ export default function ExpensesPage() {
 
     const original = rows.find((r) => r.id === editing.id);
     const sameDay = (d) => String(d ?? "").split("T")[0];
-
+    
     if (
       original &&
       vendor.value === original.vendor &&
@@ -213,7 +212,7 @@ export default function ExpensesPage() {
       editing.category === original.category &&
       (note.value || "") === (original.note || "")
     ) {
-      toast("No changes — nothing to update on this expense.", "info");
+      toast("No changes   nothing to update on this expense.", "info");
       closeEditModal();
       return;
     }
@@ -232,7 +231,7 @@ export default function ExpensesPage() {
       closeEditModal();
       handleRefresh();
     } catch (err) {
-      setEditError(getFriendlyError(err, "Failed to update expense."));
+      setEditError(getErrorMessage(err, "Failed to update expense."));
     } finally {
       setIsEditing(false);
     }
@@ -246,7 +245,7 @@ export default function ExpensesPage() {
       toast(`Deleted expense: ${confirming.vendor}`, "success");
       handleRefresh();
     } catch (err) {
-      toast(getFriendlyError(err, "Delete failed"), "error");
+      toast(getErrorMessage(err, "Delete failed"), "error");
     } finally {
       setIsDeleting(false);
       setConfirming(null);
@@ -259,7 +258,7 @@ export default function ExpensesPage() {
     { value: "", label: "All carts" },
     ...safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }))
   ];
-
+  
   // Para sa forms, ayaw natin ng "All carts" o "All categories" blank options
   const formLocationOptions = [
     { value: "", label: "General / No Cart Assigned" },
@@ -335,7 +334,7 @@ export default function ExpensesPage() {
                 placeholder="All categories"
               />
             </div>
-
+            
             {(code || month !== currentMonth || category) && (
               <button
                 className="danger-ghost small-btn"
@@ -350,7 +349,14 @@ export default function ExpensesPage() {
             )}
           </div>
 
-          {summary && (summary.by_category ?? []).length > 0 && (
+          {/* SKELETON LOADING STATE PARA SA SUMMARY BADGES */}
+          {loading && !summary ? (
+            <div className="flex flex-wrap gap-2" style={{ marginBottom: "var(--space-4)" }}>
+              <div className="skel" style={{ width: 140, height: 26, borderRadius: 99, margin: 0 }} />
+              <div className="skel" style={{ width: 120, height: 26, borderRadius: 99, margin: 0 }} />
+              <div className="skel" style={{ width: 180, height: 26, borderRadius: 99, margin: 0 }} />
+            </div>
+          ) : summary && (summary.by_category ?? []).length > 0 ? (
             <div className="flex flex-wrap gap-2" style={{ marginBottom: "var(--space-4)" }}>
               {(summary.by_category ?? []).map((c) => (
                 <Badge key={c.category} variant={CATEGORY_CLASS[c.category] ?? "neutral"}>
@@ -361,10 +367,10 @@ export default function ExpensesPage() {
                 TOTAL: P{Number(summary.totals?.total_amount ?? 0).toLocaleString()}
               </Badge>
             </div>
-          )}
+          ) : null}
 
           {error ? (
-            <ErrorBox message={error} onRetry={refresh} />
+            <div className="error-box">{error}</div>
           ) : !loading && (!rows || rows.length === 0) ? (
             <EmptyState
               icon={ReceiptText}
@@ -372,14 +378,8 @@ export default function ExpensesPage() {
               subtitle="Add an expense manually or scan vendor receipts from the POS app."
             />
           ) : (
-            <>
-              {loading && (
-                <p role="status" className="muted small" style={{ margin: "0 0 var(--space-2)" }}>
-                  Loading expenses…
-                </p>
-              )}
-              <DataTable
-                loading={loading}
+            <DataTable
+              loading={loading}
               fixedLayout={true}
               emptyMessage="No expenses this period."
               columns={[
@@ -486,7 +486,6 @@ export default function ExpensesPage() {
               data={rows}
               pagination={meta ? { ...meta, onPageChange: gotoPage } : null}
             />
-            </>
           )}
         </section>
 
@@ -498,7 +497,7 @@ export default function ExpensesPage() {
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
                 Record an expense directly if the receipt scanner isn&apos;t available.
               </p>
-
+              
               <form onSubmit={handleAddExpense} className="flex flex-col gap-4">
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
                   <label className="field">
@@ -592,7 +591,7 @@ export default function ExpensesPage() {
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
                 Update details for this expense record.
               </p>
-
+              
               <form onSubmit={handleEditExpense} className="flex flex-col gap-4">
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
                   <label className="field">

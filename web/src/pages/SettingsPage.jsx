@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import { KeyRound, Plus, RefreshCw, Eye, EyeOff, Edit2, Trash2, Cpu, ShoppingCart, Users } from "lucide-react";
-import api from "../api.js";
-import { getFriendlyError } from "../utils/errors.js";
+
+import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
-import ErrorBox from "../components/ErrorBox.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
@@ -23,11 +22,12 @@ export default function SettingsPage() {
 
   const [profile, setProfile] = useState(user ?? null);
   const [profileError, setProfileError] = useState("");
-  // Owner tables must not masquerade load failures as "none yet".
+
   const [ownerError, setOwnerError] = useState([]);
-  const [ownerLoading, setOwnerLoading] = useState(false);
+  const [isLoadingOwner, setIsLoadingOwner] = useState(true);
 
   const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
+
   const [devices, setDevices] = useState([]);
   const [staff, setStaff] = useState([]);
   const [locations, setLocations] = useState([]);
@@ -36,21 +36,27 @@ export default function SettingsPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [addClosing, setAddClosing] = useState(false);
   const [isStaffAdding, setIsStaffAdding] = useState(false);
+
   const [resetting, setResetting] = useState(null);
   const [resetClosing, setResetClosing] = useState(false);
   const [resetPw, setResetPw] = useState("");
   const [isResetting, setIsResetting] = useState(false);
+
   const [disabling, setDisabling] = useState(null);
   const [isDisabling, setIsDisabling] = useState(false);
+
   const [staffEditing, setStaffEditing] = useState(null);
   const [staffEditClosing, setStaffEditClosing] = useState(false);
   const [isStaffEditing, setIsStaffEditing] = useState(false);
+
   const [pwError, setPwError] = useState("");
   const [staffError, setStaffError] = useState("");
   const [resetError, setResetError] = useState("");
+
   const [showPw, setShowPw] = useState({ current: false, next: false, confirm: false });
   const [showNewStaffPw, setShowNewStaffPw] = useState(false);
   const [showResetPw, setShowResetPw] = useState(false);
+
   const [newStaff, setNewStaff] = useState({
     name: "",
     username: "",
@@ -65,9 +71,11 @@ export default function SettingsPage() {
   const [isDeviceAdding, setIsDeviceAdding] = useState(false);
   const [deviceError, setDeviceError] = useState("");
   const [newDevice, setNewDevice] = useState({ deviceId: "", locationCode: "" });
+
   const [deviceEditing, setDeviceEditing] = useState(null);
   const [deviceEditClosing, setDeviceEditClosing] = useState(false);
   const [isDeviceEditing, setIsDeviceEditing] = useState(false);
+
   const [deviceDeleting, setDeviceDeleting] = useState(null);
   const [isDeviceDeleting, setIsDeviceDeleting] = useState(false);
 
@@ -78,13 +86,16 @@ export default function SettingsPage() {
   const [isCartAdding, setIsCartAdding] = useState(false);
   const [cartError, setCartError] = useState("");
   const [newCart, setNewCart] = useState({ code: "", name: "", address: "", seedInventory: true });
+  
   const [cartToken, setCartToken] = useState(null);
   const [cartTokenCopied, setCartTokenCopied] = useState(false);
   const [deviceToken, setDeviceToken] = useState(null);
   const [deviceTokenCopied, setDeviceTokenCopied] = useState(false);
+
   const [cartEditing, setCartEditing] = useState(null);
   const [cartEditClosing, setCartEditClosing] = useState(false);
   const [isCartEditing, setIsCartEditing] = useState(false);
+
   const [cartToggling, setCartToggling] = useState(null);
   const [isCartToggling, setIsCartToggling] = useState(false);
 
@@ -95,32 +106,26 @@ export default function SettingsPage() {
     setAddClosing(true);
     setTimeout(() => { setAddOpen(false); setAddClosing(false); }, 150);
   }
-
   function closeResetModal() {
     setResetClosing(true);
     setTimeout(() => { setResetting(null); setResetClosing(false); }, 150);
   }
-
   function closeStaffEditModal() {
     setStaffEditClosing(true);
     setTimeout(() => { setStaffEditing(null); setStaffEditClosing(false); }, 150);
   }
-
   function closeDeviceAddModal() {
     setDeviceAddClosing(true);
     setTimeout(() => { setDeviceAddOpen(false); setDeviceAddClosing(false); }, 150);
   }
-
   function closeDeviceEditModal() {
     setDeviceEditClosing(true);
     setTimeout(() => { setDeviceEditing(null); setDeviceEditClosing(false); }, 150);
   }
-
   function closeCartAddModal() {
     setCartAddClosing(true);
     setTimeout(() => { setCartAddOpen(false); setCartAddClosing(false); }, 150);
   }
-
   function closeCartEditModal() {
     setCartEditClosing(true);
     setTimeout(() => { setCartEditing(null); setCartEditClosing(false); }, 150);
@@ -149,18 +154,22 @@ export default function SettingsPage() {
 
   function loadOwnerData() {
     if (!isOwner) return;
+    setIsLoadingOwner(true);
     setOwnerError([]);
-    setOwnerLoading(true);
+    
     const track = (key, promise, apply) => {
       return promise.then(apply).catch(() => {
         setOwnerError((prev) => (prev.includes(key) ? prev : [...prev, key]));
       });
     };
-    Promise.allSettled([
+
+    Promise.all([
       track("devices", api.get("/devices"), ({ data }) => setDevices(data?.data ?? [])),
       track("staff", api.get("/auth/staff"), ({ data }) => setStaff(data?.data ?? [])),
-      track("carts", api.get("/locations"), ({ data }) => setCarts(data?.data ?? [])),
-    ]).finally(() => setOwnerLoading(false));
+      track("carts", api.get("/locations"), ({ data }) => setCarts(data?.data ?? []))
+    ]).finally(() => {
+      setIsLoadingOwner(false);
+    });
   }
 
   function loadProfile() {
@@ -171,7 +180,6 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional init: profile + catalog defaults on mount/role change
     loadProfile();
     api.get("/catalog").then(({ data }) => {
       const locs = data?.locations ?? [];
@@ -181,6 +189,7 @@ export default function SettingsPage() {
         setNewDevice((prev) => ({ ...prev, locationCode: locs[0].code }));
       }
     }).catch(() => {});
+    
     loadOwnerData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOwner]);
@@ -197,23 +206,19 @@ export default function SettingsPage() {
     }
     setPwError("");
     if (isChanging) return;
-    setIsChanging(true);
 
+    setIsChanging(true);
     try {
       await api.post("/auth/change-password", {
         currentPassword: pw.current,
         newPassword: pw.next,
       });
-
-      // Server revokes ALL refresh tokens on password change, so this
-      // session is dead: drop local tokens and force a fresh login instead
-      // of lingering half-authenticated until the next 401.
       localStorage.removeItem("cartiq_token");
       localStorage.removeItem("cartiq_refresh_token");
       toast("Password updated - please log in again", "success");
       navigate("/login", { replace: true });
     } catch (err) {
-      setPwError(getFriendlyError(err, "Change failed - is the current password correct?"));
+      setPwError(getErrorMessage(err, "Change failed - is the current password correct?"));
     } finally {
       setIsChanging(false);
     }
@@ -228,6 +233,7 @@ export default function SettingsPage() {
     }
     setStaffError("");
     if (isStaffAdding) return;
+
     setIsStaffAdding(true);
     try {
       await api.post("/auth/staff", {
@@ -240,7 +246,7 @@ export default function SettingsPage() {
       setShowNewStaffPw(false);
       loadOwnerData();
     } catch (err) {
-      setStaffError(getFriendlyError(err, "Create failed - is the username or RFID already taken?"));
+      setStaffError(getErrorMessage(err, "Create failed - is the username or RFID already taken?"));
     } finally {
       setIsStaffAdding(false);
     }
@@ -249,9 +255,7 @@ export default function SettingsPage() {
   async function handleEditStaff(e) {
     e.preventDefault();
     setStaffError("");
-
-    // Only name/location/rfid reach the API (username is immutable
-    // server-side), so no-change is measured on those fields.
+    
     const original = staff.find((s) => s.id === staffEditing.id);
     if (
       original &&
@@ -266,18 +270,17 @@ export default function SettingsPage() {
 
     setIsStaffEditing(true);
     try {
-      // NOTE: username is immutable server-side - sending it is a no-op,
-      // so only name/location/rfid go out.
       await api.patch(`/auth/staff/${staffEditing.id}`, {
         name: staffEditing.name,
         locationCode: staffEditing.location?.code || null,
         rfidUid: staffEditing.rfidUid || null
       });
+      
       toast(`Staff account "${staffEditing.username}" updated`, "success");
       closeStaffEditModal();
       loadOwnerData();
     } catch (err) {
-      setStaffError(getFriendlyError(err, "Update failed - username or RFID may already exist."));
+      setStaffError(getErrorMessage(err, "Update failed - username or RFID may already exist."));
     } finally {
       setIsStaffEditing(false);
     }
@@ -291,7 +294,7 @@ export default function SettingsPage() {
       toast(`${s.username} ${s.active ? "disabled" : "enabled"}`, "success");
       loadOwnerData();
     } catch (err) {
-      toast(getFriendlyError(err, "Update failed"), "error");
+      toast(getErrorMessage(err, "Update failed"), "error");
     } finally {
       setIsDisabling(false);
     }
@@ -313,7 +316,7 @@ export default function SettingsPage() {
       setResetPw("");
       setShowResetPw(false);
     } catch (err) {
-      setResetError(getFriendlyError(err, "Reset failed - try again."));
+      setResetError(getErrorMessage(err, "Reset failed - try again."));
     } finally {
       setIsResetting(false);
     }
@@ -331,13 +334,14 @@ export default function SettingsPage() {
       });
       closeDeviceAddModal();
       setNewDevice({ deviceId: "", locationCode: safeLocations[0]?.code || "" });
-      // One-shot token: stored hashed server-side, never shown again.
+      
       setDeviceToken({ deviceId: newDevice.deviceId, token: res.data?.deviceToken });
       setDeviceTokenCopied(false);
+
       toast(`Device ${newDevice.deviceId} registered`, "success");
       loadOwnerData();
     } catch (err) {
-      setDeviceError(getFriendlyError(err, "Registration failed. Device ID may already exist."));
+      setDeviceError(getErrorMessage(err, "Registration failed. Device ID may already exist."));
     } finally {
       setIsDeviceAdding(false);
     }
@@ -346,7 +350,6 @@ export default function SettingsPage() {
   const safeLocations = Array.isArray(locations) ? locations : [];
   const safeDevices = Array.isArray(devices) ? devices : [];
   const safeStaff = Array.isArray(staff) ? staff : [];
-
   const locationOptions = safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
 
   async function handleEditDevice(e) {
@@ -363,7 +366,7 @@ export default function SettingsPage() {
       closeDeviceEditModal();
       loadOwnerData();
     } catch (err) {
-      setDeviceError(getFriendlyError(err, "Update failed."));
+      setDeviceError(getErrorMessage(err, "Update failed."));
     } finally {
       setIsDeviceEditing(false);
     }
@@ -377,7 +380,7 @@ export default function SettingsPage() {
       toast(`Device ${deviceDeleting.device_id} deleted`, "success");
       loadOwnerData();
     } catch (err) {
-      toast(getFriendlyError(err, "Failed to delete device"), "error");
+      toast(getErrorMessage(err, "Failed to delete device"), "error");
     } finally {
       setIsDeviceDeleting(false);
       setDeviceDeleting(null);
@@ -392,11 +395,13 @@ export default function SettingsPage() {
   async function createCart(e) {
     e.preventDefault();
     setCartError("");
+    
     const code = sanitizeCartCode(newCart.code);
     if (!/^[A-Z0-9-]{3,12}$/.test(code)) {
       setCartError("Code must be 3-12 chars: A-Z, 0-9, dash (e.g. CART-04).");
       return;
     }
+
     const name = sanitizeTextInput(newCart.name, 120).trim();
     if (name.length < 2 || countLetters(name) < 2) {
       setCartError("Name needs at least 2 letters.");
@@ -414,12 +419,12 @@ export default function SettingsPage() {
       toast(`Cart ${code} created with starter inventory`, "success");
       closeCartAddModal();
       setNewCart({ code: "", name: "", address: "", seedInventory: true });
-      // One-shot token display: never stored, cleared on close.
+      
       setCartTokenCopied(false);
       setCartToken({ code, deviceId: data?.device?.deviceId ?? "", token: data?.deviceToken ?? "" });
       loadOwnerData();
     } catch (err) {
-      setCartError(getFriendlyError(err, "Create failed - is the code already taken?"));
+      setCartError(getErrorMessage(err, "Create failed - is the code already taken?"));
     } finally {
       setIsCartAdding(false);
     }
@@ -432,8 +437,6 @@ export default function SettingsPage() {
       setCartTokenCopied(true);
       toast("Device token copied", "success");
     } catch {
-      // cartError only renders inside the (closed) add-cart modal, so a
-      // toast is the only visible surface here.
       toast("Copy failed - select the token manually.", "error");
     }
   }
@@ -452,7 +455,7 @@ export default function SettingsPage() {
   async function handleEditCart(e) {
     e.preventDefault();
     setCartError("");
-
+    
     const name = sanitizeTextInput(cartEditing.name, 120).trim();
     const address = sanitizeTextInput(cartEditing.address ?? "", 200).trim();
     const original = carts.find((c) => c.id === cartEditing.id);
@@ -478,7 +481,7 @@ export default function SettingsPage() {
       closeCartEditModal();
       loadOwnerData();
     } catch (err) {
-      setCartError(getFriendlyError(err, "Update failed."));
+      setCartError(getErrorMessage(err, "Update failed."));
     } finally {
       setIsCartEditing(false);
     }
@@ -487,6 +490,7 @@ export default function SettingsPage() {
   async function toggleCart() {
     if (!cartToggling || isCartToggling) return;
     setIsCartToggling(true);
+    
     const toInactive = cartToggling.status !== "INACTIVE";
     try {
       await api.patch(`/locations/${cartToggling.id}`, {
@@ -495,7 +499,7 @@ export default function SettingsPage() {
       toast(`Cart ${cartToggling.code} ${toInactive ? "deactivated" : "reactivated"}`, "success");
       loadOwnerData();
     } catch (err) {
-      toast(getFriendlyError(err, "Update failed"), "error");
+      toast(getErrorMessage(err, "Update failed"), "error");
     } finally {
       setIsCartToggling(false);
       setCartToggling(null);
@@ -526,7 +530,6 @@ export default function SettingsPage() {
           sub="Your profile, password, carts, devices, and staff accounts."
         />
         
-        {/* FIX: Pinalitan ang alignItems: "start" papuntang "stretch" para magpantay ang panel boxes */}
         <div className="settings-grid" style={{ gap: "var(--space-4)", alignItems: "stretch" }}>
           
           {/* PROFILE PANEL */}
@@ -534,6 +537,7 @@ export default function SettingsPage() {
             <h3 className="section-title" style={{ padding: 0, borderBottom: "none", marginBottom: "var(--space-4)" }}>
               Profile
             </h3>
+
             {!profile ? (
               profileError ? (
                 <div className="error-box" role="alert">
@@ -572,99 +576,106 @@ export default function SettingsPage() {
             <h3 className="section-title" style={{ padding: 0, borderBottom: "none", marginBottom: "var(--space-4)" }}>
               Change password
             </h3>
-            <form onSubmit={changePassword} className="flex flex-col gap-3">
-              
-              <label className="field">
-                Current password
-                <div style={{ position: "relative" }}>
-                  <input
-                    type={showPw.current ? "text" : "password"}
-                    value={pw.current}
-                    onChange={(e) => setPw({ ...pw, current: e.target.value })}
-                    required
-                    autoComplete="current-password"
-                    style={{ height: "36px", width: "100%", paddingRight: "36px" }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPw({ ...showPw, current: !showPw.current })}
-                    style={toggleBtnStyle}
-                    aria-label={showPw.current ? "Hide password" : "Show password"}
-                  >
-                    {showPw.current ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              </label>
-              
-              <label className="field">
-                New password (min 8 chars)
-                <div style={{ position: "relative" }}>
-                  <input
-                    type={showPw.next ? "text" : "password"}
-                    value={pw.next}
-                    onChange={(e) => {
-                      setPw({ ...pw, next: e.target.value });
-                      if (pwError.includes("match") && pw.confirm === e.target.value) {
-                        setPwError("");
-                      }
-                    }}
-                    required
-                    minLength={8}
-                    autoComplete="new-password"
-                    style={{ height: "36px", width: "100%", paddingRight: "36px" }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPw({ ...showPw, next: !showPw.next })}
-                    style={toggleBtnStyle}
-                    aria-label={showPw.next ? "Hide password" : "Show password"}
-                  >
-                    {showPw.next ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-                <PasswordStrengthMeter value={pw.next} minLevel="good" />
-              </label>
-              
-              <label className="field">
-                Confirm new password
-                <div style={{ position: "relative" }}>
-                  <input
-                    type={showPw.confirm ? "text" : "password"}
-                    value={pw.confirm}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setPw({ ...pw, confirm: val });
-                      if (pwError.includes("match") && pw.next === val) {
-                        setPwError("");
-                      }
-                    }}
-                    onBlur={() => {
-                      if (pw.confirm && pw.confirm !== pw.next) {
-                        setPwError("New passwords do not match - check the confirmation field.");
-                      }
-                    }}
-                    required
-                    autoComplete="new-password"
-                    style={{ height: "36px", width: "100%", paddingRight: "36px" }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPw({ ...showPw, confirm: !showPw.confirm })}
-                    style={toggleBtnStyle}
-                    aria-label={showPw.confirm ? "Hide password" : "Show password"}
-                  >
-                    {showPw.confirm ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              </label>
-              
-              <button type="submit" className="self-start mt-2" disabled={isChanging}>
-                <KeyRound size={15} /> {isChanging ? "Updating..." : "Update password"}
-              </button>
-              
-              {pwError && <p className="error-box" role="alert" style={{ marginTop: "var(--space-2)" }}>{pwError}</p>}
-            </form>
+            
+            {!profile && !profileError ? (
+              <div className="flex flex-col gap-3">
+                <Skeleton rows={4} height={36} />
+              </div>
+            ) : (
+              <form onSubmit={changePassword} className="flex flex-col gap-3">
+                <label className="field">
+                  Current password
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type={showPw.current ? "text" : "password"}
+                      value={pw.current}
+                      onChange={(e) => setPw({ ...pw, current: e.target.value })}
+                      required
+                      autoComplete="current-password"
+                      style={{ height: "36px", width: "100%", paddingRight: "36px" }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPw({ ...showPw, current: !showPw.current })}
+                      style={toggleBtnStyle}
+                      aria-label={showPw.current ? "Hide password" : "Show password"}
+                    >
+                      {showPw.current ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </label>
+                
+                <label className="field">
+                  New password (min 8 chars)
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type={showPw.next ? "text" : "password"}
+                      value={pw.next}
+                      onChange={(e) => {
+                        setPw({ ...pw, next: e.target.value });
+                        if (pwError.includes("match") && pw.confirm === e.target.value) {
+                          setPwError("");
+                        }
+                      }}
+                      required
+                      minLength={8}
+                      autoComplete="new-password"
+                      style={{ height: "36px", width: "100%", paddingRight: "36px" }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPw({ ...showPw, next: !showPw.next })}
+                      style={toggleBtnStyle}
+                      aria-label={showPw.next ? "Hide password" : "Show password"}
+                    >
+                      {showPw.next ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  <PasswordStrengthMeter value={pw.next} minLevel="good" />
+                </label>
+                
+                <label className="field">
+                  Confirm new password
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type={showPw.confirm ? "text" : "password"}
+                      value={pw.confirm}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setPw({ ...pw, confirm: val });
+                        if (pwError.includes("match") && pw.next === val) {
+                          setPwError("");
+                        }
+                      }}
+                      onBlur={() => {
+                        if (pw.confirm && pw.confirm !== pw.next) {
+                          setPwError("New passwords do not match - check the confirmation field.");
+                        }
+                      }}
+                      required
+                      autoComplete="new-password"
+                      style={{ height: "36px", width: "100%", paddingRight: "36px" }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPw({ ...showPw, confirm: !showPw.confirm })}
+                      style={toggleBtnStyle}
+                      aria-label={showPw.confirm ? "Hide password" : "Show password"}
+                    >
+                      {showPw.confirm ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </label>
+                
+                <button type="submit" className="self-start mt-2" disabled={isChanging}>
+                  <KeyRound size={15} /> {isChanging ? "Updating..." : "Update password"}
+                </button>
+                
+                {pwError && <p className="error-box" role="alert" style={{ marginTop: "var(--space-2)" }}>{pwError}</p>}
+              </form>
+            )}
           </section>
+
         </div>
 
         {!isOwner && (
@@ -675,11 +686,12 @@ export default function SettingsPage() {
 
         {isOwner && (
           <div className="flex flex-col gap-4 mt-4">
+            
             {ownerError.length > 0 && (
-              <ErrorBox
-                message={`Could not load ${ownerError.join(", ")}. Showing cached data.`}
-                onRetry={loadOwnerData}
-              />
+              <div className="error-box" role="alert">
+                <span>Could not load {ownerError.join(", ")}. Showing cached data.</span>
+                <button className="ghost" onClick={loadOwnerData}>Retry</button>
+              </div>
             )}
 
             {/* IOT DEVICE REGISTRY */}
@@ -695,9 +707,11 @@ export default function SettingsPage() {
                   </button>
                 </div>
               </div>
-
-              {ownerLoading && safeDevices.length === 0 ? (
-                <Skeleton rows={3} />
+              
+              {isLoadingOwner ? (
+                <div style={{ marginTop: "var(--space-4)" }}>
+                  <Skeleton rows={4} height={40} />
+                </div>
               ) : safeDevices.length === 0 ? (
                 <EmptyState
                   icon={Cpu}
@@ -768,8 +782,10 @@ export default function SettingsPage() {
                 </button>
               </div>
 
-              {ownerLoading && safeStaff.filter((s) => s.role !== "OWNER").length === 0 ? (
-                <Skeleton rows={3} />
+              {isLoadingOwner ? (
+                <div style={{ marginTop: "var(--space-4)" }}>
+                  <Skeleton rows={4} height={40} />
+                </div>
               ) : safeStaff.filter((s) => s.role !== "OWNER").length === 0 ? (
                 <EmptyState
                   icon={Users}
@@ -791,7 +807,6 @@ export default function SettingsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {/* Nilagyan ng filter para hindi na ipakita ang OWNER */}
                       {safeStaff.filter((s) => s.role !== "OWNER").map((s) => (
                         <tr key={s.id} className={!s.active ? "row-disabled" : undefined}>
                           <td><strong>{s.name}</strong></td>
@@ -849,8 +864,10 @@ export default function SettingsPage() {
                 </button>
               </div>
 
-              {ownerLoading && carts.length === 0 ? (
-                <Skeleton rows={3} />
+              {isLoadingOwner ? (
+                <div style={{ marginTop: "var(--space-4)" }}>
+                  <Skeleton rows={4} height={40} />
+                </div>
               ) : carts.length === 0 ? (
                 <EmptyState
                   icon={ShoppingCart}
@@ -989,6 +1006,7 @@ export default function SettingsPage() {
                     style={{ height: "36px" }}
                   />
                 </label>
+
                 <div className="modal-actions" style={{ marginTop: "var(--space-3)" }}>
                   <button type="button" className="ghost" onClick={closeAddModal} disabled={addClosing}>
                     Cancel
@@ -1044,6 +1062,7 @@ export default function SettingsPage() {
                     style={{ height: "36px" }}
                   />
                 </label>
+
                 <div className="modal-actions" style={{ marginTop: "var(--space-3)" }}>
                   <button type="button" className="ghost" onClick={closeStaffEditModal} disabled={isStaffEditing || staffEditClosing}>
                     Cancel
@@ -1121,6 +1140,7 @@ export default function SettingsPage() {
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
                 Add a new ESP32 Node device and assign it to a cart.
               </p>
+
               <form onSubmit={handleAddDevice} className="flex flex-col gap-3">
                 <label className="field">
                   Device ID (e.g. ESP32-A1B2) *
@@ -1141,6 +1161,7 @@ export default function SettingsPage() {
                     placeholder="Assign to cart..."
                   />
                 </label>
+
                 <div className="modal-actions" style={{ marginTop: "var(--space-3)" }}>
                   <button type="button" className="ghost" onClick={closeDeviceAddModal} disabled={isDeviceAdding || deviceAddClosing}>
                     Cancel
@@ -1160,6 +1181,7 @@ export default function SettingsPage() {
           <div className={`modal-backdrop ${deviceEditClosing ? "is-closing" : ""}`}>
             <div className={`modal ${deviceEditClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
               <h3><Edit2 size={22} className="muted"/> Edit Device - {deviceEditing?.device_id}</h3>
+
               <form onSubmit={handleEditDevice} className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
                 <label className="field">
                   Cart assignment
@@ -1179,6 +1201,7 @@ export default function SettingsPage() {
                   />
                   Device is active
                 </label>
+
                 <div className="modal-actions" style={{ marginTop: "var(--space-3)" }}>
                   <button type="button" className="ghost" onClick={closeDeviceEditModal} disabled={isDeviceEditing || deviceEditClosing}>
                     Cancel
@@ -1201,6 +1224,7 @@ export default function SettingsPage() {
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
                 Provision a cart with starter inventory and its ESP32 device token.
               </p>
+              
               <form onSubmit={createCart} className="flex flex-col gap-4">
                 <label className="field">
                   Cart Code
@@ -1216,6 +1240,7 @@ export default function SettingsPage() {
                     autoFocus
                   />
                 </label>
+                
                 <label className="field">
                   Cart Name
                   <input
@@ -1229,6 +1254,7 @@ export default function SettingsPage() {
                     onChange={(e) => setNewCart({ ...newCart, name: sanitizeTextInput(e.target.value, 120) })}
                   />
                 </label>
+                
                 <label className="field">
                   Address (Optional)
                   <input
@@ -1239,6 +1265,7 @@ export default function SettingsPage() {
                     onChange={(e) => setNewCart({ ...newCart, address: sanitizeTextInput(e.target.value, 200) })}
                   />
                 </label>
+                
                 <label className="field" style={{ flexDirection: "row", alignItems: "center", gap: "8px", cursor: "pointer" }}>
                   <input
                     type="checkbox"
@@ -1248,6 +1275,7 @@ export default function SettingsPage() {
                   />
                   Seed starter inventory (6 template rows)
                 </label>
+                
                 <div className="modal-actions">
                   <button type="button" className="ghost" onClick={closeCartAddModal} disabled={isCartAdding || cartAddClosing}>Cancel</button>
                   <button type="submit" disabled={isCartAdding || cartAddClosing}>
@@ -1266,13 +1294,15 @@ export default function SettingsPage() {
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <h3>Cart {cartToken.code} created</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                Copy the ESP32 device token now - it is stored hashed and
+                Copy the ESP32 device token now - it is stored hashed and 
                 <strong> will never be shown again</strong>.
               </p>
+              
               <label className="field">
                 Device Token ({cartToken.deviceId})
                 <input type="text" readOnly value={cartToken.token} onFocus={(e) => e.target.select()} />
               </label>
+              
               <div className="modal-actions">
                 <button
                   type="button"
@@ -1295,13 +1325,15 @@ export default function SettingsPage() {
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <h3>Device {deviceToken.deviceId} registered</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                Copy the ESP32 device token now - it is stored hashed and
+                Copy the ESP32 device token now - it is stored hashed and 
                 <strong> will never be shown again</strong>.
               </p>
+              
               <label className="field">
                 Device Token ({deviceToken.deviceId})
                 <input type="text" readOnly value={deviceToken.token ?? ""} onFocus={(e) => e.target.select()} />
               </label>
+              
               <div className="modal-actions">
                 <button
                   type="button"
@@ -1322,11 +1354,9 @@ export default function SettingsPage() {
         {(cartEditing || cartEditClosing) && (
           <div className={`modal-backdrop ${cartEditClosing ? "is-closing" : ""}`}>
             <div className={`modal ${cartEditClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
-              <h3><Edit2 size={22} className="muted"/> Edit Cart {cartEditing?.code}</h3>
-              <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                The cart code is immutable (devices and history reference it).
-              </p>
-              <form onSubmit={handleEditCart} className="flex flex-col gap-4">
+              <h3><Edit2 size={22} className="muted"/> Edit Cart - {cartEditing?.code}</h3>
+              
+              <form onSubmit={handleEditCart} className="flex flex-col gap-4" style={{ marginTop: "var(--space-3)" }}>
                 <label className="field">
                   Cart Name
                   <input
@@ -1334,20 +1364,25 @@ export default function SettingsPage() {
                     required
                     minLength={2}
                     maxLength={120}
+                    placeholder="e.g. New Canteen"
+                    title="Min 2 letters"
                     value={cartEditing?.name || ""}
                     onChange={(e) => setCartEditing({ ...cartEditing, name: sanitizeTextInput(e.target.value, 120) })}
                     autoFocus
                   />
                 </label>
+                
                 <label className="field">
                   Address (Optional)
                   <input
                     type="text"
                     maxLength={200}
+                    placeholder="e.g. Sta. Cruz, Laguna"
                     value={cartEditing?.address || ""}
                     onChange={(e) => setCartEditing({ ...cartEditing, address: sanitizeTextInput(e.target.value, 200) })}
                   />
                 </label>
+                
                 <div className="modal-actions">
                   <button type="button" className="ghost" onClick={closeCartEditModal} disabled={isCartEditing || cartEditClosing}>Cancel</button>
                   <button type="submit" disabled={isCartEditing || cartEditClosing}>
@@ -1359,35 +1394,6 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
-
-        {/* DEACTIVATE / REACTIVATE CART CONFIRMATION */}
-        <ConfirmDialog
-          open={Boolean(cartToggling)}
-          title={cartToggling?.status === "INACTIVE" ? `Reactivate ${cartToggling?.code}?` : `Deactivate ${cartToggling?.code}?`}
-          message={cartToggling?.status === "INACTIVE"
-            ? `"${cartToggling?.code}" will reappear in the POS and filters.`
-            : `"${cartToggling?.code}" will disappear from the POS and filters. History is kept.`}
-          confirmLabel={cartToggling?.status === "INACTIVE" ? "Reactivate" : "Deactivate"}
-          danger={cartToggling?.status !== "INACTIVE"}
-          pending={isCartToggling}
-          pendingLabel="Updating..."
-          onConfirm={toggleCart}
-          onCancel={() => setCartToggling(null)}
-        />
-
-        {/* DELETE IOT DEVICE CONFIRMATION */}
-        <ConfirmDialog
-          open={Boolean(deviceDeleting)}
-          title="Delete IoT Device?"
-          message={`Are you sure you want to unregister device "${deviceDeleting?.device_id}"? This will stop it from syncing data to the system.`}
-          confirmLabel="Delete Device"
-          danger={true}
-          pending={isDeviceDeleting}
-          pendingLabel="Deleting..."
-          onConfirm={handleDeleteDevice}
-          onCancel={() => setDeviceDeleting(null)}
-        />
-        
       </div>
     </PageErrorBoundary>
   );

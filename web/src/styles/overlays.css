@@ -58,13 +58,12 @@
 /* Tall content (e.g. Products per-flavor rows): cap at viewport height,
    scroll the body, keep Save/Cancel pinned while scrolling. */
 .modal--tall {
-  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
   overflow-y: auto;
 }
 
 .modal--tall .modal-actions {
-  position: sticky;
-  bottom: 0;
+  position: relative;
   background: var(--surface);
   padding-top: 12px;
   padding-bottom: 4px;
@@ -108,11 +107,6 @@ button.flavor-card-toggle:hover:not(:disabled) {
   background: var(--surface-alt);
   box-shadow: none;
   transform: none;
-}
-
-button.flavor-card-toggle:focus-visible {
-  outline: 2px solid var(--border-strong);
-  outline-offset: 2px;
 }
 
 button.flavor-card-toggle--flat {
@@ -256,7 +250,7 @@ button.flavor-card-toggle--flat {
 /* ----- Responsive (max-width: 480px): small phones - toast dock sa ibaba ----- */
 @media (max-width: 480px) {
   .toast-host {
-    bottom: 24px;
+    bottom: 88px;
     right: 16px;
     left: 16px;
     align-items: stretch; /* Para humaba sa buong screen width sa mobile */

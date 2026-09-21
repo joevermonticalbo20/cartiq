@@ -20,11 +20,9 @@ import {
   X,
 } from "lucide-react";
 
-import api, { API_BASE } from "../api.js";
-import { getFriendlyError } from "../utils/errors.js";
+import api, { API_BASE, getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
-import ErrorBox from "../components/ErrorBox.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import SensorPanel from "../components/SensorPanel.jsx";
 import Select from "../components/Select.jsx";
@@ -117,7 +115,7 @@ export default function DashboardPage() {
       try {
         apply(await promise);
       } catch (err) {
-        errs[key] = getFriendlyError(err, "Couldn't load this section.");
+        errs[key] = getErrorMessage(err, "Couldn't load this section.");
       }
     };
 
@@ -131,9 +129,6 @@ export default function DashboardPage() {
       return base.includes("?") ? `${base}&${query}` : `${base}?${query}`;
     };
 
-    // Param names must match each backend contract: reports/trends take
-    // `code`, orders take `location_code`, alerts have no cart filter
-    // (sending location_code there was silently ignored).
     await Promise.all([
       settle("report", api.get(buildQ("/reports/daily", [dQ, cQ])), (r) => setReport(r.data)),
       settle("inventory", api.get("/inventory"), (r) => setInventory(r.data?.locations ?? [])),
@@ -166,7 +161,6 @@ export default function DashboardPage() {
 
       if (event === "order:new") {
         if (cartFilter && data.locationCode && data.locationCode !== cartFilter) return;
-
         setReport((r) =>
           r
             ? {
@@ -180,7 +174,6 @@ export default function DashboardPage() {
         toast(`New order: P${(data.total ?? 0).toFixed(0)} @ ${data.locationCode ?? " "}`, "success");
       } else if (event === "alert:new") {
         if (cartFilter && data.locationCode && data.locationCode !== cartFilter) return;
-
         setAlerts((a) => [
           { id: data.id, type: data.type, message: data.message },
           ...(Array.isArray(a) ? a : []),
@@ -205,7 +198,7 @@ export default function DashboardPage() {
   const todaySales = report?.total_sales ?? 0;
   const todayOrders = report?.orders ?? 0;
   const avgTicket = todayOrders > 0 ? todaySales / todayOrders : 0;
-  
+
   const topItem = (() => {
     const all = trends?.top_items ?? [];
     if (all.length === 0) return null;
@@ -220,7 +213,7 @@ export default function DashboardPage() {
   const ordersDelta = pct(todayOrders, prev?.orders);
   const salesDir = dirOf(salesDelta);
   const ordersDir = dirOf(ordersDelta);
-  
+
   const weeklyMax = trends?.by_weekday ? Math.max(...trends.by_weekday.map((s) => s.total_sales), 1) : 1;
 
   const locationOptions = [
@@ -230,9 +223,6 @@ export default function DashboardPage() {
 
   return (
     <div className="page-container wide">
-      {/* =========================================================
-          INLINE CSS: STRETCH EMPTY STATES FOR DASHBOARD PANELS
-      ========================================================= */}
       <style>{`
         /* Stretches the gray dashed box to fill the panel naturally */
         .dashboard-body .panel .empty-state-card,
@@ -270,14 +260,13 @@ export default function DashboardPage() {
           </p>
         </div>
         
-        {/* GLOBAL HEADER FILTERS */}
         <div className="page-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <Select value={cartFilter} onChange={setCartFilter} options={locationOptions} placeholder="All carts" />
           <input
             type="date"
             value={dateFilter}
             onChange={e => setDateFilter(e.target.value)}
-            style={{ height: '36px', borderRadius: '14px', border: '1px solid var(--border)', padding: '0 12px', background: 'var(--surface-alt)', color: 'var(--text)' }}
+            style={{ height: '48px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', padding: '0 12px', background: 'var(--surface-alt)', color: 'var(--text)' }}
           />
           {(dateFilter || cartFilter) && (
              <button className="danger-ghost small-btn" onClick={() => { setDateFilter(""); setCartFilter(""); }}>
@@ -293,16 +282,18 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* INLINE ERROR BOX IS BACK */}
       {Object.keys(sectionErrors).length > 0 && !loading && (
-        <ErrorBox
-          message={<>Couldn&apos;t refresh: {Object.keys(sectionErrors).map((k) => sectionLabels[k] ?? k).join(", ")}. Showing available data.</>}
-          onRetry={refresh}
-          style={{ marginBottom: "var(--space-4)" }}
-        />
+        <div className="error-box" role="alert" style={{ marginBottom: "var(--space-4)" }}>
+          Couldn&apos;t refresh:{" "}
+          {Object.keys(sectionErrors).map((k) => sectionLabels[k] ?? k).join(", ")}. Showing available data.{" "}
+          <button type="button" className="linklike" onClick={refresh}>Retry</button>
+        </div>
       )}
 
       {loading ? (
         <>
+          {/* TOP SECTION SKELETON */}
           <div className="dashboard-top-row">
             <div className="dashboard-kpi-stack">
               <div className="kpi-card large"><Skeleton rows={3} height={20} /></div>
@@ -319,296 +310,329 @@ export default function DashboardPage() {
               <div className="skel" style={{ flex: 1, minHeight: "140px", marginTop: "16px", borderRadius: "8px" }} />
             </div>
           </div>
-        </>
-      ) : (
-        <div className="dashboard-top-row">
-          {/* COLUMN 1: Large KPIs */}
-          <div className="dashboard-kpi-stack">
-            <div className="kpi-card large solid-brand" onClick={() => navigate("/sales")} role="button" tabIndex={0}>
-              <div className="kpi-card-header">
-                <span className="kpi-card-label">{dateFilter ? "Sales (Filtered)" : "Sales today"}</span>
-                <span className="kpi-card-icon"><DollarSign size={22} /></span>
-              </div>
-              <div className="kpi-card-body">
-                <div>
-                  <div className="kpi-card-value">{report ? <>P{Number(todaySales).toLocaleString()}</> : "—"}</div>
-                  <div className="kpi-card-sub">{report ? `${todayOrders} orders - avg P${avgTicket.toFixed(0)} ticket` : "Sales unavailable"}</div>
-                </div>
-                <span className="kpi-card-trend"><TrendArrow dir={salesDir} /> {labelOf(salesDelta)}</span>
-              </div>
-            </div>
 
-            <div className="kpi-card large" onClick={() => navigate("/sales")} role="button" tabIndex={0}>
-              <div className="kpi-card-header">
-                <span className="kpi-card-label">{dateFilter ? "Orders (Filtered)" : "Orders today"}</span>
-                <span className="kpi-card-icon"><ShoppingBag size={22} /></span>
+          {/* BOTTOM SECTION SKELETON */}
+          <div className="dashboard-body" style={{ alignItems: "stretch" }}>
+            
+            <section className="panel widget-orders" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: "320px" }}>
+              <div className="panel-head" style={{ marginBottom: "16px" }}>
+                <div className="skel" style={{ width: "140px", height: "24px", borderRadius: "6px", margin: 0 }} />
+                <div className="skel" style={{ width: "80px", height: "28px", borderRadius: "99px", margin: 0 }} />
               </div>
-              <div className="kpi-card-body">
-                <div>
-                  <div className="kpi-card-value">{report ? todayOrders : "—"}</div>
-                  <div className="kpi-card-sub">Across {activeInventory.length} active carts</div>
-                </div>
-                <span className={`kpi-card-trend ${ordersDir}`}><TrendArrow dir={ordersDir} /> {labelOf(ordersDelta)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* COLUMN 2: Secondary KPIs */}
-          <div className="dashboard-kpi-grid-2x2">
-            <div className="kpi-card" onClick={() => navigate("/sales")} role="button" tabIndex={0}>
-              <div className="kpi-card-header">
-                <span className="kpi-card-label">Avg ticket</span>
-                <span className="kpi-card-icon"><ReceiptText size={20} /></span>
-              </div>
-              <div className="kpi-card-value">P{avgTicket.toFixed(0)}</div>
-              <div className="kpi-card-sub">Per order {dateFilter ? "selected" : "today"}</div>
-            </div>
-
-            <div className="kpi-card" onClick={() => navigate("/analytics")} role="button" tabIndex={0}>
-              <div className="kpi-card-header">
-                <span className="kpi-card-label">Top item</span>
-                <span className="kpi-card-icon"><BarChart2 size={20} /></span>
-              </div>
-              <div className="kpi-card-value" style={{ fontSize: "var(--fs-lg)", fontWeight: "var(--fw-extrabold)" }}>
-                {topItem ? (topItem.flavor ?? topItem.name) : "-"}
-              </div>
-              <div className="kpi-card-sub">{topItem ? `${topItem.qty ?? 0} sold (7d)` : "No data yet"}</div>
-            </div>
-
-            <div className="kpi-card" onClick={() => navigate("/inventory")} role="button" tabIndex={0}>
-              <div className="kpi-card-header">
-                <span className="kpi-card-label">Low stock</span>
-                <span className="kpi-card-icon" style={lowCount > 0 ? { background: "var(--danger-bg)", color: "var(--danger)" } : undefined}>
-                  <AlertTriangle size={20} />
-                </span>
-              </div>
-              <div className="kpi-card-value" style={lowCount > 0 ? { color: "var(--danger)" } : undefined}>{lowCount}</div>
-              <div className="kpi-card-sub">{criticalCount} critical - {lowStockAlerts.length} alerts</div>
-            </div>
-
-            <div className="kpi-card" onClick={() => navigate("/staff")} role="button" tabIndex={0}>
-              <div className="kpi-card-header">
-                <span className="kpi-card-label">On shift</span>
-                <span className="kpi-card-icon"><Users size={20} /></span>
-              </div>
-              <div className="kpi-card-value">{activeOnShift.length}</div>
-              <div className="kpi-card-sub">
-                {activeOnShift.length > 0 ? activeOnShift.map((s) => s.location_code).join(", ") : "No staff tapped in"}
-              </div>
-            </div>
-          </div>
-
-          {/* COLUMN 3: Chart Widget */}
-          {trends && trends.by_weekday ? (
-            <section className="panel dashboard-trend-panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-              <div className="panel-head">
-                <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", margin: 0, padding: 0 }}>
-                  Weekly sales trend
-                </h3>
-                <Badge variant="brand">P{Number(trends.total_sales).toLocaleString()}</Badge>
-              </div>
-              <div className="trend-bars mt-2">
-                {trends.by_weekday.map((d) => {
-                  const pct = (d.total_sales / weeklyMax) * 100;
-                  return (
-                    <div key={d.dow} className="trend-bar-col" title={`P${Number(d.total_sales).toLocaleString()} - ${d.orders ?? 0} orders`}>
-                      <div className="trend-bar" style={{ height: `${Math.max(pct, 2)}%` }} />
-                      <span className="muted small">{d.label}</span>
-                    </div>
-                  );
-                })}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "16px" }}>
+                <Skeleton rows={5} height={36} />
               </div>
             </section>
-          ) : (
-            <div className="panel dashboard-trend-panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-              <EmptyState icon={TrendingUp} title="No trend data" compact />
-            </div>
-          )}
-        </div>
-      )}
+            
+            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: "320px" }}>
+              <div className="skel" style={{ width: "120px", height: "24px", borderRadius: "6px", marginBottom: "20px" }} />
+              <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "12px", marginBottom: "16px" }}>
+                <div className="skel" style={{ height: "80px", borderRadius: "8px" }} />
+                <div className="skel" style={{ height: "80px", borderRadius: "8px" }} />
+              </div>
+              <div className="skel" style={{ flex: 1, minHeight: "120px", borderRadius: "8px" }} />
+            </section>
 
-      {/* BOTTOM SECTION */}
-      {!loading && (
-        <div className="dashboard-body" style={{ alignItems: "stretch" }}>
-          
-          {/* ======================================================== */}
-          {/* ROW 1: Orders (Span 2) + Live Sensor (Span 1) */}
-          {/* ======================================================== */}
-          
-          {/* 1. Recent Orders (Span 2) */}
-          <section className="panel widget-orders" aria-live="polite" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-            <div className="panel-head" style={{ marginBottom: "16px" }}>
-              <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
-                Recent orders
-              </h3>
-              <button className="ghost small-btn" onClick={() => navigate("/sales")}>
-                View all
-              </button>
+            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: "280px" }}>
+              <div className="panel-head" style={{ marginBottom: "16px" }}>
+                <div className="skel" style={{ width: "120px", height: "24px", borderRadius: "6px", margin: 0 }} />
+                <div className="skel" style={{ width: "90px", height: "28px", borderRadius: "99px", margin: 0 }} />
+              </div>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "12px" }}>
+                <Skeleton rows={4} height={44} />
+              </div>
+            </section>
+
+            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: "280px" }}>
+              <div className="panel-head" style={{ marginBottom: "16px" }}>
+                <div className="skel" style={{ width: "110px", height: "24px", borderRadius: "6px", margin: 0 }} />
+                <div className="skel" style={{ width: "70px", height: "24px", borderRadius: "8px", margin: 0 }} />
+              </div>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "12px" }}>
+                <Skeleton rows={4} height={44} />
+              </div>
+            </section>
+
+            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: "280px" }}>
+              <div className="panel-head" style={{ marginBottom: "16px" }}>
+                <div className="skel" style={{ width: "130px", height: "24px", borderRadius: "6px", margin: 0 }} />
+                <div className="skel" style={{ width: "80px", height: "24px", borderRadius: "8px", margin: 0 }} />
+              </div>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "12px" }}>
+                <Skeleton rows={4} height={44} />
+              </div>
+            </section>
+
+          </div>
+        </>
+      ) : (
+        <>
+          {/* TOP SECTION DATA */}
+          <div className="dashboard-top-row">
+            <div className="dashboard-kpi-stack">
+              <div className="kpi-card large solid-brand" onClick={() => navigate("/sales")} role="button" tabIndex={0}>
+                <div className="kpi-card-header">
+                  <span className="kpi-card-label">{dateFilter ? "Sales (Filtered)" : "Sales today"}</span>
+                  <span className="kpi-card-icon"><DollarSign size={22} /></span>
+                </div>
+                <div className="kpi-card-body">
+                  <div>
+                    <div className="kpi-card-value">{report ? <>P{Number(todaySales).toLocaleString()}</> : " "}</div>
+                    <div className="kpi-card-sub">{report ? `${todayOrders} orders - avg P${avgTicket.toFixed(0)} ticket` : "Sales unavailable"}</div>
+                  </div>
+                  <span className="kpi-card-trend"><TrendArrow dir={salesDir} /> {labelOf(salesDelta)}</span>
+                </div>
+              </div>
+              <div className="kpi-card large" onClick={() => navigate("/sales")} role="button" tabIndex={0}>
+                <div className="kpi-card-header">
+                  <span className="kpi-card-label">{dateFilter ? "Orders (Filtered)" : "Orders today"}</span>
+                  <span className="kpi-card-icon"><ShoppingBag size={22} /></span>
+                </div>
+                <div className="kpi-card-body">
+                  <div>
+                    <div className="kpi-card-value">{report ? todayOrders : " "}</div>
+                    <div className="kpi-card-sub">Across {activeInventory.length} active carts</div>
+                  </div>
+                  <span className={`kpi-card-trend ${ordersDir}`}><TrendArrow dir={ordersDir} /> {labelOf(ordersDelta)}</span>
+                </div>
+              </div>
             </div>
-            {safeLatestSales.length === 0 ? (
-              <EmptyState icon={ShoppingBag} title="No sales found" subtitle="Sales appear here as soon as staff records them." compact />
+
+            <div className="dashboard-kpi-grid-2x2">
+              <div className="kpi-card" onClick={() => navigate("/sales")} role="button" tabIndex={0}>
+                <div className="kpi-card-header">
+                  <span className="kpi-card-label">Avg ticket</span>
+                  <span className="kpi-card-icon"><ReceiptText size={20} /></span>
+                </div>
+                <div className="kpi-card-value">P{avgTicket.toFixed(0)}</div>
+                <div className="kpi-card-sub">Per order {dateFilter ? "selected" : "today"}</div>
+              </div>
+              <div className="kpi-card" onClick={() => navigate("/analytics")} role="button" tabIndex={0}>
+                <div className="kpi-card-header">
+                  <span className="kpi-card-label">Top item</span>
+                  <span className="kpi-card-icon"><BarChart2 size={20} /></span>
+                </div>
+                <div className="kpi-card-value" style={{ fontSize: "var(--fs-lg)", fontWeight: "var(--fw-extrabold)" }}>
+                  {topItem ? (topItem.flavor ?? topItem.name) : "-"}
+                </div>
+                <div className="kpi-card-sub">{topItem ? `${topItem.qty ?? 0} sold (7d)` : "No data yet"}</div>
+              </div>
+              <div className="kpi-card" onClick={() => navigate("/inventory")} role="button" tabIndex={0}>
+                <div className="kpi-card-header">
+                  <span className="kpi-card-label">Low stock</span>
+                  <span className="kpi-card-icon" style={lowCount > 0 ? { background: "var(--danger-bg)", color: "var(--danger)" } : undefined}>
+                    <AlertTriangle size={20} />
+                  </span>
+                </div>
+                <div className="kpi-card-value" style={lowCount > 0 ? { color: "var(--danger)" } : undefined}>{lowCount}</div>
+                <div className="kpi-card-sub">{criticalCount} critical - {lowStockAlerts.length} alerts</div>
+              </div>
+              <div className="kpi-card" onClick={() => navigate("/staff")} role="button" tabIndex={0}>
+                <div className="kpi-card-header">
+                  <span className="kpi-card-label">On shift</span>
+                  <span className="kpi-card-icon"><Users size={20} /></span>
+                </div>
+                <div className="kpi-card-value">{activeOnShift.length}</div>
+                <div className="kpi-card-sub">
+                  {activeOnShift.length > 0 ? activeOnShift.map((s) => s.location_code).join(", ") : "No staff tapped in"}
+                </div>
+              </div>
+            </div>
+
+            {trends && trends.by_weekday ? (
+              <section className="panel dashboard-trend-panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+                <div className="panel-head">
+                  <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", margin: 0, padding: 0 }}>
+                    Weekly sales trend
+                  </h3>
+                  <Badge variant="brand">P{Number(trends.total_sales).toLocaleString()}</Badge>
+                </div>
+                <div className="trend-bars mt-2">
+                  {trends.by_weekday.map((d) => {
+                    const pct = (d.total_sales / weeklyMax) * 100;
+                    return (
+                      <div key={d.dow} className="trend-bar-col" title={`P${Number(d.total_sales).toLocaleString()} - ${d.orders ?? 0} orders`}>
+                        <div className="trend-bar" style={{ height: `${Math.max(pct, 2)}%` }} />
+                        <span className="muted small">{d.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-                <div className="table-wrap">
-                  <table className="data">
-                    <thead>
-                      <tr>
-                        <th>Time</th>
-                        <th>Items</th>
-                        <th className="t-right">Total</th>
-                        <th>Payment</th>
-                        <th>Location</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {safeLatestSales.map((o) => (
-                        <tr key={o.id}>
-                          <td className="text-xs muted">{formatTime(o.createdAt)}</td>
-                          <td className="text-xs">{(o.items ?? []).map((i) => `${i.qty}x ${i.productName}${i.flavor ? ` (${i.flavor})` : ""}`).join(", ")}</td>
-                          <td className="t-right"><strong>P{Number(o.total).toLocaleString()}</strong></td>
-                          <td><Badge variant="neutral">{(o.paymentMethod || "CASH").toUpperCase()}</Badge></td>
-                          <td><Badge variant="info">{o.location?.code}</Badge></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
-                  Showing the 5 most recent orders. Click the &quot;View all&quot; button to see complete information.
-                </div>
+              <div className="panel dashboard-trend-panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+                <EmptyState icon={TrendingUp} title="No trend data" compact />
               </div>
             )}
-          </section>
-
-          {/* 2. Live Sensor (Span 1, matching the exact height of the row) */}
-          <div style={{ height: "100%" }}>
-            <SensorPanel code={cartFilter || "CART-01"} />
           </div>
 
-
-          {/* ======================================================== */}
-          {/* ROW 2: Alerts (Span 1) + Cart Status (Span 1) + Staff (Span 1) */}
-          {/* ======================================================== */}
-
-          {/* 3. Stock Alerts */}
-          <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-            <div className="panel-head" style={{ marginBottom: "12px" }}>
-              <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
-                Stock alerts
-              </h3>
-              <div className="flex items-center gap-2">
-                <button className="ghost small-btn" onClick={() => navigate("/inventory")}>View inventory</button>
-              </div>
-            </div>
+          {/* BOTTOM SECTION DATA */}
+          <div className="dashboard-body" style={{ alignItems: "stretch" }}>
             
-            {activeInventory.length === 0 ? (
-              <EmptyState icon={Boxes} title="No carts configured" subtitle="Stock alerts appear as soon as a cart reports readings." compact />
-            ) : (
+            <section className="panel widget-orders" aria-live="polite" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+              <div className="panel-head" style={{ marginBottom: "16px" }}>
+                <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
+                  Recent orders
+                </h3>
+                <button className="ghost small-btn" onClick={() => navigate("/sales")}>
+                  View all
+                </button>
+              </div>
+              {safeLatestSales.length === 0 ? (
+                <EmptyState icon={ShoppingBag} title="No sales found" subtitle="Sales appear here as soon as staff records them." compact />
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+                  <div className="table-wrap">
+                    <table className="data">
+                      <thead>
+                        <tr>
+                          <th>Time</th>
+                          <th>Items</th>
+                          <th className="t-right">Total</th>
+                          <th>Payment</th>
+                          <th>Location</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {safeLatestSales.map((o) => (
+                          <tr key={o.id}>
+                            <td className="text-xs muted">{formatTime(o.createdAt)}</td>
+                            <td className="text-xs">{(o.items ?? []).map((i) => `${i.qty}x ${i.productName}${i.flavor ? ` (${i.flavor})` : ""}`).join(", ")}</td>
+                            <td className="t-right"><strong>P{Number(o.total).toLocaleString()}</strong></td>
+                            <td><Badge variant="neutral">{(o.paymentMethod || "CASH").toUpperCase()}</Badge></td>
+                            <td><Badge variant="info">{o.location?.code}</Badge></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
+                    Showing the 5 most recent orders. Click the &quot;View all&quot; button to see complete information.
+                  </div>
+                </div>
+              )}
+            </section>
+            
+            <div style={{ height: "100%" }}>
+              <SensorPanel code={cartFilter || "CART-01"} />
+            </div>
+
+            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+              <div className="panel-head" style={{ marginBottom: "12px" }}>
+                <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
+                  Stock alerts
+                </h3>
+                <div className="flex items-center gap-2">
+                  <button className="ghost small-btn" onClick={() => navigate("/inventory")}>View inventory</button>
+                </div>
+              </div>
+              
+              {activeInventory.length === 0 ? (
+                <EmptyState icon={Boxes} title="No carts configured" subtitle="Stock alerts appear as soon as a cart reports readings." compact />
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+                  {activeInventory.every((loc) => (loc.items ?? []).every((i) => i.status === "ok")) ? (
+                    <EmptyState icon={CheckCircle} title="All stock healthy" subtitle="Nothing below threshold right now." compact />
+                  ) : (
+                    <>
+                      {activeInventory
+                        .flatMap((loc) => (loc.items ?? []).filter((i) => i.status !== "ok").map((i) => ({ ...i, locationCode: loc.code })))
+                        .slice(0, 5) // MAXIMUM 5 ITEMS
+                        .map((it) => {
+                          const Icon = it.status === "critical" ? AlertTriangle : Info;
+                          return (
+                            <div className="alert-item" key={`${it.id}`}>
+                              <span className="alert-item-icon">
+                                <Icon size={16} style={{ color: it.status === "critical" ? "var(--danger)" : "var(--warn)" }} />
+                              </span>
+                              <span className="alert-item-text">
+                                <div className="alert-item-name">{it.name} <span className="text-xs muted">@ {it.locationCode}</span></div>
+                                <div className="alert-item-detail">{it.stock} {it.unit} remaining - threshold {it.threshold}</div>
+                              </span>
+                              <Badge variant={statusClass(it.status)}>{it.status.toUpperCase()}</Badge>
+                            </div>
+                          );
+                        })}
+                      <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
+                        Showing up to 5 alerts. Check the Inventory page to manage all stocks.
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </section>
+
+            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+              <div className="panel-head" style={{ marginBottom: "12px" }}>
+                <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
+                  Cart status
+                </h3>
+                <Badge variant="neutral">{activeInventory.length} carts</Badge>
+              </div>
               <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-                {activeInventory.every((loc) => (loc.items ?? []).every((i) => i.status === "ok")) ? (
-                  <EmptyState icon={CheckCircle} title="All stock healthy" subtitle="Nothing below threshold right now." compact />
+                {activeInventory.length === 0 ? (
+                   <EmptyState icon={Boxes} title="No carts configured" subtitle="Carts will appear here once added." compact />
                 ) : (
                   <>
-                    {activeInventory
-                      .flatMap((loc) => (loc.items ?? []).filter((i) => i.status !== "ok").map((i) => ({ ...i, locationCode: loc.code })))
-                      .slice(0, 5) // MAXIMUM 5 ITEMS
-                      .map((it) => {
-                        const Icon = it.status === "critical" ? AlertTriangle : Info;
-                        return (
-                          <div className="alert-item" key={`${it.id}`}>
-                            <span className="alert-item-icon">
-                              <Icon size={16} style={{ color: it.status === "critical" ? "var(--danger)" : "var(--warn)" }} />
-                            </span>
-                            <span className="alert-item-text">
-                              <div className="alert-item-name">{it.name} <span className="text-xs muted">@ {it.locationCode}</span></div>
-                              <div className="alert-item-detail">{it.stock} {it.unit} remaining - threshold {it.threshold}</div>
-                            </span>
-                            <Badge variant={statusClass(it.status)}>{it.status.toUpperCase()}</Badge>
-                          </div>
-                        );
-                      })}
+                    {activeInventory.slice(0, 5).map((loc) => { // MAXIMUM 5 ITEMS
+                      const locItems = loc.items ?? [];
+                      const low = locItems.filter((i) => i.status !== "ok").length;
+                      const critical = locItems.filter((i) => i.status === "critical").length;
+                      const dotClass = critical > 0 ? "critical" : low > 0 ? "warn" : "ok";
+                      return (
+                        <div key={loc.id} className="cart-status-item" onClick={() => navigate("/inventory")} role="button" tabIndex={0}>
+                          <span className={`status-dot ${dotClass}`} />
+                          <span className="alert-item-text">
+                            <div className="alert-item-name">{loc.code}</div>
+                            <div className="alert-item-detail">{loc.name} - {locItems.length} items</div>
+                          </span>
+                          <Badge variant={critical > 0 ? "danger" : low > 0 ? "warn" : "ok"}>
+                            {critical > 0 ? `${critical} critical` : low > 0 ? `${low} low` : "OK"}
+                          </Badge>
+                        </div>
+                      );
+                    })}
                     <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
-                      Showing up to 5 alerts. Check the Inventory page to manage all stocks.
+                      Showing up to 5 carts. Click on a cart to see complete inventory information.
                     </div>
                   </>
                 )}
               </div>
-            )}
-          </section>
+            </section>
 
-          {/* 4. Cart Status */}
-          <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-            <div className="panel-head" style={{ marginBottom: "12px" }}>
-              <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
-                Cart status
-              </h3>
-              <Badge variant="neutral">{activeInventory.length} carts</Badge>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-              {activeInventory.length === 0 ? (
-                 <EmptyState icon={Boxes} title="No carts configured" subtitle="Carts will appear here once added." compact />
-              ) : (
-                <>
-                  {activeInventory.slice(0, 5).map((loc) => { // MAXIMUM 5 ITEMS
-                    const locItems = loc.items ?? [];
-                    const low = locItems.filter((i) => i.status !== "ok").length;
-                    const critical = locItems.filter((i) => i.status === "critical").length;
-                    const dotClass = critical > 0 ? "critical" : low > 0 ? "warn" : "ok";
-
-                    return (
-                      <div key={loc.id} className="cart-status-item" onClick={() => navigate("/inventory")} role="button" tabIndex={0}>
-                        <span className={`status-dot ${dotClass}`} />
-                        <span className="alert-item-text">
-                          <div className="alert-item-name">{loc.code}</div>
-                          <div className="alert-item-detail">{loc.name} - {locItems.length} items</div>
-                        </span>
-                        <Badge variant={critical > 0 ? "danger" : low > 0 ? "warn" : "ok"}>
-                          {critical > 0 ? `${critical} critical` : low > 0 ? `${low} low` : "OK"}
-                        </Badge>
-                      </div>
-                    );
-                  })}
-                  <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
-                    Showing up to 5 carts. Click on a cart to see complete inventory information.
-                  </div>
-                </>
-              )}
-            </div>
-          </section>
-
-          {/* 5. On-shift Staff */}
-          <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-            <div className="panel-head" style={{ marginBottom: "12px" }}>
-              <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
-                On-shift staff
-              </h3>
-              <Badge variant={activeOnShift.length > 0 ? "ok" : "neutral"}>{activeOnShift.length} on duty</Badge>
-            </div>
-            
-            {activeOnShift.length === 0 ? (
-              <EmptyState icon={Clock} title="No one on shift" subtitle="Staff will appear here when they tap in." compact />
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-                <div className="flex flex-col gap-2">
-                  {activeOnShift.slice(0, 5).map((s) => ( // MAXIMUM 5 ITEMS
-                    <div key={`${s.name}-${s.location_code}`} className="cart-status-item" style={{ borderBottom: "none" }}>
-                      <span className="staff-avatar">{initials(s.name)}</span>
-                      <span className="alert-item-text">
-                        <div className="alert-item-name">{s.name}</div>
-                        <div className="alert-item-detail">{s.location_name} - since {formatTime(s.since)}</div>
-                      </span>
-                      <Badge variant={s.registered ? "ok" : "danger"}>{s.registered ? "ON" : "UNREG"}</Badge>
-                    </div>
-                  ))}
-                </div>
-                <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
-                  Showing up to 5 recent shifts. Go to the Staff page for complete information.
-                </div>
+            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+              <div className="panel-head" style={{ marginBottom: "12px" }}>
+                <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
+                  On-shift staff
+                </h3>
+                <Badge variant={activeOnShift.length > 0 ? "ok" : "neutral"}>{activeOnShift.length} on duty</Badge>
               </div>
-            )}
-          </section>
+              
+              {activeOnShift.length === 0 ? (
+                <EmptyState icon={Clock} title="No one on shift" subtitle="Staff will appear here when they tap in." compact />
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+                  <div className="flex flex-col gap-2">
+                    {activeOnShift.slice(0, 5).map((s) => ( // MAXIMUM 5 ITEMS
+                      <div key={`${s.name}-${s.location_code}`} className="cart-status-item" style={{ borderBottom: "none" }}>
+                        <span className="staff-avatar">{initials(s.name)}</span>
+                        <span className="alert-item-text">
+                          <div className="alert-item-name">{s.name}</div>
+                          <div className="alert-item-detail">{s.location_name} - since {formatTime(s.since)}</div>
+                        </span>
+                        <Badge variant={s.registered ? "ok" : "danger"}>{s.registered ? "ON" : "UNREG"}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
+                    Showing up to 5 recent shifts. Go to the Staff page for complete information.
+                  </div>
+                </div>
+              )}
+            </section>
 
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

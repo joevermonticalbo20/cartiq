@@ -16,6 +16,20 @@
 /* ================= data table ================= */
 .table-wrap {
   overflow-x: auto;
+  --table-scroll-shadow: rgba(0, 0, 0, 0.15);
+  background-image:
+    linear-gradient(to right, var(--surface), transparent),
+    linear-gradient(to left, var(--surface), transparent),
+    radial-gradient(farthest-side at 0 50%, var(--table-scroll-shadow), transparent),
+    radial-gradient(farthest-side at 100% 50%, var(--table-scroll-shadow), transparent);
+  background-repeat: no-repeat;
+  background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%;
+  background-position: left center, right center, left center, right center;
+  background-attachment: local, local, scroll, scroll;
+}
+
+[data-theme="dark"] .table-wrap {
+  --table-scroll-shadow: rgba(0, 0, 0, 0.45);
 }
 
 .table-wrap .data {
@@ -25,7 +39,7 @@
 
 /* Ultra-clean SaaS headers */
 .table-wrap .data th {
-  background: transparent;
+  background: var(--surface);
   padding: 16px 12px;
   text-align: left;
   font-size: 11px; 

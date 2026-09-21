@@ -36,7 +36,7 @@
   display: flex;
   gap: 6px;
   align-items: center;
-  z-index: 50;
+  z-index: 70;
   box-shadow: var(--shadow);
   white-space: nowrap;
 }
@@ -438,4 +438,8 @@
   .widget-orders {
     grid-column: span 1;
   }
+}
+
+[data-theme="dark"] .kpi-card.solid-brand {
+  border: 1px solid color-mix(in srgb, #fff 24%, var(--primary));
 }

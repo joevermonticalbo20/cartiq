@@ -148,10 +148,9 @@
 
 .sales-panel > .empty-state-card {
   flex: 1;
+  min-height: 240px;
   justify-content: center;
   border: none;
-  height: 500px; 
-  min-height: 500px;
   margin: 0;
   background-color: var(--surface-alt);
   border-radius: var(--radius-sm);
@@ -175,7 +174,7 @@
 
 .sales-filters-left input[type="date"] {
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--radius);
   padding: 12px 16px;
   font-size: 14px;
   background: var(--surface-alt);
@@ -198,6 +197,19 @@
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background-color: var(--surface);
+  background-image:
+    linear-gradient(to right, var(--surface), transparent),
+    linear-gradient(to left, var(--surface), transparent),
+    radial-gradient(farthest-side at 0 50%, var(--table-scroll-shadow), transparent),
+    radial-gradient(farthest-side at 100% 50%, var(--table-scroll-shadow), transparent),
+    linear-gradient(to bottom, var(--surface), transparent),
+    linear-gradient(to top, var(--surface), transparent),
+    radial-gradient(farthest-side at 50% 0, var(--table-scroll-shadow), transparent),
+    radial-gradient(farthest-side at 50% 100%, var(--table-scroll-shadow), transparent);
+  background-repeat: no-repeat;
+  background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%, 100% 40px, 100% 40px, 100% 14px, 100% 14px;
+  background-position: left center, right center, left center, right center, top center, bottom center, top center, bottom center;
+  background-attachment: local, local, scroll, scroll, local, local, scroll, scroll;
 }
 
 .sales-panel .table-wrap table.data th {
@@ -332,9 +344,9 @@ button.custom-select-trigger.active {
 /* --- UNIFORM FIXED HEIGHT FOR ALL TABLES & EMPTY STATES --- */
 .staff-page-layout .table-wrap,
 .staff-page-layout .empty-state-card {
-  height: 320px; /* Pantay-pantay na lahat */
+  min-height: 240px;
   width: 100%;
-  flex: none; 
+  flex: 1 1 auto;
   margin: 0;
 }
 
@@ -352,32 +364,19 @@ button.custom-select-trigger.active {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background-color: var(--surface);
-
-  /* Scroll Shadows Trick */
   background-image:
-    linear-gradient(var(--surface) 30%, transparent),
-    linear-gradient(transparent, var(--surface) 70%),
-    radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.15), transparent),
-    radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.15), transparent);
+    linear-gradient(to right, var(--surface), transparent),
+    linear-gradient(to left, var(--surface), transparent),
+    radial-gradient(farthest-side at 0 50%, var(--table-scroll-shadow), transparent),
+    radial-gradient(farthest-side at 100% 50%, var(--table-scroll-shadow), transparent),
+    linear-gradient(to bottom, var(--surface), transparent),
+    linear-gradient(to top, var(--surface), transparent),
+    radial-gradient(farthest-side at 50% 0, var(--table-scroll-shadow), transparent),
+    radial-gradient(farthest-side at 50% 100%, var(--table-scroll-shadow), transparent);
   background-repeat: no-repeat;
-  background-size: 100% 40px, 100% 40px, 100% 14px, 100% 14px;
-  background-position: top center, bottom center, top center, bottom center;
-  background-attachment: local, local, scroll, scroll;
-}
-
-.staff-page-layout .table-wrap::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-.staff-page-layout .table-wrap::-webkit-scrollbar-track {
-  background-color: transparent;
-}
-.staff-page-layout .table-wrap::-webkit-scrollbar-thumb {
-  background-color: var(--border-strong);
-  border-radius: 99px;
-}
-.staff-page-layout .table-wrap::-webkit-scrollbar-thumb:hover {
-  background-color: var(--text-muted);
+  background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%, 100% 40px, 100% 40px, 100% 14px, 100% 14px;
+  background-position: left center, right center, left center, right center, top center, bottom center, top center, bottom center;
+  background-attachment: local, local, scroll, scroll, local, local, scroll, scroll;
 }
 
 .staff-page-layout .table-wrap table.data th {

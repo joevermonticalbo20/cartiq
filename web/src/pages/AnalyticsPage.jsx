@@ -8,11 +8,10 @@ import {
   DollarSign, BarChart2, PackageSearch, RefreshCw, X, Sparkles, Printer
 } from "lucide-react";
 import { useNavigate, useOutletContext } from "react-router-dom";
-import api from "../api.js";
-import { getFriendlyError } from "../utils/errors.js";
+
+import api, { getErrorMessage } from "../api.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
-import ErrorBox from "../components/ErrorBox.jsx";
 import { SkeletonCards, SkeletonChart } from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
@@ -23,12 +22,14 @@ import { fmtMoneyAxis, fmtShortDate } from "../utils/format.js";
 
 // API risk level -> badge variant
 const RISK_CHIP = { high: "danger", medium: "warn", low: "ok", unknown: "neutral" };
+
 const HEAT_HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 const HEAT_DAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
 function HeatmapGrid({ matrix }) {
   const byKey = new Map((matrix ?? []).map((c) => [`${c.dow}:${c.hour}`, c]));
   const max = Math.max(1, ...(matrix ?? []).map((c) => c.total_sales));
+
   return (
     <div className="heat-grid" role="img" aria-label="Heatmap of revenue by weekday and hour">
       <div className="heat-corner" />
@@ -81,17 +82,22 @@ export default function AnalyticsPage() {
   const [carts, setCarts] = useState([]);
   const [cartCode, setCartCode] = useState("");
   const [range, setRange] = useState("30");
+
   const [trends, setTrends] = useState(null);
   const [prevTrends, setPrevTrends] = useState(null);
   const [forecast, setForecast] = useState(null);
   const [profit, setProfit] = useState(null);
   const [hourly, setHourly] = useState(null);
+  const [basket, setBasket] = useState(null);
   const [salesFc, setSalesFc] = useState(null);
+
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
+
   const [sortCol, setSortCol] = useState("sales");
   const [sortDir, setSortDir] = useState("desc");
+
   const [lastUpdated, setLastUpdated] = useState(null);
   const [summaryLang, setSummaryLang] = useState("en");
 
@@ -105,23 +111,26 @@ export default function AnalyticsPage() {
     let dateParams = "";
     let prevDateParams = "";
     const codeParam = cartCode ? `&code=${encodeURIComponent(cartCode)}` : "";
+
     const days = Number(range) || 30;
     dateParams = `&days=${days}`;
     prevDateParams = `&days=${days * 2}`;
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch trigger on filter change, mirrors other pages
     setLoading(true);
+
     Promise.all([
       api.get(`/analytics/trends?1=1${dateParams}${codeParam}`),
       api.get(`/analytics/trends?1=1${prevDateParams}${codeParam}`),
       cartCode ? api.get(`/analytics/forecast?code=${encodeURIComponent(cartCode)}`).catch(() => ({ data: { code: cartCode, items: [] } })) : Promise.resolve({ data: { code: null, items: [] } }),
       isOwner ? api.get(`/analytics/profit?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })) : Promise.resolve({ data: null }),
       api.get(`/analytics/hourly?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })),
+      api.get(`/analytics/basket?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })),
       api.get(`/analytics/sales-forecast?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })),
     ])
-      .then(([cur, ext, f, pf, hr, sf]) => {
+      .then(([cur, ext, f, pf, hr, bk, sf]) => {
         if (!alive) return;
         setLoading(false);
+
         const curSales = cur.data.total_sales;
         const extSales = ext.data.total_sales;
         const prevSales = Math.max(0, extSales - curSales);
@@ -136,6 +145,7 @@ export default function AnalyticsPage() {
         setForecast(f.data);
         setProfit(pf.data);
         setHourly(hr.data);
+        setBasket(bk.data);
         setSalesFc(sf.data);
         setError("");
         setLastUpdated(new Date());
@@ -143,9 +153,10 @@ export default function AnalyticsPage() {
       .catch((err) => {
         if (!alive) return;
         setLoading(false);
-        const msg = getFriendlyError(err, "Unable to load analytics. Please try again.");
+        const msg = getErrorMessage(err, "Unable to load analytics. Please try again.");
         setError(msg);
       });
+
     return () => { alive = false; };
   }, [range, cartCode, reload, isOwner]);
 
@@ -162,6 +173,7 @@ export default function AnalyticsPage() {
   const totalRevenue = trends?.total_sales ?? 0;
   const totalOrders = trends?.orders ?? 0;
   const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
   const avgTrend = useMemo(() => {
     if (!trends || !prevTrends) return null;
     const curAvg = totalOrders > 0 ? totalRevenue / totalOrders : 0;
@@ -224,6 +236,7 @@ export default function AnalyticsPage() {
   }, [trends]);
 
   const maxDow = Math.max(...(dowData.map((w) => w.total_sales) ?? [1]), 1);
+
   function dowCellFill(entry) {
     if (entry.total_sales <= 0) return "var(--border)";
     if (entry.total_sales === maxDow) return "var(--primary)";
@@ -233,6 +246,7 @@ export default function AnalyticsPage() {
   const tableData = useMemo(() => {
     const items = trends?.top_items ?? [];
     const total = items.reduce((s, i) => s + i.sales, 0);
+
     return [...items].map((item, idx) => ({
       ...item,
       rank: idx + 1,
@@ -247,15 +261,17 @@ export default function AnalyticsPage() {
     if (sortCol === col) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
     else { setSortCol(col); setSortDir("desc"); }
   }
+
   function sortIcon(col) {
     if (sortCol !== col) return <span className="sort-icon"> </span>;
-    return <span className="sort-icon active">{sortDir === "desc" ? "↓" : "↑"}</span>;
+    return <span className="sort-icon active">{sortDir === "desc" ? " " : " "}</span>;
   }
 
   const locationOptions = [
     { value: "", label: "All carts" },
     ...carts.map((c) => ({ value: c.code, label: `${c.code} - ${c.name}` }))
   ];
+
   const rangeOptions = [
     { value: "7", label: "Last 7 days" },
     { value: "14", label: "Last 14 days" },
@@ -299,11 +315,9 @@ export default function AnalyticsPage() {
           {hasTrend ? `, marking a ${isUp ? "positive" : "negative"} trend of ` : ". "}
           {hasTrend && <strong style={{...highlightStyle, color: isUp ? "var(--success)" : "var(--danger)"}}>{trn}% {isUp ? "increase" : "decrease"}</strong>}
           {hasTrend && " from the previous period. "}
-
           {top && <>Your best-selling product was <strong style={highlightStyle}>{top}</strong>. </>}
           
           {peakDayEN && peakTime && <>Foot traffic peaked on <strong style={highlightStyle}>{peakDayEN}s around {peakTime}</strong>, so prepare your staff accordingly. </>}
-
           {riskItems > 0 
             ? <>Lastly, <strong style={{...highlightStyle, color: "var(--danger)"}}>{riskItems} item(s)</strong> are projected to run critically low soon and need your attention.</>
             : <>Inventory levels look healthy for now.</>}
@@ -316,11 +330,9 @@ export default function AnalyticsPage() {
           {hasTrend ? ", na may " : ". "}
           {hasTrend && <strong style={{...highlightStyle, color: isUp ? "var(--success)" : "var(--danger)"}}>{trn}% na {isUp ? "pagtaas" : "pagbaba"}</strong>}
           {hasTrend && " kumpara sa nakaraang period. "}
-
           {top && <>Ang pinakamabenta mong produkto ay <strong style={highlightStyle}>{top}</strong>. </>}
           
           {peakDayTL && peakTime && <>Inaasahan ang pinakamaraming bibili tuwing <strong style={highlightStyle}>{peakDayTL} bandang {peakTime}</strong>, kaya siguraduhing sapat ang iyong staff. </>}
-
           {riskItems > 0 
             ? <>Para sa imbentaryo, <strong style={{...highlightStyle, color: "var(--danger)"}}>{riskItems} na item</strong> ang malapit nang maubos at kailangan nang i-reorder agad.</>
             : <>Sa ngayon, sapat pa at ligtas ang iyong imbentaryo.</>}
@@ -398,14 +410,18 @@ export default function AnalyticsPage() {
         </section>
 
         {error && (
-          <ErrorBox
-            message={error}
-            onRetry={() => {
-              setLoading(true);
-              setReload((n) => n + 1);
-            }}
-            style={{ marginBottom: "var(--space-4)" }}
-          />
+          <div className="error-box" role="alert" style={{ marginBottom: "var(--space-4)" }}>
+            <span>{error}</span>
+            <button
+              className="ghost"
+              onClick={() => {
+                setLoading(true);
+                setReload((n) => n + 1);
+              }}
+            >
+              Retry
+            </button>
+          </div>
         )}
 
         {trends && (
@@ -413,8 +429,8 @@ export default function AnalyticsPage() {
             
             <section 
               className="panel" 
-              style={{ 
-                padding: "var(--space-5) var(--space-6)", 
+              style={{
+                padding: "var(--space-5) var(--space-6)",
                 background: "linear-gradient(135deg, var(--primary-soft) 0%, var(--surface) 100%)",
                 border: "1px solid var(--primary-tint)",
                 boxShadow: "0 12px 32px rgba(231, 54, 49, 0.12)",
@@ -888,7 +904,7 @@ export default function AnalyticsPage() {
                             <th>Stock</th>
                             <th>Avg/day</th>
                             <th>Depletion</th>
-                            <th title="Symmetric mean absolute percentage error (0-200%)">sMAPE</th>
+                            <th>MAPE</th>
                             <th>Risk</th>
                           </tr>
                         </thead>
@@ -932,7 +948,7 @@ export default function AnalyticsPage() {
                   <p className="analytics-section-sub">Expected daily revenue, next 7 days</p>
                 </div>
               </div>
-
+              
               {(() => {
                 const isFcReady = salesFc && salesFc.data_sufficient && salesFc.forecast?.length > 0;
                 const displayData = isFcReady ? salesFc.forecast : [
@@ -954,7 +970,7 @@ export default function AnalyticsPage() {
                     
                     <p className="muted small" style={{ marginBottom: "var(--space-2)", opacity: isFcReady ? 1 : 0.5 }}>
                       Same engine as inventory forecasts
-                      {isFcReady && salesFc.mape != null && <> - backtest sMAPE <strong>{salesFc.mape}%</strong></>}.
+                      {isFcReady && salesFc.mape != null && <> - backtest MAPE <strong>{salesFc.mape}%</strong></>}.
                       {" "}<span aria-hidden="true">-</span> dashed line = forecast, not history.
                     </p>
                     
@@ -1012,13 +1028,26 @@ export default function AnalyticsPage() {
           </div>
         )}
 
+        {/* --- FIXED SKELETON LAYOUT PARA MAG-MATCH SA TOTOONG UI --- */}
         {loading && !trends && (
-          <div className="analytics-loading" role="status" aria-label="Loading analytics">
-            <SkeletonCards count={3} />
-            <div style={{ marginTop: "var(--space-4)" }}>
+          <div className="analytics-loading" role="status" aria-label="Loading analytics" style={{ textAlign: "left", padding: 0 }}>
+            
+            {/* 1. Fake Quick Summary Banner */}
+            <div className="skel" style={{ height: 110, borderRadius: "var(--radius-lg)", marginBottom: "var(--space-5)" }} />
+            
+            {/* 2. Apat na Skeleton Cards */}
+            <SkeletonCards count={4} />
+            
+            {/* 3. Dalawang malalaking skeleton chart (Side-by-side) */}
+            <div style={{ 
+              display: "grid", 
+              gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))", 
+              gap: "var(--space-4)", 
+              marginTop: "var(--space-4)" 
+            }}>
+              <SkeletonChart />
               <SkeletonChart />
             </div>
-            <span className="muted small">Loading analytics...</span>
           </div>
         )}
       </div>
