@@ -23,6 +23,9 @@ import { errorHandler, notFound } from "./middleware/error.js";
 
 const app = express();
 
+// Don't advertise the framework — Express sends X-Powered-By by default.
+app.disable("x-powered-by");
+
 // Trust proxy hops when explicitly enabled (TRUST_PROXY=1) or on hosting
 // platforms (NODE_ENV=production — Render sets this and terminates TLS at
 // a proxy). Correct client IPs keep the per-IP rate limiters fair; without
