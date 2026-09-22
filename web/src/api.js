@@ -1,4 +1,5 @@
 import axios from "axios";
+import { getFriendlyError } from "./utils/errors.js";
 
 // --- Configuration ---
 const API_BASE = import.meta.env.VITE_API_BASE || "/api";
@@ -158,11 +159,11 @@ export class ApiError extends Error {
 }
 
 /**
- * Safe display text for a caught request error. Server-provided messages
- * surface verbatim; anything else falls back (never raw internals).
+ * Safe display text for a caught request error. Uses the shared formatter so
+ * Data Hub and other callers cannot render raw axios or database internals.
  */
 export function getErrorMessage(err, fallback = "Request failed") {
-  if (err instanceof ApiError) return err.message || fallback;
+  if (err instanceof ApiError) return getFriendlyError(err, fallback);
   return fallback;
 }
 

@@ -17,6 +17,15 @@ describe("getFriendlyError", () => {
     expect(getFriendlyError(err, "Failed")).toBe("The server had a problem. Try again in a bit.");
   });
 
+  it("hides axios and database internals", () => {
+    expect(getFriendlyError(new Error("AxiosError: Request failed with status code 500"), "Save failed")).toBe("Save failed");
+    expect(getFriendlyError({ response: { status: 500, data: { error: "SQLITE_CONSTRAINT: UNIQUE" } } }, "Save failed")).toBe("The server had a problem. Try again in a bit.");
+  });
+
+  it("gives an actionable session message for an unadorned 401", () => {
+    expect(getFriendlyError({ response: { status: 401, data: {} } }, "Login failed")).toMatch(/session/i);
+  });
+
   it("explains connection loss on timeouts", () => {
     const err = { code: "ECONNABORTED", message: "timeout of 10000ms exceeded" };
     expect(getFriendlyError(err, "Failed")).toMatch(/Cannot reach the server/);

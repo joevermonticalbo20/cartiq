@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import api from "../api.js";
+import { getFriendlyError } from "../utils/errors.js";
 
 /**
  * useApiData - Custom hook for fetching and managing API data
@@ -29,7 +30,7 @@ export function useApiData(endpoint, options = {}) {
       callbacks.current.onSuccess?.(result);
       return result;
     } catch (err) {
-      const message = err.message || "Failed to fetch data";
+      const message = getFriendlyError(err, "Failed to fetch data");
       setError(message);
       callbacks.current.onError?.(err);
       return null;
@@ -64,7 +65,7 @@ export function useApiMutation(method = "POST") {
         const response = await api[method.toLowerCase()](endpoint, body);
         return response.data;
       } catch (err) {
-        const message = err.message || `Failed to ${method.toLowerCase()} data`;
+        const message = getFriendlyError(err, `Failed to ${method.toLowerCase()} data`);
         setError(message);
         throw err;
       } finally {

@@ -36,7 +36,7 @@ describe("useApiData", () => {
   it("sets error on failed fetch", async () => {
     api.get.mockRejectedValue(new Error("Network error"));
     const { result } = renderHook(() => useApiData("/test"));
-    await waitFor(() => expect(result.current.error).toBe("Network error"));
+    await waitFor(() => expect(result.current.error).toMatch(/Cannot reach the server/));
   });
 
   it("refetch triggers a new fetch", async () => {

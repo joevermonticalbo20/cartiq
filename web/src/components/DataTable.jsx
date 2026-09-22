@@ -26,7 +26,11 @@ export default function DataTable({
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  style={col.width ? { width: col.width } : undefined}
+                  style={
+                    col.width
+                      ? { width: col.width, minWidth: col.width }
+                      : undefined
+                  }
                   className={[
                     col.align ? `t-${col.align}` : undefined,
                     compact ? "compact-th" : "",
@@ -158,6 +162,11 @@ export default function DataTable({
                 {columns.map((col) => (
                   <td
                     key={col.key}
+                    style={
+                      col.width
+                        ? { width: col.width, minWidth: col.width }
+                        : undefined
+                    }
                     className={[
                       col.align ? `t-${col.align}` : undefined,
                       compact ? "compact-td" : "",

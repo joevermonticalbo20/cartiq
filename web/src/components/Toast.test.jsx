@@ -44,6 +44,16 @@ describe("ToastProvider flood control", () => {
     expect(count()).toBe(1);
   });
 
+  it("limits distinct error bursts to two visible alerts", () => {
+    const { push, count, container } = renderWithProbe();
+    push("error-1", "error");
+    push("error-2", "error");
+    push("error-3", "error");
+    expect(count()).toBe(2);
+    expect(container.textContent).not.toContain("error-1");
+    expect(container.textContent).toContain("error-3");
+  });
+
   it("keeps distinct messages and preserves error role", () => {
     const { push, count } = renderWithProbe();
     push("one", "info");

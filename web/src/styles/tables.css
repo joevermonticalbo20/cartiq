@@ -57,6 +57,7 @@
   border-bottom: 1px solid var(--border); /* Light bottom line lang */
   font-size: var(--fs-sm);
   color: var(--text);
+  vertical-align: middle;
   transition: background 0.15s ease;
 }
 
@@ -176,6 +177,11 @@
 
 .data td.t-right {
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.table-wrap .data td > * {
+  vertical-align: middle;
 }
 
 .top-items-table th {

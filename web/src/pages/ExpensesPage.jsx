@@ -371,7 +371,7 @@ export default function ExpensesPage() {
           ) : null}
 
           {error ? (
-            <div className="error-box">{error}</div>
+            <div className="error-box" role="alert">{error}</div>
           ) : !loading && (!rows || rows.length === 0) ? (
             <EmptyState
               icon={ReceiptText}
@@ -387,7 +387,7 @@ export default function ExpensesPage() {
                 {
                   key: "date",
                   label: "Date",
-                  width: 100,
+                  width: 110,
                   render: (e) => (
                     <span className="muted">
                       {new Date(e.date).toLocaleDateString()}
@@ -397,6 +397,7 @@ export default function ExpensesPage() {
                 {
                   key: "vendor",
                   label: "Vendor",
+                  width: 220,
                   render: (e) => <strong>{e.vendor}</strong>,
                 },
                 {
@@ -413,7 +414,7 @@ export default function ExpensesPage() {
                 {
                   key: "category",
                   label: "Category",
-                  width: 130,
+                  width: 140,
                   render: (e) => (
                     <Badge variant={CATEGORY_CLASS[e.category] ?? "neutral"}>
                       {e.category}
@@ -433,6 +434,7 @@ export default function ExpensesPage() {
                 {
                   key: "note",
                   label: "Note",
+                  width: 200,
                   render: (e) => (
                     <span className="muted small">
                       {e.note ?? ""}
@@ -453,7 +455,7 @@ export default function ExpensesPage() {
                       {
                         key: "actions",
                         label: "",
-                        width: 80,
+                        width: 90,
                         align: "right",
                         render: (e) => (
                           <div className="flex items-center justify-end gap-1">

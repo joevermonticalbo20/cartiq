@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, User, Lock, ArrowRight, Shield, Zap } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
-import { useToast } from "../components/Toast.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.1.0";
 
@@ -49,13 +49,13 @@ function TiltedPreviewCard({ className = "" }) {
 
 export default function Login() {
   const navigate = useNavigate();
-  const toast = useToast();
   
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [capsOn, setCapsOn] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loginError, setLoginError] = useState("");
   const [userFocused, setUserFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const passwordRef = useRef(null);
@@ -63,6 +63,7 @@ export default function Login() {
   async function handleSubmit(e) {
     e.preventDefault();
     setLoading(true);
+    setLoginError("");
     try {
       const { data } = await api.post("/auth/login", { username, password });
       localStorage.setItem("cartiq_token", data.token);
@@ -71,7 +72,7 @@ export default function Login() {
       }
       navigate("/dashboard");
     } catch (err) {
-      toast(getFriendlyError(err, "Login failed. Is the API running?"), "error");
+      setLoginError(getFriendlyError(err, "We couldn't sign you in. Check your username and password, then try again."));
       passwordRef.current?.focus();
     } finally {
       setLoading(false);
@@ -160,6 +161,11 @@ export default function Login() {
                 Caps Lock is on.
               </p>
             )}
+
+            <ErrorBox
+              message={loginError}
+              style={{ marginBottom: "var(--space-3)" }}
+            />
 
             <button type="submit" className="login-submit-btn" disabled={loading}>
               <span className="btn-content">

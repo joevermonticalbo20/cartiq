@@ -5,6 +5,7 @@ const ToastContext = createContext(() => {});
 
 // Maximum toasts on screen at once (oldest evicted first).
 const MAX_VISIBLE_TOASTS = 4;
+const MAX_VISIBLE_ERROR_TOASTS = 2;
 
 // Module-level reference so non-React code (e.g. the axios interceptor in
 // api.js) can emit a toast without calling a hook.
@@ -31,7 +32,9 @@ export function ToastProvider({ children }) {
       // Identical toast already visible: keep the original (and its timer)
       // instead of stacking a duplicate.
       if (t.some((x) => x.message === message && x.type === type)) return t;
-      return [...t.slice(-(MAX_VISIBLE_TOASTS - 1)), { id, message, type }];
+      const next = [...t, { id, message, type }];
+      const maxVisible = type === "error" ? MAX_VISIBLE_ERROR_TOASTS : MAX_VISIBLE_TOASTS;
+      return next.slice(-maxVisible);
     });
 
     setTimeout(() => {
