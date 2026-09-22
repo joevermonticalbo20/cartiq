@@ -29,6 +29,9 @@ Future<bool> showAppConfirm(
       ),
       actions: [
         TextButton(
+          style: TextButton.styleFrom(
+            minimumSize: const Size(0, 48),
+          ),
           onPressed: () => Navigator.pop(dialogContext, false),
           child: const Text('Cancel'),
         ),

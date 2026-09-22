@@ -135,7 +135,7 @@ class _LoginScreenState extends State<LoginScreen> {
       body: SafeArea(
             child: Center(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.all(AppSpacing.space6),
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 380),
                   child: Column(
@@ -145,7 +145,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         width: 96,
                         height: 96,
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(24),
+                          borderRadius:
+                              BorderRadius.circular(AppRadius.xl),
                           boxShadow: [
                             BoxShadow(
                               color: AppColors.primary.withValues(alpha: 0.3),
@@ -158,21 +159,29 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: Image.asset(
                           'assets/logo.png',
                           fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => Container(
+                            color: AppColors.primarySoft,
+                            child: const Icon(
+                              Icons.point_of_sale_rounded,
+                              size: 44,
+                              color: AppColors.primary,
+                            ),
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: AppSpacing.space3),
                       Text(
                         'CartIQ',
-                        style: Theme.of(context).textTheme.headlineSmall,
+                        style: Theme.of(context).textTheme.headlineMedium,
                       ),
                       Text(
                         'Pota Fries Operations',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: AppSpacing.space5),
                   Card(
                     child: Padding(
-                      padding: const EdgeInsets.all(22),
+                      padding: const EdgeInsets.all(AppSpacing.space5),
                       child: Form(
                         key: _formKey,
                         child: Column(
@@ -184,20 +193,18 @@ class _LoginScreenState extends State<LoginScreen> {
                               decoration: const InputDecoration(
                                 labelText: 'Username',
                                 prefixIcon: Icon(Icons.person_outline),
-                                border: OutlineInputBorder(),
                               ),
                               validator: (v) => (v == null || v.trim().isEmpty)
                                   ? 'Enter username'
                                   : null,
                             ),
-                            const SizedBox(height: 14),
+                            const SizedBox(height: AppSpacing.space4),
                             TextFormField(
                               controller: _password,
                               obscureText: !_showPassword,
                               decoration: InputDecoration(
                                 labelText: 'Password',
                                 prefixIcon: const Icon(Icons.lock_outline),
-                                border: const OutlineInputBorder(),
                                 suffixIcon: IconButton(
                                   icon: Icon(
                                     _showPassword
@@ -218,14 +225,15 @@ class _LoginScreenState extends State<LoginScreen> {
                               onFieldSubmitted: (_) =>
                                   _loading ? null : _submit(),
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: AppSpacing.space4),
                             if (_error != null)
                               Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.only(
+                                    bottom: AppSpacing.space3),
                                 child: Text(
                                   _error!,
-                                  style: TextStyle(
-                                    color: Theme.of(context).colorScheme.error,
+                                  style: const TextStyle(
+                                    color: AppColors.danger,
                                   ),
                                   textAlign: TextAlign.center,
                                 ),
@@ -242,12 +250,18 @@ class _LoginScreenState extends State<LoginScreen> {
                                     )
                                   : const Text('Sign in'),
                             ),
+                            const SizedBox(height: AppSpacing.space3),
+                            Text(
+                              'First login after idle can take ~60s (Render free cold start) — retry once warm.',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
                           ],
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.space3),
                   _ServerCard(
                     showServer: _showServer,
                     onToggle: () => setState(() => _showServer = !_showServer),
@@ -294,7 +308,10 @@ class _ServerCard extends StatelessWidget {
     final api = context.watch<AuthState>().api;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.space4,
+          vertical: AppSpacing.space2,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -320,17 +337,18 @@ class _ServerCard extends StatelessWidget {
               if (api.isManualUrl)
                 const Center(
                   child: Padding(
-                    padding: EdgeInsets.only(top: 2),
+                    padding: EdgeInsets.only(top: AppSpacing.space1),
                     child: AppBadge(
                       label: 'manual override',
                       variant: AppBadgeVariant.neutral,
                     ),
                   ),
                 ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.space2),
               if (serverMsg != null)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
+                  padding:
+                      const EdgeInsets.only(bottom: AppSpacing.space2),
                   child: Text(
                     serverMsg!,
                     textAlign: TextAlign.center,
@@ -338,7 +356,7 @@ class _ServerCard extends StatelessWidget {
                       color: serverOk == true
                           ? AppColors.ok
                           : serverOk == false
-                          ? Theme.of(context).colorScheme.error
+                          ? AppColors.danger
                           : null,
                     ),
                   ),
@@ -354,7 +372,7 @@ class _ServerCard extends StatelessWidget {
                     : const Icon(Icons.radar_rounded, size: 18),
                 label: const Text('Rescan'),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.space2),
               TextField(
                 controller: serverController,
                 keyboardType: TextInputType.url,
@@ -362,12 +380,11 @@ class _ServerCard extends StatelessWidget {
                   labelText: 'Server IP or host',
                   hintText: '192.168.1.5',
                   prefixIcon: Icon(Icons.dns_outlined),
-                  border: OutlineInputBorder(),
                   isDense: true,
                 ),
                 onSubmitted: (_) => onSave(),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.space2),
               OutlinedButton(
                 onPressed: onSave,
                 child: const Text('Save & test connection'),

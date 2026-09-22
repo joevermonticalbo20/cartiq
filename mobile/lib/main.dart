@@ -10,6 +10,7 @@ import 'services/sync_service.dart';
 import 'state/cart_state.dart';
 import 'state/theme_controller.dart';
 import 'theme.dart';
+import 'utils/haptics.dart';
 import 'widgets/brand_hero.dart';
 
 Future<void> main() async {
@@ -79,6 +80,7 @@ class _BootAppState extends State<_BootApp> {
   }
 
   void _skip() {
+    Haptics.tap();
     widget.api.useFallback();
     setState(() {
       _skipped = true;
@@ -114,39 +116,39 @@ class _BootAppState extends State<_BootApp> {
         body: SafeArea(
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(28),
+              padding: const EdgeInsets.all(AppSpacing.space6),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 360),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const BrandHero(compact: true),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: AppSpacing.space4),
                     Text('Finding CartIQ server…',
                         style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: AppSpacing.space3),
                     const SizedBox(
                       width: 28,
                       height: 28,
                       child: CircularProgressIndicator(strokeWidth: 3),
                     ),
                     if (_error != null) ...[
-                      const SizedBox(height: 12),
+                      const SizedBox(height: AppSpacing.space3),
                       Text(_error!,
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.bodySmall),
                     ],
-                    const SizedBox(height: 20),
+                    const SizedBox(height: AppSpacing.space5),
                     OutlinedButton(
                       onPressed: _skip,
                       child: const Text('Skip - enter later'),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: AppSpacing.space4),
                     const Divider(),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: AppSpacing.space2),
                     Text('Or enter the server manually',
                         style: Theme.of(context).textTheme.bodySmall),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: AppSpacing.space2),
                     TextField(
                       controller: _manualController,
                       keyboardType: TextInputType.url,
@@ -154,16 +156,15 @@ class _BootAppState extends State<_BootApp> {
                         labelText: 'Server (IP or host)',
                         hintText: '192.168.1.5',
                         prefixIcon: Icon(Icons.dns_outlined),
-                        border: OutlineInputBorder(),
                       ),
                       onSubmitted: (_) => _useManual(),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: AppSpacing.space3),
                     FilledButton(
                       onPressed: _useManual,
                       child: const Text('Connect'),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: AppSpacing.space5),
                     Text(
                       'Pota Fries • Staff POS • v1.0.0',
                       style: Theme.of(context).textTheme.bodySmall,

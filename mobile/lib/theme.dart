@@ -23,6 +23,8 @@ class AppColors {
   static const dangerBg = Color(0xFFFEE2E2);
   static const info = Color(0xFF1E3A8A);
   static const infoBg = Color(0xFFDBEAFE);
+  // Dark-mode tint of primarySoft (used for brand badges / KPI hero).
+  static const darkPrimarySoft = Color(0xFF3B1513);
 }
 
 class AppRadius {
@@ -76,7 +78,7 @@ class AppTheme {
     final border   = isDark ? const Color(0xFF2A2A2A)  : const Color(0xFFE5E7EB);
     final text     = isDark ? const Color(0xFFF8F9FA)  : const Color(0xFF0A0908);
     final muted    = isDark ? const Color(0xFFA1A1AA)  : const Color(0xFF6B7280);
-    final primarySoft = isDark ? const Color(0xFF3B1513) : AppColors.primarySoft;
+    final primarySoft = isDark ? AppColors.darkPrimarySoft : AppColors.primarySoft;
 
     final scheme = ColorScheme.fromSeed(
       seedColor: AppColors.primary,
@@ -123,7 +125,7 @@ class AppTheme {
       floatingLabelStyle: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700),
       helperStyle: TextStyle(color: muted, fontSize: 12),
       errorStyle: TextStyle(color: AppColors.danger, fontWeight: FontWeight.w600),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
       enabledBorder: outline(border),
       focusedBorder: outline(AppColors.primary, 1.6),
       errorBorder: outline(AppColors.danger),
@@ -165,7 +167,7 @@ class AppTheme {
       chipTheme: ChipThemeData(
         backgroundColor: surfaceAlt,
         side: BorderSide(color: border),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.s)),
         labelStyle: TextStyle(
             fontSize: 11.5, fontWeight: FontWeight.w700, color: muted),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -218,7 +220,7 @@ class AppTheme {
 
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: isDark ? AppColors.accentSoft : const Color(0xFF0A0908),
+        backgroundColor: isDark ? AppColors.accentSoft : AppColors.accent,
         contentTextStyle: const TextStyle(fontSize: 14, color: Color(0xFFF8F9FA)),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),

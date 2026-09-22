@@ -30,8 +30,8 @@ class AppEmptyState extends StatelessWidget {
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: EdgeInsets.symmetric(
-        horizontal: 24,
-        vertical: compact ? 60 : 90,
+        horizontal: AppSpacing.space6,
+        vertical: compact ? 64 : 96,
       ),
       children: [
         Center(
@@ -39,17 +39,17 @@ class AppEmptyState extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: compact ? 64 : 76,
-                height: compact ? 64 : 76,
+                width: compact ? 64 : 80,
+                height: compact ? 64 : 80,
                 decoration: BoxDecoration(
                   color: AppColors.primary.withValues(alpha: 0.12),
                   shape: BoxShape.circle,
                 ),
                 alignment: Alignment.center,
                 child: Icon(icon,
-                    size: compact ? 30 : 34, color: AppColors.primary),
+                    size: compact ? 32 : 36, color: AppColors.primary),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: AppSpacing.space4),
               Text(
                 title,
                 textAlign: TextAlign.center,
@@ -59,7 +59,7 @@ class AppEmptyState extends StatelessWidget {
                     ?.copyWith(fontWeight: FontWeight.w800),
               ),
               if (subtitle != null) ...[
-                const SizedBox(height: 6),
+                const SizedBox(height: AppSpacing.space2),
                 Text(
                   subtitle!,
                   textAlign: TextAlign.center,
@@ -67,7 +67,7 @@ class AppEmptyState extends StatelessWidget {
                 ),
               ],
               if (actionLabel != null && onAction != null) ...[
-                const SizedBox(height: 18),
+                const SizedBox(height: AppSpacing.space5),
                 FilledButton.icon(
                   onPressed: onAction,
                   icon: Icon(actionIcon ?? Icons.add),

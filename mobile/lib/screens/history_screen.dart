@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../services/auth_state.dart';
 import '../services/api_client.dart';
 import '../theme.dart';
+import '../utils/manila_time.dart';
 import '../widgets/app_skeleton.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/section_header.dart';
@@ -115,11 +116,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
     // Group consecutive rows by day with a header (date · sales · day total).
     final grouped = <String, List<Map<String, dynamic>>>{};
     for (final o in filtered) {
-      final dt = DateTime.tryParse('${o['createdAt']}');
-      final key = dt == null
-          ? 'Unknown date'
-          : '${dt.year}/${dt.month}/${dt.day}';
-      (grouped[key] ??= []).add(o);
+      final key = ManilaTime.groupKey(o['createdAt']);
+      final label = key == 'unknown' ? 'Unknown date' : key;
+      (grouped[label] ??= []).add(o);
     }
     final rows = <Object>[];
     for (final entry in grouped.entries) {
@@ -170,7 +169,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         child: _rows.isEmpty && _loading && _error == null
             ? ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(14),
+                padding: const EdgeInsets.all(AppSpacing.space4),
                 children: const [AppSkeleton(rows: 6)],
               )
             : !hasResults && !_loading
@@ -211,9 +210,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 },
                 child: ListView.separated(
                   physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.all(AppSpacing.space4),
                   itemCount: rows.length + (_loading ? 1 : 0),
-                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  separatorBuilder: (_, _) =>
+                      const SizedBox(height: AppSpacing.space2),
                   itemBuilder: (context, i) {
                     if (i >= rows.length) {
                       return const Center(
@@ -227,7 +227,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     if (row is (String, int, double)) {
                       final (date, count, total) = row;
                       return Padding(
-                        padding: const EdgeInsets.only(top: 6, bottom: 2),
+                        padding: const EdgeInsets.only(
+                          top: AppSpacing.space2,
+                          bottom: AppSpacing.space1,
+                        ),
                         child: SectionHeader(
                           title: date,
                           eyebrow: '$count sale${count != 1 ? 's' : ''}',
@@ -246,20 +249,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               '${it['qty']}x ${it['productName']}${it['flavor'] != null ? ' (${it['flavor']})' : ''}',
                         )
                         .join(', ');
-                    final dt = DateTime.tryParse('${o['createdAt']}');
-                    final dateStr = dt == null
-                        ? '-'
-                        : '${dt.year}/${dt.month}/${dt.day}';
+                    final dt = ManilaTime.parse(o['createdAt']);
+                    final dateStr =
+                        dt == null ? '-' : ManilaTime.shortLabel(o['createdAt']);
                     return Card(
                       margin: EdgeInsets.zero,
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 6,
+                          horizontal: AppSpacing.space4,
+                          vertical: AppSpacing.space2,
                         ),
                         leading: Container(
-                          width: 42,
-                          height: 42,
+                          width: 44,
+                          height: 44,
                           decoration: BoxDecoration(
                             color: AppColors.ok.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(AppRadius.s),

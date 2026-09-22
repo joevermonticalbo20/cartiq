@@ -22,9 +22,9 @@ class BrandHero extends StatelessWidget {
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [AppColors.primary, Color(0xFFD4A82F)],
+              colors: [AppColors.primary, AppColors.highlight],
             ),
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(AppRadius.l),
             boxShadow: [
               BoxShadow(
                 color: AppColors.primary.withValues(alpha: 0.3),
@@ -44,7 +44,7 @@ class BrandHero extends StatelessWidget {
             ),
           ),
         ),
-        SizedBox(height: compact ? 10 : 14),
+        SizedBox(height: compact ? AppSpacing.space3 : AppSpacing.space4),
         Text(
           'CartIQ',
           style: (compact
@@ -59,7 +59,7 @@ class BrandHero extends StatelessWidget {
         Container(
           width: 44,
           height: 4,
-          margin: const EdgeInsets.symmetric(vertical: 8),
+          margin: const EdgeInsets.symmetric(vertical: AppSpacing.space2),
           decoration: BoxDecoration(
             color: AppColors.highlight,
             borderRadius: BorderRadius.circular(4),

@@ -29,11 +29,11 @@ class AppBadge extends StatelessWidget {
       case AppBadgeVariant.brand:
         return (
           AppColors.primaryStrong,
-          dark ? const Color(0xFF3B1513) : AppColors.primarySoft
+          dark ? AppColors.darkPrimarySoft : AppColors.primarySoft
         );
       case AppBadgeVariant.neutral:
         return (
-          Theme.of(context).textTheme.bodySmall?.color ?? AppColors.warn,
+          Theme.of(context).textTheme.bodySmall?.color ?? AppColors.accentSoft,
           Theme.of(context).cardColor,
         );
     }
@@ -43,7 +43,7 @@ class AppBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final (fg, bg) = _colors(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(99),

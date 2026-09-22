@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../utils/haptics.dart';
 import 'home_screen.dart';
 import 'history_screen.dart';
 import 'pos_screen.dart';
@@ -45,7 +46,10 @@ class _RootShellState extends State<RootShell> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
+        onDestinationSelected: (i) {
+          Haptics.tap();
+          setState(() => _index = i);
+        },
         destinations: const [
           NavigationDestination(
               icon: Icon(Icons.home_outlined),

@@ -9,8 +9,10 @@ import '../services/persisted_queue.dart';
 import '../services/sync_service.dart';
 import '../state/theme_controller.dart';
 import '../theme.dart';
+import '../utils/manila_time.dart';
 import '../widgets/app_badge.dart';
 import '../widgets/app_dialog.dart';
+import '../widgets/app_skeleton.dart';
 import '../widgets/section_header.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -152,7 +154,12 @@ class _HomeScreenState extends State<HomeScreen> {
       onRefresh: _refresh,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.space4,
+          AppSpacing.space3,
+          AppSpacing.space4,
+          AppSpacing.space6,
+        ),
         children: [
           // ---------- header ----------
           Row(
@@ -163,9 +170,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     Text(
                       'Kumusta, ${_firstName(auth.displayName)}',
-                      style: Theme.of(context).textTheme.headlineSmall,
+                      style: Theme.of(context).textTheme.headlineMedium,
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: AppSpacing.space1),
                     Text(
                       '${auth.locationCode ?? "No cart"} · ${auth.roleDisplay}',
                       style: Theme.of(context).textTheme.bodySmall,
@@ -174,6 +181,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               IconButton.filledTonal(
+                style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
                 onPressed: () => context.read<ThemeController>().toggle(),
                 icon: Icon(
                   _isDark ? Icons.light_mode : Icons.dark_mode,
@@ -181,8 +189,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 tooltip: 'Toggle theme',
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: AppSpacing.space2),
               IconButton.filledTonal(
+                style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
                 onPressed: () async {
                   final confirmed = await showAppConfirm(
                     context,
@@ -205,7 +214,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: AppSpacing.space4),
 
           // ---------- KPI row ----------
           _KpiRow(
@@ -216,7 +225,7 @@ class _HomeScreenState extends State<HomeScreen> {
             weekSales: _weekSales,
             loading: _loading,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.space3),
 
           // ---------- quick actions ----------
           Row(
@@ -229,7 +238,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   onTap: widget.onGoPos,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpacing.space3),
               Expanded(
                 child: _QuickAction(
                   icon: Icons.document_scanner_rounded,
@@ -240,7 +249,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.space3),
 
           // ---------- on-shift staff ----------
           if (_onShift.isNotEmpty) ...[
@@ -267,7 +276,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.space3),
           ],
 
           // ---------- recent orders ----------
@@ -279,9 +288,47 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: const Text('View all'),
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: AppSpacing.space2),
             ..._recentOrders.take(3).map((o) => _RecentOrderTile(order: o)),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.space3),
+          ] else if (!_loading) ...[
+            _SectionHeader(
+              title: 'Recent sales',
+              trailing: TextButton(
+                onPressed: widget.onGoPos,
+                child: const Text('New sale'),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.space2),
+            Card(
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.space4,
+                  vertical: AppSpacing.space2,
+                ),
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(AppRadius.s),
+                  ),
+                  child: const Icon(
+                    Icons.receipt_long_outlined,
+                    size: 22,
+                    color: AppColors.primary,
+                  ),
+                ),
+                title: Text(
+                  'No sales yet today',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                subtitle: const Text('Start your first benta on POS'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: widget.onGoPos,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.space3),
           ],
 
           // ---------- sync status ----------
@@ -335,7 +382,7 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.space3),
 
           // ---------- stock alerts ----------
           Card(
@@ -452,13 +499,21 @@ class _KpiRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     if (loading) {
-      return Container(
-        height: 120,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppRadius.l),
-          color: Theme.of(context).cardTheme.color,
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.space4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'SALES TODAY',
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+              const SizedBox(height: AppSpacing.space2),
+              const AppSkeleton(rows: 2, height: 20),
+            ],
+          ),
         ),
-        child: const Center(child: CircularProgressIndicator()),
       );
     }
     return Container(
@@ -469,8 +524,8 @@ class _KpiRow extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: isDark
-              ? [const Color(0xFF3B1513), Theme.of(context).colorScheme.surface]
-              : [AppColors.primarySoft, Colors.white],
+              ? [AppColors.darkPrimarySoft, Theme.of(context).colorScheme.surface]
+              : [AppColors.primarySoft, Theme.of(context).colorScheme.surface],
         ),
         border: Border.all(
           color: isDark
@@ -532,7 +587,7 @@ class _KpiRow extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpacing.space3),
               if (weekSales.length >= 2)
                 _Sparkline(values: weekSales)
               else
@@ -551,7 +606,7 @@ class _KpiRow extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.space3),
           // Sub KPIs
           Row(
             children: [
@@ -560,7 +615,7 @@ class _KpiRow extends StatelessWidget {
                 value: '$todayOrders',
                 icon: Icons.receipt_long_rounded,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpacing.space3),
               _MiniKpi(
                 label: 'Avg ticket',
                 value: 'P${avgTicket.toStringAsFixed(0)}',
@@ -673,10 +728,11 @@ class _MiniKpi extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(AppSpacing.space3),
         decoration: BoxDecoration(
           color: isDark
-              ? Colors.black.withValues(alpha: 0.2)
+              ? Theme.of(context).colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.5)
               : Colors.white.withValues(alpha: 0.7),
           borderRadius: BorderRadius.circular(AppRadius.m),
           border: Border.all(
@@ -797,12 +853,15 @@ class _RecentOrderTile extends StatelessWidget {
     );
     final total = (order['total'] ?? 0) as num;
     final time = order['createdAt'] != null
-        ? DateTime.tryParse(order['createdAt'])?.toLocal()
+        ? ManilaTime.parse(order['createdAt'])
         : null;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      margin: const EdgeInsets.only(bottom: AppSpacing.space2),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.space3,
+        vertical: AppSpacing.space3,
+      ),
       decoration: BoxDecoration(
         color: Theme.of(context).cardTheme.color,
         borderRadius: BorderRadius.circular(AppRadius.m),
@@ -811,11 +870,11 @@ class _RecentOrderTile extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 36,
-            height: 36,
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
               color: AppColors.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(9),
+              borderRadius: BorderRadius.circular(AppRadius.s),
             ),
             child: Icon(
               Icons.receipt_rounded,
@@ -855,7 +914,7 @@ class _RecentOrderTile extends StatelessWidget {
               ),
               if (time != null)
                 Text(
-                  _formatTime(time),
+                  ManilaTime.formatTime(time),
                   style: Theme.of(
                     context,
                   ).textTheme.bodySmall?.copyWith(fontSize: 11),
@@ -867,16 +926,7 @@ class _RecentOrderTile extends StatelessWidget {
     );
   }
 
-  String _formatTime(DateTime dt) {
-    final now = DateTime.now();
-    final hh = dt.hour.toString().padLeft(2, '0');
-    final mm = dt.minute.toString().padLeft(2, '0');
-    if (dt.day == now.day && dt.month == now.month && dt.year == now.year) {
-      return 'Today $hh:$mm';
-    }
-    final md = '${dt.month}/${dt.day}';
-    return '$md $hh:$mm';
-  }
+  // Manila-time formatting lives in ManilaTime (Asia/Manila, UTC+8).
 }
 
 // ---------- quick action ----------
@@ -895,19 +945,18 @@ class _QuickAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Material(
       color: Theme.of(context).colorScheme.surface,
       borderRadius: BorderRadius.circular(AppRadius.l),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.l),
         onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 18),
+          child: Container(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.space5),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadius.l),
             border: Border.all(
-              color: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFE5E7EB),
+              color: Theme.of(context).dividerColor,
             ),
           ),
           child: Column(
@@ -917,11 +966,11 @@ class _QuickAction extends StatelessWidget {
                 height: 44,
                 decoration: BoxDecoration(
                   color: color.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(13),
+                  borderRadius: BorderRadius.circular(AppRadius.m),
                 ),
                 child: Icon(icon, size: 24, color: color),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.space2),
               Text(label, style: Theme.of(context).textTheme.titleSmall),
             ],
           ),

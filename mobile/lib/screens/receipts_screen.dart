@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../theme.dart';
+import '../utils/manila_time.dart';
 import '../widgets/app_badge.dart';
 import '../widgets/app_skeleton.dart';
 import '../widgets/empty_state.dart';
@@ -114,6 +115,7 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
   }
 
   Future<void> _scanAndReload() async {
+    if (_loading) return;
     if (widget.onScanReceipt != null) {
       await widget.onScanReceipt!();
     } else {
@@ -121,6 +123,7 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
         context,
       ).push(MaterialPageRoute(builder: (_) => const ScanReceiptScreen()));
     }
+    if (!mounted) return;
     _loadMore(reset: true);
   }
 
@@ -131,11 +134,9 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
     // Group consecutive rows by day with a header (date · receipts · total).
     final grouped = <String, List<Map<String, dynamic>>>{};
     for (final e in filtered) {
-      final dt = DateTime.tryParse('${e['date']}');
-      final key = dt == null
-          ? 'Unknown date'
-          : '${dt.year}/${dt.month}/${dt.day}';
-      (grouped[key] ??= []).add(e);
+      final key = ManilaTime.groupKey(e['date']);
+      final label = key == 'unknown' ? 'Unknown date' : key;
+      (grouped[label] ??= []).add(e);
     }
     final rows = <Object>[];
     for (final entry in grouped.entries) {
@@ -192,7 +193,7 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
         child: _rows.isEmpty && _loading && _error == null
             ? ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(14),
+                padding: const EdgeInsets.all(AppSpacing.space4),
                 children: const [AppSkeleton(rows: 6)],
               )
             : !hasResults && !_loading
@@ -231,9 +232,10 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
                 },
                 child: ListView.separated(
                   physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.all(AppSpacing.space4),
                   itemCount: rows.length + (_loading ? 1 : 0),
-                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  separatorBuilder: (_, _) =>
+                      const SizedBox(height: AppSpacing.space2),
                   itemBuilder: (context, i) {
                     if (i >= rows.length) {
                       return const Center(
@@ -247,7 +249,10 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
                     if (row is (String, int, double)) {
                       final (date, count, total) = row;
                       return Padding(
-                        padding: const EdgeInsets.only(top: 6, bottom: 2),
+                        padding: const EdgeInsets.only(
+                          top: AppSpacing.space2,
+                          bottom: AppSpacing.space1,
+                        ),
                         child: SectionHeader(
                           title: date,
                           eyebrow:
@@ -262,20 +267,18 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
                     }
                     final e = row as Map<String, dynamic>;
                     final isOcr = e['source'] == 'OCR';
-                    final dt = DateTime.tryParse('${e['date']}');
-                    final dateStr = dt == null
-                        ? '-'
-                        : '${dt.month}/${dt.day} · ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+                    final dateStr = ManilaTime.shortLabel(e['date']);
+                    final dateLabel = dateStr.isEmpty ? '-' : dateStr;
                     return Card(
                       margin: EdgeInsets.zero,
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 6,
+                          horizontal: AppSpacing.space4,
+                          vertical: AppSpacing.space2,
                         ),
                         leading: Container(
-                          width: 42,
-                          height: 42,
+                          width: 44,
+                          height: 44,
                           decoration: BoxDecoration(
                             color: isOcr
                                 ? AppColors.primary.withValues(alpha: 0.13)
@@ -301,7 +304,7 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         subtitle: Text(
-                          '$dateStr · ${e['category'] ?? 'Other'}'
+                          '$dateLabel · ${e['category'] ?? 'Other'}'
                           '${(e['location'] as Map<String, dynamic>?)?['code'] != null ? ' · ${(e['location'] as Map<String, dynamic>)['code']}' : ''}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,

@@ -25,9 +25,9 @@ class SectionHeader extends StatelessWidget {
           children: [
             if (eyebrow != null) ...[
               Text(eyebrow!, style: textTheme.labelSmall),
-              const SizedBox(height: 2),
+              const SizedBox(height: 4),
             ],
-            Text(title, style: textTheme.titleMedium),
+            Text(title, style: textTheme.titleLarge),
           ],
         ),
       ),
