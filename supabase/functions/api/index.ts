@@ -407,8 +407,28 @@ function decodeCursor(cursor) {
   }
 }
 
-/** List every document in a collection (paginated; data is tiny). */
+/** List every document in a collection (paginated; data is tiny).
+ *  Hot reference collections (locations/users/flavors) are cached 30s to
+ *  spare the 2-3 enrichment reads on nearly every request. NEVER cached:
+ *  stock, orders, recipes, tickets (correctness). All mutations flow through
+ *  fsCommit/fsPatch/fsCreate/fsDeleteByName, which invalidate. */
+const CACHE_TTL_MS = 30 * 1000;
+const CACHEABLE_LISTS = new Set(["locations", "users", "flavors"]);
+const _listCache = new Map();
+
+function cacheInvalidate(collection) {
+  _listCache.delete(collection);
+}
+
+function colOfDocName(name) {
+  const m = /\/documents\/([^/]+)\//.exec(String(name || ""));
+  return m ? m[1] : null;
+}
 async function fsListAll(collection, pageSize) {
+  if (CACHEABLE_LISTS.has(collection) && !pageSize) {
+    const hit = _listCache.get(collection);
+    if (hit && hit.exp > Date.now()) return [...hit.value];
+  }
   const out = [];
   let pageToken = "";
   for (let i = 0; i < 50; i++) {
@@ -422,6 +442,10 @@ async function fsListAll(collection, pageSize) {
     }
     pageToken = (data && data.nextPageToken) || "";
     if (!pageToken) break;
+  }
+  if (CACHEABLE_LISTS.has(collection) && !pageSize) {
+    _listCache.set(collection, { exp: Date.now() + CACHE_TTL_MS, value: out });
+    return [...out];
   }
   return out;
 }
@@ -460,11 +484,14 @@ async function fsCreate(collection, docId, obj) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fields: fsEncodeFields(obj) }),
   });
+  cacheInvalidate(collection);
   return fsDecodeDoc(data);
 }
 
 async function fsDeleteByName(name) {
   await fsFetch("https://firestore.googleapis.com/v1/" + name, { method: "DELETE" });
+  const col = colOfDocName(name);
+  if (col) cacheInvalidate(col);
 }
 
 function fsFullName(collection, id) {
@@ -487,6 +514,7 @@ async function fsPatch(collection, id, patch) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fields: fsEncodeFields(patch) }),
   });
+  cacheInvalidate(collection);
   return fsDecodeDoc(data);
 }
 
@@ -512,6 +540,10 @@ async function fsCommit(writes) {
     const err = new Error("Firestore commit failed");
     err.status = 503;
     throw err;
+  }
+  for (const w of writes) {
+    const col = w.update ? colOfDocName(w.update.name) : null;
+    if (col) cacheInvalidate(col);
   }
   return data;
 }
@@ -1410,7 +1442,7 @@ async function handlePatchDevice(req, id) {
 async function handleDeleteDevice(id) {
   const device = await fsGet("devices", id);
   if (!device) return { status: 404, body: { error: "Device not found" } };
-  await fsFetch("https://firestore.googleapis.com/v1/" + device._name, { method: "DELETE" });
+  await fsDeleteByName(device._name);
   return { status: 200, body: { deleted: true } };
 }
 
@@ -1549,7 +1581,7 @@ async function handleDeleteInventoryItem(id) {
       body: { error: `Cannot delete "${existing.name}": referenced by ${maps.length} recipe row(s)`, recipeRows: maps.length },
     };
   }
-  await fsFetch("https://firestore.googleapis.com/v1/" + existing._name, { method: "DELETE" });
+  await fsDeleteByName(existing._name);
   return { status: 200, body: { deleted: true } };
 }
 
@@ -2150,7 +2182,7 @@ async function handlePatchProduct(req, id) {
         return { status: 400, body: { error: "removeRecipes entries need flavor and itemName" } };
       }
       for (const m of maps.filter((x) => x.flavor === flavor && x.itemName === itemName)) {
-        await fsFetch("https://firestore.googleapis.com/v1/" + m._name, { method: "DELETE" }).catch(() => {});
+        await fsDeleteByName(m._name).catch(() => {});
       }
     }
   }
@@ -2206,7 +2238,7 @@ async function handleDeleteProduct(id) {
       },
     };
   }
-  await fsFetch("https://firestore.googleapis.com/v1/" + existing._name, { method: "DELETE" });
+  await fsDeleteByName(existing._name);
   return { status: 200, body: { deleted: true } };
 }
 
@@ -2306,7 +2338,7 @@ async function handleDeleteFlavor(id) {
       },
     };
   }
-  await fsFetch("https://firestore.googleapis.com/v1/" + existing._name, { method: "DELETE" });
+  await fsDeleteByName(existing._name);
   return { status: 200, body: { deleted: true } };
 }
 
@@ -2655,7 +2687,7 @@ async function handlePatchShift(req, id) {
 async function handleDeleteShift(id) {
   const existing = await fsGet("shifts", id);
   if (!existing) return { status: 404, body: { error: "Shift not found" } };
-  await fsFetch("https://firestore.googleapis.com/v1/" + existing._name, { method: "DELETE" });
+  await fsDeleteByName(existing._name);
   return { status: 200, body: { deleted: true } };
 }
 
@@ -2954,7 +2986,7 @@ async function handlePatchExpense(req, id) {
 async function handleDeleteExpense(id) {
   const existing = await fsGet("expenses", id);
   if (!existing) return { status: 404, body: { error: "Expense not found" } };
-  await fsFetch("https://firestore.googleapis.com/v1/" + existing._name, { method: "DELETE" });
+  await fsDeleteByName(existing._name);
   return { status: 200, body: { deleted: true } };
 }
 
@@ -4364,7 +4396,7 @@ async function handleChangePassword(req, user) {
   await fsPatch("users", full.id, { passwordHash: await bl.hash(String(newPassword), 10) });
   const sessions = await fsQueryEqual("refreshTokens", "userId", full.id, 10000);
   for (const s of sessions) {
-    await fsFetch("https://firestore.googleapis.com/v1/" + s._name, { method: "DELETE" }).catch(() => {});
+    await fsDeleteByName(s._name).catch(() => {});
   }
   return { status: 200, body: { updated: true, sessionsRevoked: true } };
 }
@@ -4487,7 +4519,7 @@ async function handlePatchStaff(req, id, me) {
   if (data.active === false) {
     const sessions = await fsQueryEqual("refreshTokens", "userId", user.id, 10000);
     for (const s of sessions) {
-      await fsFetch("https://firestore.googleapis.com/v1/" + s._name, { method: "DELETE" }).catch(() => {});
+      await fsDeleteByName(s._name).catch(() => {});
     }
   }
   return {
@@ -4517,7 +4549,7 @@ async function pruneTickets() {
   for (const t of all) {
     const exp = t.exp instanceof Date ? t.exp.getTime() : 0;
     if (exp <= now) {
-      await fsFetch("https://firestore.googleapis.com/v1/" + t._name, { method: "DELETE" }).catch(() => {});
+      await fsDeleteByName(t._name).catch(() => {});
     }
   }
 }
