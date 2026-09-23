@@ -29,4 +29,5 @@ jobs:
 
       # --no-verify-jwt keeps the dashboard behavior (our own CartIQ JWT
       # guards every route; the Supabase gateway check stays OFF).
-      - run: supabase functions deploy api --project-ref $PROJECT_REF --no-verify-jwt
+      # No function name = deploy everything under supabase/functions/.
+      - run: supabase functions deploy --project-ref $PROJECT_REF --no-verify-jwt
