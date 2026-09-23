@@ -362,6 +362,13 @@ function fsFullName(collection, id) {
   return fsDocBase() + "/" + collection + "/" + encodeURIComponent(String(id));
 }
 
+/** Relative resource name for use INSIDE commit bodies (update.name must be
+ *  relative — a full HTTPS URL here yields INVALID_ARGUMENT while every
+ *  URL-based call keeps working, masking the bug as silent fake-success). */
+function fsDocName(collection, id) {
+  return "projects/" + getProjectId() + "/databases/(default)/documents/" + collection + "/" + encodeURIComponent(String(id));
+}
+
 /** Single-document patch (non-transactional; for low-contention edits). */
 async function fsPatch(collection, id, patch) {
   const paths = Object.keys(patch);
@@ -402,14 +409,14 @@ async function fsCommit(writes) {
 
 function createWrite(collection, id, obj) {
   return {
-    update: { name: fsFullName(collection, id), fields: fsEncodeFields(obj) },
+    update: { name: fsDocName(collection, id), fields: fsEncodeFields(obj) },
     currentDocument: { exists: false },
   };
 }
 
 function updateWrite(collection, id, patch, updateTime) {
   const w = {
-    update: { name: fsFullName(collection, id), fields: fsEncodeFields(patch) },
+    update: { name: fsDocName(collection, id), fields: fsEncodeFields(patch) },
     updateMask: { fieldPaths: Object.keys(patch) },
   };
   if (updateTime) w.currentDocument = { updateTime };
@@ -652,7 +659,7 @@ async function findOrderByClientRef(ref) {
 }
 
 function orderRefName(ref) {
-  return "projects/" + getProjectId() + "/databases/(default)/documents/orderRefs/" + encodeURIComponent(ref);
+  return fsDocBase() + "/orderRefs/" + encodeURIComponent(ref);
 }
 
 async function handleCreateOrder(req, origin, user) {
@@ -813,7 +820,7 @@ async function handleCreateOrder(req, origin, user) {
     // ---- WRITE PHASE (single atomic commit) ----
     const writes = [
       {
-        update: { name: orderRefName(ref), fields: fsEncodeFields({ orderId }) },
+        update: { name: fsDocName("orderRefs", ref), fields: fsEncodeFields({ orderId }) },
         currentDocument: { exists: false },
       },
       createWrite("orders", orderId, {
@@ -4529,25 +4536,6 @@ Deno.serve(async (req) => {
         }
         else return await handleProxy(req, origin);
         return jsonRes(origin, out.body, out.status);
-      }
-      // TEMP DEBUG (remove after audit): commit-path visibility.
-      if (req.method === "GET" && path === "/debug/writetest") {
-        const auth = await authUser(req);
-        if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
-        const ownErr = requireOwner(auth.user);
-        if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
-        try {
-          const c = await fsGet("_counters", "inventoryItems");
-          const writes = [updateWrite("_counters", "inventoryItems", { next: Number(c.next) || 1 }, c._updateTime)];
-          const out = await fsCommit(writes);
-          return jsonRes(origin, { commit: out }, 200);
-        } catch (e) {
-          return jsonRes(origin, {
-            error: String((e && e.message) || e).slice(0, 1000),
-            code: (e && e.code) || null,
-            status: (e && e.status) || null,
-          }, 200);
-        }
       }
       // Excel export/import (OWNER; falls back to proxy if exceljs can't load).
       if (path.startsWith("/export/") || path === "/import/products") {
