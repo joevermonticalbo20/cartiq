@@ -4521,6 +4521,37 @@ Deno.serve(async (req) => {
         else return await handleProxy(req, origin);
         return jsonRes(origin, out.body, out.status);
       }
+      // TEMP DEBUG (remove after connectivity audit): raw Firestore read-back.
+      if (req.method === "GET" && path === "/debug/raw") {
+        const auth = await authUser(req);
+        if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
+        const ownErr = requireOwner(auth.user);
+        if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
+        const col = inUrl.searchParams.get("col");
+        const id = inUrl.searchParams.get("id");
+        if (col && id) {
+          const raw = await fsFetch(fsDocBase() + "/" + col + "/" + encodeURIComponent(id), { method: "GET" });
+          return jsonRes(origin, { raw }, 200);
+        }
+        const qcol = inUrl.searchParams.get("qcol");
+        const qfield = inUrl.searchParams.get("qfield");
+        const qval = inUrl.searchParams.get("qval");
+        if (qcol && qfield) {
+          const raw = await fsFetch(fsDocBase() + ":runQuery", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              structuredQuery: {
+                from: [{ collectionId: qcol }],
+                where: { fieldFilter: { field: { fieldPath: qfield }, op: "EQUAL", value: fsEncodeValue(qval) } },
+                limit: 5,
+              },
+            }),
+          });
+          return jsonRes(origin, { raw }, 200);
+        }
+        return jsonRes(origin, { error: "need col+id or qcol+qfield+qval" }, 400);
+      }
       // Excel export/import (OWNER; falls back to proxy if exceljs can't load).
       if (path.startsWith("/export/") || path === "/import/products") {
         const auth = await authUser(req);
