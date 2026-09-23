@@ -3591,9 +3591,12 @@ const IMPORT_MAX_FLAVORS_PER_ROW = 20;
 const IMPORT_MAX_FLAVOR_LEN = 60;
 
 async function excelLib() {
-  if (globalThis.__EXCEL__) return globalThis.__EXCEL__;
-  const m = await import("npm:exceljs@4.4.0");
-  return m.default ?? m;
+  // NOTE: exceljs (40MB+ Node stream/Buffer tree) cannot bundle on the Edge
+  // runtime — it breaks function boot. Export/import therefore stay on the
+  // Render proxy (same API responses, still PLDT-reachable). The builders
+  // below are kept for a future pure-JS xlsx port; callers already fall back
+  // to proxy when this throws.
+  throw new Error("excel-native-disabled");
 }
 
 function splitFlavorCell(raw) {
@@ -4202,8 +4205,7 @@ async function handleHealth(origin) {
          "analytics/trends", "analytics/hourly", "analytics/basket",
          "analytics/sales-forecast", "analytics/forecast",
          "reorders/suggestions", "reorders/prep",
-         "analytics/staff-performance", "analytics/profit",
-         "export/:dataset", "import/products"]
+         "analytics/staff-performance", "analytics/profit"]
       : ["health"],
     upstream,
     time: new Date().toISOString(),
