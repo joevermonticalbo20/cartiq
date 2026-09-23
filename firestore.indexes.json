@@ -1,7 +1,9 @@
 {
   // Composite indexes for the Supabase Edge API's server-side queries
-  // (filters + orderBy run in Firestore instead of full-collection scans).
-  // Single-field indexes are automatic and not listed here.
+  // (equality filter + different-field orderBy needs one composite each).
+  // Single-field indexes are automatic and not listed here. Rule of thumb
+  // used throughout: at most ONE equality combo per orderBy — date ranges
+  // combined with equalities filter in code over bounded sets instead.
   // Deploy: firebase deploy --only firestore:indexes --project cartiq-8e46f
   "indexes": [
     {
@@ -13,23 +15,6 @@
       ]
     },
     {
-      "collectionGroup": "orders",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "orders",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "locationId", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "expenses",
       "queryScope": "COLLECTION",
       "fields": [
@@ -41,15 +26,6 @@
       "collectionGroup": "expenses",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "category", "order": "ASCENDING" },
-        { "fieldPath": "date", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "expenses",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "locationId", "order": "ASCENDING" },
         { "fieldPath": "category", "order": "ASCENDING" },
         { "fieldPath": "date", "order": "DESCENDING" }
       ]
@@ -71,20 +47,10 @@
       ]
     },
     {
-      "collectionGroup": "alerts",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "type", "order": "ASCENDING" },
-        { "fieldPath": "isRead", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "sensorReadings",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "locationId", "order": "ASCENDING" },
-        { "fieldPath": "channel", "order": "ASCENDING" },
         { "fieldPath": "ts", "order": "DESCENDING" }
       ]
     }

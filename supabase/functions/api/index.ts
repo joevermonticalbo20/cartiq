@@ -348,6 +348,41 @@ async function fsCount(collection, filters) {
 }
 
 /**
+ * Paged list with an optional date-range filter.
+ * Pure server-side pagination (cursor/offset) is used when there is NO
+ * date range, or the range stands alone (single-field, no composite index).
+ * When a range combines with equality filters, Firestore would need a
+ * triple composite per combo — instead the equality-scoped set is fetched
+ * bounded (limit 2000, newest first) and the range + pagination apply in
+ * code. Exact while a scope stays under 2000 docs (pilot scale by far).
+ */
+async function pagedList(collection, opts) {
+  const { eqFilters, dateField, range, orderBy, page, pageSize, cursor } = opts;
+  if (range && eqFilters.length > 0) {
+    const rows = await fsRunQuery(collection, { filters: eqFilters, orderBy, limit: 2000 });
+    const kept = rows.filter((d) =>
+      d[dateField] instanceof Date && d[dateField] >= range.start && d[dateField] < range.end);
+    const total = kept.length;
+    const data = kept.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
+    return { total, data };
+  }
+  const filters = [...eqFilters];
+  if (range) {
+    filters.push({ field: dateField, op: "GREATER_THAN_OR_EQUAL", value: range.start });
+    filters.push({ field: dateField, op: "LESS_THAN", value: range.end });
+  }
+  const total = await fsCount(collection, filters);
+  const decoded = cursor ? decodeCursor(cursor) : null;
+  const data = decoded
+    ? await fsRunQuery(collection, {
+      filters, orderBy, limit: pageSize, startAt: { values: [fsEncodeValue(decoded.t)] },
+    })
+    : await fsRunQuery(collection, { filters, orderBy, limit: pageSize, offset: (page - 1) * pageSize });
+  const last = data[data.length - 1];
+  return { total, data, nextCursor: last ? encodeCursor(last, dateField) : undefined };
+}
+
+/**
  * Opaque page cursor: { t: createdAt ISO, id } -> base64url.
  * Cursors ride the createdAt DESC ordering; same-ms ties may repeat/skip a
  * row across a page boundary (admin lists only — accepted, documented).
@@ -967,31 +1002,15 @@ async function handleListOrders(req, origin, url) {
     if (!loc[0]) return jsonRes(origin, { data: [], meta: emptyOrderMeta(page, pageSize) }, 200);
     filters.push({ field: "locationId", op: "EQUAL", value: loc[0].id });
   }
+  let range = null;
   if (date) {
-    const range = manilaDayRange(String(date));
+    range = manilaDayRange(String(date));
     if (!range) return jsonRes(origin, { error: "date must be YYYY-MM-DD" }, 400);
-    filters.push({ field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: range.start });
-    filters.push({ field: "createdAt", op: "LESS_THAN", value: range.end });
   }
   const orderBy = [{ field: "createdAt", dir: "DESCENDING" }];
-  const total = await fsCount("orders", filters);
-  let slice;
-  const decoded = cursor ? decodeCursor(cursor) : null;
-  if (decoded) {
-    slice = await fsRunQuery("orders", {
-      filters,
-      orderBy,
-      limit: pageSize,
-      startAt: { values: [fsEncodeValue(decoded.t)] },
-    });
-  } else {
-    slice = await fsRunQuery("orders", {
-      filters,
-      orderBy,
-      limit: pageSize,
-      offset: (page - 1) * pageSize,
-    });
-  }
+  const { total, data: slice, nextCursor } = await pagedList("orders", {
+    eqFilters: filters, dateField: "createdAt", range, orderBy, page, pageSize, cursor,
+  });
   const [locations, users] = await Promise.all([fsListAll("locations"), fsListAll("users")]);
   const locById = new Map(locations.map((l) => [l.id, l]));
   const userById = new Map(users.map((u) => [u.id, u]));
@@ -1007,7 +1026,7 @@ async function handleListOrders(req, origin, url) {
   return jsonRes(origin, {
     data,
     meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
-    ...(last ? { nextCursor: encodeCursor(last, "createdAt") } : {}),
+    ...(nextCursor ? { nextCursor } : {}),
   }, 200);
 }
 
@@ -2685,17 +2704,13 @@ async function handleShiftsHistory(url) {
     filters.push({ field: "locationId", op: "EQUAL", value: loc.id });
   }
   if (date) {
-    const range = manilaDayRange(String(date));
+    range = manilaDayRange(String(date));
     if (!range) return { status: 400, body: { error: "date must be YYYY-MM-DD" } };
-    filters.push({ field: "ts", op: "GREATER_THAN_OR_EQUAL", value: range.start });
-    filters.push({ field: "ts", op: "LESS_THAN", value: range.end });
   }
   const orderBy = [{ field: "ts", dir: "DESCENDING" }];
-  const total = await fsCount("shifts", filters);
-  const decoded = cursor ? decodeCursor(cursor) : null;
-  const slice = decoded
-    ? await fsRunQuery("shifts", { filters, orderBy, limit: pageSize, startAt: { values: [fsEncodeValue(decoded.t)] } })
-    : await fsRunQuery("shifts", { filters, orderBy, limit: pageSize, offset: (page - 1) * pageSize });
+  const { total, data: slice, nextCursor } = await pagedList("shifts", {
+    eqFilters: filters, dateField: "ts", range, orderBy, page, pageSize, cursor,
+  });
   const locations = await fsListAll("locations");
   const locById = new Map(locations.map((l) => [l.id, l]));
   const data = slice.map((s) => {
@@ -2710,7 +2725,7 @@ async function handleShiftsHistory(url) {
     body: {
       data,
       meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
-      ...(last ? { nextCursor: encodeCursor(last, "ts") } : {}),
+      ...(nextCursor ? { nextCursor } : {}),
     },
   };
 }
@@ -2722,14 +2737,15 @@ async function handleReadingsRecent(url) {
   const limit = Math.min(Number(params.get("limit")) || 40, 200);
   const loc = await fsQueryEqual("locations", "code", String(code), 1).then((r) => r[0]);
   if (!loc) return { status: 200, body: { readings: [] } };
-  let readings = await fsQueryEqual("sensorReadings", "locationId", loc.id, 10000);
-  readings = readings.filter((r) => r.channel === String(channel));
-  readings.sort((a, b) => {
-    const at = a.ts instanceof Date ? a.ts.getTime() : 0;
-    const bt = b.ts instanceof Date ? b.ts.getTime() : 0;
-    return bt - at;
+  // Newest-first server-side (single composite), channel filtered in code
+  // (2 channels only). Unbounded sensor growth can never blow up one request.
+  let readings = await fsRunQuery("sensorReadings", {
+    filters: [{ field: "locationId", op: "EQUAL", value: loc.id }],
+    orderBy: [{ field: "ts", dir: "DESCENDING" }],
+    limit,
   });
-  return { status: 200, body: { readings: readings.slice(0, limit).map(cleanDoc).reverse() } };
+  readings = readings.filter((r) => r.channel === String(channel));
+  return { status: 200, body: { readings: readings.map(cleanDoc).reverse() } };
 }
 
 // ---------- expenses (mirror api/src/routes/expenses.js) ----------
@@ -2847,24 +2863,24 @@ async function handleListExpenses(url) {
   }
   const catFilter = category && EXPENSE_CATEGORIES.includes(String(category)) ? String(category) : null;
   if (catFilter) filters.push({ field: "category", op: "EQUAL", value: catFilter });
+  let range = null;
   if (month && /^\d{4}-\d{2}$/.test(String(month))) {
-    const range = manilaMonthRange(month);
-    filters.push({ field: "date", op: "GREATER_THAN_OR_EQUAL", value: range.start });
-    filters.push({ field: "date", op: "LESS_THAN", value: range.end });
+    range = manilaMonthRange(month);
   }
   const orderBy = [{ field: "date", dir: "DESCENDING" }];
-  const total = await fsCount("expenses", filters);
-  const decoded = cursor ? decodeCursor(cursor) : null;
-  const slice = decoded
-    ? await fsRunQuery("expenses", { filters, orderBy, limit: pageSize, startAt: { values: [fsEncodeValue(decoded.t)] } })
-    : await fsRunQuery("expenses", { filters, orderBy, limit: pageSize, offset: (page - 1) * pageSize });
+  const { total, data: slice, nextCursor } = await pagedList("expenses", {
+    eqFilters: filters, dateField: "date", range, orderBy, page, pageSize, cursor,
+  });
   // Breakdowns + totals over the filtered period (ignoring the category
   // filter for the charts). Bounded to the 2000 newest rows so giant
   // histories can't blow up one request; totals stay exact while the whole
   // filtered set fits (pilot scale). SUM aggregation was deliberately
   // avoided: it needs a dedicated composite index per filter combo.
   const breakdownFilters = filters.filter((f) => f.field !== "category");
-  const bounded = await fsRunQuery("expenses", { filters: breakdownFilters, orderBy, limit: 2000 });
+  const boundedRaw = await fsRunQuery("expenses", { filters: breakdownFilters, orderBy, limit: 2000 });
+  const bounded = range
+    ? boundedRaw.filter((e) => e.date instanceof Date && e.date >= range.start && e.date < range.end)
+    : boundedRaw;
   const inScope = catFilter ? bounded.filter((e) => e.category === catFilter) : bounded;
   const totalAmount = inScope.reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const vendorTotals = new Map();
@@ -2883,7 +2899,6 @@ async function handleListExpenses(url) {
   }));
   const locations = await fsListAll("locations");
   const locById = new Map(locations.map((l) => [l.id, l]));
-  const last = slice[slice.length - 1];
   return {
     status: 200,
     body: {
@@ -2893,7 +2908,7 @@ async function handleListExpenses(url) {
       by_vendor: byVendor,
       by_category: byCategory,
       categories: EXPENSE_CATEGORIES,
-      ...(last ? { nextCursor: encodeCursor(last, "date") } : {}),
+      ...(nextCursor ? { nextCursor } : {}),
     },
   };
 }
