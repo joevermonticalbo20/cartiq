@@ -1299,13 +1299,6 @@ async function handleDeleteDevice(id) {
   return { status: 200, body: { deleted: true } };
 }
 
-async function handleDeleteDevice(id) {
-  const device = await fsGet("devices", id);
-  if (!device) return { status: 404, body: { error: "Device not found" } };
-  await fsFetch("https://firestore.googleapis.com/v1/" + device._name, { method: "DELETE" });
-  return { status: 200, body: { deleted: true } };
-}
-
 // ---------- inventory (mirror api/src/routes/inventory.js) ----------
 function stockStatus(stock, threshold) {
   if (stock <= threshold / 2) return "critical";
