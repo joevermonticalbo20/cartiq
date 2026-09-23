@@ -4974,6 +4974,32 @@ Deno.serve(async (req) => {
         }
         return notFoundRes(origin, req, path);
       }
+      // TEMP DEBUG stagetrace (remove after perf batch).
+      if (req.method === "GET" && path === "/debug/expstages") {
+        const auth = await authUser(req);
+        if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
+        const ownErr = requireOwner(auth.user);
+        if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
+        const code = inUrl.searchParams.get("code") || "CART-01";
+        const loc = await fsQueryEqual("locations", "code", code, 1).then((r) => r[0]);
+        const out = { loc: loc && loc.id };
+        const filters = [{ field: "locationId", op: "EQUAL", value: loc.id }];
+        const orderBy = [{ field: "date", dir: "DESCENDING" }];
+        for (const [name, fn] of [
+          ["count", () => fsCount("expenses", filters)],
+          ["sum", () => fsSum("expenses", "amount", filters)],
+          ["slice", () => fsRunQuery("expenses", { filters, orderBy, limit: 1 })],
+          ["breakdown", () => fsRunQuery("expenses", { filters, orderBy, limit: 2000 })],
+        ]) {
+          try {
+            const v = await fn();
+            out[name] = typeof v === "number" ? v : v.length;
+          } catch (e) {
+            out[name] = "ERR " + String((e && e.message) || e).slice(0, 300);
+          }
+        }
+        return jsonRes(origin, out, 200);
+      }
       // Excel export (native MiniWorkbook) / import (native SheetJS).
       if (path.startsWith("/export/") || path === "/import/products") {
         const auth = await authUser(req);
