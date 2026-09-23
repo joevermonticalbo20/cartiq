@@ -15,13 +15,13 @@ errors/loading pass complete, pending hardware pilot and faculty approval.
 
 | Component | Path | Stack | Status |
 |---|---|---|---|
-| REST API | `api/` | Node.js 24, Express 5, Firestore (Spark free tier, via `api/src/firestore.js` data layer), typed JWT (access/refresh) + rotating refresh + revocation, staff cart scoping, login + endpoint rate limiting, ExcelJS, Bonjour/mDNS advertise | done, tested (30 unit + 174 integration checks in CI), **live on Render** |
+| REST API | `api/` (local dev + CI reference) + `supabase/functions/api/` (production) | Node.js 24, Express 5 (local) / Deno Edge Function (prod), Firestore (Spark free tier), typed JWT (access/refresh) + rotating refresh + revocation, staff cart scoping, login + endpoint rate limiting, ExcelJS, Bonjour/mDNS advertise (local only) | done, tested (30 unit + 174 integration checks in CI), **live on Supabase** |
 | Web admin dashboard | `web/` | React 19, Vite, React Router, Axios | done, builds (lint 0 errors, 191 tests), **live on Firebase Hosting** |
 | Mobile POS app | `mobile/` | Flutter (Android/Windows), offline-first sqflite queue, ML Kit OCR, shared-prod API default | done, analyzes clean, 67 tests; release APK in `mobile/build/app/outputs/flutter-apk/` |
 | ESP32 IoT node | `iot/` | Arduino C++ firmware + **Node simulator** (`iot/simulator.mjs`) | code complete; hardware pending |
 
 Live URLs: web dashboard `https://cartiq-8e46f.web.app` · API
-`https://cartiq-api-aswt.onrender.com/api` (health: `.../api/health`) ·
+`https://ezynbxzarxozzmwqdjxs.supabase.co/functions/v1/api` (health: `.../api/health`) ·
 database: Firestore Native `(default)` in project `cartiq-8e46f` (seeded).
 
 ## Environment files (for groupmates)
@@ -39,28 +39,29 @@ a checked-in reference with the same keys and safe placeholder values:
 ## Deployment (live)
 
 ```text
-Firebase Hosting (web/dist) ──VITE_API_BASE──▶ Render (api/, npm start)
-                                                      │
-                                                      ▼
-                                            Firestore (cartiq-8e46f)
-                                                      ▲
-Mobile POS ───────── API_BASE_URL (default) ──────────┘
+Firebase Hosting (web/dist) ──VITE_API_BASE──▶ Supabase Edge Function (supabase/functions/api, Deno)
+                                                       │  same /api/* contracts, JWT pa rin
+                                                       ▼
+                                             Firestore (cartiq-8e46f)
+                                                       ▲
+Mobile POS ───────── API_BASE_URL (supabase URL) ──────┘
+Local dev only: api/ (Express, npm run dev) + Firestore emulator.
 ```
 
-* **Frontend:** `cd web && $env:VITE_API_BASE='https://cartiq-api-aswt.onrender.com/api'; npm run build`
+* **Frontend:** `cd web && $env:VITE_API_BASE='https://ezynbxzarxozzmwqdjxs.supabase.co/functions/v1/api'; npm run build`
   then `firebase deploy --only hosting --project cartiq-8e46f` (PowerShell: one line at a time).
   `VITE_API_BASE` is baked into `web/dist` at build time — building without it
   points the live site at `/api` (static hosting, no backend) and login fails.
-  First login after idle is slow (Render free cold start, ~30-60s vs the 10s
-  client timeout; login POSTs don't auto-retry) — retry once warm.
-* **Backend:** auto-deploys on push to `main` (Render → Root Directory `api`, `npm ci` / `npm start`).
-  Service env vars live in the Render dashboard, never in git (see `render.yaml` + `api/.env.example`).
+* **Backend:** `supabase/functions/api/index.ts` auto-deploys on push to `main`
+  (GitHub Actions → Edge Functions). Function secrets (JWT_SECRET,
+  JWT_REFRESH_SECRET, FIREBASE_SERVICE_ACCOUNT_JSON, FIREBASE_PROJECT_ID,
+  CORS_ORIGINS) live in the Supabase dashboard, never in git.
 * **Database:** seeded once (`npm run db:seed` against prod). Never run `seed_history` on prod;
   demo history stays on the emulator. Rules (`firestore.rules`) deny direct client access —
   everything goes through the API: `firebase deploy --only firestore:rules --project cartiq-8e46f`.
-* **Free-tier notes:** Render sleeps after idle (~50s cold start; mobile/web retry once, POS queue covers
-  sales); Firestore reads are cached server-side 60s to protect the 50k/day Spark quota
-  (except `/catalog`, which is always-fresh so the POS never sells stale data).
+* **Free-tier notes:** Supabase Edge Functions (no sleep; SSE streams poll
+  Firestore per connection and reconnect automatically); Firestore reads are
+  uncached for correctness (Spark 50k/day quota — dashboard polls every 60s).
 
 ## Quickstart (local development)
 
@@ -111,7 +112,7 @@ Device tokens (printed by seed, hashed in DB): `dev-CART-01-potafries`, etc.
 ## Mobile connectivity
 
 The mobile POS talks to the **shared production API by default**
-(`https://cartiq-api-aswt.onrender.com/api` — the same Firestore database as
+(`https://ezynbxzarxozzmwqdjxs.supabase.co/functions/v1/api` — the same Firestore database as
 the web dashboard), so a fresh install just works: log in, no IP needed.
 (It is not a browser, so it does not use the web `/api` proxy.)
 
@@ -154,7 +155,7 @@ Manual override is still supported at **build/run time** via
 
 | Target | `API_BASE_URL` | Requirements |
 |---|---|---|
-| Physical phone (production default) | `https://cartiq-api-aswt.onrender.com/api` | internet; first tap after idle may time out once (Render free cold start — retry) |
+| Physical phone (production default) | `https://ezynbxzarxozzmwqdjxs.supabase.co/functions/v1/api` | internet |
 | Physical Android phone (LAN auto-discovery) | _(discovered, only when `enableLanDiscovery = true`)_ | PC and phone on same Wi-Fi; API running with `HOST=0.0.0.0`; Windows Firewall allows TCP 4000 |
 | Physical Android phone (manual, in-app) | typed on splash or Login → Server | same as above, no rebuild; persists across restarts |
 | Physical Android phone (manual, build-time) | `http://<PC_LAN_IP>:4000/api` | same as above, plus rebuild with the current IP |
@@ -191,7 +192,8 @@ IPv4 address (e.g. `192.168.100.217`). The API must be running with
 - **CORS is env-driven:** set `CORS_ORIGINS` in `api/.env` to a
   comma-separated list (e.g.
   `CORS_ORIGINS="http://localhost:5173,http://192.168.100.217:5173"`) so a
-  DHCP change doesn't need a code edit. Production (Render dashboard) must
+  DHCP change doesn't need a code edit. Production (Supabase dashboard →
+  Edge Functions → Secrets) must
   list the hosted frontend:
   `CORS_ORIGINS="https://cartiq-8e46f.web.app,https://cartiq-8e46f.firebaseapp.com"`. Server exits at boot with
   `[api:fatal]` if `JWT_SECRET` is missing.
@@ -293,10 +295,9 @@ Manual acceptance: `docs/uat-script.md` (15-scenario supervised parallel-run).
 
 ## Known limits (by design, per proposal scope)
 
-- **Free-tier deployment (live):** web on Firebase Hosting, API on Render free
-  (sleeps after idle, ~50s cold start; mobile/web retry once, POS queue covers
-  sales), Firestore Spark with 60s server-side read caching (except the
-  always-fresh POS catalog) to protect the 50k/day quota.
+- **Free-tier deployment (live):** web on Firebase Hosting, API on Supabase
+  Edge Functions (no sleep; SSE streams reconnect automatically), Firestore
+  Spark with always-fresh reads for correctness.
 - **Supervised operation:** parallel-run at the carts; no online payments,
   payroll/tax accounting, or customer-facing ordering (per proposal scope).
 - Single API instance: live SSE subscribers and the login rate-limit counter

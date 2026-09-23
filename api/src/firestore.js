@@ -20,7 +20,7 @@
 // Env (first match wins):
 //   FIRESTORE_EMULATOR_HOST=127.0.0.1:8080  -> local emulator (no creds)
 //   FIREBASE_SERVICE_ACCOUNT_JSON='<whole JSON>' -> hosted envs with no key
-//     file (e.g. Render dashboard); the JSON content of a service-account key
+//     file (e.g. Supabase dashboard Secrets); the JSON content of a service-account key
 //   GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 //   FIREBASE_PROJECT_ID (default "cartiq-8e46f")
 import { createRequire } from "node:module";

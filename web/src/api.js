@@ -168,10 +168,10 @@ export function getErrorMessage(err, fallback = "Request failed") {
 }
 
 /**
- * Generic fetch wrapper with one cold-start retry: Render free sleeps after
- * idle (~50s cold start vs 10s timeout), so the first GET after idle almost
- * always times out. Retry idempotent GETs once; never auto-retry POST/
- * PATCH/PUT/DELETE (writes rely on clientRef idempotency, not retries).
+ * Generic fetch wrapper with one cold-start retry: the Edge function can
+ * take a few seconds to warm up after idle (vs 10s timeout), so the first
+ * GET after idle can time out. Retry idempotent GETs once; never auto-retry
+ * POST/PATCH/PUT/DELETE (writes rely on clientRef idempotency, not retries).
  */
 export async function fetchApi(options) {
   const isGet = String(options?.method ?? "GET").toUpperCase() === "GET";

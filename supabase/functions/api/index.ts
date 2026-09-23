@@ -1,27 +1,19 @@
 // CartIQ API on Supabase Edge Functions (Deno).
 //
-//   web/mobile -> https://<ref>.supabase.co/functions/v1/api/*
-//                -> NATIVE (this file, direct to Firestore) for phased-in routes
-//                -> PROXY to UPSTREAM_BASE (Render Express, same Firestore DB) for the rest
-// Firebase (Hosting + Firestore cartiq-8e46f) is untouched.
-//
-// Native routes (no Render needed):
-//   GET  /health, POST /auth/login, POST /auth/refresh, POST /auth/logout, GET /auth/me
-// Everything else proxies to UPSTREAM_BASE (PLDT blocks *.onrender.com on the
-// client side, but server-to-server Supabase -> Render is unaffected).
+//   web/mobile/iot -> https://<ref>.supabase.co/functions/v1/api/*
+//                    -> NATIVE (this file, direct to Firestore REST)
+// Firebase (Hosting + Firestore cartiq-8e46f) is untouched. There is no
+// Render dependency left: every route below is implemented natively.
 //
 // Secrets (dashboard: Edge Functions -> Manage secrets):
-//   UPSTREAM_BASE="https://cartiq-api-aswt.onrender.com/api"
 //   CORS_ORIGINS="https://cartiq-8e46f.web.app,https://cartiq-8e46f.firebaseapp.com"
 //   FIREBASE_PROJECT_ID="cartiq-8e46f"
 //   FIREBASE_SERVICE_ACCOUNT_JSON='<whole service-account JSON, one line>'
-//   JWT_SECRET="<same as Render>"  (+ optional JWT_REFRESH_SECRET)
+//   JWT_SECRET="<auth secret>"  (+ optional JWT_REFRESH_SECRET)
 //
-// Deploy without CLI: dashboard -> Edge Functions -> function `api` -> paste
-// this file -> Deploy. `npm:bcryptjs` resolves in the Supabase runtime.
+// Deploy: push to main (GitHub Actions deploys supabase/functions/*).
 // @ts-nocheck: pure JS + JSDoc so `node --check` can parse it too.
 
-const DEFAULT_UPSTREAM = "https://cartiq-api-aswt.onrender.com/api";
 const DEFAULT_ORIGINS = [
   "https://cartiq-8e46f.web.app",
   "https://cartiq-8e46f.firebaseapp.com",
@@ -30,29 +22,11 @@ const DEFAULT_ORIGINS = [
 ];
 const DEFAULT_PROJECT = "cartiq-8e46f";
 
-const HOP_BY_HOP = new Set([
-  "connection",
-  "keep-alive",
-  "proxy-authenticate",
-  "proxy-authorization",
-  "te",
-  "trailer",
-  "transfer-encoding",
-  "upgrade",
-  "host",
-  "content-length",
-]);
-
 function env(name) {
   try {
     const v = Deno.env.get(name);
     return v === undefined ? "" : v;
   } catch { return ""; }
-}
-
-function getUpstreamBase() {
-  const v = env("UPSTREAM_BASE");
-  return (v && v.trim() ? v.trim() : DEFAULT_UPSTREAM).replace(/\/+$/, "");
 }
 
 function getAllowedOrigins() {
@@ -97,6 +71,14 @@ function corsHeaders(origin) {
 
 function jsonRes(origin, obj, status) {
   return Response.json(obj, { status: status || 200, headers: corsHeaders(origin) });
+}
+
+/** 404 shape mirrors Express notFound (method + path + correlationId). */
+function notFoundRes(origin, req, path) {
+  return jsonRes(origin, {
+    error: `Not found: ${req.method} /api${path}`,
+    correlationId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+  }, 404);
 }
 
 /** Strip the /functions/v1/api prefix -> path starting with / (no /api prefix). */
@@ -4520,87 +4502,29 @@ async function handleEventStream(req, origin, inUrl) {
 
 // ---------- proxy (unchanged Phase 0 behavior) ----------
 async function handleHealth(origin) {
-  const base = getUpstreamBase();
   const started = Date.now();
-  let upstream = { status: "unknown" };
+  let db = false;
   try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 8000);
-    const r = await fetch(base + "/health", { signal: ctrl.signal });
-    clearTimeout(t);
-    let body = null;
-    try { body = await r.json(); } catch { body = null; }
-    upstream = { status: r.ok ? "ok" : "fail", http: r.status, body };
-  } catch (e) {
-    upstream = { status: "fail", error: String((e && e.message) || e) };
+    await fsFetch(fsDocBase() + "/_counters/refreshTokens", { method: "GET" });
+    db = true;
+  } catch {
+    db = false;
   }
+  const envCheck = !!jwtSecret();
+  const ok = db && envCheck;
   return jsonRes(origin, {
-    ok: true,
+    ok,
     service: "cartiq-api",
     via: "supabase-edge",
-    native: hasNativeConfig()
-      ? ["health", "secure-ping", "auth/login", "auth/refresh", "auth/logout", "auth/me",
-         "auth/change-password", "auth/staff",
-         "catalog",
-         "orders", "orders/:id", "locations", "locations/:id", "devices", "devices/:id",
-         "inventory", "inventory/names", "inventory/items", "inventory/items/:id",
-         "inventory/adjustments", "alerts", "alerts/read", "alerts/:id/read",
-         "alerts/:id/ack", "reports/daily", "products", "products/:id",
-         "products/:id/rename", "flavors", "flavors/:id",
-         "iot/readings", "shifts", "shifts/manual", "shifts/:id",
-         "staff/on-shift", "shifts/history", "readings/recent",
-         "expenses", "expenses/:id",
-         "analytics/trends", "analytics/hourly", "analytics/basket",
-         "analytics/sales-forecast", "analytics/forecast",
-         "reorders/suggestions", "reorders/prep",
-         "analytics/staff-performance", "analytics/profit",
-         "events/ticket", "events",
-         "export/:dataset", "import/products"]
-      : ["health"],
-    upstream,
+    version: "0.1.0",
+    uptimeSec: 0,
+    checks: {
+      db: { status: db ? "ok" : "fail" },
+      env: { status: envCheck ? "ok" : "fail", detail: envCheck ? "JWT_SECRET present" : "JWT_SECRET missing" },
+    },
     time: new Date().toISOString(),
     latencyMs: Date.now() - started,
-  }, 200);
-}
-
-async function handleProxy(req, origin) {
-  const base = getUpstreamBase();
-  const inUrl = new URL(req.url);
-  const target = base + toUpstreamPath(inUrl);
-
-  const headers = new Headers();
-  req.headers.forEach((v, k) => {
-    if (!HOP_BY_HOP.has(k.toLowerCase())) headers.set(k, v);
-  });
-  headers.delete("host");
-  headers.delete("content-length");
-
-  const ctrl = new AbortController();
-  const timeout = setTimeout(() => ctrl.abort(), 25000);
-  let upstream;
-  try {
-    upstream = await fetch(target, {
-      method: req.method,
-      headers,
-      body: ["GET", "HEAD"].includes(req.method) ? undefined : req.body,
-      signal: ctrl.signal,
-      // @ts-ignore duplex needed for streaming bodies in Deno/Node fetch
-      duplex: "half",
-    });
-  } catch (e) {
-    clearTimeout(timeout);
-    const msg = String((e && e.message) || e);
-    const isTimeout = /abort/i.test(msg);
-    return jsonRes(origin, { error: isTimeout ? "Upstream timeout - please retry" : "Upstream unreachable - please retry" }, 504);
-  }
-  clearTimeout(timeout);
-
-  const out = new Headers();
-  upstream.headers.forEach((v, k) => {
-    if (!HOP_BY_HOP.has(k.toLowerCase())) out.set(k, v);
-  });
-  Object.entries(corsHeaders(origin)).forEach(([k, v]) => out.set(k, v));
-  return new Response(upstream.body, { status: upstream.status, headers: out });
+  }, ok ? 200 : 503);
 }
 
 function isHealthPath(path) {
@@ -4646,7 +4570,7 @@ Deno.serve(async (req) => {
         else if (req.method === "PATCH" && /^\/auth\/staff\/\d+$/.test(path)) {
           out = await handlePatchStaff(req, Number(path.split("/")[3]), auth.user);
         }
-        else return await handleProxy(req, origin);
+        else return notFoundRes(origin, req, path);
         return jsonRes(origin, out.body, out.status);
       }
       if (req.method === "GET" && path === "/catalog") return await handleCatalog(req, origin);
@@ -4668,7 +4592,7 @@ Deno.serve(async (req) => {
             throw e;
           }
         }
-        return await handleProxy(req, origin);
+        return notFoundRes(origin, req, path);
       }
       // Locations + devices (OWNER only).
       if (path === "/locations" || path.startsWith("/locations/") ||
@@ -4697,7 +4621,7 @@ Deno.serve(async (req) => {
           if (!/^\d+$/.test(idPart)) return jsonRes(origin, { error: "Device not found" }, 404);
           out = await handleDeleteDevice(Number(idPart));
         }
-        else return await handleProxy(req, origin);
+        else return notFoundRes(origin, req, path);
         return jsonRes(origin, out.body, out.status);
       }
       // Inventory.
@@ -4726,7 +4650,7 @@ Deno.serve(async (req) => {
         else if (req.method === "POST" && path === "/inventory/adjustments") {
           out = await handleInventoryAdjustment(req, auth.user);
         }
-        else return await handleProxy(req, origin);
+        else return notFoundRes(origin, req, path);
         return jsonRes(origin, out.body, out.status);
       }
       // Alerts.
@@ -4749,7 +4673,7 @@ Deno.serve(async (req) => {
         else if (req.method === "PATCH" && path.endsWith("/ack")) {
           out = await handleAlertAck(req, Number(path.split("/")[2]), auth.user);
         }
-        else return await handleProxy(req, origin);
+        else return notFoundRes(origin, req, path);
         return jsonRes(origin, out.body, out.status);
       }
       // Reports.
@@ -4760,7 +4684,7 @@ Deno.serve(async (req) => {
           const out = await handleDailyReport(inUrl);
           return jsonRes(origin, out.body, out.status);
         }
-        return await handleProxy(req, origin);
+        return notFoundRes(origin, req, path);
       }
       // Products + flavors.
       if (path === "/products" || path.startsWith("/products/") ||
@@ -4790,7 +4714,7 @@ Deno.serve(async (req) => {
           else if (req.method === "DELETE" && /^\/flavors\/\d+$/.test(path)) {
             out = await handleDeleteFlavor(Number(path.split("/")[2]));
           }
-          else return await handleProxy(req, origin);
+          else return notFoundRes(origin, req, path);
         }
         return jsonRes(origin, out.body, out.status);
       }
@@ -4801,7 +4725,7 @@ Deno.serve(async (req) => {
         let out;
         if (req.method === "POST" && path === "/iot/readings") out = await handleIotReadings(req, origin, auth.device);
         else if (req.method === "POST" && path === "/shifts") out = await handleDeviceShifts(req, origin, auth.device);
-        else return await handleProxy(req, origin);
+        else return notFoundRes(origin, req, path);
         return jsonRes(origin, out.body, out.status);
       }
       // Shifts management + staff/shift reads + sensor reads (user JWT).
@@ -4833,7 +4757,7 @@ Deno.serve(async (req) => {
         else if (req.method === "GET" && path === "/readings/recent") {
           out = await handleReadingsRecent(inUrl);
         }
-        else return await handleProxy(req, origin);
+        else return notFoundRes(origin, req, path);
         return jsonRes(origin, out.body, out.status);
       }
       // Expenses.
@@ -4850,7 +4774,7 @@ Deno.serve(async (req) => {
           if (req.method === "PATCH") out = await handlePatchExpense(req, eid);
           else out = await handleDeleteExpense(eid);
         }
-        else return await handleProxy(req, origin);
+        else return notFoundRes(origin, req, path);
         return jsonRes(origin, out.body, out.status);
       }
       // Analytics + reorders (read-only aggregations).
@@ -4875,7 +4799,7 @@ Deno.serve(async (req) => {
           if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
           out = await handleProfit(inUrl);
         }
-        else return await handleProxy(req, origin);
+        else return notFoundRes(origin, req, path);
         return jsonRes(origin, out.body, out.status);
       }
       // Events: ticket (Bearer) + stream (ticket or Bearer).
@@ -4889,9 +4813,9 @@ Deno.serve(async (req) => {
         if (req.method === "GET" && path === "/events") {
           return await handleEventStream(req, origin, inUrl);
         }
-        return await handleProxy(req, origin);
+        return notFoundRes(origin, req, path);
       }
-      // Excel export/import (OWNER; falls back to proxy if exceljs can't load).
+      // Excel export (native MiniWorkbook) / import (native SheetJS).
       if (path.startsWith("/export/") || path === "/import/products") {
         const auth = await authUser(req);
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
@@ -4900,24 +4824,24 @@ Deno.serve(async (req) => {
         if (req.method === "GET" && path.startsWith("/export/")) {
           const dataset = path.slice("/export/".length).split("/")[0].split("?")[0];
           const out = await handleExport(origin, inUrl, dataset);
-          if (!out) return await handleProxy(req, origin);
           if (!out.binary) return jsonRes(origin, out.body, out.status);
           return new Response(out.bytes, { status: 200, headers: out.headers });
         }
         if (req.method === "POST" && path === "/import/products") {
           const out = await handleImportProducts(req, origin, inUrl);
-          if (!out) return await handleProxy(req, origin);
+          if (!out) return jsonRes(origin, { error: "Import service unavailable" }, 503);
           return jsonRes(origin, out.body, out.status);
         }
-        return await handleProxy(req, origin);
+        return notFoundRes(origin, req, path);
       }
     } else if (
       (req.method === "POST" && (path === "/auth/login" || path === "/auth/refresh" || path === "/auth/logout")) ||
       (req.method === "GET" && path === "/auth/me")
     ) {
-      return await handleProxy(req, origin);
+      // Firestore secrets missing: native auth unavailable.
+      return jsonRes(origin, { error: "Database unavailable" }, 503);
     }
-    return await handleProxy(req, origin);
+    return notFoundRes(origin, req, path);
   } catch (e) {
     const status = (e && e.status) || 500;
     return jsonRes(origin, { error: status === 503 ? "Database unavailable" : "Edge function error" }, status);

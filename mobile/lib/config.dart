@@ -4,11 +4,9 @@ class AppConfig {
   // SHARED PRODUCTION API endpoint (same database as the web dashboard).
   //
   // The default below points at the Supabase Edge Function, which serves the
-  // same CartIQ API (native auth + proxy for the remaining routes) on top of
-  // the same prod Firestore as https://cartiq-8e46f.web.app — reachable even
-  // on networks that block *.onrender.com (e.g. PLDT).
-  // Legacy Render backend (keep alive until the native port is complete):
-  //   https://cartiq-api-aswt.onrender.com/api
+  // same CartIQ API natively on top of the same prod Firestore as
+  // https://cartiq-8e46f.web.app — always reachable on Philippine mobile
+  // networks (PLDT-safe URL).
   //
   // Local/LAN development still works two ways (no rebuild needed):
   //   - In-app: boot splash or Login → Server row → type the LAN URL

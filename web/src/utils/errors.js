@@ -26,7 +26,7 @@ export function getFriendlyError(err, fallback = "Request failed") {
     return fallback;
   }
   if (!status && (looksOffline || !err?.response)) {
-    // No response at all: offline, DNS, CORS, or the Render free cold start
+    // No response at all: offline, DNS, CORS, or an Edge cold start
     // (first request after idle can exceed the 10s client timeout — retry warm).
     if (!serverMsg && (timedOut || /network error|failed to fetch/i.test(raw) || raw === "")) {
       return "Cannot reach the server. Check your connection — the first load after idle can take about a minute, then try again.";

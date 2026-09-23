@@ -252,7 +252,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             const SizedBox(height: AppSpacing.space3),
                             Text(
-                              'First login after idle can take ~60s (Render free cold start) — retry once warm.',
+                              'First login after idle can take a few seconds while the server warms up — retry once if it times out.',
                               textAlign: TextAlign.center,
                               style: Theme.of(context).textTheme.bodySmall,
                             ),

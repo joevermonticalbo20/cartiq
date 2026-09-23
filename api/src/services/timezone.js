@@ -1,4 +1,4 @@
-// CartIQ Manila timezone helper — server runs on Render (UTC) but the
+// CartIQ Manila timezone helper — server runs on Supabase Edge (UTC) but the
 // business day is Asia/Manila (UTC+8, no DST). All "today"/daily boundaries
 // must use Manila midnight, not server-local midnight.
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
