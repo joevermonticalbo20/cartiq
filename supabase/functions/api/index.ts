@@ -280,6 +280,121 @@ async function fsGet(collection, id) {
   return fsDecodeDoc(doc);
 }
 
+/**
+ * Server-side query engine (Phase A perf): filters + orderBy + limit +
+ * offset/cursor run in Firestore instead of listing whole collections.
+ * Multi-filter queries need the composite indexes in firestore.indexes.json.
+ *
+ * filters: [{ field, op, value }] op: EQUAL, GREATER_THAN_OR_EQUAL, LESS_THAN
+ * orderBy: [{ field, dir }] dir: "ASCENDING" | "DESCENDING" (default DESC for
+ *   date fields is the caller's choice; single orderBy shown here)
+ * startAt: { values: [encoded...] } cursor (exclusive, before:false)
+ */
+function fsOpFilter(f) {
+  return { fieldFilter: { field: { fieldPath: f.field }, op: f.op, value: fsEncodeValue(f.value) } };
+}
+
+async function fsRunQuery(collection, opts) {
+  const { filters, orderBy, limit, offset, startAt } = opts || {};
+  const q = { from: [{ collectionId: collection }] };
+  if (filters && filters.length === 1) {
+    q.where = fsOpFilter(filters[0]);
+  } else if (filters && filters.length > 1) {
+    q.where = { compositeFilter: { op: "AND", filters: filters.map(fsOpFilter) } };
+  }
+  if (orderBy && orderBy.length > 0) {
+    q.orderBy = orderBy.map((o) => ({
+      field: { fieldPath: o.field },
+      direction: o.dir || "DESCENDING",
+    }));
+  }
+  if (limit !== undefined) q.limit = limit;
+  if (offset) q.offset = offset;
+  if (startAt) q.startAt = { values: startAt.values, before: false };
+  const data = await fsFetch(fsDocBase() + ":runQuery", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ structuredQuery: q }),
+  });
+  const out = [];
+  for (const row of data || []) {
+    const d = fsDecodeDoc(row.document);
+    if (d) out.push(d);
+  }
+  return out;
+}
+
+/** Count aggregation (cheap, index-backed) for list totals. */
+async function fsCount(collection, filters) {
+  const sq = { from: [{ collectionId: collection }] };
+  if (filters && filters.length === 1) sq.where = fsOpFilter(filters[0]);
+  else if (filters && filters.length > 1) {
+    sq.where = { compositeFilter: { op: "AND", filters: filters.map(fsOpFilter) } };
+  }
+  const data = await fsFetch(fsDocBase() + ":runAggregationQuery", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      structuredAggregationQuery: {
+        structuredQuery: sq,
+        aggregations: [{ alias: "total", count: {} }],
+      },
+    }),
+  });
+  const agg = data && data[0] && data[0].result && data[0].result.aggregateFields;
+  const total = agg && agg.total;
+  if (!total) return 0;
+  return Number(total.integerValue ?? total.doubleValue ?? 0);
+}
+
+/** Sum aggregation for numeric fields. */
+async function fsSum(collection, field, filters) {
+  const sq = { from: [{ collectionId: collection }] };
+  if (filters && filters.length === 1) sq.where = fsOpFilter(filters[0]);
+  else if (filters && filters.length > 1) {
+    sq.where = { compositeFilter: { op: "AND", filters: filters.map(fsOpFilter) } };
+  }
+  const data = await fsFetch(fsDocBase() + ":runAggregationQuery", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      structuredAggregationQuery: {
+        structuredQuery: sq,
+        aggregations: [{ alias: "sum", sum: { field: { fieldPath: field } } }],
+      },
+    }),
+  });
+  const agg = data && data[0] && data[0].result && data[0].result.aggregateFields;
+  const s = agg && agg.sum;
+  if (!s) return 0;
+  return Number(s.integerValue ?? s.doubleValue ?? 0);
+}
+
+/**
+ * Opaque page cursor: { t: createdAt ISO, id } -> base64url.
+ * Cursors ride the createdAt DESC ordering; same-ms ties may repeat/skip a
+ * row across a page boundary (admin lists only — accepted, documented).
+ */
+function encodeCursor(doc, dateField) {
+  const dt = doc[dateField];
+  const payload = {
+    t: dt instanceof Date ? dt.toISOString() : new Date(0).toISOString(),
+    id: doc.id,
+  };
+  return b64urlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+}
+
+function decodeCursor(cursor) {
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(b64urlDecode(cursor)));
+    const t = new Date(payload.t);
+    if (!Number.isFinite(t.getTime())) return null;
+    return { t, id: payload.id };
+  } catch {
+    return null;
+  }
+}
+
 /** List every document in a collection (paginated; data is tiny). */
 async function fsListAll(collection, pageSize) {
   const out = [];
@@ -868,34 +983,38 @@ async function handleListOrders(req, origin, url) {
   const date = params.get("date");
   const page = Math.max(1, Number(params.get("page")) || 1);
   const pageSize = Math.min(Number(params.get("pageSize")) || 10, 100);
-  let locationId = null;
+  const cursor = params.get("cursor");
+  const filters = [];
   if (location_code) {
     const loc = await fsQueryEqual("locations", "code", String(location_code), 1);
     if (!loc[0]) return jsonRes(origin, { data: [], meta: emptyOrderMeta(page, pageSize) }, 200);
-    locationId = loc[0].id;
+    filters.push({ field: "locationId", op: "EQUAL", value: loc[0].id });
   }
-  let range = null;
   if (date) {
-    range = manilaDayRange(String(date));
+    const range = manilaDayRange(String(date));
     if (!range) return jsonRes(origin, { error: "date must be YYYY-MM-DD" }, 400);
+    filters.push({ field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: range.start });
+    filters.push({ field: "createdAt", op: "LESS_THAN", value: range.end });
   }
-  let orders;
-  if (locationId !== null) {
-    orders = await fsQueryEqual("orders", "locationId", locationId, 10000);
+  const orderBy = [{ field: "createdAt", dir: "DESCENDING" }];
+  const total = await fsCount("orders", filters);
+  let slice;
+  const decoded = cursor ? decodeCursor(cursor) : null;
+  if (decoded) {
+    slice = await fsRunQuery("orders", {
+      filters,
+      orderBy,
+      limit: pageSize,
+      startAt: { values: [fsEncodeValue(decoded.t)] },
+    });
   } else {
-    orders = await fsListAll("orders");
+    slice = await fsRunQuery("orders", {
+      filters,
+      orderBy,
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
+    });
   }
-  if (range) {
-    orders = orders.filter((o) =>
-      o.createdAt instanceof Date && o.createdAt >= range.start && o.createdAt < range.end);
-  }
-  orders.sort((a, b) => {
-    const at = a.createdAt instanceof Date ? a.createdAt.getTime() : 0;
-    const bt = b.createdAt instanceof Date ? b.createdAt.getTime() : 0;
-    return bt - at;
-  });
-  const total = orders.length;
-  const slice = orders.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
   const [locations, users] = await Promise.all([fsListAll("locations"), fsListAll("users")]);
   const locById = new Map(locations.map((l) => [l.id, l]));
   const userById = new Map(users.map((u) => [u.id, u]));
@@ -907,9 +1026,11 @@ async function handleListOrders(req, origin, url) {
     c.staff = staff ? { name: staff.name } : null;
     return c;
   });
+  const last = slice[slice.length - 1];
   return jsonRes(origin, {
     data,
     meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+    ...(last ? { nextCursor: encodeCursor(last, "createdAt") } : {}),
   }, 200);
 }
 
@@ -1516,17 +1637,19 @@ async function handleListAlerts(url) {
   const unreadOnly = url.searchParams.get("unread_only") === "true";
   const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
   const pageSize = Math.min(Number(url.searchParams.get("pageSize")) || 10, 100);
-  let alerts = await fsListAll("alerts");
-  if (unreadOnly) alerts = alerts.filter((a) => a.isRead === false);
-  alerts.sort((a, b) => {
-    const at = a.createdAt instanceof Date ? a.createdAt.getTime() : 0;
-    const bt = b.createdAt instanceof Date ? b.createdAt.getTime() : 0;
-    return bt - at;
-  });
-  const total = alerts.length;
+  const cursor = url.searchParams.get("cursor");
+  const filters = unreadOnly ? [{ field: "isRead", op: "EQUAL", value: false }] : [];
+  const orderBy = [{ field: "createdAt", dir: "DESCENDING" }];
+  const total = await fsCount("alerts", filters);
+  const decoded = cursor ? decodeCursor(cursor) : null;
+  const slice = decoded
+    ? await fsRunQuery("alerts", { filters, orderBy, limit: pageSize, startAt: { values: [fsEncodeValue(decoded.t)] } })
+    : await fsRunQuery("alerts", { filters, orderBy, limit: pageSize, offset: (page - 1) * pageSize });
+  const last = slice[slice.length - 1];
   return {
-    data: alerts.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize).map(cleanDoc),
+    data: slice.map(cleanDoc),
     meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+    ...(last ? { nextCursor: encodeCursor(last, "createdAt") } : {}),
   };
 }
 
@@ -2575,33 +2698,43 @@ async function handleShiftsHistory(url) {
   const date = params.get("date");
   const page = Math.max(1, Number(params.get("page")) || 1);
   const pageSize = Math.min(Number(params.get("pageSize")) || 10, 100);
-  let shifts = await fsListAll("shifts");
+  const cursor = params.get("cursor");
+  const filters = [];
   if (code) {
     const loc = await fsQueryEqual("locations", "code", String(code), 1).then((r) => r[0]);
-    shifts = loc ? shifts.filter((s) => Number(s.locationId) === Number(loc.id)) : [];
+    if (!loc) {
+      return { status: 200, body: { data: [], meta: { total: 0, page, pageSize, totalPages: 1 } } };
+    }
+    filters.push({ field: "locationId", op: "EQUAL", value: loc.id });
   }
   if (date) {
     const range = manilaDayRange(String(date));
     if (!range) return { status: 400, body: { error: "date must be YYYY-MM-DD" } };
-    shifts = shifts.filter((s) => s.ts instanceof Date && s.ts >= range.start && s.ts < range.end);
+    filters.push({ field: "ts", op: "GREATER_THAN_OR_EQUAL", value: range.start });
+    filters.push({ field: "ts", op: "LESS_THAN", value: range.end });
   }
-  shifts.sort((a, b) => {
-    const at = a.ts instanceof Date ? a.ts.getTime() : 0;
-    const bt = b.ts instanceof Date ? b.ts.getTime() : 0;
-    return bt - at;
-  });
-  const total = shifts.length;
+  const orderBy = [{ field: "ts", dir: "DESCENDING" }];
+  const total = await fsCount("shifts", filters);
+  const decoded = cursor ? decodeCursor(cursor) : null;
+  const slice = decoded
+    ? await fsRunQuery("shifts", { filters, orderBy, limit: pageSize, startAt: { values: [fsEncodeValue(decoded.t)] } })
+    : await fsRunQuery("shifts", { filters, orderBy, limit: pageSize, offset: (page - 1) * pageSize });
   const locations = await fsListAll("locations");
   const locById = new Map(locations.map((l) => [l.id, l]));
-  const data = shifts.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize).map((s) => {
+  const data = slice.map((s) => {
     const c = cleanDoc(s);
     const loc = locById.get(s.locationId);
     c.location = loc ? { code: loc.code, name: loc.name } : null;
     return c;
   });
+  const last = slice[slice.length - 1];
   return {
     status: 200,
-    body: { data, meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) } },
+    body: {
+      data,
+      meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+      ...(last ? { nextCursor: encodeCursor(last, "ts") } : {}),
+    },
   };
 }
 
@@ -2716,27 +2849,49 @@ async function handleListExpenses(url) {
   const category = params.get("category");
   const page = Math.max(1, Number(params.get("page")) || 1);
   const pageSize = Math.min(Number(params.get("pageSize")) || 10, 100);
-  let expenses = await fsListAll("expenses");
+  const cursor = params.get("cursor");
+  const filters = [];
   if (code) {
     const loc = await fsQueryEqual("locations", "code", String(code), 1).then((r) => r[0]);
-    expenses = loc ? expenses.filter((e) => Number(e.locationId) === Number(loc.id)) : [];
+    if (!loc) {
+      return {
+        status: 200,
+        body: {
+          data: [],
+          meta: { total: 0, page, pageSize, totalPages: 1 },
+          totals: { count: 0, total_amount: 0 },
+          by_vendor: [],
+          by_category: EXPENSE_CATEGORIES.map((cat) => ({ category: cat, total: 0 })),
+          categories: EXPENSE_CATEGORIES,
+        },
+      };
+    }
+    filters.push({ field: "locationId", op: "EQUAL", value: loc.id });
   }
   const catFilter = category && EXPENSE_CATEGORIES.includes(String(category)) ? String(category) : null;
-  if (catFilter) expenses = expenses.filter((e) => e.category === catFilter);
+  if (catFilter) filters.push({ field: "category", op: "EQUAL", value: catFilter });
   if (month && /^\d{4}-\d{2}$/.test(String(month))) {
     const range = manilaMonthRange(month);
-    expenses = expenses.filter((e) => e.date instanceof Date && e.date >= range.start && e.date < range.end);
+    filters.push({ field: "date", op: "GREATER_THAN_OR_EQUAL", value: range.start });
+    filters.push({ field: "date", op: "LESS_THAN", value: range.end });
   }
-  expenses.sort((a, b) => {
-    const at = a.date instanceof Date ? a.date.getTime() : 0;
-    const bt = b.date instanceof Date ? b.date.getTime() : 0;
-    return bt - at;
-  });
-  const total = expenses.length;
-  const sum = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const orderBy = [{ field: "date", dir: "DESCENDING" }];
+  const [total, sum] = await Promise.all([
+    fsCount("expenses", filters),
+    fsSum("expenses", "amount", filters),
+  ]);
+  const decoded = cursor ? decodeCursor(cursor) : null;
+  const slice = decoded
+    ? await fsRunQuery("expenses", { filters, orderBy, limit: pageSize, startAt: { values: [fsEncodeValue(decoded.t)] } })
+    : await fsRunQuery("expenses", { filters, orderBy, limit: pageSize, offset: (page - 1) * pageSize });
+  // Breakdowns over the filtered period (ignoring the category filter).
+  // Bounded to the 2000 newest rows so giant histories can't blow up one
+  // request; pilot-scale data is unaffected (identical results).
+  const breakdownFilters = filters.filter((f) => f.field !== "category");
+  const bounded = await fsRunQuery("expenses", { filters: breakdownFilters, orderBy, limit: 2000 });
   const vendorTotals = new Map();
   const catTotals = new Map();
-  for (const e of expenses) {
+  for (const e of bounded) {
     vendorTotals.set(e.vendor, (vendorTotals.get(e.vendor) ?? 0) + (Number(e.amount) || 0));
     catTotals.set(e.category, (catTotals.get(e.category) ?? 0) + (Number(e.amount) || 0));
   }
@@ -2750,16 +2905,17 @@ async function handleListExpenses(url) {
   }));
   const locations = await fsListAll("locations");
   const locById = new Map(locations.map((l) => [l.id, l]));
+  const last = slice[slice.length - 1];
   return {
     status: 200,
     body: {
-      data: expenses.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize)
-        .map((e) => attachExpenseLocation(e, locById)),
+      data: slice.map((e) => attachExpenseLocation(e, locById)),
       meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
       totals: { count: total, total_amount: Number(sum.toFixed(2)) },
       by_vendor: byVendor,
       by_category: byCategory,
       categories: EXPENSE_CATEGORIES,
+      ...(last ? { nextCursor: encodeCursor(last, "date") } : {}),
     },
   };
 }
@@ -4420,18 +4576,17 @@ async function handleEventStream(req, origin, inUrl) {
   const locById = new Map(locations.map((l) => [Number(l.id), l]));
   const userById = new Map(users.map((u) => [Number(u.id), u]));
 
+  // Newest-first by numeric id (single-field index, no full scan).
+  const idDesc = [{ field: "id", dir: "DESCENDING" }];
   let lastOrderId = 0;
   let lastAlertId = 0;
   try {
-    const [orders, alerts] = await Promise.all([fsListAll("orders"), fsListAll("alerts")]);
-    for (const o of orders) {
-      const n = Number(o.id);
-      if (Number.isInteger(n) && n > lastOrderId) lastOrderId = n;
-    }
-    for (const a of alerts) {
-      const n = Number(a.id);
-      if (Number.isInteger(n) && n > lastAlertId) lastAlertId = n;
-    }
+    const [orders, alerts] = await Promise.all([
+      fsRunQuery("orders", { orderBy: idDesc, limit: 1 }),
+      fsRunQuery("alerts", { orderBy: idDesc, limit: 1 }),
+    ]);
+    if (orders[0] && Number.isInteger(Number(orders[0].id))) lastOrderId = Number(orders[0].id);
+    if (alerts[0] && Number.isInteger(Number(alerts[0].id))) lastAlertId = Number(alerts[0].id);
   } catch { /* start from zero */ }
 
   const enc = new TextEncoder();
@@ -4454,7 +4609,10 @@ async function handleEventStream(req, origin, inUrl) {
           return;
         }
         try {
-          const [orders, alerts] = await Promise.all([fsListAll("orders"), fsListAll("alerts")]);
+          const [orders, alerts] = await Promise.all([
+            fsRunQuery("orders", { orderBy: idDesc, limit: 25 }),
+            fsRunQuery("alerts", { orderBy: idDesc, limit: 25 }),
+          ]);
           const freshOrders = orders
             .filter((o) => Number.isInteger(Number(o.id)) && Number(o.id) > lastOrderId)
             .sort((a, b) => Number(a.id) - Number(b.id));
