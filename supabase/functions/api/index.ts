@@ -382,12 +382,21 @@ async function fsPatch(collection, id, patch) {
  * status (FAILED_PRECONDITION / ABORTED / ...) on contention.
  */
 async function fsCommit(writes) {
-  const url = "https://firestore.googleapis.com/v1/projects/" + getProjectId() + "/databases/(default):commit";
+  // NOTE: commit hangs under /documents (…/documents:commit), NOT directly
+  // under the database — the latter 404s while every other call keeps working.
+  const url = fsDocBase() + ":commit";
   const data = await fsFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ writes }),
   });
+  // Never silently succeed: a null here (404/non-JSON) used to fake 201s
+  // while nothing persisted. Fail loudly instead.
+  if (!data) {
+    const err = new Error("Firestore commit failed");
+    err.status = 503;
+    throw err;
+  }
   return data;
 }
 
@@ -4520,57 +4529,6 @@ Deno.serve(async (req) => {
         }
         else return await handleProxy(req, origin);
         return jsonRes(origin, out.body, out.status);
-      }
-      // TEMP DEBUG (remove after connectivity audit): raw Firestore read-back.
-      if (req.method === "GET" && path === "/debug/raw") {
-        const auth = await authUser(req);
-        if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
-        const ownErr = requireOwner(auth.user);
-        if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
-        if (inUrl.searchParams.get("commitping") === "1") {
-          // Empty commit: no writes, proves :commit endpoint+auth end-to-end.
-          // Returns raw HTTP status + body (fsFetch swallows 404/non-JSON as null).
-          const url = "https://firestore.googleapis.com/v1/projects/" + getProjectId() + "/databases/(default):commit";
-          const token = await googleAccessToken();
-          const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
-            body: JSON.stringify({ writes: [] }),
-          });
-          const text = await res.text();
-          return jsonRes(origin, {
-            url,
-            projectId: getProjectId(),
-            projectLen: getProjectId().length,
-            status: res.status,
-            contentType: res.headers.get("content-type"),
-            body: text.slice(0, 500),
-          }, 200);
-        }
-        const col = inUrl.searchParams.get("col");
-        const id = inUrl.searchParams.get("id");
-        if (col && id) {
-          const raw = await fsFetch(fsDocBase() + "/" + col + "/" + encodeURIComponent(id), { method: "GET" });
-          return jsonRes(origin, { raw }, 200);
-        }
-        const qcol = inUrl.searchParams.get("qcol");
-        const qfield = inUrl.searchParams.get("qfield");
-        const qval = inUrl.searchParams.get("qval");
-        if (qcol && qfield) {
-          const raw = await fsFetch(fsDocBase() + ":runQuery", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              structuredQuery: {
-                from: [{ collectionId: qcol }],
-                where: { fieldFilter: { field: { fieldPath: qfield }, op: "EQUAL", value: fsEncodeValue(qval) } },
-                limit: 5,
-              },
-            }),
-          });
-          return jsonRes(origin, { raw }, 200);
-        }
-        return jsonRes(origin, { error: "need col+id or qcol+qfield+qval" }, 400);
       }
       // Excel export/import (OWNER; falls back to proxy if exceljs can't load).
       if (path.startsWith("/export/") || path === "/import/products") {
