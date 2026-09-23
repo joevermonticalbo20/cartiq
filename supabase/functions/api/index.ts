@@ -4529,8 +4529,23 @@ Deno.serve(async (req) => {
         if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
         if (inUrl.searchParams.get("commitping") === "1") {
           // Empty commit: no writes, proves :commit endpoint+auth end-to-end.
-          const raw = await fsCommit([]);
-          return jsonRes(origin, { raw }, 200);
+          // Returns raw HTTP status + body (fsFetch swallows 404/non-JSON as null).
+          const url = "https://firestore.googleapis.com/v1/projects/" + getProjectId() + "/databases/(default):commit";
+          const token = await googleAccessToken();
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+            body: JSON.stringify({ writes: [] }),
+          });
+          const text = await res.text();
+          return jsonRes(origin, {
+            url,
+            projectId: getProjectId(),
+            projectLen: getProjectId().length,
+            status: res.status,
+            contentType: res.headers.get("content-type"),
+            body: text.slice(0, 500),
+          }, 200);
         }
         const col = inUrl.searchParams.get("col");
         const id = inUrl.searchParams.get("id");
