@@ -3802,13 +3802,11 @@ const IMPORT_MAX_PRICE = 10000000;
 const IMPORT_MAX_FLAVORS_PER_ROW = 20;
 const IMPORT_MAX_FLAVOR_LEN = 60;
 
-async function excelLib() {
-  // NOTE: exceljs (40MB+ Node stream/Buffer tree) cannot bundle on the Edge
-  // runtime — it breaks function boot. Export/import therefore stay on the
-  // Render proxy (same API responses, still PLDT-reachable). The builders
-  // below are kept for a future pure-JS xlsx port; callers already fall back
-  // to proxy when this throws.
-  throw new Error("excel-native-disabled");
+/** SheetJS (pure JS, bundles on Edge) for .xlsx IMPORT parsing. */
+async function xlsxReadLib() {
+  if (globalThis.__XLSX__) return globalThis.__XLSX__;
+  const m = await import("npm:xlsx@0.18.5");
+  return m.default ?? m;
 }
 
 function splitFlavorCell(raw) {
@@ -4106,26 +4104,27 @@ async function parseMultipartFile(req, maxBytes) {
 }
 
 async function handleImportProducts(req, origin, inUrl) {
-  let ExcelJS;
+  let XLSX;
   try {
-    ExcelJS = await excelLib();
+    XLSX = await xlsxReadLib();
   } catch {
-    return null; // exceljs unavailable -> proxy fallback
+    return null; // SheetJS unavailable -> proxy fallback
   }
   const parsed = await parseMultipartFile(req, 5 * 1024 * 1024);
   if (parsed.error) return { status: 400, body: { error: parsed.error }, binary: false };
   const commit = inUrl.searchParams.get("dry_run") === "false";
 
-  let wb;
+  let rows;
   try {
-    wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(parsed.buffer);
+    const wb = XLSX.read(parsed.buffer, { type: "buffer" });
+    const first = wb.SheetNames[0];
+    if (!first) return { status: 400, body: { error: "Workbook has no sheets" }, binary: false };
+    rows = XLSX.utils.sheet_to_json(wb.Sheets[first], { header: 1, defval: "" });
   } catch {
     return { status: 400, body: { error: "File is not a valid .xlsx workbook" }, binary: false };
   }
-  const sheet = wb.worksheets[0];
-  if (!sheet) return { status: 400, body: { error: "Workbook has no sheets" }, binary: false };
-  if (sheet.rowCount - 1 > IMPORT_MAX_ROWS) {
+  const dataRows = rows.slice(1);
+  if (dataRows.length > IMPORT_MAX_ROWS) {
     return { status: 400, body: { error: "max 2000 data rows per import" }, binary: false };
   }
 
@@ -4136,23 +4135,12 @@ async function handleImportProducts(req, origin, inUrl) {
   const existingProducts = new Set(products.map((p) => String(p.name).toLowerCase()));
   const existingFlavors = new Map(flavors.map((f) => [String(f.name).toLowerCase(), Number(f.id)]));
 
-  sheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
-    const cellVal = (n) => {
-      const v = row.getCell(n).value;
-      if (v === null || v === undefined) return "";
-      if (typeof v === "object") {
-        if (v.richText) return v.richText.map((t) => t.text).join("");
-        if (v.text !== undefined) return String(v.text);
-        if (v.result !== undefined) return String(v.result);
-        return "";
-      }
-      return String(v);
-    };
-    const name = cellVal(1).trim();
-    const category = cellVal(2).trim() || "Fries";
-    const basePriceRaw = row.getCell(3).value;
-    const flavorsRaw = cellVal(4).trim();
+  dataRows.forEach((cols, idx) => {
+    const rowNumber = idx + 2; // header is row 1
+    const name = String(cols[0] ?? "").trim();
+    const category = String(cols[1] ?? "").trim() || "Fries";
+    const basePriceRaw = cols[2];
+    const flavorsRaw = String(cols[3] ?? "").trim();
     if (!name) {
       errors.push({ row: rowNumber, reason: "missing name" });
       return;
@@ -4177,7 +4165,7 @@ async function handleImportProducts(req, origin, inUrl) {
   });
 
   const result = {
-    rows_total: sheet.rowCount - 1,
+    rows_total: dataRows.length,
     valid_count: validRows.length,
     errors,
     committed: false,
@@ -4376,6 +4364,160 @@ async function handlePatchStaff(req, id, me) {
   };
 }
 
+// ---------- events: ticket + poll stream (mirror api/src/routes/events.js) ----------
+// The Express version broadcasts in-process (single Render instance). Edge
+// isolates share no memory, so each stream polls Firestore for new orders /
+// alerts and emits them. The web client already auto-reconnects with backoff
+// and refetches a fresh ticket per (re)connect — no client change needed.
+const TICKET_TTL_MS = 60 * 1000;
+const STREAM_MAX_MS = 50 * 1000;
+const STREAM_POLL_MS = 5000;
+
+function randomHexToken(n) {
+  const b = new Uint8Array(n);
+  crypto.getRandomValues(b);
+  return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+async function pruneTickets() {
+  const all = await fsListAll("streamTickets").catch(() => []);
+  const now = Date.now();
+  for (const t of all) {
+    const exp = t.exp instanceof Date ? t.exp.getTime() : 0;
+    if (exp <= now) {
+      await fsFetch("https://firestore.googleapis.com/v1/" + t._name, { method: "DELETE" }).catch(() => {});
+    }
+  }
+}
+
+async function handleEventTicket(req, user) {
+  await pruneTickets().catch(() => {});
+  const ticket = randomHexToken(32);
+  const exp = new Date(Date.now() + TICKET_TTL_MS);
+  await fsCreate("streamTickets", null, {
+    ticket,
+    userId: user.id,
+    exp,
+    createdAt: new Date(),
+  });
+  return { status: 200, body: { ticket, expiresAt: exp.toISOString() } };
+}
+
+async function ticketUser(ticket) {
+  if (typeof ticket !== "string" || !ticket) return null;
+  const found = await fsQueryEqual("streamTickets", "ticket", ticket, 1).catch(() => []);
+  const rec = found[0] || null;
+  if (!rec) return null;
+  const exp = rec.exp instanceof Date ? rec.exp.getTime() : 0;
+  if (exp <= Date.now()) return null;
+  return rec;
+}
+
+function sseEncode(event, data) {
+  return `event: ${event}\ndata: ${JSON.stringify({ ...data, _time: new Date().toISOString() })}\n\n`;
+}
+
+async function handleEventStream(req, origin, inUrl) {
+  const ticket = inUrl.searchParams.get("ticket");
+  let userId = null;
+  if (ticket) {
+    const rec = await ticketUser(ticket);
+    if (!rec) return jsonRes(origin, { error: "Invalid or expired stream ticket" }, 401);
+    userId = rec.userId;
+  } else {
+    // Fall back to Bearer (mirrors sseAuth trying requireAuth).
+    const auth = await authUser(req);
+    if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
+    userId = auth.user.id;
+  }
+
+  const [locations, users] = await Promise.all([
+    fsListAll("locations").catch(() => []),
+    fsListAll("users").catch(() => []),
+  ]);
+  const locById = new Map(locations.map((l) => [Number(l.id), l]));
+  const userById = new Map(users.map((u) => [Number(u.id), u]));
+
+  let lastOrderId = 0;
+  let lastAlertId = 0;
+  try {
+    const [orders, alerts] = await Promise.all([fsListAll("orders"), fsListAll("alerts")]);
+    for (const o of orders) {
+      const n = Number(o.id);
+      if (Number.isInteger(n) && n > lastOrderId) lastOrderId = n;
+    }
+    for (const a of alerts) {
+      const n = Number(a.id);
+      if (Number.isInteger(n) && n > lastAlertId) lastAlertId = n;
+    }
+  } catch { /* start from zero */ }
+
+  const enc = new TextEncoder();
+  let timer = null;
+  let closed = false;
+  const started = Date.now();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (s) => {
+        if (!closed) {
+          try { controller.enqueue(enc.encode(s)); } catch { closed = true; }
+        }
+      };
+      send(`event: connected\ndata: ${JSON.stringify({ time: new Date().toISOString() })}\n\n`);
+      const poll = async () => {
+        if (closed) return;
+        if (Date.now() - started > STREAM_MAX_MS) {
+          try { controller.close(); } catch { /* noop */ }
+          closed = true;
+          return;
+        }
+        try {
+          const [orders, alerts] = await Promise.all([fsListAll("orders"), fsListAll("alerts")]);
+          const freshOrders = orders
+            .filter((o) => Number.isInteger(Number(o.id)) && Number(o.id) > lastOrderId)
+            .sort((a, b) => Number(a.id) - Number(b.id));
+          for (const o of freshOrders) {
+            lastOrderId = Math.max(lastOrderId, Number(o.id));
+            const loc = locById.get(Number(o.locationId));
+            const staff = userById.get(Number(o.staffId));
+            send(sseEncode("order:new", {
+              id: o.id,
+              total: o.total,
+              locationCode: loc ? loc.code : null,
+              itemCount: (o.items || []).length,
+              staffName: staff ? staff.name : null,
+            }));
+          }
+          const freshAlerts = alerts
+            .filter((a) => Number.isInteger(Number(a.id)) && Number(a.id) > lastAlertId)
+            .sort((a, b) => Number(a.id) - Number(b.id));
+          for (const a of freshAlerts) {
+            lastAlertId = Math.max(lastAlertId, Number(a.id));
+            send(sseEncode("alert:new", { id: a.id, type: a.type, message: a.message }));
+          }
+        } catch { /* transient - keep stream alive */ }
+        if (!closed) {
+          try { controller.enqueue(enc.encode(": heartbeat\n\n")); } catch { closed = true; }
+        }
+      };
+      await poll();
+      if (!closed) timer = setInterval(poll, STREAM_POLL_MS);
+    },
+    cancel() {
+      closed = true;
+      if (timer) clearInterval(timer);
+    },
+  });
+  const headers = {
+    ...corsHeaders(origin),
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+    "access-control-expose-headers": "*",
+  };
+  return new Response(stream, { status: 200, headers });
+}
+
 // ---------- proxy (unchanged Phase 0 behavior) ----------
 async function handleHealth(origin) {
   const base = getUpstreamBase();
@@ -4411,7 +4553,9 @@ async function handleHealth(origin) {
          "analytics/trends", "analytics/hourly", "analytics/basket",
          "analytics/sales-forecast", "analytics/forecast",
          "reorders/suggestions", "reorders/prep",
-         "analytics/staff-performance", "analytics/profit"]
+         "analytics/staff-performance", "analytics/profit",
+         "events/ticket", "events",
+         "export/:dataset", "import/products"]
       : ["health"],
     upstream,
     time: new Date().toISOString(),
@@ -4733,6 +4877,19 @@ Deno.serve(async (req) => {
         }
         else return await handleProxy(req, origin);
         return jsonRes(origin, out.body, out.status);
+      }
+      // Events: ticket (Bearer) + stream (ticket or Bearer).
+      if (path === "/events/ticket" || path === "/events") {
+        if (req.method === "POST" && path === "/events/ticket") {
+          const auth = await authUser(req);
+          if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
+          const out = await handleEventTicket(req, auth.user);
+          return jsonRes(origin, out.body, out.status);
+        }
+        if (req.method === "GET" && path === "/events") {
+          return await handleEventStream(req, origin, inUrl);
+        }
+        return await handleProxy(req, origin);
       }
       // Excel export/import (OWNER; falls back to proxy if exceljs can't load).
       if (path.startsWith("/export/") || path === "/import/products") {
