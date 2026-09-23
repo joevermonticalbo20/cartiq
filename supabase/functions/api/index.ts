@@ -4980,22 +4980,25 @@ Deno.serve(async (req) => {
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
         const ownErr = requireOwner(auth.user);
         if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
-        const code = inUrl.searchParams.get("code") || "CART-01";
-        const loc = await fsQueryEqual("locations", "code", code, 1).then((r) => r[0]);
-        const out = { loc: loc && loc.id };
-        const filters = [{ field: "locationId", op: "EQUAL", value: loc.id }];
-        const orderBy = [{ field: "date", dir: "DESCENDING" }];
-        for (const [name, fn] of [
-          ["count", () => fsCount("expenses", filters)],
-          ["sum", () => fsSum("expenses", "amount", filters)],
-          ["slice", () => fsRunQuery("expenses", { filters, orderBy, limit: 1 })],
-          ["breakdown", () => fsRunQuery("expenses", { filters, orderBy, limit: 2000 })],
-        ]) {
+        const out = {};
+        const combos = {
+          loc: [{ field: "locationId", op: "EQUAL", value: 1 }],
+          locCat: [
+            { field: "locationId", op: "EQUAL", value: 1 },
+            { field: "category", op: "EQUAL", value: "Supplies" },
+          ],
+          locCatMonth: [
+            { field: "locationId", op: "EQUAL", value: 1 },
+            { field: "category", op: "EQUAL", value: "Supplies" },
+            { field: "date", op: "GREATER_THAN_OR_EQUAL", value: new Date("2026-09-01T00:00:00+08:00") },
+            { field: "date", op: "LESS_THAN", value: new Date("2026-10-01T00:00:00+08:00") },
+          ],
+        };
+        for (const [name, filters] of Object.entries(combos)) {
           try {
-            const v = await fn();
-            out[name] = typeof v === "number" ? v : v.length;
+            out[name] = await fsCount("expenses", filters);
           } catch (e) {
-            out[name] = "ERR " + String((e && e.message) || e);
+            out[name] = "ERR " + String((e && e.message) || e).slice(0, 200);
           }
         }
         return jsonRes(origin, out, 200);
