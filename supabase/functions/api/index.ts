@@ -1687,8 +1687,8 @@ async function handleAlertsReadAll(req) {
     ? body.ids.map(Number).filter((n) => Number.isInteger(n))
     : null;
   const idSet = ids && ids.length > 0 ? new Set(ids) : null;
-  const alerts = await fsListAll("alerts");
-  const targets = alerts.filter((a) => a.isRead === false && (!idSet || idSet.has(Number(a.id))));
+  const alerts = await fsQueryEqual("alerts", "isRead", false, 10000);
+  const targets = !idSet ? alerts : alerts.filter((a) => idSet.has(Number(a.id)));
   const writes = targets.map((a) =>
     updateWrite("alerts", String(a._name.split("/").pop()), { isRead: true }, a._updateTime));
   for (let i = 0; i < writes.length; i += 400) {
@@ -1755,9 +1755,14 @@ async function handleDailyReport(url) {
     day = manilaDayStart(0);
     nextDay = new Date(day.getTime() + 24 * 60 * 60 * 1000);
   }
-  let orders = await fsListAll("orders");
-  orders = orders.filter((o) =>
-    o.createdAt instanceof Date && o.createdAt >= day && o.createdAt < nextDay && o.status === "PAID");
+  let orders = await fsRunQuery("orders", {
+    filters: [
+      { field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: day },
+      { field: "createdAt", op: "LESS_THAN", value: nextDay },
+    ],
+    limit: 5000,
+  });
+  orders = orders.filter((o) => o.status === "PAID");
   if (code) {
     const loc = await fsQueryEqual("locations", "code", String(code), 1).then((r) => r[0]);
     orders = loc ? orders.filter((o) => Number(o.locationId) === Number(loc.id)) : [];
@@ -1930,7 +1935,9 @@ async function handleListProducts() {
   const [products, maps, orders, invRows] = await Promise.all([
     fsListAll("products"),
     fsListAll("ingredientMaps"),
-    fsListAll("orders"),
+    // orderLines reference counts: bounded to the 2000 newest orders (exact
+    // at pilot scale; keeps this admin view fast as history grows).
+    fsRunQuery("orders", { orderBy: [{ field: "createdAt", dir: "DESCENDING" }], limit: 2000 }),
     fsListAll("inventoryItems"),
   ]);
   const invNames = new Set(invRows.map((r) => String(r.name ?? "").trim()).filter(Boolean));
@@ -2693,8 +2700,11 @@ async function handleDeleteShift(id) {
 
 async function handleOnShift() {
   const start = manilaDayStart(0);
-  let shifts = await fsListAll("shifts");
-  shifts = shifts.filter((s) => s.ts instanceof Date && s.ts >= start);
+  let shifts = await fsRunQuery("shifts", {
+    filters: [{ field: "ts", op: "GREATER_THAN_OR_EQUAL", value: start }],
+    orderBy: [{ field: "ts", dir: "ASCENDING" }],
+    limit: 5000,
+  });
   shifts.sort((a, b) => a.ts.getTime() - b.ts.getTime());
   const locations = await fsListAll("locations");
   const locById = new Map(locations.map((l) => [l.id, l]));
@@ -3091,10 +3101,20 @@ function smape(actual, predicted) {
 
 async function buildDailyUsage(locationId, windowDays) {
   const since = manilaDayStart(windowDays - 1);
-  const [orders, maps] = await Promise.all([
-    fsListAll("orders"),
+  // Server-side: location + recency window (single composite already
+  // declared); status split in code so no triple index is ever needed.
+  const [fetched, maps] = await Promise.all([
+    fsRunQuery("orders", {
+      filters: [
+        { field: "locationId", op: "EQUAL", value: Number(locationId) },
+        { field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: since },
+      ],
+      orderBy: [{ field: "createdAt", dir: "DESCENDING" }],
+      limit: 5000,
+    }),
     fsListAll("ingredientMaps"),
   ]);
+  const orders = fetched.filter((o) => o.status === "PAID");
   const usage = new Map();
   const bump = (itemName, key, amount) => {
     if (!usage.has(itemName)) usage.set(itemName, new Map());
@@ -3117,10 +3137,15 @@ async function buildDailyUsage(locationId, windowDays) {
 
 async function sensorDailyRate(locationId, channel, lookbackDays) {
   const since = manilaDayStart(lookbackDays || 5);
-  let readings = await fsListAll("sensorReadings");
-  readings = readings.filter((r) =>
-    Number(r.locationId) === Number(locationId) && r.channel === channel &&
-    r.ts instanceof Date && r.ts >= since);
+  let readings = await fsRunQuery("sensorReadings", {
+    filters: [
+      { field: "locationId", op: "EQUAL", value: Number(locationId) },
+      { field: "ts", op: "GREATER_THAN_OR_EQUAL", value: since },
+    ],
+    orderBy: [{ field: "ts", dir: "DESCENDING" }],
+    limit: 5000,
+  });
+  readings = readings.filter((r) => r.channel === channel && r.ts instanceof Date);
   readings.sort((a, b) => a.ts.getTime() - b.ts.getTime());
   if (readings.length < 4) return null;
   const first = readings[0];
@@ -3359,11 +3384,18 @@ async function getLocationNative(codeOrId) {
 }
 
 async function ordersSince(since, locationId, status) {
-  let orders = await fsListAll("orders");
-  return orders.filter((o) =>
-    (!status || o.status === status) &&
-    (locationId === null || locationId === undefined || Number(o.locationId) === Number(locationId)) &&
-    o.createdAt instanceof Date && o.createdAt >= since);
+  // Server-side recency window (+ location when scoped); status split in
+  // code so no triple composite is ever needed. Bounded newest-5000.
+  const filters = [{ field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: since }];
+  if (locationId !== null && locationId !== undefined) {
+    filters.unshift({ field: "locationId", op: "EQUAL", value: Number(locationId) });
+  }
+  const orders = await fsRunQuery("orders", {
+    filters,
+    orderBy: [{ field: "createdAt", dir: "DESCENDING" }],
+    limit: 5000,
+  });
+  return orders.filter((o) => !status || o.status === status);
 }
 
 async function handleTrends(url) {
@@ -3439,10 +3471,13 @@ async function handleBasket(url) {
   const location = await getLocationNative(params.get("code"));
   const since = manilaDayStart(days - 1);
   const lid = location ? location.id : null;
-  let all = await fsListAll("orders");
-  all = all.filter((o) =>
-    (lid === null || Number(o.locationId) === Number(lid)) &&
-    o.createdAt instanceof Date && o.createdAt >= since);
+  const filters = [{ field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: since }];
+  if (lid !== null) filters.unshift({ field: "locationId", op: "EQUAL", value: Number(lid) });
+  const all = await fsRunQuery("orders", {
+    filters,
+    orderBy: [{ field: "createdAt", dir: "DESCENDING" }],
+    limit: 5000,
+  });
   const paid = all.filter((o) => o.status === "PAID");
   const voidCount = all.filter((o) => o.status === "VOID").length;
   return {
@@ -3562,11 +3597,12 @@ async function handleReorderPrep(url) {
   const [usage, items, alerts] = await Promise.all([
     buildDailyUsage(Number(location.id), windowDays),
     fsQueryEqual("inventoryItems", "locationId", Number(location.id), 10000),
-    fsListAll("alerts"),
+    // Single-field equality (automatic index); 30d window filters in code.
+    // Read + unread both count toward calibration (same as before).
+    fsQueryEqual("alerts", "type", "LOW_STOCK", 2000),
   ]);
-  const recentLow = alerts.filter((a) =>
-    a.type === "LOW_STOCK" && a.createdAt instanceof Date &&
-    a.createdAt >= manilaDayStart(30));
+  const cutoff = manilaDayStart(30);
+  const recentLow = alerts.filter((a) => a.createdAt instanceof Date && a.createdAt >= cutoff);
   const alertCounts = new Map();
   for (const a of recentLow) {
     try {
@@ -3645,15 +3681,22 @@ async function handleReorderPrep(url) {
 async function handleStaffPerformance(url) {
   const days = Math.min(Number(url.searchParams.get("days")) || 28, 90);
   const since = manilaDayStart(days - 1);
-  const [orders, shifts, users] = await Promise.all([
-    fsListAll("orders"),
-    fsListAll("shifts"),
+  const [orderRows, shiftRows, users] = await Promise.all([
+    fsRunQuery("orders", {
+      filters: [{ field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: since }],
+      orderBy: [{ field: "createdAt", dir: "DESCENDING" }],
+      limit: 5000,
+    }),
+    fsRunQuery("shifts", {
+      filters: [{ field: "ts", op: "GREATER_THAN_OR_EQUAL", value: since }],
+      orderBy: [{ field: "ts", dir: "DESCENDING" }],
+      limit: 5000,
+    }),
     fsListAll("users"),
   ]);
   const userById = new Map(users.map((u) => [Number(u.id), u]));
-  const paid = orders.filter((o) =>
-    o.status === "PAID" && o.createdAt instanceof Date && o.createdAt >= since);
-  const recent = shifts.filter((s) => s.ts instanceof Date && s.ts >= since);
+  const paid = orderRows.filter((o) => o.status === "PAID");
+  const recent = shiftRows;
   const byStaff = new Map();
   for (const o of paid) {
     const staff = userById.get(Number(o.staffId));
@@ -3696,13 +3739,26 @@ async function handleProfit(url) {
   const location = await getLocationNative(params.get("code"));
   const since = manilaDayStart(days - 1);
   const lid = location ? Number(location.id) : null;
-  const [orders, expenses] = await Promise.all([fsListAll("orders"), fsListAll("expenses")]);
-  const paid = orders.filter((o) =>
-    o.status === "PAID" && o.createdAt instanceof Date && o.createdAt >= since &&
-    (lid === null || Number(o.locationId) === lid));
-  const inWindow = expenses.filter((e) =>
-    e.date instanceof Date && e.date >= since &&
-    (lid === null || Number(e.locationId) === lid));
+  const orderFilters = [{ field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: since }];
+  const expenseFilters = [{ field: "date", op: "GREATER_THAN_OR_EQUAL", value: since }];
+  if (lid !== null) {
+    orderFilters.unshift({ field: "locationId", op: "EQUAL", value: lid });
+    expenseFilters.unshift({ field: "locationId", op: "EQUAL", value: lid });
+  }
+  const [orderRows, expenseRows] = await Promise.all([
+    fsRunQuery("orders", {
+      filters: orderFilters,
+      orderBy: [{ field: "createdAt", dir: "DESCENDING" }],
+      limit: 5000,
+    }),
+    fsRunQuery("expenses", {
+      filters: expenseFilters,
+      orderBy: [{ field: "date", dir: "DESCENDING" }],
+      limit: 5000,
+    }),
+  ]);
+  const paid = orderRows.filter((o) => o.status === "PAID");
+  const inWindow = expenseRows;
   const categories = EXPENSE_CATEGORIES;
   const categoryMap = new Map();
   categories.forEach((c) => categoryMap.set(c, 0));
@@ -4026,10 +4082,6 @@ function styleSheetHeader(sheet) {
   };
 }
 
-function inRange(dt, range) {
-  return dt instanceof Date && (!range || (dt >= range.start && dt < range.end));
-}
-
 async function handleExport(origin, inUrl, dataset) {
   const { range, error } = resolveExportRange(inUrl.searchParams);
   if (error) return { status: 400, body: { error }, binary: false };
@@ -4041,9 +4093,18 @@ async function handleExport(origin, inUrl, dataset) {
   const userById = new Map(users.map((u) => [Number(u.id), u]));
 
   if (dataset === "sales") {
-    let orders = await fsListAll("orders");
-    orders = orders.filter((o) => o.status === "PAID" && inRange(o.createdAt, range));
-    orders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    const rangeFilters = range
+      ? [
+        { field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: range.start },
+        { field: "createdAt", op: "LESS_THAN", value: range.end },
+      ]
+      : [];
+    let orders = await fsRunQuery("orders", {
+      filters: rangeFilters,
+      orderBy: [{ field: "createdAt", dir: "DESCENDING" }],
+      limit: MAX_EXPORT_ROWS + 1,
+    });
+    orders = orders.filter((o) => o.status === "PAID");
     const newest = orders.slice(0, MAX_EXPORT_ROWS + 1);
     truncated = newest.length > MAX_EXPORT_ROWS;
     const rows = newest.slice(0, MAX_EXPORT_ROWS).reverse();
@@ -4126,9 +4187,17 @@ async function handleExport(origin, inUrl, dataset) {
     }
     styleSheetHeader(sheet);
   } else if (dataset === "expenses") {
-    let rows = await fsListAll("expenses");
-    rows = rows.filter((e) => inRange(e.date, range));
-    rows.sort((a, b) => b.date.getTime() - a.date.getTime());
+    const rangeFilters = range
+      ? [
+        { field: "date", op: "GREATER_THAN_OR_EQUAL", value: range.start },
+        { field: "date", op: "LESS_THAN", value: range.end },
+      ]
+      : [];
+    let rows = await fsRunQuery("expenses", {
+      filters: rangeFilters,
+      orderBy: [{ field: "date", dir: "DESCENDING" }],
+      limit: MAX_EXPORT_ROWS + 1,
+    });
     const newest = rows.slice(0, MAX_EXPORT_ROWS + 1);
     truncated = newest.length > MAX_EXPORT_ROWS;
     const list = newest.slice(0, MAX_EXPORT_ROWS).reverse();
@@ -4158,9 +4227,17 @@ async function handleExport(origin, inUrl, dataset) {
     sheet.addRow({ vendor: "TOTAL", amount: Number(sum.toFixed(2)) });
     styleSheetHeader(sheet);
   } else if (dataset === "shifts") {
-    let rows = await fsListAll("shifts");
-    rows = rows.filter((s) => inRange(s.ts, range));
-    rows.sort((a, b) => b.ts.getTime() - a.ts.getTime());
+    const rangeFilters = range
+      ? [
+        { field: "ts", op: "GREATER_THAN_OR_EQUAL", value: range.start },
+        { field: "ts", op: "LESS_THAN", value: range.end },
+      ]
+      : [];
+    let rows = await fsRunQuery("shifts", {
+      filters: rangeFilters,
+      orderBy: [{ field: "ts", dir: "DESCENDING" }],
+      limit: MAX_EXPORT_ROWS + 1,
+    });
     const newest = rows.slice(0, MAX_EXPORT_ROWS + 1);
     truncated = newest.length > MAX_EXPORT_ROWS;
     const list = newest.slice(0, MAX_EXPORT_ROWS).reverse();
