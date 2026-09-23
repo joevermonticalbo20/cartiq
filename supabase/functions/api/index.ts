@@ -4995,7 +4995,7 @@ Deno.serve(async (req) => {
             const v = await fn();
             out[name] = typeof v === "number" ? v : v.length;
           } catch (e) {
-            out[name] = "ERR " + String((e && e.message) || e).slice(0, 300);
+            out[name] = "ERR " + String((e && e.message) || e);
           }
         }
         return jsonRes(origin, out, 200);
