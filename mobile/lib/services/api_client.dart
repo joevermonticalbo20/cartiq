@@ -47,9 +47,19 @@ class ApiClient {
     try {
       final manual = await storage.read(key: _manualKey);
       if (manual != null && manual.isNotEmpty) {
-        _resolvedBaseUrl = manual;
-        _isManual = true;
-        return;
+        // Migration: pinned *.onrender.com URLs are unreachable on networks
+        // that block Render (e.g. PLDT). Drop them so the fresh install
+        // default (Supabase, same database) takes over instead of failing
+        // forever against a stored dead host.
+        if (manual.contains('onrender.com')) {
+          try {
+            await storage.delete(key: _manualKey);
+          } catch (_) {}
+        } else {
+          _resolvedBaseUrl = manual;
+          _isManual = true;
+          return;
+        }
       }
     } catch (_) {
       // Secure storage unavailable - fall through to discovery.
@@ -108,15 +118,16 @@ class ApiClient {
     try {
       final res = await action().timeout(const Duration(seconds: 8));
       if (res.statusCode >= 400) {
-        final body = jsonDecode(res.body) as Map<String, dynamic>?;
-        throw ApiException(
-          body?['error'] as String? ?? 'Request failed (${res.statusCode})',
-          statusCode: res.statusCode,
-        );
+        String message = 'Request failed (${res.statusCode})';
+        try {
+          final body = jsonDecode(res.body) as Map<String, dynamic>?;
+          message = body?['error'] as String? ?? message;
+        } catch (_) {
+          // Non-JSON error body (gateway HTML etc.) - keep generic message.
+        }
+        throw ApiException(message, statusCode: res.statusCode);
       }
       return res;
-    } on FormatException {
-      rethrow;
     } on TimeoutException {
       throw ApiException('Timed out reaching CartIQ server at $currentBaseUrl');
     } on SocketException catch (e) {
