@@ -82,7 +82,7 @@ function notFoundRes(origin, req, path) {
 }
 
 /** Strip the /functions/v1/api prefix -> path starting with / (no /api prefix). */
-function toUpstreamPath(url) {
+function toApiPath(url) {
   const prefix = "/functions/v1/api";
   let path = url.pathname;
   if (path.startsWith(prefix)) path = path.slice(prefix.length);
@@ -4090,7 +4090,7 @@ async function handleImportProducts(req, origin, inUrl) {
   try {
     XLSX = await xlsxReadLib();
   } catch {
-    return null; // SheetJS unavailable -> proxy fallback
+    return null; // SheetJS unavailable -> caller returns 503
   }
   const parsed = await parseMultipartFile(req, 5 * 1024 * 1024);
   if (parsed.error) return { status: 400, body: { error: parsed.error }, binary: false };
@@ -4500,7 +4500,7 @@ async function handleEventStream(req, origin, inUrl) {
   return new Response(stream, { status: 200, headers });
 }
 
-// ---------- proxy (unchanged Phase 0 behavior) ----------
+// ---------- health + server ----------
 async function handleHealth(origin) {
   const started = Date.now();
   let db = false;
@@ -4538,11 +4538,12 @@ Deno.serve(async (req) => {
   }
   try {
     const inUrl = new URL(req.url);
-    const path = toUpstreamPath(inUrl).split("?")[0];
+    const path = toApiPath(inUrl).split("?")[0];
     if (req.method === "GET" && isHealthPath(path)) {
       return await handleHealth(origin);
     }
-    // Native auth (falls back to proxy when Firestore secrets are missing).
+    // All routes are native (Firestore-backed). Without secrets, only the
+    // public auth entry points stay reachable (they report unavailable).
     if (hasNativeConfig()) {
       if (req.method === "POST" && path === "/auth/login") return await handleLogin(req, origin);
       if (req.method === "POST" && path === "/auth/refresh") return await handleRefresh(req, origin);
