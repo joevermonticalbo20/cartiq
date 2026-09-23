@@ -347,29 +347,6 @@ async function fsCount(collection, filters) {
   return Number(total.integerValue ?? total.doubleValue ?? 0);
 }
 
-/** Sum aggregation for numeric fields. */
-async function fsSum(collection, field, filters) {
-  const sq = { from: [{ collectionId: collection }] };
-  if (filters && filters.length === 1) sq.where = fsOpFilter(filters[0]);
-  else if (filters && filters.length > 1) {
-    sq.where = { compositeFilter: { op: "AND", filters: filters.map(fsOpFilter) } };
-  }
-  const data = await fsFetch(fsDocBase() + ":runAggregationQuery", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      structuredAggregationQuery: {
-        structuredQuery: sq,
-        aggregations: [{ alias: "sum", sum: { field: { fieldPath: field } } }],
-      },
-    }),
-  });
-  const agg = data && data[0] && data[0].result && data[0].result.aggregateFields;
-  const s = agg && agg.sum;
-  if (!s) return 0;
-  return Number(s.integerValue ?? s.doubleValue ?? 0);
-}
-
 /**
  * Opaque page cursor: { t: createdAt ISO, id } -> base64url.
  * Cursors ride the createdAt DESC ordering; same-ms ties may repeat/skip a
@@ -2876,19 +2853,20 @@ async function handleListExpenses(url) {
     filters.push({ field: "date", op: "LESS_THAN", value: range.end });
   }
   const orderBy = [{ field: "date", dir: "DESCENDING" }];
-  const [total, sum] = await Promise.all([
-    fsCount("expenses", filters),
-    fsSum("expenses", "amount", filters),
-  ]);
+  const total = await fsCount("expenses", filters);
   const decoded = cursor ? decodeCursor(cursor) : null;
   const slice = decoded
     ? await fsRunQuery("expenses", { filters, orderBy, limit: pageSize, startAt: { values: [fsEncodeValue(decoded.t)] } })
     : await fsRunQuery("expenses", { filters, orderBy, limit: pageSize, offset: (page - 1) * pageSize });
-  // Breakdowns over the filtered period (ignoring the category filter).
-  // Bounded to the 2000 newest rows so giant histories can't blow up one
-  // request; pilot-scale data is unaffected (identical results).
+  // Breakdowns + totals over the filtered period (ignoring the category
+  // filter for the charts). Bounded to the 2000 newest rows so giant
+  // histories can't blow up one request; totals stay exact while the whole
+  // filtered set fits (pilot scale). SUM aggregation was deliberately
+  // avoided: it needs a dedicated composite index per filter combo.
   const breakdownFilters = filters.filter((f) => f.field !== "category");
   const bounded = await fsRunQuery("expenses", { filters: breakdownFilters, orderBy, limit: 2000 });
+  const inScope = catFilter ? bounded.filter((e) => e.category === catFilter) : bounded;
+  const totalAmount = inScope.reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const vendorTotals = new Map();
   const catTotals = new Map();
   for (const e of bounded) {
@@ -2911,7 +2889,7 @@ async function handleListExpenses(url) {
     body: {
       data: slice.map((e) => attachExpenseLocation(e, locById)),
       meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
-      totals: { count: total, total_amount: Number(sum.toFixed(2)) },
+      totals: { count: total, total_amount: Number(totalAmount.toFixed(2)) },
       by_vendor: byVendor,
       by_category: byCategory,
       categories: EXPENSE_CATEGORIES,
@@ -4973,35 +4951,6 @@ Deno.serve(async (req) => {
           return await handleEventStream(req, origin, inUrl);
         }
         return notFoundRes(origin, req, path);
-      }
-      // TEMP DEBUG stagetrace (remove after perf batch).
-      if (req.method === "GET" && path === "/debug/expstages") {
-        const auth = await authUser(req);
-        if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
-        const ownErr = requireOwner(auth.user);
-        if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
-        const out = {};
-        const combos = {
-          loc: [{ field: "locationId", op: "EQUAL", value: 1 }],
-          locCat: [
-            { field: "locationId", op: "EQUAL", value: 1 },
-            { field: "category", op: "EQUAL", value: "Supplies" },
-          ],
-          locCatMonth: [
-            { field: "locationId", op: "EQUAL", value: 1 },
-            { field: "category", op: "EQUAL", value: "Supplies" },
-            { field: "date", op: "GREATER_THAN_OR_EQUAL", value: new Date("2026-09-01T00:00:00+08:00") },
-            { field: "date", op: "LESS_THAN", value: new Date("2026-10-01T00:00:00+08:00") },
-          ],
-        };
-        for (const [name, filters] of Object.entries(combos)) {
-          try {
-            out[name] = await fsCount("expenses", filters);
-          } catch (e) {
-            out[name] = "ERR " + String((e && e.message) || e).slice(0, 200);
-          }
-        }
-        return jsonRes(origin, out, 200);
       }
       // Excel export (native MiniWorkbook) / import (native SheetJS).
       if (path.startsWith("/export/") || path === "/import/products") {
