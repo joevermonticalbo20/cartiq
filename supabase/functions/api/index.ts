@@ -4527,6 +4527,11 @@ Deno.serve(async (req) => {
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
         const ownErr = requireOwner(auth.user);
         if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
+        if (inUrl.searchParams.get("commitping") === "1") {
+          // Empty commit: no writes, proves :commit endpoint+auth end-to-end.
+          const raw = await fsCommit([]);
+          return jsonRes(origin, { raw }, 200);
+        }
         const col = inUrl.searchParams.get("col");
         const id = inUrl.searchParams.get("id");
         if (col && id) {
