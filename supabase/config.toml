@@ -1,0 +1,6 @@
+# CartIQ Supabase config — Edge Functions only.
+# Firestore (cartiq-8e46f) stays the database; Firebase Hosting stays the web host.
+# This project hosts the API at: https://<ref>.supabase.co/functions/v1/api
+[functions.api]
+enabled = true
+verify_jwt = false
