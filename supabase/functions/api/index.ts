@@ -2696,6 +2696,7 @@ async function handleShiftsHistory(url) {
   const pageSize = Math.min(Number(params.get("pageSize")) || 10, 100);
   const cursor = params.get("cursor");
   const filters = [];
+  let range = null;
   if (code) {
     const loc = await fsQueryEqual("locations", "code", String(code), 1).then((r) => r[0]);
     if (!loc) {
