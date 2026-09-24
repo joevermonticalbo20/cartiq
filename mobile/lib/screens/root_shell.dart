@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../services/auth_state.dart';
 import '../utils/haptics.dart';
+import '../utils/pin_setup.dart';
+import '../widgets/app_dialog.dart';
 import 'home_screen.dart';
 import 'history_screen.dart';
 import 'pos_screen.dart';
@@ -20,6 +24,41 @@ class _RootShellState extends State<RootShell> {
   // Key into the receipts tab: after a scan flow pops, reload it so a
   // newly saved expense is visible without a manual pull-to-refresh.
   final _receiptsKey = GlobalKey<ReceiptsScreenState>();
+
+  @override
+  void initState() {
+    super.initState();
+    // One-time offline-PIN nudge after the first online staff login.
+    // Skipping never nags again (Settings > Offline PIN stays available).
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybePromptPin());
+  }
+
+  Future<void> _maybePromptPin() async {
+    if (!mounted) return;
+    final auth = context.read<AuthState>();
+    if (!await auth.needsPinSetupPrompt()) return;
+    await auth.markPinPromptShown();
+    if (!mounted) return;
+    final confirmed = await showAppConfirm(
+      context,
+      title: 'Open without internet?',
+      message:
+          'Set a 6-digit device PIN so you can open the POS even with no signal. Sales stay queued and sync later.',
+      confirmLabel: 'Set up PIN',
+    );
+    if (!confirmed || !mounted) return;
+    final ok = await showPinSetupFlow(context, auth);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(ok
+              ? 'Offline PIN ready.'
+              : 'PIN not set — you can set it anytime in Settings.'),
+        ),
+      );
+  }
 
   @override
   Widget build(BuildContext context) {

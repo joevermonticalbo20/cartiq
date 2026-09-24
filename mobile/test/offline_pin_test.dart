@@ -246,5 +246,42 @@ void main() {
         isEmpty,
       );
     });
+
+    test('needsPinSetupPrompt: staff without PIN, once', () async {
+      final store = FakeStore();
+      final auth = AuthState(apiClient: FakeApi(store: store), secureStorage: store);
+      auth.token = 'tok';
+      auth.refreshToken = 'ref';
+      auth.user = {'username': 'staff01', 'role': 'STAFF'};
+
+      expect(await auth.needsPinSetupPrompt(), isTrue);
+      await auth.markPinPromptShown();
+      expect(await auth.needsPinSetupPrompt(), isFalse);
+    });
+
+    test('needsPinSetupPrompt: false for owner, offline, or PIN set', () async {
+      Future<AuthState> make(Map<String, dynamic>? user, {bool offline = false}) async {
+        final store = FakeStore();
+        final auth = AuthState(apiClient: FakeApi(store: store), secureStorage: store);
+        auth.token = 'tok';
+        auth.refreshToken = 'ref';
+        auth.user = user;
+        auth.offlineMode = offline;
+        return auth;
+      }
+
+      final owner = await make({'username': 'owner', 'role': 'OWNER'});
+      expect(await owner.needsPinSetupPrompt(), isFalse);
+
+      final anon = await make(null);
+      expect(await anon.needsPinSetupPrompt(), isFalse);
+
+      final staff = await make({'username': 's', 'role': 'STAFF'});
+      await staff.pin.setupPin(username: 's', pin: '123456');
+      expect(await staff.needsPinSetupPrompt(), isFalse);
+
+      final off = await make({'username': 's', 'role': 'STAFF'}, offline: true);
+      expect(await off.needsPinSetupPrompt(), isFalse);
+    });
   });
 }

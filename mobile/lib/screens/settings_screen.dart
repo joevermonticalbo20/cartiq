@@ -10,6 +10,7 @@ import '../state/theme_controller.dart';
 import '../theme.dart';
 import '../utils/haptics.dart';
 import '../utils/manila_time.dart';
+import '../utils/pin_setup.dart';
 import '../widgets/pin_pad.dart';
 import '../widgets/app_badge.dart';
 import '../widgets/app_dialog.dart';
@@ -68,27 +69,12 @@ class SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _setupPinFlow(AuthState auth) async {
-    final username = auth.user?['username'] as String?;
-    if (username == null) return;
-    final first = await _askPin(title: 'Choose a 6-digit offline PIN');
-    if (first == null || !mounted) return;
-    final second = await _askPin(title: 'Confirm offline PIN');
-    if (second == null || !mounted) return;
-    if (first != second) {
-      await _askPin(title: 'PINs did not match — start over');
-      if (!mounted) return;
-      _showSnack('PINs did not match. Try setup again.', error: true);
-      return;
-    }
-    try {
-      await auth.pin.setupPin(username: username, pin: first);
-      await Haptics.success();
-      if (!mounted) return;
+    final ok = await showPinSetupFlow(context, auth);
+    if (!mounted) return;
+    if (ok) {
       setState(() {});
+      final username = auth.user?['username'];
       _showSnack('Offline PIN set for $username', success: true);
-    } on PinException catch (e) {
-      if (!mounted) return;
-      _showSnack(e.message, error: true);
     }
   }
 

@@ -164,6 +164,12 @@ class AuthState extends ChangeNotifier {
     if (pinnedUser != null && pinnedUser != currentUser) {
       await pin.clear();
     }
+    if (pinnedUser != currentUser) {
+      // New (or first) user on this device: offer PIN setup once.
+      try {
+        await storage.delete(key: 'cartiq_pin_prompted');
+      } catch (_) {}
+    }
     notifyListeners();
   }
 
@@ -182,6 +188,7 @@ class AuthState extends ChangeNotifier {
       'cartiq_refresh_token',
       'cartiq_profile',
       'cartiq_last_online',
+      'cartiq_pin_prompted',
       'cartiq_catalog_json',
       'cartiq_catalog_ts',
     ]) {
@@ -197,4 +204,25 @@ class AuthState extends ChangeNotifier {
   String get roleDisplay => user?['role'] as String? ?? 'STAFF';
   String? get locationCode =>
       (user?['location'] as Map<String, dynamic>?)?['code'] as String?;
+
+  /// One-time post-login nudge: STAFF, online session, no PIN yet, never
+  /// prompted on this device. The UI calls [markPinPromptShown] when it
+  /// shows the sheet so a skip never nags again (Settings stays available).
+  Future<bool> needsPinSetupPrompt() async {
+    if (!isLoggedIn || offlineMode) return false;
+    if ((user?['role'] as String?) != 'STAFF') return false;
+    if (await pin.hasPin) return false;
+    try {
+      if (await storage.read(key: 'cartiq_pin_prompted') == '1') {
+        return false;
+      }
+    } catch (_) {}
+    return true;
+  }
+
+  Future<void> markPinPromptShown() async {
+    try {
+      await storage.write(key: 'cartiq_pin_prompted', value: '1');
+    } catch (_) {}
+  }
 }
