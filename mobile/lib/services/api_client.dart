@@ -38,6 +38,7 @@ class ApiClient {
   static const _manualKey = 'cartiq_api_url';
   static const _catalogKey = 'cartiq_catalog_json';
   static const _catalogTsKey = 'cartiq_catalog_ts';
+  static const _lanKey = 'cartiq_lan_discovery';
 
   /// Fresh-enough catalog is shown instantly without a network round trip.
   static const catalogCacheTtl = Duration(minutes: 15);
@@ -74,7 +75,9 @@ class ApiClient {
     } catch (_) {
       // Secure storage unavailable - fall through to discovery.
     }
-    _resolvedBaseUrl ??= await AppConfig.resolveApiUrl();
+    _resolvedBaseUrl ??= await AppConfig.resolveApiUrl(
+      enableLan: await getLanDiscovery(),
+    );
   }
 
   /// Skip discovery and use the built-in fallback URL.
@@ -88,8 +91,56 @@ class ApiClient {
       await storage.delete(key: _manualKey);
     } catch (_) {}
     _isManual = false;
-    _resolvedBaseUrl = await AppConfig.resolveApiUrl();
+    _resolvedBaseUrl = await AppConfig.resolveApiUrl(
+      enableLan: await getLanDiscovery(),
+    );
     return _resolvedBaseUrl!;
+  }
+
+  /// Forget manual + discovered URLs and return to the built-in default.
+  Future<String> resetServerToDefault() async {
+    try {
+      await storage.delete(key: _manualKey);
+    } catch (_) {}
+    _isManual = false;
+    _resolvedBaseUrl = AppConfig.apiBaseUrl;
+    return _resolvedBaseUrl!;
+  }
+
+  /// Offline LAN pilot switch (default OFF). When ON, boot/rescan may attach
+  /// to a same-Wi-Fi dev server instead of the shared production database.
+  Future<bool> getLanDiscovery() async {
+    try {
+      return (await storage.read(key: _lanKey)) == '1';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> setLanDiscovery(bool enabled) async {
+    try {
+      await storage.write(key: _lanKey, value: enabled ? '1' : '0');
+    } catch (_) {}
+  }
+
+  /// When the cached catalog was last refreshed (null = never).
+  Future<DateTime?> catalogUpdatedAt() async {
+    try {
+      final ts = await storage.read(key: _catalogTsKey);
+      return ts == null ? null : DateTime.tryParse(ts);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Drop the cached catalog (next POS open refetches).
+  Future<void> clearCatalogCache() async {
+    try {
+      await storage.delete(key: _catalogKey);
+    } catch (_) {}
+    try {
+      await storage.delete(key: _catalogTsKey);
+    } catch (_) {}
   }
 
   /// Pin a manual server URL (persisted across restarts).

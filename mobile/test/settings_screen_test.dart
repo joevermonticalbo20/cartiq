@@ -115,8 +115,10 @@ void main() {
       expect(find.text('Account'), findsOneWidget);
       expect(find.text('Offline PIN'), findsWidgets);
       expect(find.text('Appearance'), findsOneWidget);
-      expect(find.text('Session'), findsOneWidget);
       expect(find.text('S1'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Session'), 300);
+      await tester.pumpAndSettle();
+      expect(find.text('Session'), findsOneWidget);
       await tester.scrollUntilVisible(
         find.text('Change password'),
         200,
@@ -158,6 +160,30 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Set up PIN'), findsOneWidget);
+    });
+
+    testWidgets('server, sync and about sections render', (tester) async {
+      final store = _FakeStore();
+      final auth = AuthState(
+        apiClient: _FakeApi(store: store),
+        secureStorage: store,
+      );
+      auth.user = {
+        'name': 'S1',
+        'username': 'staff01',
+        'role': 'STAFF',
+      };
+      await tester.pumpWidget(_settingsHarness(auth));
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(find.text('Active server'), 200);
+      expect(find.text('Active server'), findsOneWidget);
+      expect(find.text('Offline LAN pilot'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Sync now'), 200);
+      expect(find.text('Queued sales'), findsOneWidget);
+      expect(find.text('Catalog cache'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Disabled accounts'), 200);
+      expect(find.text('Version'), findsOneWidget);
     });
   });
 }

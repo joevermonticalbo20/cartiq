@@ -31,8 +31,10 @@ class AppConfig {
   /// configured shared-production URL immediately — no subnet scan, so the
   /// app can never land on a localhost/LAN dev server by accident.
   /// A manually pinned Server URL (secure storage) still wins over this.
-  static Future<String> resolveApiUrl() async {
-    if (!enableLanDiscovery) return apiBaseUrl;
+  /// Pass [enableLan] to override the compiled default at runtime (the
+  /// Settings "Offline LAN pilot" switch persists it per device).
+  static Future<String> resolveApiUrl({bool? enableLan}) async {
+    if (!(enableLan ?? enableLanDiscovery)) return apiBaseUrl;
     return await _discovery.discoverApiUrl(apiBaseUrl);
   }
 }

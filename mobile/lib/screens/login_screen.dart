@@ -3,9 +3,11 @@ import 'package:provider/provider.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
+import '../services/offline_pin.dart';
 import '../theme.dart';
 import '../utils/haptics.dart';
 import '../widgets/app_badge.dart';
+import '../widgets/pin_pad.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -129,6 +131,61 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _continueOffline() async {
+    final auth = context.read<AuthState>();
+    String? error;
+    var busy = false;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: AppSpacing.space5,
+              right: AppSpacing.space5,
+              top: AppSpacing.space4,
+              bottom: MediaQuery.of(context).viewInsets.bottom +
+                  AppSpacing.space6,
+            ),
+            child: PinPad(
+              title: 'Device PIN',
+              errorText: error,
+              onComplete: (pin) async {
+                if (busy) return;
+                setSheetState(() {
+                  busy = true;
+                  error = null;
+                });
+                try {
+                  await auth.unlockOffline(pin);
+                  await Haptics.success();
+                  if (sheetContext.mounted) {
+                    Navigator.pop(sheetContext);
+                  }
+                  // No navigation needed: CartIQApp rebuilds from AuthState.
+                } on PinException catch (e) {
+                  await Haptics.error();
+                  setSheetState(() {
+                    busy = false;
+                    error = e.lockedUntil != null
+                        ? '${e.message} (until ${e.lockedUntil!.hour.toString().padLeft(2, "0")}:${e.lockedUntil!.minute.toString().padLeft(2, "0")})'
+                        : e.message;
+                  });
+                } catch (e) {
+                  setSheetState(() {
+                    busy = false;
+                    error = 'Could not unlock: $e';
+                  });
+                }
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -249,6 +306,18 @@ class _LoginScreenState extends State<LoginScreen> {
                                       ),
                                     )
                                   : const Text('Sign in'),
+                            ),
+                            const SizedBox(height: AppSpacing.space2),
+                            TextButton(
+                              onPressed:
+                                  _loading ? null : _continueOffline,
+                              child: const Text('Continue offline'),
+                            ),
+                            const SizedBox(height: AppSpacing.space1),
+                            Text(
+                              'No signal? Staff with a device PIN can open the POS offline.',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodySmall,
                             ),
                             const SizedBox(height: AppSpacing.space3),
                             Text(
