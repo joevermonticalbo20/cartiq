@@ -5,29 +5,9 @@ import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import '../config.dart';
+import 'kv_store.dart';
 
-/// Minimal key-value store surface ApiClient needs. FlutterSecureStorage
-/// implements this; tests inject an in-memory fake.
-abstract class KeyValueStore {
-  Future<String?> read({required String key});
-  Future<void> write({required String key, required String? value});
-  Future<void> delete({required String key});
-}
-
-class _SecureStoreAdapter implements KeyValueStore {
-  const _SecureStoreAdapter(this._inner);
-  final FlutterSecureStorage _inner;
-
-  @override
-  Future<String?> read({required String key}) => _inner.read(key: key);
-
-  @override
-  Future<void> write({required String key, required String? value}) =>
-      _inner.write(key: key, value: value);
-
-  @override
-  Future<void> delete({required String key}) => _inner.delete(key: key);
-}
+export 'kv_store.dart' show KeyValueStore;
 
 class ApiException implements Exception {
   final String message;
@@ -69,7 +49,7 @@ class ApiClient {
 
   ApiClient({KeyValueStore? secureStorage, http.Client? httpClient})
       : storage = secureStorage ??
-            const _SecureStoreAdapter(FlutterSecureStorage()),
+            const SecureStoreAdapter(FlutterSecureStorage()),
         _http = httpClient ?? http.Client();
 
   Future<void> ensureResolved() async {
