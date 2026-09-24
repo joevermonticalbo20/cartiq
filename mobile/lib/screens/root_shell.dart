@@ -6,6 +6,7 @@ import 'history_screen.dart';
 import 'pos_screen.dart';
 import 'receipts_screen.dart';
 import 'scan_receipt_screen.dart';
+import 'settings_screen.dart';
 
 class RootShell extends StatefulWidget {
   const RootShell({super.key});
@@ -41,6 +42,7 @@ class _RootShellState extends State<RootShell> {
             HistoryScreen(
               onNewSale: () => setState(() => _index = 1),
             ),
+            const SettingsScreen(),
           ],
         ),
       ),
@@ -67,6 +69,10 @@ class _RootShellState extends State<RootShell> {
               icon: Icon(Icons.history_outlined),
               selectedIcon: Icon(Icons.history),
               label: 'History'),
+          NavigationDestination(
+              icon: Icon(Icons.settings_outlined),
+              selectedIcon: Icon(Icons.settings),
+              label: 'Settings'),
         ],
       ),
     );

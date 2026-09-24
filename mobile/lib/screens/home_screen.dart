@@ -7,7 +7,6 @@ import '../services/auth_state.dart';
 import '../services/offline_queue.dart';
 import '../services/persisted_queue.dart';
 import '../services/sync_service.dart';
-import '../state/theme_controller.dart';
 import '../theme.dart';
 import '../utils/manila_time.dart';
 import '../widgets/app_badge.dart';
@@ -136,8 +135,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _refresh();
   }
 
-  bool get _isDark => Theme.of(context).brightness == Brightness.dark;
-
   double get _avgTicket => _todayOrders > 0 ? _todaySales / _todayOrders : 0;
 
   double get _vsYesterday {
@@ -180,16 +177,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
-              IconButton.filledTonal(
-                style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
-                onPressed: () => context.read<ThemeController>().toggle(),
-                icon: Icon(
-                  _isDark ? Icons.light_mode : Icons.dark_mode,
-                  size: 20,
-                ),
-                tooltip: 'Toggle theme',
-              ),
-              const SizedBox(width: AppSpacing.space2),
               IconButton.filledTonal(
                 style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
                 onPressed: () async {

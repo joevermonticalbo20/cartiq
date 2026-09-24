@@ -181,6 +181,26 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  /// Change the account password. Server revokes all sessions on success,
+  /// so the caller must re-login immediately after.
+  Future<Map<String, dynamic>> changePassword(
+    String token, {
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final res = await _send(
+      () => _http.post(
+        _uri('/auth/change-password'),
+        headers: _headers(token: token),
+        body: jsonEncode({
+          'currentPassword': currentPassword,
+          'newPassword': newPassword,
+        }),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
   /// Revoke a refresh token server-side. Best-effort: never throws, so
   /// logout always completes locally even offline.
   Future<void> logout(String? refreshToken) async {
