@@ -85,7 +85,7 @@ export default function StaffPage() {
       isOwner
         ? track("performance", api.get("/analytics/staff-performance?days=28"), { data: { staff: [] } })
         : Promise.resolve({ data: { staff: [] } }),
-      track("catalog", api.get("/catalog"), { data: { locations: [] } }),
+      track("catalog", api.get("/catalog", { cacheTtl: 60000 }), { data: { locations: [] } }),
       isOwner
         ? track("staff", api.get("/auth/staff"), { data: { data: [] } })
         : Promise.resolve({ data: { data: [] } })

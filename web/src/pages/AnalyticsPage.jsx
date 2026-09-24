@@ -102,7 +102,7 @@ export default function AnalyticsPage() {
   const [summaryLang, setSummaryLang] = useState("en");
 
   useEffect(() => {
-    api.get("/catalog").then(({ data }) => setCarts(data.locations ?? [])).catch(() => {});
+    api.get("/catalog", { cacheTtl: 60000 }).then(({ data }) => setCarts(data.locations ?? [])).catch(() => {});
   }, []);
 
   useEffect(() => {

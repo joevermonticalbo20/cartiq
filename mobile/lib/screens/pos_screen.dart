@@ -103,7 +103,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // New/removed products show up on their own when the cashier returns
     // to the app — no manual refresh needed. Cart + search are untouched.
-    if (state == AppLifecycleState.resumed) _reloadCatalog();
+    if (state == AppLifecycleState.resumed) _reloadCatalog(forceRefresh: true);
   }
 
   void _onSearchChanged(String v) {
@@ -114,14 +114,14 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     });
   }
 
-  void _reloadCatalog() {
-    setState(() => _catalogFuture = _loadCatalog());
+  void _reloadCatalog({bool forceRefresh = false}) {
+    setState(() => _catalogFuture = _loadCatalog(forceRefresh: forceRefresh));
   }
 
   /// Pull-to-refresh / resume entry point: refetches and settles so the
   /// indicator only completes once the new catalog is in (or failed).
   Future<void> _refreshCatalog() async {
-    _reloadCatalog();
+    _reloadCatalog(forceRefresh: true);
     try {
       await _catalogFuture;
     } catch (_) {
@@ -129,19 +129,19 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<List<Map<String, dynamic>>> _loadCatalog() async {
+  Future<List<Map<String, dynamic>>> _loadCatalog({bool forceRefresh = false}) async {
     final auth = context.read<AuthState>();
     var token = auth.token;
     if (token == null) {
       throw ApiException('Session expired. Please log in again.');
     }
     try {
-      final data = await auth.api.catalog(token);
+      final data = await auth.api.catalog(token, forceRefresh: forceRefresh);
       return (data['products'] as List).cast<Map<String, dynamic>>();
     } on ApiException catch (e) {
       // Short-lived access may have lapsed: one silent refresh, like sync.
       if (e.statusCode == 401 && await auth.refreshSession() && auth.token != null) {
-        final data = await auth.api.catalog(auth.token!);
+        final data = await auth.api.catalog(auth.token!, forceRefresh: forceRefresh);
         return (data['products'] as List).cast<Map<String, dynamic>>();
       }
       rethrow;

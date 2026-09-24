@@ -6,6 +6,29 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import '../config.dart';
 
+/// Minimal key-value store surface ApiClient needs. FlutterSecureStorage
+/// implements this; tests inject an in-memory fake.
+abstract class KeyValueStore {
+  Future<String?> read({required String key});
+  Future<void> write({required String key, required String? value});
+  Future<void> delete({required String key});
+}
+
+class _SecureStoreAdapter implements KeyValueStore {
+  const _SecureStoreAdapter(this._inner);
+  final FlutterSecureStorage _inner;
+
+  @override
+  Future<String?> read({required String key}) => _inner.read(key: key);
+
+  @override
+  Future<void> write({required String key, required String? value}) =>
+      _inner.write(key: key, value: value);
+
+  @override
+  Future<void> delete({required String key}) => _inner.delete(key: key);
+}
+
 class ApiException implements Exception {
   final String message;
   final int? statusCode;
@@ -33,14 +56,21 @@ String normalizeApiBaseUrl(String input) {
 /// Thin HTTP client for the local CartIQ REST API.
 class ApiClient {
   static const _manualKey = 'cartiq_api_url';
+  static const _catalogKey = 'cartiq_catalog_json';
+  static const _catalogTsKey = 'cartiq_catalog_ts';
 
-  final http.Client _http = http.Client();
-  final FlutterSecureStorage storage;
+  /// Fresh-enough catalog is shown instantly without a network round trip.
+  static const catalogCacheTtl = Duration(minutes: 15);
+
+  final http.Client _http;
+  final KeyValueStore storage;
   String? _resolvedBaseUrl;
   bool _isManual = false;
 
-  ApiClient({FlutterSecureStorage? secureStorage})
-    : storage = secureStorage ?? const FlutterSecureStorage();
+  ApiClient({KeyValueStore? secureStorage, http.Client? httpClient})
+      : storage = secureStorage ??
+            const _SecureStoreAdapter(FlutterSecureStorage()),
+        _http = httpClient ?? http.Client();
 
   Future<void> ensureResolved() async {
     if (_resolvedBaseUrl != null) return;
@@ -199,11 +229,66 @@ class ApiClient {
     }
   }
 
-  Future<Map<String, dynamic>> catalog(String token) async {
-    final res = await _send(
-      () => _http.get(_uri('/catalog'), headers: _headers(token: token)),
-    );
-    return jsonDecode(res.body) as Map<String, dynamic>;
+  /// POS catalog: products + locations.
+  ///
+  /// Serves the persisted catalog instantly when it is fresher than
+  /// [catalogCacheTtl] (no network). Pass [forceRefresh] for pull-to-refresh
+  /// and app-resume so new/removed products show up. When the network fails
+  /// and a stale copy exists, the stale copy is returned so the POS still
+  /// opens offline (sales stay duplicate-safe via clientRef).
+  Future<Map<String, dynamic>> catalog(
+    String token, {
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh) {
+      final cached = await _readCatalogCache(maxAge: catalogCacheTtl);
+      if (cached != null) return cached;
+    }
+    try {
+      final res = await _send(
+        () => _http.get(_uri('/catalog'), headers: _headers(token: token)),
+      );
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      await _writeCatalogCache(res.body);
+      return body;
+    } on ApiException catch (e) {
+      // Network-level failure only (no status code): fall back to stale
+      // cache. Auth/server errors still throw so the UI shows them.
+      if (e.statusCode == null && !forceRefresh) {
+        final cached = await _readCatalogCache();
+        if (cached != null) return cached;
+      }
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>?> _readCatalogCache({Duration? maxAge}) async {
+    try {
+      final cached = await storage.read(key: _catalogKey);
+      if (cached == null || cached.isEmpty) return null;
+      if (maxAge != null) {
+        final ts = await storage.read(key: _catalogTsKey);
+        if (ts == null) return null;
+        if (DateTime.now().difference(DateTime.parse(ts)) >= maxAge) {
+          return null;
+        }
+      }
+      return jsonDecode(cached) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writeCatalogCache(String rawBody) async {
+    try {
+      await storage.write(key: _catalogKey, value: rawBody);
+      await storage.write(
+        key: _catalogTsKey,
+        value: DateTime.now().toIso8601String(),
+      );
+    } catch (_) {
+      // Cache is best-effort; the live response is already in hand.
+    }
   }
 
   Future<List<dynamic>> inventory(String token, {String? locationCode}) async {

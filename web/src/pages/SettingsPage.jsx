@@ -183,7 +183,7 @@ export default function SettingsPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional init: profile + catalog defaults on mount/role change
     loadProfile();
-    api.get("/catalog").then(({ data }) => {
+    api.get("/catalog", { cacheTtl: 60000 }).then(({ data }) => {
       const locs = data?.locations ?? [];
       setLocations(locs);
       if (locs.length > 0) {

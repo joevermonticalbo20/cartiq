@@ -17,6 +17,26 @@ const api = axios.create({
 let navigateFn = null;
 let interceptorInstalled = false;
 
+// Test seam: the HTTP client fetchApi talks to (axios instance by default).
+let httpClient = api;
+export function _setHttpClientForTests(client) {
+  httpClient = client;
+}
+
+// Short-TTL GET cache (opt-in per request via `cacheTtl` ms). Same-origin
+// reference data (catalog, locations) is fetched on nearly every page mount;
+// a 60s client cache makes page switches feel instant. Any successful
+// mutation (POST/PATCH/PUT/DELETE) clears the whole cache so edits,
+// adds, and voids can never serve stale reads past one TTL window.
+const _getCache = new Map();
+export function clearApiCache() {
+  _getCache.clear();
+}
+
+function getCacheKey(options) {
+  return `${String(options?.method ?? "GET").toUpperCase()}|${options?.url ?? ""}|${JSON.stringify(options?.params ?? null)}`;
+}
+
 // Called once at app startup to wire up the navigate function and response interceptor
 // Prevent duplicate redirects when multiple concurrent 401s occur.
 let redirecting = false;
@@ -174,9 +194,24 @@ export function getErrorMessage(err, fallback = "Request failed") {
  * POST/PATCH/PUT/DELETE (writes rely on clientRef idempotency, not retries).
  */
 export async function fetchApi(options) {
-  const isGet = String(options?.method ?? "GET").toUpperCase() === "GET";
+  const method = String(options?.method ?? "GET").toUpperCase();
+  const isGet = method === "GET";
+  const cacheTtl = Number(options?.cacheTtl) || 0;
+  const key = getCacheKey({ ...options, method });
+  if (isGet && cacheTtl > 0) {
+    const hit = _getCache.get(key);
+    if (hit && hit.exp > Date.now()) {
+      return { success: true, data: hit.data };
+    }
+    if (hit) _getCache.delete(key);
+  }
   try {
-    const response = await api.request(options);
+    const response = await httpClient.request(options);
+    if (isGet && cacheTtl > 0) {
+      _getCache.set(key, { exp: Date.now() + cacheTtl, data: response.data });
+    } else if (!isGet) {
+      _getCache.clear();
+    }
     return { success: true, data: response.data };
   } catch (err) {
     const timedOut = !err.response && (err.code === "ECONNABORTED" || /timeout/i.test(err.message ?? ""));
@@ -184,7 +219,10 @@ export async function fetchApi(options) {
     if (isGet && timedOut && !options._retried) {
       await new Promise((r) => setTimeout(r, 2000));
       try {
-        const response = await api.request({ ...options, _retried: true });
+        const response = await httpClient.request({ ...options, _retried: true });
+        if (isGet && cacheTtl > 0) {
+          _getCache.set(key, { exp: Date.now() + cacheTtl, data: response.data });
+        }
         return { success: true, data: response.data };
       } catch (retryErr) {
         finalErr = retryErr;
