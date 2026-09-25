@@ -122,12 +122,60 @@ class AuthState extends ChangeNotifier {
     }
   }
 
+  Future<Map<String, dynamic>?> _readCachedProfile() async {
+    try {
+      final raw = await storage.read(key: 'cartiq_profile');
+      if (raw == null || raw.isEmpty) return null;
+      return jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Precheck used to gate the Continue offline button BEFORE any PIN pad
+  /// is shown. Never throws — returns the specific reason when ineligible.
+  Future<PinEligibility> checkOfflineEligibility() async {
+    if (token == null || refreshToken == null) {
+      return const PinEligibility(false, 'noSession',
+          'No saved session on this device. Sign in online first.');
+    }
+    final profile = await _readCachedProfile();
+    final role = profile?['role'] as String?;
+    if (role != 'STAFF') {
+      return const PinEligibility(false, 'notStaff',
+          'Offline login is for staff accounts. Owners need internet.');
+    }
+    final last = await lastOnline;
+    if (last == null ||
+        DateTime.now().difference(last) > OfflinePinService.maxOfflineAge) {
+      return const PinEligibility(false, 'expired',
+          'Session needs online verification. Please connect to the internet.');
+    }
+    final username = profile?['username'] as String?;
+    if (username == null || username.isEmpty) {
+      return const PinEligibility(false, 'noProfile',
+          'No saved profile on this device. Sign in online first.');
+    }
+    final storedUser = await pin.pinUsername;
+    if (!(await pin.hasPin) || storedUser != username) {
+      return const PinEligibility(false, 'noPin',
+          'No offline PIN for this account on this device. Set it in Settings while online.');
+    }
+    final until = await pin.lockedUntil();
+    if (until != null && DateTime.now().isBefore(until)) {
+      return PinEligibility(false, 'locked',
+          'Too many wrong attempts. Try again later.',
+          lockedUntil: until);
+    }
+    return const PinEligibility(true, 'ready', 'Ready');
+  }
+
   /// Unlock a cached STAFF session offline via PIN. Sets [offlineMode] and
   /// restores the cached profile. Throws [PinException] when not eligible.
   Future<void> unlockOffline(String pinCode) async {
     if (token == null || refreshToken == null) {
-      throw const PinException(
-          'noPin', 'No saved session on this device. Sign in online first.');
+      throw const PinException('noSession',
+          'No saved session on this device. Sign in online first.');
     }
     await _restoreCachedProfile();
     final role = user?['role'] as String?;
@@ -143,8 +191,8 @@ class AuthState extends ChangeNotifier {
     }
     final username = user?['username'] as String?;
     if (username == null || username.isEmpty) {
-      throw const PinException(
-          'noPin', 'No saved session on this device. Sign in online first.');
+      throw const PinException('noProfile',
+          'No saved profile on this device. Sign in online first.');
     }
     await pin.verifyPin(username: username, pin: pinCode);
     offlineMode = true;

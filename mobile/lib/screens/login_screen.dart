@@ -22,6 +22,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _password = TextEditingController();
   final _serverController = TextEditingController();
   bool _loading = false;
+  bool _checkingOffline = false;
   bool _showPassword = false;
   bool _showServer = false;
   bool _scanning = false;
@@ -133,6 +134,24 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _continueOffline() async {
     final auth = context.read<AuthState>();
+    setState(() {
+      _checkingOffline = true;
+      _error = null;
+    });
+    // Eligibility gate: never open the PIN pad when failure is certain.
+    // Each reason maps to a specific message so the user knows what to do.
+    final eligibility = await auth.checkOfflineEligibility();
+    if (!mounted) return;
+    setState(() => _checkingOffline = false);
+    if (!eligibility.eligible) {
+      setState(() {
+        _error = eligibility.lockedUntil != null
+            ? '${eligibility.message} (until ${eligibility.lockedUntil!.hour.toString().padLeft(2, "0")}:${eligibility.lockedUntil!.minute.toString().padLeft(2, "0")})'
+            : eligibility.message;
+      });
+      await Haptics.error();
+      return;
+    }
     String? error;
     var busy = false;
     await showModalBottomSheet<void>(
@@ -309,9 +328,18 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             const SizedBox(height: AppSpacing.space2),
                             TextButton(
-                              onPressed:
-                                  _loading ? null : _continueOffline,
-                              child: const Text('Continue offline'),
+                              onPressed: (_loading || _checkingOffline)
+                                  ? null
+                                  : _continueOffline,
+                              child: _checkingOffline
+                                  ? const SizedBox(
+                                      height: 18,
+                                      width: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Text('Continue offline'),
                             ),
                             const SizedBox(height: AppSpacing.space1),
                             Text(

@@ -283,5 +283,79 @@ void main() {
       final off = await make({'username': 's', 'role': 'STAFF'}, offline: true);
       expect(await off.needsPinSetupPrompt(), isFalse);
     });
+
+    test('checkOfflineEligibility: distinct codes per gate', () async {
+      Future<AuthState> seeded({
+        bool tokens = true,
+        Map<String, dynamic>? profile,
+        bool pin = false,
+        String? lastOnline,
+      }) async {
+        final store = FakeStore();
+        final auth =
+            AuthState(apiClient: FakeApi(store: store), secureStorage: store);
+        if (tokens) {
+          auth.token = 'tok';
+          auth.refreshToken = 'ref';
+        }
+        if (profile != null) {
+          store.values['cartiq_profile'] =
+              '{"name":"${profile['name']}","username":"${profile['username']}","role":"${profile['role']}","location":{"code":"CART-01"}}';
+        }
+        if (lastOnline != null) {
+          store.values['cartiq_last_online'] = lastOnline;
+        }
+        if (pin) {
+          await auth.pin.setupPin(username: 'staff01', pin: '123456');
+        }
+        return auth;
+      }
+
+      final fresh = DateTime.now().toIso8601String();
+
+      final noSession = await seeded(tokens: false);
+      expect((await noSession.checkOfflineEligibility()).code, 'noSession');
+
+      final owner = await seeded(
+        profile: {'name': 'O', 'username': 'owner', 'role': 'OWNER'},
+        lastOnline: fresh,
+      );
+      expect((await owner.checkOfflineEligibility()).code, 'notStaff');
+
+      final expired = await seeded(
+        profile: {'name': 'S', 'username': 'staff01', 'role': 'STAFF'},
+        lastOnline:
+            DateTime.now().subtract(const Duration(days: 8)).toIso8601String(),
+        pin: true,
+      );
+      expect((await expired.checkOfflineEligibility()).code, 'expired');
+
+      final noPin = await seeded(
+        profile: {'name': 'S', 'username': 'staff01', 'role': 'STAFF'},
+        lastOnline: fresh,
+      );
+      expect((await noPin.checkOfflineEligibility()).code, 'noPin');
+
+      final ready = await seeded(
+        profile: {'name': 'S', 'username': 'staff01', 'role': 'STAFF'},
+        lastOnline: fresh,
+        pin: true,
+      );
+      final ok = await ready.checkOfflineEligibility();
+      expect(ok.eligible, isTrue);
+      expect(ok.code, 'ready');
+    });
+
+    test('unlockOffline uses distinct noSession/noProfile codes', () async {
+      final store = FakeStore();
+      final auth =
+          AuthState(apiClient: FakeApi(store: store), secureStorage: store);
+      await expectLater(
+        auth.unlockOffline('123456'),
+        throwsA(
+          isA<PinException>().having((e) => e.code, 'code', 'noSession'),
+        ),
+      );
+    });
   });
 }

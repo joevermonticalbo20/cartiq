@@ -18,7 +18,7 @@ import 'kv_store.dart';
 /// - Offline unlock is time-boxed (default 7 days since last online auth)
 ///   so disabled accounts stop working even without connectivity.
 class PinException implements Exception {
-  /// noPin | notStaff | expired | locked | wrong | invalid
+  /// noSession | noProfile | noPin | notStaff | expired | locked | wrong | invalid
   final String code;
   final String message;
   final DateTime? lockedUntil;
@@ -27,6 +27,19 @@ class PinException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// Result of the offline-eligibility precheck (used to gate the Continue
+/// offline button before any PIN pad is shown).
+class PinEligibility {
+  /// ready | noSession | noProfile | noPin | notStaff | expired | locked
+  final bool eligible;
+  final String code;
+  final String message;
+  final DateTime? lockedUntil;
+
+  const PinEligibility(this.eligible, this.code, this.message,
+      {this.lockedUntil});
 }
 
 class OfflinePinService {
@@ -163,6 +176,9 @@ class OfflinePinService {
     if (raw == null) return null;
     return DateTime.tryParse(raw);
   }
+
+  /// Public read of the lockout deadline (null when not locked).
+  Future<DateTime?> lockedUntil() => _lockedUntil();
 
   Future<void> _recordFailure() async {
     final attempts = await _attempts() + 1;

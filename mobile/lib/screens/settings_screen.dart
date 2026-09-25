@@ -366,6 +366,35 @@ class SettingsScreenState extends State<SettingsScreen> {
                   subtitle: Text(
                       'Stop working within 7 days offline, immediately when online.'),
                 ),
+                const Divider(height: 1),
+                FutureBuilder<PinEligibility>(
+                  future: auth.checkOfflineEligibility(),
+                  builder: (context, snap) {
+                    final e = snap.data;
+                    final subtitle = e == null
+                        ? 'Checking…'
+                        : e.eligible
+                            ? 'Ready — PIN set for this staff account'
+                            : e.message;
+                    return ListTile(
+                      leading: Icon(
+                        e != null && e.eligible
+                            ? Icons.offline_bolt_outlined
+                            : Icons.offline_bolt_outlined,
+                      ),
+                      title: const Text('Offline login'),
+                      subtitle: Text(subtitle),
+                      trailing: e == null
+                          ? null
+                          : AppBadge(
+                              label: e.eligible ? 'READY' : 'NOT READY',
+                              variant: e.eligible
+                                  ? AppBadgeVariant.ok
+                                  : AppBadgeVariant.neutral,
+                            ),
+                    );
+                  },
+                ),
               ],
             ),
           ),
