@@ -331,24 +331,29 @@ button.password-toggle:active:not(:disabled) {
   padding: 4px 12px;
   white-space: nowrap;
 }
-.recovery-back {
+a.recovery-back,
+button.recovery-back {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   margin: 12px 0 4px;
   padding: 4px 0;
-  background: none;
+  background: transparent;
   border: none;
+  border-radius: 0;
+  box-shadow: none;
   cursor: pointer;
   font-size: 13px;
   font-weight: var(--fw-bold, 600);
-  color: var(--text-muted);
+  color: var(--primary);
   text-decoration: none;
   font-family: inherit;
+  text-transform: none;
+  letter-spacing: normal;
 }
 button.recovery-back:hover,
 a.recovery-back:hover {
-  color: var(--primary);
+  color: var(--primary-strong);
 }
 .recovery-codeboxes {
   display: flex;
@@ -384,17 +389,6 @@ a.recovery-back:hover {
   border-radius: var(--radius);
   padding: 10px 14px;
   margin: 12px 0;
-}
-.linklike {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0;
-  font: inherit;
-  font-weight: var(--fw-bold, 600);
-  color: var(--primary);
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 .linklike:hover:not(:disabled) {
   color: var(--primary-strong);
@@ -438,6 +432,13 @@ a.recovery-back:hover {
   font-weight: var(--fw-bold);
   cursor: pointer;
   text-decoration: underline;
+}
+.linklike:hover:not(:disabled) {
+  color: var(--primary-strong);
+}
+.linklike:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 .login-footer {
   margin-top: 32px;
