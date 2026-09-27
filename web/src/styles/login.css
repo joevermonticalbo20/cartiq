@@ -354,9 +354,19 @@ button.recovery-back {
   text-transform: none;
   letter-spacing: normal;
 }
-button.recovery-back:hover,
+button.recovery-back:hover:not(:disabled),
 a.recovery-back:hover {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  transform: none;
   color: var(--primary-strong);
+}
+button.recovery-back:active:not(:disabled) {
+  background: transparent;
+  box-shadow: none;
+  transform: scale(0.97);
 }
 .recovery-codeboxes {
   display: flex;
@@ -375,10 +385,10 @@ a.recovery-back:hover {
   border: 1px solid var(--border, #e5e7eb);
   border-radius: var(--radius);
 }
-.recovery-codebox:focus {
-  outline: 2px solid var(--primary);
-  outline-offset: 1px;
-  border-color: var(--primary);
+.recovery-codebox:focus,
+.recovery-codebox:focus-visible {
+  outline: none;
+  border: 2px solid var(--primary);
 }
 .recovery-verified {
   display: flex;
