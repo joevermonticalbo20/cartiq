@@ -336,6 +336,53 @@ router.post("/reset-password", resetLimiter, async (req, res, next) => {
   }
 });
 
+// POST /auth/verify-reset-code { email, code } -> { valid: true }.
+// Lets the recovery UI confirm the code BEFORE showing the new-password
+// step, without consuming it (redemption still happens exactly once in
+// POST /auth/reset-password). Wrong guesses count toward the same
+// per-code attempt cap, so this adds no guessing oracle beyond the
+// rate limit both endpoints share. All failures share one message.
+router.post("/verify-reset-code", resetLimiter, async (req, res, next) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    const code = String(req.body?.code ?? "").trim();
+    const fail = () => res.status(400).json({ error: RESET_INVALID_MESSAGE });
+    if (!email || !validEmail(email) || !/^\d{6}$/.test(code)) return fail();
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user || user.active === false) return fail();
+    const records = await prisma.passwordReset.findMany({
+      where: { userId: user.id },
+    });
+    const rec = records
+      .filter((r) => !r.used)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+    if (!rec) return fail();
+    if (new Date() > new Date(rec.expiresAt)) {
+      await prisma.passwordReset.delete({ where: { id: rec.id } });
+      return fail();
+    }
+    if ((rec.attempts ?? 0) >= OTP_MAX_ATTEMPTS) {
+      await prisma.passwordReset.delete({ where: { id: rec.id } });
+      return fail();
+    }
+    if (!otpMatches(code, rec.tokenHash)) {
+      const attempts = (rec.attempts ?? 0) + 1;
+      if (attempts >= OTP_MAX_ATTEMPTS) {
+        await prisma.passwordReset.delete({ where: { id: rec.id } });
+      } else {
+        await prisma.passwordReset.update({
+          where: { id: rec.id },
+          data: { attempts },
+        });
+      }
+      return fail();
+    }
+    return res.json({ valid: true });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // GET /auth/gmail-status (OWNER) - diagnostics for the Gmail OTP sender.
 // Reports presence booleans + a live token-exchange check, never secret
 // values. Use this first when reset emails don't arrive.

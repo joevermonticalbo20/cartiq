@@ -45,9 +45,81 @@ let redirecting = false;
 // Rotation invalidates the old refresh token, so a second POST would fail.
 let refreshPromise = null;
 
-function clearSession() {
-  localStorage.removeItem("cartiq_token");
-  localStorage.removeItem("cartiq_refresh_token");
+const TOKEN_KEY = "cartiq_token";
+const REFRESH_KEY = "cartiq_refresh_token";
+
+// --- Session storage (Remember me) ---
+// Checked = localStorage (survives browser restarts). Unchecked =
+// sessionStorage (dies with the tab). Every read checks persistent first,
+// then session, so pre-existing sessions keep working unchanged.
+function lsGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function ssGet(key) {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function readStored(key) {
+  return lsGet(key) ?? ssGet(key);
+}
+
+function writeStored(key, value, remember) {
+  const primary = remember ? localStorage : sessionStorage;
+  const other = remember ? sessionStorage : localStorage;
+  try {
+    if (value == null) primary.removeItem(key);
+    else primary.setItem(key, value);
+  } catch {
+    // Private-mode quota errors: session still lives in memory for this tab.
+  }
+  try {
+    other.removeItem(key);
+  } catch {
+    // Never let cleanup failure break sign-in/out.
+  }
+}
+
+/**
+ * Persist a fresh session. `remember=true` (default) keeps the user signed
+ * in across browser restarts; false scopes the session to this tab.
+ */
+export function writeSession({ token, refreshToken, remember = true }) {
+  writeStored(TOKEN_KEY, token ?? null, remember);
+  writeStored(REFRESH_KEY, refreshToken ?? null, remember);
+}
+
+/** Current access token from either store (persistent first). */
+export function readSessionToken() {
+  return readStored(TOKEN_KEY);
+}
+
+/** Current refresh token from either store (persistent first). */
+export function readRefreshToken() {
+  return readStored(REFRESH_KEY);
+}
+
+export function clearSession() {
+  for (const key of [TOKEN_KEY, REFRESH_KEY]) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // Ignore missing/blocked storage.
+    }
+    try {
+      sessionStorage.removeItem(key);
+    } catch {
+      // Ignore missing/blocked storage.
+    }
+  }
 }
 
 function redirectToLogin() {
@@ -68,17 +140,21 @@ function refreshAccessToken() {
   if (!refreshPromise) {
     refreshPromise = (async () => {
       try {
-        const stored = localStorage.getItem("cartiq_refresh_token");
+        const stored = readStored(REFRESH_KEY);
         if (!stored) return { fatal: true };
         // Bare axios (not the api instance) to avoid interceptor recursion.
         const { data } = await axios.post(`${API_BASE}/auth/refresh`, {
           refreshToken: stored,
         });
         if (!data?.token) return { fatal: true };
-        localStorage.setItem("cartiq_token", data.token);
-        if (data.refreshToken) {
-          localStorage.setItem("cartiq_refresh_token", data.refreshToken);
-        }
+        // Write back to whichever store the session came from so an
+        // unchecked Remember-me session never migrates to persistent.
+        const persistent = lsGet(REFRESH_KEY) != null;
+        writeSession({
+          token: data.token,
+          refreshToken: data.refreshToken ?? stored,
+          remember: persistent,
+        });
         return { token: data.token };
       } catch (err) {
         const status = err.response?.status;
@@ -150,7 +226,7 @@ export function setupAuthInterceptor(navigate) {
 }
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("cartiq_token");
+  const token = readStored(TOKEN_KEY);
   if (token) config.headers.Authorization = `Bearer ${token}`;
   // FormData uploads (Data Hub .xlsx import) need the browser's multipart
   // boundary. The instance default is application/json, so drop it here and

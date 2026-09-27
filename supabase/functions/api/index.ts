@@ -4614,8 +4614,36 @@ async function handleGmailStatus() {
   }
 }
 
-async function handleForgotPassword(req, origin) {
-  const body = await req.json().catch(() => null);
+/** Newest unused OTP doc for a user. Dead ones (expired / attempt-capped)
+ *  are cleaned up and yield null. Shared by verify + reset so both paths
+ *  enforce identical policy. */
+async function findLiveOtp(userId) {
+  const records = await fsQueryEqual("passwordResets", "userId", userId, 100);
+  const rec = records.filter((r) => !r.used)
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0];
+  if (!rec) return null;
+  if (!(rec.expiresAt instanceof Date) || Date.now() > rec.expiresAt.getTime()) {
+    await fsDeleteByName(rec._name).catch(() => {});
+    return null;
+  }
+  if ((rec.attempts ?? 0) >= OTP_MAX_ATTEMPTS) {
+    await fsDeleteByName(rec._name).catch(() => {});
+    return null;
+  }
+  return rec;
+}
+
+/** Record one wrong guess; the code dies on reaching the attempt cap. */
+async function punishWrongOtp(rec) {
+  const attempts = (rec.attempts ?? 0) + 1;
+  if (attempts >= OTP_MAX_ATTEMPTS) {
+    await fsDeleteByName(rec._name).catch(() => {});
+  } else {
+    await fsPatch("passwordResets", String(rec._name.split("/").pop()), { attempts }).catch(() => {});
+  }
+}
+
+async function handleForgotPassword(req, origin) {  const body = await req.json().catch(() => null);
   const email = normalizeEmailAddr(body?.email);
   if (!email || !validEmailAddr(email)) {
     return jsonRes(origin, { error: "A valid email address is required" }, 400);
@@ -4668,25 +4696,10 @@ async function handleResetPassword(req, origin) {
   }
   const user = await fsQueryEqual("users", "email", email, 1).then((r) => r[0] || null);
   if (!user || user.active === false) return fail();
-  const records = await fsQueryEqual("passwordResets", "userId", user.id, 100);
-  const rec = records.filter((r) => !r.used)
-    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0];
+  const rec = await findLiveOtp(user.id);
   if (!rec) return fail();
-  if (!(rec.expiresAt instanceof Date) || Date.now() > rec.expiresAt.getTime()) {
-    await fsDeleteByName(rec._name).catch(() => {});
-    return fail();
-  }
-  if ((rec.attempts ?? 0) >= OTP_MAX_ATTEMPTS) {
-    await fsDeleteByName(rec._name).catch(() => {});
-    return fail();
-  }
   if (!otpEqualsHex(await sha256Hex(code), rec.tokenHash)) {
-    const attempts = (rec.attempts ?? 0) + 1;
-    if (attempts >= OTP_MAX_ATTEMPTS) {
-      await fsDeleteByName(rec._name).catch(() => {});
-    } else {
-      await fsPatch("passwordResets", String(rec._name.split("/").pop()), { attempts }).catch(() => {});
-    }
+    await punishWrongOtp(rec);
     return fail();
   }
   const bl = await bcryptLib();
@@ -4701,6 +4714,28 @@ async function handleResetPassword(req, origin) {
     await fsDeleteByName(r._name).catch(() => {});
   }
   return jsonRes(origin, { updated: true, sessionsRevoked: true }, 200);
+}
+
+async function handleVerifyResetCode(req, origin) {
+  const body = await req.json().catch(() => null);
+  const email = normalizeEmailAddr(body?.email);
+  const code = String(body?.code ?? "").trim();
+  // Shared guessing budget with reset-password (same key).
+  if (!edgeRateAllowed(`reset:${clientIp(req)}`, 20, 60 * 60 * 1000)) {
+    return jsonRes(origin, { error: "Too many reset attempts - please try again later" }, 429);
+  }
+  const fail = () => jsonRes(origin, { error: RESET_INVALID_MESSAGE }, 400);
+  if (!email || !validEmailAddr(email) || !/^\d{6}$/.test(code)) return fail();
+  const user = await fsQueryEqual("users", "email", email, 1).then((r) => r[0] || null);
+  if (!user || user.active === false) return fail();
+  const rec = await findLiveOtp(user.id);
+  if (!rec) return fail();
+  if (!otpEqualsHex(await sha256Hex(code), rec.tokenHash)) {
+    await punishWrongOtp(rec);
+    return fail();
+  }
+  // Valid but NOT consumed: redemption still happens exactly once in reset.
+  return jsonRes(origin, { valid: true }, 200);
 }
 
 // ---------- staff + password (mirror the rest of api/src/routes/auth.js) ----------
@@ -5090,6 +5125,7 @@ Deno.serve(async (req) => {
       if (req.method === "POST" && path === "/auth/logout") return await handleLogout(req, origin);
       if (req.method === "POST" && path === "/auth/forgot-password") return await handleForgotPassword(req, origin);
       if (req.method === "POST" && path === "/auth/reset-password") return await handleResetPassword(req, origin);
+      if (req.method === "POST" && path === "/auth/verify-reset-code") return await handleVerifyResetCode(req, origin);
       if (req.method === "GET" && path === "/auth/me") return await handleMe(req, origin);
       if (req.method === "GET" && path === "/secure-ping") {
         const auth = await authUser(req);
@@ -5386,7 +5422,8 @@ Deno.serve(async (req) => {
       }
     } else if (
       (req.method === "POST" && (path === "/auth/login" || path === "/auth/refresh" || path === "/auth/logout" ||
-        path === "/auth/forgot-password" || path === "/auth/reset-password")) ||
+        path === "/auth/forgot-password" || path === "/auth/reset-password" ||
+        path === "/auth/verify-reset-code")) ||
       (req.method === "GET" && path === "/auth/me")
     ) {
       // Firestore secrets missing: native auth unavailable.

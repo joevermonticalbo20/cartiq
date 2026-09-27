@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { Eye, EyeOff, User, Lock, ArrowRight, Shield, Zap } from "lucide-react";
-import api from "../api.js";
+import api, { writeSession } from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import ErrorBox from "../components/ErrorBox.jsx";
 
@@ -56,19 +56,9 @@ export default function Login() {
   const [capsOn, setCapsOn] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loginError, setLoginError] = useState("");
-  const [loginNotice, setLoginNotice] = useState("");
-
-  // Forgot-password (Gmail OTP) modal state. Step 1 collects the Gmail
-  // address; step 2 collects the emailed 6-digit code + new password.
-  const [forgotOpen, setForgotOpen] = useState(false);
-  const [forgotStep, setForgotStep] = useState("email");
-  const [forgotEmail, setForgotEmail] = useState("");
-  const [forgotCode, setForgotCode] = useState("");
-  const [forgotPw, setForgotPw] = useState("");
-  const [forgotPw2, setForgotPw2] = useState("");
-  const [forgotBusy, setForgotBusy] = useState(false);
-  const [forgotError, setForgotError] = useState("");
-  const [forgotNotice, setForgotNotice] = useState("");
+  // Remember me (default on): unchecked scopes the session to this tab via
+  // sessionStorage instead of persistent localStorage.
+  const [remember, setRemember] = useState(true);
   const [userFocused, setUserFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const passwordRef = useRef(null);
@@ -79,68 +69,17 @@ export default function Login() {
     setLoginError("");
     try {
       const { data } = await api.post("/auth/login", { username, password });
-      localStorage.setItem("cartiq_token", data.token);
-      if (data.refreshToken) {
-        localStorage.setItem("cartiq_refresh_token", data.refreshToken);
-      }
+      writeSession({
+        token: data.token,
+        refreshToken: data.refreshToken,
+        remember,
+      });
       navigate("/dashboard");
     } catch (err) {
       setLoginError(getFriendlyError(err, "We couldn't sign you in. Check your username and password, then try again."));
       passwordRef.current?.focus();
     } finally {
       setLoading(false);
-    }
-  }
-
-  function openForgot() {
-    setForgotStep("email");
-    setForgotError("");
-    setForgotNotice("");
-    setForgotCode("");
-    setForgotPw("");
-    setForgotPw2("");
-    setForgotOpen(true);
-  }
-
-  async function sendResetCode(e) {
-    e.preventDefault();
-    setForgotBusy(true);
-    setForgotError("");
-    try {
-      // Always succeeds with the same generic message (no enumeration);
-      // advance to the code step regardless.
-      const { data } = await api.post("/auth/forgot-password", { email: forgotEmail });
-      setForgotNotice(data?.message || "If an account exists for this email, a reset code was sent.");
-      setForgotStep("code");
-    } catch (err) {
-      setForgotError(getFriendlyError(err, "Couldn't send a reset code - try again."));
-    } finally {
-      setForgotBusy(false);
-    }
-  }
-
-  async function redeemResetCode(e) {
-    e.preventDefault();
-    if (forgotPw !== forgotPw2) {
-      setForgotError("New passwords do not match.");
-      return;
-    }
-    setForgotBusy(true);
-    setForgotError("");
-    try {
-      await api.post("/auth/reset-password", {
-        email: forgotEmail,
-        code: forgotCode,
-        newPassword: forgotPw,
-      });
-      setForgotOpen(false);
-      setLoginError("");
-      setLoginNotice("Password updated - sign in with your new password.");
-      passwordRef.current?.focus();
-    } catch (err) {
-      setForgotError(getFriendlyError(err, "Couldn't reset the password - check the code and try again."));
-    } finally {
-      setForgotBusy(false);
     }
   }
 
@@ -231,11 +170,6 @@ export default function Login() {
               message={loginError}
               style={{ marginBottom: "var(--space-3)" }}
             />
-            {loginNotice && !loginError && (
-              <p className="muted small" role="status" style={{ marginBottom: "var(--space-3)", textAlign: "center" }}>
-                {loginNotice}
-              </p>
-            )}
 
             <button type="submit" className="login-submit-btn" disabled={loading}>
               <span className="btn-content">
@@ -250,13 +184,19 @@ export default function Login() {
                 )}
               </span>
             </button>
-            <button
-              type="button"
-              className="login-forgot-btn"
-              onClick={openForgot}
-            >
-              Forgot password?
-            </button>
+            <div className="login-remember-row">
+              <label className="login-remember">
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(e) => setRemember(e.target.checked)}
+                />
+                Remember me
+              </label>
+              <Link to="/forgot-password" className="login-forgot-link">
+                Forgot password?
+              </Link>
+            </div>
           </form>
 
           <div className="login-security-badge">
@@ -269,96 +209,6 @@ export default function Login() {
           </div>
         </div>
       </div>
-
-      {forgotOpen && (
-        <div className="modal-backdrop" onClick={() => !forgotBusy && setForgotOpen(false)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label="Reset password" onClick={(e) => e.stopPropagation()}>
-            <h3>Reset password</h3>
-            {forgotStep === "email" ? (
-              <form onSubmit={sendResetCode} className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
-                <p className="muted small" style={{ margin: 0 }}>
-                  Enter the Gmail address saved on your account and we&apos;ll send a 6-digit code.
-                </p>
-                <label className="field">
-                  Gmail address
-                  <input
-                    type="email"
-                    required
-                    autoFocus
-                    value={forgotEmail}
-                    onChange={(e) => setForgotEmail(e.target.value)}
-                    placeholder="you@gmail.com"
-                    autoComplete="email"
-                    style={{ height: "36px" }}
-                  />
-                </label>
-                {forgotError && <p className="error-box" role="alert">{forgotError}</p>}
-                <div className="modal-actions">
-                  <button type="button" className="ghost" onClick={() => setForgotOpen(false)} disabled={forgotBusy}>
-                    Cancel
-                  </button>
-                  <button type="submit" disabled={forgotBusy}>
-                    {forgotBusy ? "Sending..." : "Send code"}
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <form onSubmit={redeemResetCode} className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
-                <p className="muted small" style={{ margin: 0 }}>
-                  {forgotNotice || "Check your Gmail for the 6-digit code (expires in 10 minutes)."}
-                </p>
-                <label className="field">
-                  6-digit code
-                  <input
-                    required
-                    autoFocus
-                    inputMode="numeric"
-                    pattern="\d{6}"
-                    maxLength={6}
-                    value={forgotCode}
-                    onChange={(e) => setForgotCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                    placeholder="123456"
-                    autoComplete="one-time-code"
-                    style={{ height: "36px" }}
-                  />
-                </label>
-                <label className="field">
-                  New password (min 6)
-                  <input
-                    required
-                    minLength={6}
-                    type={showPassword ? "text" : "password"}
-                    value={forgotPw}
-                    onChange={(e) => setForgotPw(e.target.value)}
-                    autoComplete="new-password"
-                    style={{ height: "36px" }}
-                  />
-                </label>
-                <label className="field">
-                  Confirm new password
-                  <input
-                    required
-                    type={showPassword ? "text" : "password"}
-                    value={forgotPw2}
-                    onChange={(e) => setForgotPw2(e.target.value)}
-                    autoComplete="new-password"
-                    style={{ height: "36px" }}
-                  />
-                </label>
-                {forgotError && <p className="error-box" role="alert">{forgotError}</p>}
-                <div className="modal-actions">
-                  <button type="button" className="ghost" onClick={() => { setForgotStep("email"); setForgotError(""); }} disabled={forgotBusy}>
-                    Back
-                  </button>
-                  <button type="submit" disabled={forgotBusy}>
-                    {forgotBusy ? "Saving..." : "Set new password"}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* --- KANAN: Brand / Hero Section (50%) --- */}
       <div className="login-brand-side">

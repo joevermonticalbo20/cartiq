@@ -276,27 +276,150 @@ button.password-toggle:active:not(:disabled) {
   letter-spacing: 0.1em;
   color: var(--text-muted);
 }
-/* Forgot-password link under the sign-in button. Plain text button so it
-   never competes with the primary CTA. */
-.login-forgot-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  margin: 12px auto 0;
-  padding: 6px 12px;
+/* Remember-me + forgot-password row: checkbox left, link right (same row). */
+.login-remember-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+.login-remember {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
   font-weight: var(--fw-bold, 600);
   color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.login-remember input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+.login-forgot-link {
+  font-size: 13px;
+  font-weight: var(--fw-bold, 600);
+  color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 3px;
-  display: block;
+  white-space: nowrap;
 }
-.login-forgot-btn:hover:not(:disabled) {
+.login-forgot-link:hover {
+  color: var(--primary-strong);
+}
+
+/* --- Account recovery (forgot-password 3-step flow) --- */
+.recovery-eyebrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.step-pill {
+  font-size: 11px;
+  font-weight: var(--fw-extrabold);
+  letter-spacing: 0.08em;
+  color: var(--text);
+  background: var(--highlight-soft);
+  border: 1px solid var(--highlight);
+  border-radius: 999px;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
+.recovery-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 4px;
+  padding: 4px 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: var(--fw-bold, 600);
+  color: var(--text-muted);
+  text-decoration: none;
+  font-family: inherit;
+}
+button.recovery-back:hover,
+a.recovery-back:hover {
   color: var(--primary);
 }
-.login-forgot-btn:disabled {
+.recovery-codeboxes {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin: 20px 0 8px;
+}
+.recovery-codebox {
+  width: 48px;
+  height: 56px;
+  text-align: center;
+  font-size: 24px;
+  font-weight: var(--fw-extrabold);
+  color: var(--text);
+  background: var(--surface-alt, #f4f6f8);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: var(--radius);
+}
+.recovery-codebox:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  border-color: var(--primary);
+}
+.recovery-verified {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: var(--fw-bold, 600);
+  color: var(--success);
+  background: var(--success-bg);
+  border: 1px solid var(--success);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin: 12px 0;
+}
+.linklike {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  font-weight: var(--fw-bold, 600);
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.linklike:hover:not(:disabled) {
+  color: var(--primary-strong);
+}
+.linklike:disabled {
   cursor: default;
   opacity: 0.6;
+}
+.recovery-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border, #e5e7eb);
+  font-size: 11px;
+  font-weight: var(--fw-extrabold);
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.recovery-secure {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .login-demo-hint {
   margin-top: 16px;

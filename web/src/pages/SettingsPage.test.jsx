@@ -5,13 +5,14 @@ import { ToastProvider } from "../components/Toast.jsx";
 
 vi.mock("../api.js", () => ({
   default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), del: vi.fn() },
+  clearSession: vi.fn(),
 }));
 
 vi.mock("../utils/errors.js", () => ({
   getFriendlyError: (err, fallback) => err?.message || fallback,
 }));
 
-import api from "../api.js";
+import api, { clearSession } from "../api.js";
 import SettingsPage from "./SettingsPage.jsx";
 
 function renderPage() {
@@ -111,9 +112,8 @@ describe("SettingsPage password change", () => {
     fireEvent.change(screen.getByLabelText(/Confirm new password/i), { target: { value: "newpass123" } });
     fireEvent.click(screen.getByText("Update password"));
     expect(await screen.findByText("Login screen")).toBeInTheDocument();
-    // localStorage is mocked in test setup: assert the removal calls.
-    expect(localStorage.removeItem).toHaveBeenCalledWith("cartiq_token");
-    expect(localStorage.removeItem).toHaveBeenCalledWith("cartiq_refresh_token");
+    // Session clear goes through the shared helper (both storages).
+    expect(clearSession).toHaveBeenCalled();
   });
 });
 

@@ -15,7 +15,7 @@ import {
   Users,
   Wallet,
 } from "lucide-react";
-import api from "../api.js";
+import api, { readSessionToken, readRefreshToken, clearSession } from "../api.js";
 import ConfirmDialog from "./ConfirmDialog.jsx";
 
 const NAV_GROUPS = [
@@ -97,7 +97,7 @@ export default function Layout() {
 
   // Validation: with no session token there is nothing to confirm.
   function requestLogout() {
-    if (!localStorage.getItem("cartiq_token")) {
+    if (!readSessionToken()) {
       navigate("/login");
       return;
     }
@@ -105,7 +105,7 @@ export default function Layout() {
   }
 
   async function logout() {
-    const refresh = localStorage.getItem("cartiq_refresh_token");
+    const refresh = readRefreshToken();
     // Revoke server-side so a stolen refresh dies; local clear happens
     // regardless (idempotent endpoint, never blocks logout on network fail).
     if (refresh) {
@@ -115,8 +115,7 @@ export default function Layout() {
         /* offline or already revoked: still log out locally */
       }
     }
-    localStorage.removeItem("cartiq_token");
-    localStorage.removeItem("cartiq_refresh_token");
+    clearSession();
     setConfirmingLogout(false);
     navigate("/login");
   }

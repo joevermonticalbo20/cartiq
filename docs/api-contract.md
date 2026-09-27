@@ -15,6 +15,7 @@ boundaries are Asia/Manila. Alert dedupe is by structured `dedupeKey`
 | `/auth/logout` | POST | `{refreshToken?}` idempotent | `{loggedOut:true}` |
 | `/auth/forgot-password` | POST | `{email}` — Gmail OTP (6-digit, 10-min, single-use). Generic success whether or not the address is registered (5/hr per IP+email; silent 60s resend cooldown) | `{success:true, message}` |
 | `/auth/reset-password` | POST | `{email, code, newPassword 6-72}` — identical `Invalid or expired code.` for every failure mode; success sets the password + revokes all sessions (20/hr per IP, 5 code attempts max) | `{updated:true, sessionsRevoked:true}` |
+| `/auth/verify-reset-code` | POST | `{email, code}` — confirms a code WITHOUT consuming it (redemption still once-only in reset); wrong guesses share the same 5-attempt cap + `reset:` rate budget | `{valid:true}` |
 | `/auth/gmail-status` | GET | OWNER-only diagnostics: secret presence booleans + live Gmail token-exchange check, never secret values | `{configured, present:{...}, exchange:"ok"\|"failed"\|"skipped", error?}` |
 | `/auth/me` | GET | Bearer token | `{user}` |
 | `/health` | GET | - | `{ok, service, version, uptimeSec, db, time}` — 503 when the DB is unreachable. |

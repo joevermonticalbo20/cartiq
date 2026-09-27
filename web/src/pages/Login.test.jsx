@@ -4,13 +4,14 @@ import { MemoryRouter } from "react-router-dom";
 
 vi.mock("../api.js", () => ({
   default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), del: vi.fn() },
+  writeSession: vi.fn(),
 }));
 
 vi.mock("../utils/errors.js", () => ({
   getFriendlyError: (err, fallback) => err?.message || fallback,
 }));
 
-import api from "../api.js";
+import api, { writeSession } from "../api.js";
 import Login from "./Login.jsx";
 
 function renderPage() {
@@ -21,124 +22,57 @@ function renderPage() {
   );
 }
 
-describe("Login forgot-password flow", () => {
+function fillLogin(username = "owner", password = "owner123") {
+  fireEvent.change(screen.getByLabelText("Username"), {
+    target: { value: username },
+  });
+  fireEvent.change(screen.getByLabelText("Password"), {
+    target: { value: password },
+  });
+}
+
+describe("Login remember-me row", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("opens the reset modal and advances to the code step after send", async () => {
-    api.post.mockImplementation((url) => {
-      if (url === "/auth/forgot-password") {
-        return Promise.resolve({
-          data: { success: true, message: "If an account exists, sent." },
-        });
-      }
-      return Promise.reject(new Error("unexpected " + url));
-    });
-    renderPage();
-
-    fireEvent.click(screen.getByRole("button", { name: "Forgot password?" }));
-    expect(screen.getByRole("dialog", { name: "Reset password" })).toBeInTheDocument();
-
-    fireEvent.change(screen.getByPlaceholderText("you@gmail.com"), {
-      target: { value: "staff@gmail.com" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Send code" }));
-
-    expect(await screen.findByPlaceholderText("123456")).toBeInTheDocument();
-    expect(api.post).toHaveBeenCalledWith("/auth/forgot-password", {
-      email: "staff@gmail.com",
+    api.post.mockResolvedValue({
+      data: { token: "t", refreshToken: "r", user: { username: "owner" } },
     });
   });
 
-  it("shows a send error without advancing", async () => {
-    api.post.mockRejectedValue(new Error("network down"));
+  it("shows a checked Remember me box and a forgot-password link", () => {
     renderPage();
-
-    fireEvent.click(screen.getByRole("button", { name: "Forgot password?" }));
-    fireEvent.change(screen.getByPlaceholderText("you@gmail.com"), {
-      target: { value: "staff@gmail.com" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Send code" }));
-
-    expect(await screen.findByText("network down")).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("123456")).toBeNull();
-  });
-
-  it("blocks mismatched passwords client-side, then redeems on match", async () => {
-    api.post.mockImplementation((url) => {
-      if (url === "/auth/forgot-password") {
-        return Promise.resolve({ data: { success: true, message: "sent" } });
-      }
-      if (url === "/auth/reset-password") {
-        return Promise.resolve({ data: { updated: true } });
-      }
-      return Promise.reject(new Error("unexpected " + url));
-    });
-    renderPage();
-
-    fireEvent.click(screen.getByRole("button", { name: "Forgot password?" }));
-    fireEvent.change(screen.getByPlaceholderText("you@gmail.com"), {
-      target: { value: "staff@gmail.com" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Send code" }));
-    await screen.findByPlaceholderText("123456");
-
-    fireEvent.change(screen.getByPlaceholderText("123456"), {
-      target: { value: "482916" },
-    });
-    // Fill both password fields via their labels.
-    fireEvent.change(screen.getByLabelText("New password (min 6)"), {
-      target: { value: "newpass12" },
-    });
-    fireEvent.change(screen.getByLabelText("Confirm new password"), {
-      target: { value: "different" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Set new password" }));
-    expect(await screen.findByText("New passwords do not match.")).toBeInTheDocument();
-    expect(api.post).not.toHaveBeenCalledWith(
-      "/auth/reset-password",
-      expect.anything()
+    const box = screen.getByLabelText("Remember me");
+    expect(box.checked).toBe(true);
+    expect(screen.getByRole("link", { name: "Forgot password?" })).toHaveAttribute(
+      "href",
+      "/forgot-password"
     );
+  });
 
-    fireEvent.change(screen.getByLabelText("Confirm new password"), {
-      target: { value: "newpass12" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Set new password" }));
-    await screen.findByText("Password updated - sign in with your new password.");
-    expect(api.post).toHaveBeenCalledWith("/auth/reset-password", {
-      email: "staff@gmail.com",
-      code: "482916",
-      newPassword: "newpass12",
+  it("persists the session when remembered (default)", async () => {
+    renderPage();
+    fillLogin();
+    fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    await vi.waitFor(() => {
+      expect(writeSession).toHaveBeenCalledWith({
+        token: "t",
+        refreshToken: "r",
+        remember: true,
+      });
     });
   });
 
-  it("surfaces an invalid-code server error", async () => {
-    api.post.mockImplementation((url) => {
-      if (url === "/auth/forgot-password") {
-        return Promise.resolve({ data: { success: true, message: "sent" } });
-      }
-      return Promise.reject(new Error("Invalid or expired code."));
-    });
+  it("scopes the session to the tab when unchecked", async () => {
     renderPage();
-
-    fireEvent.click(screen.getByRole("button", { name: "Forgot password?" }));
-    fireEvent.change(screen.getByPlaceholderText("you@gmail.com"), {
-      target: { value: "staff@gmail.com" },
+    fillLogin();
+    fireEvent.click(screen.getByLabelText("Remember me"));
+    fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    await vi.waitFor(() => {
+      expect(writeSession).toHaveBeenCalledWith({
+        token: "t",
+        refreshToken: "r",
+        remember: false,
+      });
     });
-    fireEvent.click(screen.getByRole("button", { name: "Send code" }));
-    await screen.findByPlaceholderText("123456");
-
-    fireEvent.change(screen.getByPlaceholderText("123456"), {
-      target: { value: "000000" },
-    });
-    fireEvent.change(screen.getByLabelText("New password (min 6)"), {
-      target: { value: "newpass12" },
-    });
-    fireEvent.change(screen.getByLabelText("Confirm new password"), {
-      target: { value: "newpass12" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Set new password" }));
-    expect(await screen.findByText("Invalid or expired code.")).toBeInTheDocument();
   });
 });

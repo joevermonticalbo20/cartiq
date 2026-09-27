@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import { KeyRound, Plus, RefreshCw, Eye, EyeOff, Edit2, Trash2, Cpu, ShoppingCart, Users } from "lucide-react";
 
-import api from "../api.js";
+import api, { clearSession } from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
@@ -216,8 +216,7 @@ export default function SettingsPage() {
         currentPassword: pw.current,
         newPassword: pw.next,
       });
-      localStorage.removeItem("cartiq_token");
-      localStorage.removeItem("cartiq_refresh_token");
+      clearSession();
       toast("Password updated - please log in again", "success");
       navigate("/login", { replace: true });
     } catch (err) {
