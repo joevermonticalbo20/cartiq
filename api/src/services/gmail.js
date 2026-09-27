@@ -89,6 +89,35 @@ export function _resetGmailCacheForTests() {
 }
 
 /**
+ * Diagnostics for the Gmail OTP sender (OWNER-only endpoint backing).
+ * Reports presence booleans + a live token-exchange check — NEVER secret
+ * values. Always HTTP 200 (auth failures are handled by the route layer).
+ */
+export async function gmailStatus() {
+  const { clientId, clientSecret, refreshToken, from } = gmailEnv();
+  const present = {
+    clientId: Boolean(clientId),
+    clientSecret: Boolean(clientSecret),
+    refreshToken: Boolean(refreshToken),
+    from: Boolean(from),
+  };
+  if (!present.clientId || !present.clientSecret || !present.refreshToken) {
+    return { configured: false, present, exchange: "skipped" };
+  }
+  try {
+    await getAccessToken();
+    return { configured: true, present, exchange: "ok" };
+  } catch (err) {
+    return {
+      configured: false,
+      present,
+      exchange: "failed",
+      error: String(err?.message ?? err).slice(0, 200),
+    };
+  }
+}
+
+/**
  * Send a plain-text email from the configured Gmail account.
  * Throws on misconfiguration or API failure — callers (forgot-password)
  * catch, log server-side, and still return the generic success response.

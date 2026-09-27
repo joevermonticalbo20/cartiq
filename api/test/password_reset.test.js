@@ -18,6 +18,7 @@ import {
   gmailConfigured,
   sendGmail,
   resetEmailContent,
+  gmailStatus,
   _resetGmailCacheForTests,
 } from "../src/services/gmail.js";
 
@@ -131,5 +132,65 @@ describe("gmail sender (stubbed fetch)", () => {
     assert.ok(subject.length > 0);
     assert.ok(text.includes("482916"));
     assert.ok(/10 minute/i.test(text));
+  });
+});
+
+describe("gmailStatus (diagnostics, no secret values)", () => {
+  const calls = [];
+  const realFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    calls.length = 0;
+    _resetGmailCacheForTests();
+    process.env.GMAIL_CLIENT_ID = "cid";
+    process.env.GMAIL_CLIENT_SECRET = "csec";
+    process.env.GMAIL_REFRESH_TOKEN = "rtok";
+    process.env.GMAIL_FROM = "cartiq@example.com";
+    globalThis.fetch = async (url, opts = {}) => {
+      calls.push(String(url));
+      if (String(url).includes("oauth2.googleapis.com/token")) {
+        return new Response(JSON.stringify({ access_token: "ya29.mock", expires_in: 3600 }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error("UNMOCKED: " + url);
+    };
+  });
+
+  it("reports skipped when secrets are missing", async () => {
+    delete process.env.GMAIL_CLIENT_ID;
+    const s = await gmailStatus();
+    assert.equal(s.configured, false);
+    assert.equal(s.exchange, "skipped");
+    assert.equal(s.present.clientId, false);
+    globalThis.fetch = realFetch;
+  });
+
+  it("reports ok on working exchange, failed otherwise - never leaking values", async () => {
+    const ok = await gmailStatus();
+    assert.equal(ok.configured, true);
+    assert.equal(ok.exchange, "ok");
+    assert.ok(!JSON.stringify(ok).includes("csec"));
+
+    _resetGmailCacheForTests();
+    globalThis.fetch = async (url) => {
+      if (String(url).includes("oauth2")) {
+        return new Response(JSON.stringify({ error: "invalid_grant" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error("UNMOCKED");
+    };
+    try {
+      const bad = await gmailStatus();
+      assert.equal(bad.configured, false);
+      assert.equal(bad.exchange, "failed");
+      assert.ok(bad.error.length > 0);
+      assert.ok(!JSON.stringify(bad).includes("csec"));
+      assert.ok(!JSON.stringify(bad).includes("rtok"));
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });

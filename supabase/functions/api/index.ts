@@ -4590,6 +4590,30 @@ async function sendGmailEdge({ to, subject, text }) {
   return true;
 }
 
+async function handleGmailStatus() {
+  const s = gmailSecrets();
+  const present = {
+    clientId: !!s.clientId,
+    clientSecret: !!s.clientSecret,
+    refreshToken: !!s.refreshToken,
+    from: !!s.from,
+  };
+  if (!present.clientId || !present.clientSecret || !present.refreshToken) {
+    return { configured: false, present, exchange: "skipped" };
+  }
+  try {
+    await gmailAccessToken();
+    return { configured: true, present, exchange: "ok" };
+  } catch (e) {
+    return {
+      configured: false,
+      present,
+      exchange: "failed",
+      error: String((e && e.message) || e).slice(0, 200),
+    };
+  }
+}
+
 async function handleForgotPassword(req, origin) {
   const body = await req.json().catch(() => null);
   const email = normalizeEmailAddr(body?.email);
@@ -5073,6 +5097,13 @@ Deno.serve(async (req) => {
         const header = req.headers.get("authorization") || "";
         const payload = await verifyHS256(header.slice(7), jwtSecret());
         return jsonRes(origin, { pong: true, user: { ...payload, locationId: auth.user.locationId ?? null } }, 200);
+      }
+      if (req.method === "GET" && path === "/auth/gmail-status") {
+        const auth = await authUser(req);
+        if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
+        const ownErr = requireOwner(auth.user);
+        if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
+        return jsonRes(origin, await handleGmailStatus(), 200);
       }
       if (path === "/auth/change-password" || path === "/auth/staff" || path.startsWith("/auth/staff/")) {
         const auth = await authUser(req);

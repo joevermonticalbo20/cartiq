@@ -16,7 +16,7 @@ import {
   FORGOT_GENERIC_MESSAGE,
   RESET_INVALID_MESSAGE,
 } from "../services/password_reset.js";
-import { sendGmail, resetEmailContent } from "../services/gmail.js";
+import { sendGmail, resetEmailContent, gmailStatus } from "../services/gmail.js";
 
 // Rate limiter: 20 attempts per 15 min per IP. High enough that the
 // project's own regression suite (~10 logins back-to-back from one dev
@@ -331,6 +331,17 @@ router.post("/reset-password", resetLimiter, async (req, res, next) => {
       await prisma.passwordReset.delete({ where: { id: r.id } });
     }
     return res.json({ updated: true, sessionsRevoked: true });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// GET /auth/gmail-status (OWNER) - diagnostics for the Gmail OTP sender.
+// Reports presence booleans + a live token-exchange check, never secret
+// values. Use this first when reset emails don't arrive.
+router.get("/gmail-status", requireAuth, requireRole("OWNER"), async (_req, res, next) => {
+  try {
+    return res.json(await gmailStatus());
   } catch (err) {
     return next(err);
   }
