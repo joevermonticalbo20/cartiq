@@ -39,14 +39,13 @@ describe("Login remember-me row", () => {
     });
   });
 
-  it("shows a checked Remember me box and a forgot-password link", () => {
+  it("shows a checked Remember me box and a forgot-password button", () => {
     renderPage();
     const box = screen.getByLabelText("Remember me");
     expect(box.checked).toBe(true);
-    expect(screen.getByRole("link", { name: "Forgot password?" })).toHaveAttribute(
-      "href",
-      "/forgot-password"
-    );
+    expect(
+      screen.getByRole("button", { name: "Forgot password?" })
+    ).toBeInTheDocument();
   });
 
   it("persists the session when remembered (default)", async () => {
@@ -74,5 +73,21 @@ describe("Login remember-me row", () => {
         remember: false,
       });
     });
+  });
+
+  it("swaps the form side to recovery inline (no navigation)", async () => {
+    renderPage();
+    expect(screen.getByText("Welcome back")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Forgot password?" }));
+    expect(await screen.findByText("Forgot Password?")).toBeInTheDocument();
+    expect(screen.getByText("STEP 1 OF 3")).toBeInTheDocument();
+    // Login form is gone, brand side stays.
+    expect(screen.queryByText("Welcome back")).toBeNull();
+    expect(screen.getByText("Command Center")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to Login" }));
+    expect(await screen.findByText("Welcome back")).toBeInTheDocument();
+    expect(screen.queryByText("Forgot Password?")).toBeNull();
   });
 });

@@ -1,9 +1,10 @@
 import { useRef, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, User, Lock, ArrowRight, Shield, Zap } from "lucide-react";
 import api, { writeSession } from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import ErrorBox from "../components/ErrorBox.jsx";
+import RecoveryFlow from "./RecoveryFlow.jsx";
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.1.0";
 
@@ -59,6 +60,9 @@ export default function Login() {
   // Remember me (default on): unchecked scopes the session to this tab via
   // sessionStorage instead of persistent localStorage.
   const [remember, setRemember] = useState(true);
+  // Inline recovery: the form side swaps the login form for the shared
+  // RecoveryFlow (brand side stays put) instead of navigating away.
+  const [mode, setMode] = useState("login");
   const [userFocused, setUserFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const passwordRef = useRef(null);
@@ -104,6 +108,10 @@ export default function Login() {
             <strong style={{ fontSize: "20px", color: "var(--text)" }}>CartIQ</strong>
           </div>
 
+          {mode === "recovery" ? (
+            <RecoveryFlow onExitToLogin={() => setMode("login")} />
+          ) : (
+          <>
           <div className="login-form-header">
             <h1 className="login-form-title">Welcome back</h1>
             <p className="login-form-subtitle">
@@ -193,11 +201,13 @@ export default function Login() {
                 />
                 Remember me
               </label>
-              <Link to="/forgot-password" className="login-forgot-link">
+              <button type="button" className="login-forgot-link" onClick={() => setMode("recovery")}>
                 Forgot password?
-              </Link>
+              </button>
             </div>
           </form>
+          </>
+          )}
 
           <div className="login-security-badge">
             <Shield size={14} />
