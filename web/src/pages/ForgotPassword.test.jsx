@@ -86,6 +86,27 @@ describe("ForgotPassword 3-step flow", () => {
     expect(screen.getByText("New Password")).toBeInTheDocument();
   });
 
+  it("asks for all 6 digits before calling verify", async () => {
+    api.post.mockImplementation((url) => {
+      if (url === "/auth/forgot-password") {
+        return Promise.resolve({ data: { success: true, message: "sent" } });
+      }
+      return Promise.reject(new Error("should not be called"));
+    });
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText("Email Address"), {
+      target: { value: "staff@gmail.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send Reset Code" }));
+    await screen.findByText("Check Email");
+
+    fillCode("48291");
+    fireEvent.click(screen.getByRole("button", { name: "Verify Code" }));
+    expect(await screen.findByText("Enter the 6-digit code.")).toBeInTheDocument();
+    expect(api.post).toHaveBeenCalledTimes(1);
+  });
+
   it("surfaces an invalid code without advancing", async () => {
     api.post.mockImplementation((url) => {
       if (url === "/auth/forgot-password") {

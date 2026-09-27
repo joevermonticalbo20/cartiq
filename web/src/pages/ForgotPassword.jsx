@@ -26,7 +26,6 @@ export default function ForgotPassword() {
   const [pw2, setPw2] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [done, setDone] = useState(false);
   const boxRefs = useRef([]);
 
@@ -37,9 +36,8 @@ export default function ForgotPassword() {
     setError("");
     try {
       // Generic success either way (no enumeration); always advance.
-      const { data } = await api.post("/auth/forgot-password", { email });
+      await api.post("/auth/forgot-password", { email });
       setSentTo(email.trim());
-      setNotice(data?.message || "If an account exists for this email, a reset code was sent.");
       setCode("");
       setVerified(false);
       setStep(2);
@@ -77,7 +75,11 @@ export default function ForgotPassword() {
 
   async function verifyCode(e) {
     e?.preventDefault();
-    if (busy || code.length !== CODE_LEN) return;
+    if (busy) return;
+    if (code.length !== CODE_LEN) {
+      setError("Enter the 6-digit code.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -131,7 +133,7 @@ export default function ForgotPassword() {
 
           {step > 1 && !done ? (
             <button type="button" className="recovery-back" onClick={() => { setError(""); setStep((s) => s - 1); }}>
-              <ArrowLeft size={16} /> {step === 2 ? "Back to Login" : "Go Back"}
+              <ArrowLeft size={16} /> Go Back
             </button>
           ) : (
             <Link to="/login" className="recovery-back">
@@ -176,11 +178,6 @@ export default function ForgotPassword() {
               <p className="login-form-subtitle">
                 We sent a verification code to <strong>{sentTo}</strong>. Please enter it below to proceed.
               </p>
-              {notice && (
-                <p className="muted small" role="status" style={{ margin: "0 0 var(--space-2)" }}>
-                  {notice}
-                </p>
-              )}
               {verified && (
                 <p className="recovery-verified" role="status">
                   <ShieldCheck size={16} /> Code verified! You can now reset your password.
@@ -214,7 +211,7 @@ export default function ForgotPassword() {
                     <span className="btn-content">Continue</span>
                   </button>
                 ) : (
-                  <button type="submit" className="login-submit-btn" disabled={busy || code.length !== CODE_LEN}>
+                  <button type="submit" className="login-submit-btn" disabled={busy}>
                     <span className="btn-content">{busy ? "Verifying..." : "Verify Code"}</span>
                   </button>
                 )}
@@ -222,7 +219,7 @@ export default function ForgotPassword() {
               <p className="muted small" style={{ textAlign: "center", marginTop: "var(--space-3)" }}>
                 Didn&apos;t receive code?{" "}
                 <button type="button" className="linklike" onClick={sendCode} disabled={busy}>
-                  Resend
+                  {busy ? "Sending..." : "Resend"}
                 </button>
               </p>
             </>
