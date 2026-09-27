@@ -78,8 +78,15 @@ function clean(obj) {
 const MODELS = {
   users: {
     numeric: true,
-    defaults: () => ({ role: "STAFF", active: true, rfidUid: null, locationId: null, createdAt: now() }),
-    uniques: ["username", "rfidUid"],
+    defaults: () => ({ role: "STAFF", active: true, rfidUid: null, locationId: null, email: null, createdAt: now() }),
+    uniques: ["username", "rfidUid", "email"],
+  },
+  passwordResets: {
+    // Forgot-password OTPs: auto-ID docs (never referenced by numeric id).
+    // Only the SHA-256 hash of the code is stored, never the code itself.
+    numeric: false,
+    defaults: () => ({ used: false, attempts: 0, createdAt: now() }),
+    uniques: [],
   },
   refreshTokens: {
     numeric: true,
@@ -724,6 +731,7 @@ const MODEL_ALIASES = {
   expense: "expenses",
   supplier: "suppliers",
   alert: "alerts",
+  passwordReset: "passwordResets",
 };
 
 function buildDb(ctx) {

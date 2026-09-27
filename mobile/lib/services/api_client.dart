@@ -252,6 +252,37 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  /// Request a Gmail OTP for password reset. Always succeeds with the same
+  /// generic message (the server never reveals whether the email is known).
+  Future<Map<String, dynamic>> forgotPassword(String email) async {
+    final res = await _send(
+      () => _http.post(
+        _uri('/auth/forgot-password'),
+        headers: _headers(),
+        body: jsonEncode({'email': email}),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  /// Redeem a reset OTP with a new password. Server revokes all sessions,
+  /// so the caller must sign in fresh afterwards.
+  Future<Map<String, dynamic>> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    final res = await _send(
+      () => _http.post(
+        _uri('/auth/reset-password'),
+        headers: _headers(),
+        body: jsonEncode(
+            {'email': email, 'code': code, 'newPassword': newPassword}),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
   /// Revoke a refresh token server-side. Best-effort: never throws, so
   /// logout always completes locally even offline.
   Future<void> logout(String? refreshToken) async {

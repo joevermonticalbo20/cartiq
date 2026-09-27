@@ -64,6 +64,7 @@ export default function SettingsPage() {
     password: "",
     locationCode: "",
     rfidUid: "",
+    email: "",
   });
 
   // -- IOT DEVICE STATES --
@@ -244,7 +245,7 @@ export default function SettingsPage() {
       });
       toast(`Staff account "${newStaff.username}" created`, "success");
       closeAddModal();
-      setNewStaff({ name: "", username: "", password: "", locationCode: safeLocations[0]?.code || "", rfidUid: "" });
+      setNewStaff({ name: "", username: "", password: "", locationCode: safeLocations[0]?.code || "", rfidUid: "", email: "" });
       setShowNewStaffPw(false);
       loadOwnerData();
     } catch (err) {
@@ -263,7 +264,8 @@ export default function SettingsPage() {
       original &&
       staffEditing.name === original.name &&
       (staffEditing.location?.code || null) === (original.location?.code || null) &&
-      (staffEditing.rfidUid || null) === (original.rfidUid || null)
+      (staffEditing.rfidUid || null) === (original.rfidUid || null) &&
+      (staffEditing.email || "") === (original.email || "")
     ) {
       toast("No changes - staff details are already up to date.", "info");
       closeStaffEditModal();
@@ -275,7 +277,8 @@ export default function SettingsPage() {
       await api.patch(`/auth/staff/${staffEditing.id}`, {
         name: staffEditing.name,
         locationCode: staffEditing.location?.code || null,
-        rfidUid: staffEditing.rfidUid || null
+        rfidUid: staffEditing.rfidUid || null,
+        email: staffEditing.email || null
       });
       
       toast(`Staff account "${staffEditing.username}" updated`, "success");
@@ -1008,6 +1011,17 @@ export default function SettingsPage() {
                     style={{ height: "36px" }}
                   />
                 </label>
+                <label className="field">
+                  Gmail (optional - enables password reset)
+                  <input
+                    type="email"
+                    placeholder="staff@gmail.com"
+                    value={newStaff.email}
+                    onChange={(e) => setNewStaff({ ...newStaff, email: e.target.value })}
+                    autoComplete="email"
+                    style={{ height: "36px" }}
+                  />
+                </label>
 
                 <div className="modal-actions" style={{ marginTop: "var(--space-3)" }}>
                   <button type="button" className="ghost" onClick={closeAddModal} disabled={addClosing}>
@@ -1061,6 +1075,17 @@ export default function SettingsPage() {
                     placeholder="e.g. 04A2B3C4"
                     value={staffEditing?.rfidUid || ""}
                     onChange={(e) => setStaffEditing({ ...staffEditing, rfidUid: e.target.value })}
+                    style={{ height: "36px" }}
+                  />
+                </label>
+                <label className="field">
+                  Gmail (optional - enables password reset)
+                  <input
+                    type="email"
+                    placeholder="staff@gmail.com"
+                    value={staffEditing?.email || ""}
+                    onChange={(e) => setStaffEditing({ ...staffEditing, email: e.target.value })}
+                    autoComplete="email"
                     style={{ height: "36px" }}
                   />
                 </label>

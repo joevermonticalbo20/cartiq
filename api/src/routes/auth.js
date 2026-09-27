@@ -4,6 +4,19 @@ import jwt from "jsonwebtoken";
 import rateLimit from "express-rate-limit";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import {
+  normalizeEmail,
+  validEmail,
+  generateOtp,
+  hashOtp,
+  otpMatches,
+  OTP_TTL_MS,
+  OTP_MAX_ATTEMPTS,
+  OTP_RESEND_COOLDOWN_MS,
+  FORGOT_GENERIC_MESSAGE,
+  RESET_INVALID_MESSAGE,
+} from "../services/password_reset.js";
+import { sendGmail, resetEmailContent } from "../services/gmail.js";
 
 // Rate limiter: 20 attempts per 15 min per IP. High enough that the
 // project's own regression suite (~10 logins back-to-back from one dev
@@ -15,6 +28,25 @@ const loginLimiter = rateLimit({
   message: { error: "Too many login attempts - please try again in 15 minutes" },
 });
 
+// Forgot-password: 5 requests/hour per IP+email. Keyed on both so one actor
+// can't burn the quota for someone else's address from a shared network,
+// and one address can't be spammed from rotating IPs beyond the DB-level
+// 60s resend cooldown + 5-attempt code cap.
+const forgotLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  keyGenerator: (req) => `${req.ip ?? ""}|${normalizeEmail(req.body?.email)}`,
+  message: { error: "Too many reset requests - please try again later" },
+});
+
+// Reset-password: looser (legit typo retries), the per-code attempt cap is
+// the real brute-force guard.
+const resetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  message: { error: "Too many reset attempts - please try again later" },
+});
+
 const router = Router();
 
 function publicUser(user) {
@@ -23,6 +55,7 @@ function publicUser(user) {
     name: user.name,
     username: user.username,
     role: user.role,
+    email: user.email ?? null,
     location: user.location
       ? { id: user.location.id, code: user.location.code, name: user.location.name }
       : null,
@@ -179,6 +212,130 @@ router.post("/logout", async (req, res, next) => {
   }
 });
 
+// POST /auth/forgot-password { email } -> generic success always.
+// Flow: Gmail address in -> 6-digit OTP out (email delivery). The response
+// is IDENTICAL whether or not the address maps to an account, so the
+// endpoint can't enumerate registered emails. Disabled accounts are treated
+// exactly like unknown ones (no email, same response).
+router.post("/forgot-password", forgotLimiter, async (req, res, next) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    // Format errors are safe to report: validity reveals nothing about
+    // whether an account exists.
+    if (!email || !validEmail(email)) {
+      return res.status(400).json({ error: "A valid email address is required" });
+    }
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (user && user.active !== false) {
+      // Single active OTP per user: drop previous unused ones first, then
+      // enforce the silent 60s resend cooldown (same generic response either
+      // way — a 429 here would leak that the account exists).
+      const existing = await prisma.passwordReset.findMany({
+        where: { userId: user.id },
+      });
+      const unused = existing
+        .filter((r) => !r.used)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      const fresh = unused[0];
+      const coolingDown =
+        fresh && Date.now() - new Date(fresh.createdAt).getTime() < OTP_RESEND_COOLDOWN_MS;
+      if (!coolingDown) {
+        for (const r of unused) {
+          await prisma.passwordReset.delete({ where: { id: r.id } });
+        }
+        const code = generateOtp();
+        await prisma.passwordReset.create({
+          data: {
+            userId: user.id,
+            tokenHash: hashOtp(code),
+            expiresAt: new Date(Date.now() + OTP_TTL_MS),
+          },
+        });
+        try {
+          const { subject, text } = resetEmailContent(code);
+          await sendGmail({ to: email, subject, text });
+        } catch (err) {
+          // Delivery failure must not reveal anything: log server-side and
+          // keep the generic response. The unsent code simply expires.
+          console.error(`[api:forgot-password] email delivery failed for user #${user.id}:`, err.message);
+        }
+      }
+    }
+    return res.json({ success: true, message: FORGOT_GENERIC_MESSAGE });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /auth/reset-password { email, code, newPassword }.
+// Every failure mode returns the SAME message + status so wrong codes,
+// expired codes, exhausted attempts, and unknown emails are
+// indistinguishable (no oracle for guessing).
+router.post("/reset-password", resetLimiter, async (req, res, next) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    const code = String(req.body?.code ?? "").trim();
+    const { newPassword } = req.body ?? {};
+    if (!email || !validEmail(email) || !/^\d{6}$/.test(code)) {
+      return res.status(400).json({ error: RESET_INVALID_MESSAGE });
+    }
+    if (
+      !newPassword ||
+      String(newPassword).length < 6 ||
+      Buffer.byteLength(String(newPassword)) > 72
+    ) {
+      return res.status(400).json({ error: "newPassword must be 6-72 chars" });
+    }
+    const user = await prisma.user.findUnique({ where: { email } });
+    const fail = () => res.status(400).json({ error: RESET_INVALID_MESSAGE });
+    if (!user || user.active === false) return fail();
+    const records = await prisma.passwordReset.findMany({
+      where: { userId: user.id },
+    });
+    const rec = records
+      .filter((r) => !r.used)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+    if (!rec) return fail();
+    if (new Date() > new Date(rec.expiresAt)) {
+      await prisma.passwordReset.delete({ where: { id: rec.id } });
+      return fail();
+    }
+    if ((rec.attempts ?? 0) >= OTP_MAX_ATTEMPTS) {
+      await prisma.passwordReset.delete({ where: { id: rec.id } });
+      return fail();
+    }
+    if (!otpMatches(code, rec.tokenHash)) {
+      const attempts = (rec.attempts ?? 0) + 1;
+      if (attempts >= OTP_MAX_ATTEMPTS) {
+        await prisma.passwordReset.delete({ where: { id: rec.id } });
+      } else {
+        await prisma.passwordReset.update({
+          where: { id: rec.id },
+          data: { attempts },
+        });
+      }
+      return fail();
+    }
+    // Correct code: consume it, set the password, kill every session and any
+    // other outstanding OTPs for this user.
+    await prisma.passwordReset.delete({ where: { id: rec.id } });
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await bcrypt.hash(String(newPassword), 10) },
+    });
+    await prisma.refreshToken.deleteMany({ where: { userId: user.id } });
+    const leftovers = await prisma.passwordReset.findMany({
+      where: { userId: user.id },
+    });
+    for (const r of leftovers.filter((x) => !x.used)) {
+      await prisma.passwordReset.delete({ where: { id: r.id } });
+    }
+    return res.json({ updated: true, sessionsRevoked: true });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.post("/change-password", requireAuth, async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body ?? {};
@@ -227,6 +384,7 @@ router.get("/staff", requireAuth, requireRole("OWNER"), async (_req, res, next) 
         role: u.role,
         active: u.active,
         rfidUid: u.rfidUid,
+        email: u.email ?? null,
         location: u.location ? { code: u.location.code, name: u.location.name } : null,
         createdAt: u.createdAt,
       })),
@@ -238,7 +396,7 @@ router.get("/staff", requireAuth, requireRole("OWNER"), async (_req, res, next) 
 
 router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const { name, username, password, locationCode, rfidUid } = req.body ?? {};
+    const { name, username, password, locationCode, rfidUid, email } = req.body ?? {};
     const cleanUsername = String(username ?? "").trim();
     if (!name || !cleanUsername || !password || String(password).length < 6) {
       return res.status(400).json({ error: "name, username and password (min 6 chars) required" });
@@ -248,6 +406,18 @@ router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) 
     }
     const exists = await prisma.user.findUnique({ where: { username: cleanUsername } });
     if (exists) return res.status(409).json({ error: `Username "${cleanUsername}" already exists` });
+
+    // Email is optional (recovery via Gmail OTP needs one on file). Stored
+    // lowercase; empty string clears to null.
+    let cleanEmail = null;
+    if (email !== undefined && email !== null && String(email).trim() !== "") {
+      cleanEmail = normalizeEmail(email);
+      if (!validEmail(cleanEmail)) {
+        return res.status(400).json({ error: "email must be a valid email address" });
+      }
+      const emailTaken = await prisma.user.findUnique({ where: { email: cleanEmail } });
+      if (emailTaken) return res.status(409).json({ error: "Email already registered" });
+    }
 
     let locationId = null;
     if (locationCode) {
@@ -269,9 +439,10 @@ router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) 
         active: true,
         locationId,
         rfidUid: rfidUid ?? null,
+        email: cleanEmail,
       },
     });
-    return res.status(201).json({ user: { id: user.id, username: user.username, name: user.name, role: user.role, active: user.active } });
+    return res.status(201).json({ user: { id: user.id, username: user.username, name: user.name, role: user.role, active: user.active, email: user.email ?? null } });
   } catch (err) {
     return next(err);
   }
@@ -279,7 +450,7 @@ router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) 
 
 router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const { active, password, name, locationCode, rfidUid } = req.body ?? {};
+    const { active, password, name, locationCode, rfidUid, email } = req.body ?? {};
     const user = await prisma.user.findUnique({ where: { id: Number(req.params.id) } });
     if (!user) return res.status(404).json({ error: "User not found" });
     // Owners must not lock themselves out: deactivating your own account
@@ -320,6 +491,21 @@ router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, n
         data.rfidUid = rfidUid;
       }
     }
+    if (email !== undefined) {
+      if (email === null || String(email).trim() === "") {
+        data.email = null;
+      } else {
+        const cleanEmail = normalizeEmail(email);
+        if (!validEmail(cleanEmail)) {
+          return res.status(400).json({ error: "email must be a valid email address" });
+        }
+        const taken = await prisma.user.findFirst({
+          where: { email: cleanEmail, id: { not: user.id } },
+        });
+        if (taken) return res.status(409).json({ error: "Email already registered" });
+        data.email = cleanEmail;
+      }
+    }
 
     const updated = await prisma.user.update({ where: { id: user.id }, data });
     if (data.active === false) {
@@ -327,7 +513,7 @@ router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, n
       // tokens must also die so no new access token can be minted.
       await prisma.refreshToken.deleteMany({ where: { userId: user.id } });
     }
-    return res.json({ user: { id: updated.id, username: updated.username, name: updated.name, active: updated.active, rfidUid: updated.rfidUid } });
+    return res.json({ user: { id: updated.id, username: updated.username, name: updated.name, active: updated.active, rfidUid: updated.rfidUid, email: updated.email ?? null } });
   } catch (err) {
     return next(err);
   }

@@ -642,6 +642,7 @@ async function publicUser(user) {
     name: user.name,
     username: user.username,
     role: user.role,
+    email: user.email ?? null,
     location,
   };
 }
@@ -4453,6 +4454,231 @@ function utf8len(s) {
   return new TextEncoder().encode(String(s)).length;
 }
 
+// ---------- password reset via Gmail OTP (mirror api/src/services/*.js) ----------
+// Policy constants mirror api/src/services/password_reset.js — keep in sync.
+const OTP_LENGTH = 6;
+const OTP_TTL_MS = 10 * 60 * 1000;
+const OTP_MAX_ATTEMPTS = 5;
+const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+const FORGOT_GENERIC_MESSAGE = "If an account exists for this email, a reset code was sent.";
+const RESET_INVALID_MESSAGE = "Invalid or expired code.";
+
+function normalizeEmailAddr(v) {
+  return String(v ?? "").trim().toLowerCase();
+}
+
+function validEmailAddr(v) {
+  const s = String(v ?? "").trim();
+  if (!s || s.length > 254) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
+
+function generateOtpCode() {
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  return String(buf[0] % 10 ** OTP_LENGTH).padStart(OTP_LENGTH, "0");
+}
+
+async function sha256Hex(s) {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(s)));
+  return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function otpEqualsHex(aHex, bHex) {
+  if (typeof aHex !== "string" || typeof bHex !== "string" || aHex.length !== bHex.length) return false;
+  let diff = 0;
+  for (let i = 0; i < aHex.length; i++) diff |= aHex.charCodeAt(i) ^ bHex.charCodeAt(i);
+  return diff === 0;
+}
+
+// ---------- per-isolate public-endpoint rate limiting ----------
+// Best-effort abuse guard for the unauthenticated OTP endpoints (isolate
+// memory only — same caveat as the Express in-memory limiters).
+const _edgeLimits = new Map(); // key -> { count, resetMs }
+function edgeRateAllowed(key, max, windowMs) {
+  const now = Date.now();
+  let rec = _edgeLimits.get(key);
+  if (!rec || rec.resetMs <= now) {
+    rec = { count: 0, resetMs: now + windowMs };
+    _edgeLimits.set(key, rec);
+  }
+  // Opportunistic cleanup so the map can't grow without bound.
+  if (_edgeLimits.size > 2000 && Math.random() < 0.01) {
+    for (const [k, v] of _edgeLimits) if (v.resetMs <= now) _edgeLimits.delete(k);
+  }
+  if (rec.count >= max) return false;
+  rec.count++;
+  return true;
+}
+
+function clientIp(req) {
+  const fwd = req.headers.get("x-forwarded-for") || "";
+  return fwd.split(",")[0].trim();
+}
+
+// ---------- Gmail API sender (mirror api/src/services/gmail.js) ----------
+// HTTPS only (Edge Functions can't open SMTP connections).
+let _gmailTok = null; // { token, expMs }
+
+function gmailSecrets() {
+  return {
+    clientId: env("GMAIL_CLIENT_ID"),
+    clientSecret: env("GMAIL_CLIENT_SECRET"),
+    refreshToken: env("GMAIL_REFRESH_TOKEN"),
+    from: env("GMAIL_FROM"),
+  };
+}
+
+async function gmailAccessToken() {
+  if (_gmailTok && _gmailTok.expMs - 60000 > Date.now()) return _gmailTok.token;
+  const { clientId, clientSecret, refreshToken } = gmailSecrets();
+  if (!clientId || !clientSecret || !refreshToken) {
+    throw new Error("Gmail is not configured (missing OAuth credentials)");
+  }
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body:
+      "grant_type=refresh_token" +
+      "&client_id=" + encodeURIComponent(clientId) +
+      "&client_secret=" + encodeURIComponent(clientSecret) +
+      "&refresh_token=" + encodeURIComponent(refreshToken),
+  });
+  if (!res.ok) throw new Error(`Gmail token exchange failed (HTTP ${res.status})`);
+  const data = await res.json();
+  if (!data.access_token) throw new Error("Gmail token exchange returned no token");
+  _gmailTok = { token: data.access_token, expMs: Date.now() + (Number(data.expires_in) || 3600) * 1000 };
+  return _gmailTok.token;
+}
+
+function resetEmailContent(code) {
+  return {
+    subject: "CartIQ password reset code",
+    text:
+      `Your CartIQ password reset code is:\n\n${code}\n\n` +
+      `It expires in 10 minutes and can only be used once.\n` +
+      `If you didn't ask for this, you can ignore this email.\n\n` +
+      `— CartIQ (Pota Fries Operations)`,
+  };
+}
+
+async function sendGmailEdge({ to, subject, text }) {
+  const { from } = gmailSecrets();
+  if (!from) throw new Error("Gmail is not configured (missing GMAIL_FROM)");
+  const token = await gmailAccessToken();
+  const lines = [
+    `From: ${from}`,
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    `Content-Type: text/plain; charset="UTF-8"`,
+    "",
+    text,
+  ];
+  const raw = b64urlEncode(new TextEncoder().encode(lines.join("\r\n")));
+  const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+    body: JSON.stringify({ raw }),
+  });
+  if (!res.ok) {
+    let detail = "";
+    try {
+      detail = JSON.stringify(await res.json()).slice(0, 200);
+    } catch { detail = ""; }
+    throw new Error(`Gmail send failed (HTTP ${res.status}) ${detail}`);
+  }
+  return true;
+}
+
+async function handleForgotPassword(req, origin) {
+  const body = await req.json().catch(() => null);
+  const email = normalizeEmailAddr(body?.email);
+  if (!email || !validEmailAddr(email)) {
+    return jsonRes(origin, { error: "A valid email address is required" }, 400);
+  }
+  if (!edgeRateAllowed(`forgot:${clientIp(req)}|${email}`, 5, 60 * 60 * 1000)) {
+    return jsonRes(origin, { error: "Too many reset requests - please try again later" }, 429);
+  }
+  const user = await fsQueryEqual("users", "email", email, 1).then((r) => r[0] || null);
+  if (user && user.active !== false) {
+    const existing = await fsQueryEqual("passwordResets", "userId", user.id, 100);
+    const unused = existing.filter((r) => !r.used)
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    const fresh = unused[0];
+    const cooling = fresh &&
+      Date.now() - new Date(fresh.createdAt || 0).getTime() < OTP_RESEND_COOLDOWN_MS;
+    if (!cooling) {
+      for (const r of unused) await fsDeleteByName(r._name).catch(() => {});
+      const code = generateOtpCode();
+      await fsCreate("passwordResets", null, {
+        userId: user.id,
+        tokenHash: await sha256Hex(code),
+        expiresAt: new Date(Date.now() + OTP_TTL_MS),
+        used: false,
+        attempts: 0,
+        createdAt: new Date(),
+      });
+      try {
+        const { subject, text } = resetEmailContent(code);
+        await sendGmailEdge({ to: email, subject, text });
+      } catch (e) {
+        console.error(`[api:forgot-password] email delivery failed for user #${user.id}:`, String((e && e.message) || e));
+      }
+    }
+  }
+  return jsonRes(origin, { success: true, message: FORGOT_GENERIC_MESSAGE }, 200);
+}
+
+async function handleResetPassword(req, origin) {
+  const body = await req.json().catch(() => null);
+  const email = normalizeEmailAddr(body?.email);
+  const code = String(body?.code ?? "").trim();
+  const newPassword = body?.newPassword;
+  if (!edgeRateAllowed(`reset:${clientIp(req)}`, 20, 60 * 60 * 1000)) {
+    return jsonRes(origin, { error: "Too many reset attempts - please try again later" }, 429);
+  }
+  const fail = () => jsonRes(origin, { error: RESET_INVALID_MESSAGE }, 400);
+  if (!email || !validEmailAddr(email) || !/^\d{6}$/.test(code)) return fail();
+  if (!newPassword || String(newPassword).length < 6 || utf8len(String(newPassword)) > 72) {
+    return jsonRes(origin, { error: "newPassword must be 6-72 chars" }, 400);
+  }
+  const user = await fsQueryEqual("users", "email", email, 1).then((r) => r[0] || null);
+  if (!user || user.active === false) return fail();
+  const records = await fsQueryEqual("passwordResets", "userId", user.id, 100);
+  const rec = records.filter((r) => !r.used)
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0];
+  if (!rec) return fail();
+  if (!(rec.expiresAt instanceof Date) || Date.now() > rec.expiresAt.getTime()) {
+    await fsDeleteByName(rec._name).catch(() => {});
+    return fail();
+  }
+  if ((rec.attempts ?? 0) >= OTP_MAX_ATTEMPTS) {
+    await fsDeleteByName(rec._name).catch(() => {});
+    return fail();
+  }
+  if (!otpEqualsHex(await sha256Hex(code), rec.tokenHash)) {
+    const attempts = (rec.attempts ?? 0) + 1;
+    if (attempts >= OTP_MAX_ATTEMPTS) {
+      await fsDeleteByName(rec._name).catch(() => {});
+    } else {
+      await fsPatch("passwordResets", String(rec._name.split("/").pop()), { attempts }).catch(() => {});
+    }
+    return fail();
+  }
+  const bl = await bcryptLib();
+  await fsDeleteByName(rec._name).catch(() => {});
+  await fsPatch("users", user.id, { passwordHash: await bl.hash(String(newPassword), 10) });
+  const sessions = await fsQueryEqual("refreshTokens", "userId", user.id, 10000);
+  for (const s of sessions) {
+    await fsDeleteByName(s._name).catch(() => {});
+  }
+  const leftovers = await fsQueryEqual("passwordResets", "userId", user.id, 100);
+  for (const r of leftovers.filter((x) => !x.used)) {
+    await fsDeleteByName(r._name).catch(() => {});
+  }
+  return jsonRes(origin, { updated: true, sessionsRevoked: true }, 200);
+}
+
 // ---------- staff + password (mirror the rest of api/src/routes/auth.js) ----------
 async function handleChangePassword(req, user) {
   const body = await req.json().catch(() => null);
@@ -4487,6 +4713,7 @@ function staffPublic(u, locById) {
     role: u.role,
     active: u.active,
     rfidUid: u.rfidUid ?? null,
+    email: u.email ?? null,
     location: loc ? { code: loc.code, name: loc.name } : null,
     createdAt: u.createdAt ?? null,
   };
@@ -4504,7 +4731,7 @@ async function handleListStaff() {
 
 async function handleCreateStaff(req) {
   const body = await req.json().catch(() => null);
-  const { name, username, password, locationCode, rfidUid } = body || {};
+  const { name, username, password, locationCode, rfidUid, email } = body || {};
   const cleanUsername = String(username ?? "").trim();
   if (!name || !cleanUsername || !password || String(password).length < 6) {
     return { status: 400, body: { error: "name, username and password (min 6 chars) required" } };
@@ -4514,6 +4741,18 @@ async function handleCreateStaff(req) {
   }
   if (await fsQueryEqual("users", "username", cleanUsername, 1).then((r) => r[0])) {
     return { status: 409, body: { error: `Username "${cleanUsername}" already exists` } };
+  }
+  // Email is optional (recovery via Gmail OTP needs one on file). Stored
+  // lowercase; empty clears to null.
+  let cleanEmail = null;
+  if (email !== undefined && email !== null && String(email).trim() !== "") {
+    cleanEmail = normalizeEmailAddr(String(email));
+    if (!validEmailAddr(cleanEmail)) {
+      return { status: 400, body: { error: "email must be a valid email address" } };
+    }
+    if (await fsQueryEqual("users", "email", cleanEmail, 1).then((r) => r[0])) {
+      return { status: 409, body: { error: "Email already registered" } };
+    }
   }
   let locationId = null;
   if (locationCode) {
@@ -4539,6 +4778,7 @@ async function handleCreateStaff(req) {
       active: true,
       locationId,
       rfidUid: rfidUid ?? null,
+      email: cleanEmail,
       createdAt: new Date(),
     };
     writes.push(createWrite("users", doc.id, doc));
@@ -4547,13 +4787,13 @@ async function handleCreateStaff(req) {
   }, 4);
   return {
     status: 201,
-    body: { user: { id: created.id, username: created.username, name: created.name, role: created.role, active: created.active } },
+    body: { user: { id: created.id, username: created.username, name: created.name, role: created.role, active: created.active, email: created.email ?? null } },
   };
 }
 
 async function handlePatchStaff(req, id, me) {
   const body = await req.json().catch(() => null);
-  const { active, password, name, locationCode, rfidUid } = body || {};
+  const { active, password, name, locationCode, rfidUid, email } = body || {};
   const user = await fsGet("users", id);
   if (!user) return { status: 404, body: { error: "User not found" } };
   if (Number(id) === Number(me.id) && active === false) {
@@ -4591,6 +4831,21 @@ async function handlePatchStaff(req, id, me) {
       data.rfidUid = rfidUid;
     }
   }
+  if (email !== undefined) {
+    if (email === null || String(email).trim() === "") {
+      data.email = null;
+    } else {
+      const cleanEmail = normalizeEmailAddr(String(email));
+      if (!validEmailAddr(cleanEmail)) {
+        return { status: 400, body: { error: "email must be a valid email address" } };
+      }
+      const all = await fsListAll("users");
+      if (all.some((u) => String(u.email ?? "").toLowerCase() === cleanEmail && Number(u.id) !== Number(user.id))) {
+        return { status: 409, body: { error: "Email already registered" } };
+      }
+      data.email = cleanEmail;
+    }
+  }
   if (Object.keys(data).length > 0) await fsPatch("users", user.id, data);
   const updated = await fsGet("users", user.id);
   if (data.active === false) {
@@ -4601,7 +4856,7 @@ async function handlePatchStaff(req, id, me) {
   }
   return {
     status: 200,
-    body: { user: { id: updated.id, username: updated.username, name: updated.name, active: updated.active, rfidUid: updated.rfidUid ?? null } },
+    body: { user: { id: updated.id, username: updated.username, name: updated.name, active: updated.active, rfidUid: updated.rfidUid ?? null, email: updated.email ?? null } },
   };
 }
 
@@ -4809,6 +5064,8 @@ Deno.serve(async (req) => {
       if (req.method === "POST" && path === "/auth/login") return await handleLogin(req, origin);
       if (req.method === "POST" && path === "/auth/refresh") return await handleRefresh(req, origin);
       if (req.method === "POST" && path === "/auth/logout") return await handleLogout(req, origin);
+      if (req.method === "POST" && path === "/auth/forgot-password") return await handleForgotPassword(req, origin);
+      if (req.method === "POST" && path === "/auth/reset-password") return await handleResetPassword(req, origin);
       if (req.method === "GET" && path === "/auth/me") return await handleMe(req, origin);
       if (req.method === "GET" && path === "/secure-ping") {
         const auth = await authUser(req);
@@ -5097,7 +5354,8 @@ Deno.serve(async (req) => {
         return notFoundRes(origin, req, path);
       }
     } else if (
-      (req.method === "POST" && (path === "/auth/login" || path === "/auth/refresh" || path === "/auth/logout")) ||
+      (req.method === "POST" && (path === "/auth/login" || path === "/auth/refresh" || path === "/auth/logout" ||
+        path === "/auth/forgot-password" || path === "/auth/reset-password")) ||
       (req.method === "GET" && path === "/auth/me")
     ) {
       // Firestore secrets missing: native auth unavailable.

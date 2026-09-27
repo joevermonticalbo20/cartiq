@@ -13,6 +13,8 @@ boundaries are Asia/Manila. Alert dedupe is by structured `dedupeKey`
 | `/auth/login` | POST | `{username, password}` (20/15min/IP) | `{token(15min), refreshToken(30d), user}` |
 | `/auth/refresh` | POST | `{refreshToken}` (60/15min/IP, rotation, rejects disabled accounts) | `{token, refreshToken, user}` |
 | `/auth/logout` | POST | `{refreshToken?}` idempotent | `{loggedOut:true}` |
+| `/auth/forgot-password` | POST | `{email}` — Gmail OTP (6-digit, 10-min, single-use). Generic success whether or not the address is registered (5/hr per IP+email; silent 60s resend cooldown) | `{success:true, message}` |
+| `/auth/reset-password` | POST | `{email, code, newPassword 6-72}` — identical `Invalid or expired code.` for every failure mode; success sets the password + revokes all sessions (20/hr per IP, 5 code attempts max) | `{updated:true, sessionsRevoked:true}` |
 | `/auth/me` | GET | Bearer token | `{user}` |
 | `/health` | GET | - | `{ok, service, version, uptimeSec, db, time}` — 503 when the DB is unreachable. |
 | `/secure-ping` | GET | Bearer token | `{pong, user}` |
@@ -122,8 +124,8 @@ envelope `{ data:[...], meta:{ total, page, pageSize, totalPages } }`.
 | `/devices` | GET | OWNER-only IoT registry: device_id, cart, active, last_seen_at, computed `online` (<5 min heartbeat). |
 | `/auth/change-password` | POST | Self-service: verifies current password, min 6 new chars. |
 | `/auth/staff` | GET | OWNER-only staff list incl. location, rfidUid, active. |
-| `/auth/staff` | POST | OWNER creates STAFF account (unique username, optional RFID UID + cart). |
-| `/auth/staff/:id` | PATCH | OWNER enables/disables account, resets password, reassigns cart/RFID. Disabled accounts are rejected at login. |
+| `/auth/staff` | POST | OWNER creates STAFF account (unique username, optional RFID UID + cart + Gmail for password reset). |
+| `/auth/staff/:id` | PATCH | OWNER enables/disables account, resets password, reassigns cart/RFID/email (unique Gmail, empty clears). Disabled accounts are rejected at login. |
 
 Web UI rebuilt as a multi-page app shell: collapsible sidebar (Dashboard,
 Sales, Inventory, Staff & Shifts, Analytics, Expenses, Data Hub, Settings),

@@ -276,6 +276,28 @@ button.password-toggle:active:not(:disabled) {
   letter-spacing: 0.1em;
   color: var(--text-muted);
 }
+/* Forgot-password link under the sign-in button. Plain text button so it
+   never competes with the primary CTA. */
+.login-forgot-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  margin: 12px auto 0;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: var(--fw-bold, 600);
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  display: block;
+}
+.login-forgot-btn:hover:not(:disabled) {
+  color: var(--primary);
+}
+.login-forgot-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
 .login-demo-hint {
   margin-top: 16px;
   display: flex;

@@ -205,6 +205,234 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  Future<void> _forgotPassword() async {
+    final loginContext = context;
+    final api = loginContext.read<AuthState>().api;
+    // Sheet-local flow state: email -> code (PIN pad) -> new password.
+    var step = 'email';
+    final emailCtrl = TextEditingController();
+    final pwCtrl = TextEditingController();
+    final pw2Ctrl = TextEditingController();
+    String? code;
+    String? error;
+    String? notice;
+    var busy = false;
+    var showPw = false;
+    try {
+      await showModalBottomSheet<void>(
+        context: loginContext,
+        isScrollControlled: true,
+        builder: (sheetContext) => StatefulBuilder(
+          builder: (context, setSheetState) {
+            Future<void> sendCode() async {
+              if (busy) return;
+              final email = emailCtrl.text.trim();
+              if (email.isEmpty || !email.contains('@')) {
+                setSheetState(() => error = 'Enter a valid Gmail address.');
+                return;
+              }
+              setSheetState(() {
+                busy = true;
+                error = null;
+              });
+              try {
+                // Generic success either way (the server never reveals
+                // whether the address is registered).
+                final data = await api.forgotPassword(email);
+                setSheetState(() {
+                  busy = false;
+                  notice = (data['message'] as String?) ??
+                      'If an account exists for this email, a reset code was sent.';
+                  step = 'code';
+                });
+                await Haptics.success();
+              } on ApiException catch (e) {
+                await Haptics.error();
+                setSheetState(() {
+                  busy = false;
+                  error = e.message;
+                });
+              }
+            }
+
+            Future<void> redeem() async {
+              if (busy || code == null) return;
+              if (pwCtrl.text != pw2Ctrl.text) {
+                setSheetState(() => error = 'New passwords do not match.');
+                return;
+              }
+              if (pwCtrl.text.length < 6) {
+                setSheetState(
+                    () => error = 'New password must be at least 6 characters.');
+                return;
+              }
+              // Captured before the async gap (ScaffoldMessenger.of after
+              // await trips use_build_context_synchronously).
+              final messenger = ScaffoldMessenger.of(loginContext);
+              setSheetState(() {
+                busy = true;
+                error = null;
+              });
+              try {
+                await api.resetPassword(
+                  email: emailCtrl.text.trim(),
+                  code: code!,
+                  newPassword: pwCtrl.text,
+                );
+                await Haptics.success();
+                if (sheetContext.mounted) Navigator.pop(sheetContext);
+                if (!mounted) return;
+                messenger
+                  ..hideCurrentSnackBar()
+                  ..showSnackBar(
+                    const SnackBar(
+                      content:
+                          Text('Password updated - sign in with the new password.'),
+                      duration: Duration(seconds: 3),
+                    ),
+                  );
+              } on ApiException catch (e) {
+                await Haptics.error();
+                setSheetState(() {
+                  busy = false;
+                  error = e.message;
+                });
+              }
+            }
+
+            Widget body;
+            if (step == 'email') {
+              body = Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('Reset password',
+                      style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: AppSpacing.space2),
+                  Text(
+                    'Enter the Gmail address saved on your account. We\'ll send a 6-digit code (expires in 10 minutes).',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: AppSpacing.space4),
+                  TextField(
+                    controller: emailCtrl,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      labelText: 'Gmail address',
+                      prefixIcon: Icon(Icons.mail_outline),
+                    ),
+                    onSubmitted: (_) => sendCode(),
+                  ),
+                  if (error != null) ...[
+                    const SizedBox(height: AppSpacing.space2),
+                    Text(error!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: AppColors.danger)),
+                  ],
+                  const SizedBox(height: AppSpacing.space4),
+                  FilledButton(
+                    onPressed: busy ? null : sendCode,
+                    child: busy
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Send code'),
+                  ),
+                ],
+              );
+            } else if (step == 'code') {
+              body = PinPad(
+                title: 'Reset code',
+                errorText: error,
+                onComplete: (c) {
+                  code = c;
+                  setSheetState(() {
+                    step = 'password';
+                    error = null;
+                  });
+                },
+              );
+            } else {
+              body = Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('New password',
+                      style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: AppSpacing.space2),
+                  if (notice != null)
+                    Text(notice!,
+                        style: Theme.of(context).textTheme.bodySmall),
+                  const SizedBox(height: AppSpacing.space4),
+                  TextField(
+                    controller: pwCtrl,
+                    obscureText: !showPw,
+                    decoration: InputDecoration(
+                      labelText: 'New password (min 6)',
+                      prefixIcon: const Icon(Icons.lock_outline),
+                      suffixIcon: IconButton(
+                        icon: Icon(showPw
+                            ? Icons.visibility_off_rounded
+                            : Icons.visibility_rounded),
+                        onPressed: () =>
+                            setSheetState(() => showPw = !showPw),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.space3),
+                  TextField(
+                    controller: pw2Ctrl,
+                    obscureText: !showPw,
+                    decoration: const InputDecoration(
+                      labelText: 'Confirm new password',
+                      prefixIcon: Icon(Icons.lock_outline),
+                    ),
+                    onSubmitted: (_) => redeem(),
+                  ),
+                  if (error != null) ...[
+                    const SizedBox(height: AppSpacing.space2),
+                    Text(error!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: AppColors.danger)),
+                  ],
+                  const SizedBox(height: AppSpacing.space4),
+                  FilledButton(
+                    onPressed: busy ? null : redeem,
+                    child: busy
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Set new password'),
+                  ),
+                ],
+              );
+            }
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: AppSpacing.space5,
+                  right: AppSpacing.space5,
+                  top: AppSpacing.space4,
+                  bottom: MediaQuery.of(context).viewInsets.bottom +
+                      AppSpacing.space6,
+                ),
+                child: body,
+              ),
+            );
+          },
+        ),
+      );
+    } finally {
+      emailCtrl.dispose();
+      pwCtrl.dispose();
+      pw2Ctrl.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -346,6 +574,10 @@ class _LoginScreenState extends State<LoginScreen> {
                               'No signal? Staff with a device PIN can open the POS offline.',
                               textAlign: TextAlign.center,
                               style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            TextButton(
+                              onPressed: _loading ? null : _forgotPassword,
+                              child: const Text('Forgot password?'),
                             ),
                             const SizedBox(height: AppSpacing.space3),
                             Text(
