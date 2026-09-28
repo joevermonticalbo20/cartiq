@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { CheckSquare, SlidersHorizontal, Square, Boxes, RefreshCw, Plus, PackagePlus, Edit2, Trash2 } from "lucide-react";
+
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
@@ -12,6 +13,7 @@ import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import Select from "../components/Select.jsx";
 import { useToast } from "../components/Toast.jsx";
+import Skeleton from "../components/Skeleton.jsx";
 import { sanitizeQtyInput, parseQty } from "../utils/format.js";
 import { sanitizeTextInput, validateItemName } from "../utils/text.js";
 
@@ -25,13 +27,12 @@ export default function InventoryPage() {
   const [locations, setLocations] = useState([]);
   const [selected, setSelected] = useState("");
   const [loading, setLoading] = useState(true);
-
   const [adjusting, setAdjusting] = useState(null);
   const [adjustClosing, setAdjustClosing] = useState(false);
   const [newStock, setNewStock] = useState("");
   const [adjustError, setAdjustError] = useState("");
   const [saving, setSaving] = useState(false);
-  
+
   const [addOpen, setAddOpen] = useState(false);
   const [addClosing, setAddClosing] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
@@ -49,17 +50,18 @@ export default function InventoryPage() {
   const [editClosing, setEditClosing] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editError, setEditError] = useState("");
+  
   const [deleting, setDeleting] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
   const [forecast, setForecast] = useState(null);
   const [loadError, setLoadError] = useState("");
+
   // Stock item name -> ["Product (Flavor)", ...] (from /products recipes).
   const [usageByItem, setUsageByItem] = useState(new Map());
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkValue, setBulkValue] = useState("");
   const [bulkConfirm, setBulkConfirm] = useState(false);
-
   const [prep, setPrep] = useState(null);
   const [applyingId, setApplyingId] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -90,7 +92,6 @@ export default function InventoryPage() {
   const refresh = useCallback(() => {
     const targetCode = selected || "CART-01";
     setLoading(true);
-
     Promise.all([
       api.get("/inventory"),
       api.get(`/analytics/forecast?code=${targetCode}`).catch(() => ({ data: { items: [] } })),
@@ -102,6 +103,7 @@ export default function InventoryPage() {
         setLocations(locs);
         setForecast(fc.data?.items ?? []);
         setPrep(pr.data);
+
         // Reverse map: stock item name -> ["Product (Flavor)", ...] so each
         // row shows what consumes it (same recipe rows the POS deducts).
         const usage = new Map();
@@ -118,7 +120,6 @@ export default function InventoryPage() {
         }
         setUsageByItem(usage);
         setLoadError("");
-
         if (!locs.some((l) => l.code === selected) && locs[0]) {
           setSelected(locs[0].code);
         }
@@ -146,7 +147,6 @@ export default function InventoryPage() {
       closeAdjustModal();
       return;
     }
-
     setAdjustError("");
     setSaving(true);
     try {
@@ -177,6 +177,7 @@ export default function InventoryPage() {
 
     const stock = parseQty(newItem.stock);
     const threshold = parseQty(newItem.threshold);
+
     if (stock === null || threshold === null) {
       setAddError("Stock and threshold must be 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).");
       return;
@@ -212,8 +213,8 @@ export default function InventoryPage() {
   async function handleEditItem(e) {
     e.preventDefault();
     setEditError("");
-    const nextThreshold = parseQty(editing.threshold);
 
+    const nextThreshold = parseQty(editing.threshold);
     if (nextThreshold === null) {
       setEditError("Enter a threshold from 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).");
       return;
@@ -338,7 +339,7 @@ export default function InventoryPage() {
     { value: "Cleaning", label: "Cleaning" },
     { value: "Others", label: "Others" },
   ];
-  
+
   const unitOptions = [
     { value: "pcs", label: "Pieces (pcs)" },
     { value: "kg", label: "Kilograms (kg)" },
@@ -390,38 +391,31 @@ export default function InventoryPage() {
           {loading ? (
             <>
               <p role="status" className="muted small" style={{ margin: "0 0 var(--space-2)" }}>
-                Loading inventory…
+                Loading inventory
               </p>
               <div className="table-wrap" tabIndex={0} aria-label="Loading table">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th style={{ width: 40 }}> </th>
-                    <th><span className="th-inner">Item</span></th>
-                    <th><span className="th-inner">Current stock</span></th>
-                    <th><span className="th-inner">Threshold</span></th>
-                    <th><span className="th-inner">Source</span></th>
-                    <th><span className="th-inner">Status</span></th>
-                    <th><span className="th-inner">Forecast</span></th>
-                    <th className="t-center"><span className="th-inner">Action</span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <tr key={i}>
-                      <td><div className="skel" style={{ height: 14, width: 14, borderRadius: 4, display: "inline-block", margin: "4px 0" }} /></td>
-                      <td><div className="skel" style={{ width: `${40 + (i * 17) % 30}%`, height: 14, display: "inline-block", margin: "4px 0" }} /></td>
-                      <td><div className="skel" style={{ width: "60%", height: 14, display: "inline-block", margin: "4px 0" }} /></td>
-                      <td><div className="skel" style={{ width: "60%", height: 14, display: "inline-block", margin: "4px 0" }} /></td>
-                      <td><div className="skel" style={{ width: "80%", height: 14, display: "inline-block", margin: "4px 0" }} /></td>
-                      <td><div className="skel" style={{ width: "80%", height: 14, display: "inline-block", margin: "4px 0" }} /></td>
-                      <td><div className="skel" style={{ width: "90%", height: 14, display: "inline-block", margin: "4px 0" }} /></td>
-                      <td className="t-center"><div className="skel" style={{ width: "80%", height: 14, display: "inline-block", margin: "4px 0" }} /></td>
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 40 }}> </th>
+                      <th><span className="th-inner">Item</span></th>
+                      <th><span className="th-inner">Current stock</span></th>
+                      <th><span className="th-inner">Threshold</span></th>
+                      <th><span className="th-inner">Source</span></th>
+                      <th><span className="th-inner">Status</span></th>
+                      <th><span className="th-inner">Forecast</span></th>
+                      <th className="t-center"><span className="th-inner">Action</span></th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td colSpan="8" style={{ padding: "var(--space-4)" }}>
+                        <Skeleton rows={5} height={44} />
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </>
           ) : loadError ? (
             <ErrorBox message={loadError} onRetry={refresh} />
@@ -604,7 +598,6 @@ export default function InventoryPage() {
               Expected usage from trailing averages scaled by weekday patterns.
               Shortfall = what to prepare beyond current stock.
             </p>
-
             <div className="table-wrap">
               <table className="data">
                 <thead>
@@ -774,6 +767,7 @@ export default function InventoryPage() {
                     {isAdding ? "Adding..." : "Add Item"}
                   </button>
                 </div>
+
                 {addError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{addError}</p>}
               </form>
             </div>
@@ -811,6 +805,7 @@ export default function InventoryPage() {
                     {isEditing ? "Saving..." : "Save Changes"}
                   </button>
                 </div>
+
                 {editError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{editError}</p>}
               </form>
             </div>
@@ -826,7 +821,6 @@ export default function InventoryPage() {
                 Manual recount after a physical check for <strong>{adjusting?.name}</strong>. Current: {adjusting?.stock}{" "}
                 {adjusting?.unit}. 
               </p>
-
               <label className="field">
                 New stock count ({adjusting?.unit})
                 <input
@@ -876,7 +870,6 @@ export default function InventoryPage() {
           onConfirm={handleDeleteItem}
           onCancel={() => setDeleting(null)}
         />
-
       </div>
     </PageErrorBoundary>
   );

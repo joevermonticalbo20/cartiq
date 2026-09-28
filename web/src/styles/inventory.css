@@ -20,19 +20,6 @@
   min-height: 0; /* Critical para hindi bumulwak ang height ng table */
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background-image:
-    linear-gradient(to right, var(--surface), transparent),
-    linear-gradient(to left, var(--surface), transparent),
-    radial-gradient(farthest-side at 0 50%, var(--table-scroll-shadow), transparent),
-    radial-gradient(farthest-side at 100% 50%, var(--table-scroll-shadow), transparent),
-    linear-gradient(to bottom, var(--surface), transparent),
-    linear-gradient(to top, var(--surface), transparent),
-    radial-gradient(farthest-side at 50% 0, var(--table-scroll-shadow), transparent),
-    radial-gradient(farthest-side at 50% 100%, var(--table-scroll-shadow), transparent);
-  background-repeat: no-repeat;
-  background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%, 100% 40px, 100% 40px, 100% 14px, 100% 14px;
-  background-position: left center, right center, left center, right center, top center, bottom center, top center, bottom center;
-  background-attachment: local, local, scroll, scroll, local, local, scroll, scroll;
 }
 
 /* INO-MODIFIED: Solid and Sticky Headers para sa Inventory Table */
@@ -48,7 +35,6 @@
 .inventory-panel > .empty-state-card {
   flex: 1;
   justify-content: center;
-  border: none;
 }
 
 .inventory-filters-row {
@@ -99,8 +85,8 @@
   box-shadow: 0 0 0 3px var(--primary-soft);
 }
 
-.bulk-input {
-   width: 140px; 
+.bulk-input { 
+  width: 140px; 
 }
 
 /* ================= table checkbox ================= */

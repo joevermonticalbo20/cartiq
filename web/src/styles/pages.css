@@ -54,7 +54,6 @@
   color: var(--warn);
   font-weight: var(--fw-semibold);
 }
-
 .pw-strength-checks {
   list-style: none;
   margin: 0;
@@ -138,19 +137,16 @@
 /* ============================================================
  * NEW LAYOUT: Sales Page Modernization (SCROLLABLE TABLE)
  * ============================================================ */
-
 .sales-panel {
   padding: var(--space-5);
   background: var(--surface);
   display: flex;
   flex-direction: column;
 }
-
 .sales-panel > .empty-state-card {
   flex: 1;
   min-height: 240px;
   justify-content: center;
-  border: none;
   margin: 0;
   background-color: var(--surface-alt);
   border-radius: var(--radius-sm);
@@ -164,14 +160,12 @@
   flex-wrap: wrap;
   gap: 12px;
 }
-
 .sales-filters-left {
   display: flex;
   gap: 12px;
   align-items: center;
   flex-wrap: wrap;
 }
-
 .sales-filters-left input[type="date"] {
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -197,19 +191,6 @@
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background-color: var(--surface);
-  background-image:
-    linear-gradient(to right, var(--surface), transparent),
-    linear-gradient(to left, var(--surface), transparent),
-    radial-gradient(farthest-side at 0 50%, var(--table-scroll-shadow), transparent),
-    radial-gradient(farthest-side at 100% 50%, var(--table-scroll-shadow), transparent),
-    linear-gradient(to bottom, var(--surface), transparent),
-    linear-gradient(to top, var(--surface), transparent),
-    radial-gradient(farthest-side at 50% 0, var(--table-scroll-shadow), transparent),
-    radial-gradient(farthest-side at 50% 100%, var(--table-scroll-shadow), transparent);
-  background-repeat: no-repeat;
-  background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%, 100% 40px, 100% 40px, 100% 14px, 100% 14px;
-  background-position: left center, right center, left center, right center, top center, bottom center, top center, bottom center;
-  background-attachment: local, local, scroll, scroll, local, local, scroll, scroll;
 }
 
 .sales-panel .table-wrap table.data th {
@@ -224,13 +205,11 @@
 /* ============================================================
  * CUSTOM SELECT DROPDOWN (Reusable)
  * ============================================================ */
-
 .custom-select-wrapper {
   position: relative;
   min-width: 160px;
   user-select: none;
 }
-
 button.custom-select-trigger {
   width: 100%;
   display: flex;
@@ -256,7 +235,6 @@ button.custom-select-trigger.active {
   border-color: var(--primary);
   box-shadow: 0 4px 12px rgba(231, 54, 49, 0.1), 0 0 0 3px var(--primary-soft);
 }
-
 .custom-select-icon {
   color: var(--text-muted);
   transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
@@ -297,8 +275,7 @@ button.custom-select-trigger.active {
   cursor: pointer;
   transition: background var(--transition-fast);
 }
-.custom-select-option:hover,
-.custom-select-option.highlighted {
+.custom-select-option:hover, .custom-select-option.highlighted {
   background: var(--surface-alt);
 }
 .custom-select-option.selected {
@@ -314,7 +291,6 @@ button.custom-select-trigger.active {
 /* ============================================================
  * NEW LAYOUT: Staff Page Modernization
  * ============================================================ */
-
 .staff-perf-card {
   background: var(--surface);
   padding: var(--space-4);
@@ -324,7 +300,6 @@ button.custom-select-trigger.active {
   border: none;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
 }
-
 .staff-chip {
   border-radius: 99px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
@@ -336,14 +311,14 @@ button.custom-select-trigger.active {
   background: var(--surface); 
   font-size: var(--fs-sm);
 }
+
 [data-theme="dark"] .staff-chip {
   border: 1px solid var(--border);
   box-shadow: none;
 }
 
 /* --- UNIFORM FIXED HEIGHT FOR ALL TABLES & EMPTY STATES --- */
-.staff-page-layout .table-wrap,
-.staff-page-layout .empty-state-card {
+.staff-page-layout .table-wrap, .staff-page-layout .empty-state-card {
   min-height: 240px;
   width: 100%;
   flex: 1 1 auto;
@@ -354,8 +329,8 @@ button.custom-select-trigger.active {
 .staff-page-layout .empty-state-card {
   display: flex;
   flex-direction: column;
-  align-items: center;     
-  justify-content: center; 
+  align-items: center;       
+  justify-content: center;   
   text-align: center;
 }
 
@@ -364,19 +339,6 @@ button.custom-select-trigger.active {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background-color: var(--surface);
-  background-image:
-    linear-gradient(to right, var(--surface), transparent),
-    linear-gradient(to left, var(--surface), transparent),
-    radial-gradient(farthest-side at 0 50%, var(--table-scroll-shadow), transparent),
-    radial-gradient(farthest-side at 100% 50%, var(--table-scroll-shadow), transparent),
-    linear-gradient(to bottom, var(--surface), transparent),
-    linear-gradient(to top, var(--surface), transparent),
-    radial-gradient(farthest-side at 50% 0, var(--table-scroll-shadow), transparent),
-    radial-gradient(farthest-side at 50% 100%, var(--table-scroll-shadow), transparent);
-  background-repeat: no-repeat;
-  background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%, 100% 40px, 100% 40px, 100% 14px, 100% 14px;
-  background-position: left center, right center, left center, right center, top center, bottom center, top center, bottom center;
-  background-attachment: local, local, scroll, scroll, local, local, scroll, scroll;
 }
 
 .staff-page-layout .table-wrap table.data th {
@@ -391,6 +353,7 @@ button.custom-select-trigger.active {
 .staff-panel {
   padding: var(--space-5);
 }
+
 .staff-filters-row {
   display: flex;
   justify-content: space-between;

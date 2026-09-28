@@ -142,7 +142,6 @@ export default function DashboardPage() {
 
     setSectionErrors(errs);
     if (Object.keys(errs).length < 7) setLastUpdated(new Date());
-
     setLoading(false);
     setRefreshing(false);
   }, [dateFilter, cartFilter]);
@@ -273,7 +272,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* INLINE ERROR BOX IS BACK */}
       {Object.keys(sectionErrors).length > 0 && !loading && (
         <div className="error-box" role="alert" style={{ marginBottom: "var(--space-4)" }}>
           Couldn&apos;t refresh:{" "}
@@ -296,60 +294,66 @@ export default function DashboardPage() {
               <div className="kpi-card"><Skeleton rows={2} /></div>
               <div className="kpi-card"><Skeleton rows={2} /></div>
             </div>
-            <div className="panel dashboard-trend-panel">
-              <Skeleton rows={2} />
-              <div className="skel skel-fill-tall" />
+            <div className="panel dashboard-trend-panel" style={{ display: "flex", flexDirection: "column" }}>
+              <div className="panel-head" style={{ marginBottom: "16px" }}>
+                 <Skeleton rows={1} height={24} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <Skeleton rows={1} height={140} />
+              </div>
             </div>
           </div>
 
           {/* BOTTOM SECTION SKELETON */}
-          <div className="dashboard-body dash-skel-body">
+          <div className="dashboard-body">
             
-            <section className="panel widget-orders dash-skel-panel dash-skel-panel-tall">
-              <div className="panel-head dash-skel-head">
-                <div className="skel skel-title" style={{ width: "140px" }} />
-                <div className="skel skel-pill" style={{ width: "80px", height: "28px" }} />
+            <section className="panel widget-orders" style={{ display: "flex", flexDirection: "column", minHeight: "320px" }}>
+              <div className="panel-head" style={{ marginBottom: "16px" }}>
+                <div style={{ width: "140px" }}><Skeleton rows={1} height={24} /></div>
+                <div style={{ width: "80px" }}><Skeleton rows={1} height={28} /></div>
               </div>
-              <div className="dash-skel-col dash-skel-col-gap-16">
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px", flex: 1 }}>
                 <Skeleton rows={5} height={36} />
               </div>
             </section>
             
-            <section className="panel dash-skel-panel dash-skel-panel-tall">
-              <div className="skel skel-title" style={{ width: "120px", marginBottom: "20px" }} />
-              <div className="dash-skel-grid-2">
-                <div className="skel skel-box-80" />
-                <div className="skel skel-box-80" />
+            <section className="panel" style={{ display: "flex", flexDirection: "column", minHeight: "320px" }}>
+              <div style={{ width: "120px", marginBottom: "20px" }}><Skeleton rows={1} height={24} /></div>
+              <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "12px", marginBottom: "16px" }}>
+                <Skeleton rows={1} height={80} />
+                <Skeleton rows={1} height={80} />
               </div>
-              <div className="skel skel-fill" />
+              <div style={{ flex: 1, marginTop: "16px" }}>
+                <Skeleton rows={1} height={140} />
+              </div>
             </section>
 
-            <section className="panel dash-skel-panel dash-skel-panel-short">
-              <div className="panel-head dash-skel-head">
-                <div className="skel skel-title" style={{ width: "120px" }} />
-                <div className="skel skel-pill" style={{ width: "90px", height: "28px" }} />
+            <section className="panel" style={{ display: "flex", flexDirection: "column", minHeight: "280px" }}>
+              <div className="panel-head" style={{ marginBottom: "16px" }}>
+                <div style={{ width: "120px" }}><Skeleton rows={1} height={24} /></div>
+                <div style={{ width: "90px" }}><Skeleton rows={1} height={28} /></div>
               </div>
-              <div className="dash-skel-col dash-skel-col-gap-12">
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", flex: 1 }}>
                 <Skeleton rows={4} height={44} />
               </div>
             </section>
 
-            <section className="panel dash-skel-panel dash-skel-panel-short">
-              <div className="panel-head dash-skel-head">
-                <div className="skel skel-title" style={{ width: "110px" }} />
-                <div className="skel" style={{ width: "70px", height: "24px", borderRadius: "8px", margin: 0 }} />
+            <section className="panel" style={{ display: "flex", flexDirection: "column", minHeight: "280px" }}>
+              <div className="panel-head" style={{ marginBottom: "16px" }}>
+                <div style={{ width: "110px" }}><Skeleton rows={1} height={24} /></div>
+                <div style={{ width: "70px" }}><Skeleton rows={1} height={24} /></div>
               </div>
-              <div className="dash-skel-col dash-skel-col-gap-12">
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", flex: 1 }}>
                 <Skeleton rows={4} height={44} />
               </div>
             </section>
 
-            <section className="panel dash-skel-panel dash-skel-panel-short">
-              <div className="panel-head dash-skel-head">
-                <div className="skel skel-title" style={{ width: "130px" }} />
-                <div className="skel" style={{ width: "80px", height: "24px", borderRadius: "8px", margin: 0 }} />
+            <section className="panel" style={{ display: "flex", flexDirection: "column", minHeight: "280px" }}>
+              <div className="panel-head" style={{ marginBottom: "16px" }}>
+                <div style={{ width: "130px" }}><Skeleton rows={1} height={24} /></div>
+                <div style={{ width: "80px" }}><Skeleton rows={1} height={24} /></div>
               </div>
-              <div className="dash-skel-col dash-skel-col-gap-12">
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", flex: 1 }}>
                 <Skeleton rows={4} height={44} />
               </div>
             </section>
@@ -368,12 +372,13 @@ export default function DashboardPage() {
                 </div>
                 <div className="kpi-card-body">
                   <div>
-                    <div className="kpi-card-value">{report ? <>P{Number(todaySales).toLocaleString()}</> : "—"}</div>
+                    <div className="kpi-card-value">{report ? <>P{Number(todaySales).toLocaleString()}</> : " "}</div>
                     <div className="kpi-card-sub">{report ? `${todayOrders} orders - avg P${avgTicket.toFixed(0)} ticket` : "Sales unavailable"}</div>
                   </div>
                   <span className="kpi-card-trend"><TrendArrow dir={salesDir} /> {labelOf(salesDelta)}</span>
                 </div>
               </div>
+
               <div className="kpi-card large" onClick={() => navigate("/sales")} role="button" tabIndex={0}>
                 <div className="kpi-card-header">
                   <span className="kpi-card-label">{dateFilter ? "Orders (Filtered)" : "Orders today"}</span>
@@ -381,7 +386,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="kpi-card-body">
                   <div>
-                    <div className="kpi-card-value">{report ? todayOrders : "—"}</div>
+                    <div className="kpi-card-value">{report ? todayOrders : " "}</div>
                     <div className="kpi-card-sub">Across {activeInventory.length} active carts</div>
                   </div>
                   <span className={`kpi-card-trend ${ordersDir}`}><TrendArrow dir={ordersDir} /> {labelOf(ordersDelta)}</span>
@@ -398,6 +403,7 @@ export default function DashboardPage() {
                 <div className="kpi-card-value">P{avgTicket.toFixed(0)}</div>
                 <div className="kpi-card-sub">Per order {dateFilter ? "selected" : "today"}</div>
               </div>
+
               <div className="kpi-card" onClick={() => navigate("/analytics")} role="button" tabIndex={0}>
                 <div className="kpi-card-header">
                   <span className="kpi-card-label">Top item</span>
@@ -408,6 +414,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="kpi-card-sub">{topItem ? `${topItem.qty ?? 0} sold (7d)` : "No data yet"}</div>
               </div>
+
               <div className="kpi-card" onClick={() => navigate("/inventory")} role="button" tabIndex={0}>
                 <div className="kpi-card-header">
                   <span className="kpi-card-label">Low stock</span>
@@ -418,6 +425,7 @@ export default function DashboardPage() {
                 <div className="kpi-card-value" style={lowCount > 0 ? { color: "var(--danger)" } : undefined}>{lowCount}</div>
                 <div className="kpi-card-sub">{criticalCount} critical - {lowStockAlerts.length} alerts</div>
               </div>
+
               <div className="kpi-card" onClick={() => navigate("/staff")} role="button" tabIndex={0}>
                 <div className="kpi-card-header">
                   <span className="kpi-card-label">On shift</span>
@@ -458,10 +466,10 @@ export default function DashboardPage() {
           </div>
 
           {/* BOTTOM SECTION DATA */}
-          <div className="dashboard-body dash-skel-body">
+          <div className="dashboard-body">
             
-            <section className="panel widget-orders dash-skel-panel" aria-live="polite">
-              <div className="panel-head dash-skel-head">
+            <section className="panel widget-orders" aria-live="polite">
+              <div className="panel-head">
                 <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
                   Recent orders
                 </h3>
@@ -570,6 +578,7 @@ export default function DashboardPage() {
                       const low = locItems.filter((i) => i.status !== "ok").length;
                       const critical = locItems.filter((i) => i.status === "critical").length;
                       const dotClass = critical > 0 ? "critical" : low > 0 ? "warn" : "ok";
+
                       return (
                         <div key={loc.id} className="cart-status-item" onClick={() => navigate("/inventory")} role="button" tabIndex={0}>
                           <span className={`status-dot ${dotClass}`} />

@@ -22,12 +22,16 @@
   transition: top var(--transition-fast);
   text-decoration: none;
 }
-
 .skip-link:focus { top: var(--space-4); }
 
 /* Visible focus states for keyboard navigation */
-:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-:focus:not(:focus-visible) { outline: none; }
+:focus-visible { 
+  outline: 2px solid var(--primary); 
+  outline-offset: 2px; 
+}
+:focus:not(:focus-visible) { 
+  outline: none; 
+}
 
 /* Global motion kill-switch */
 @media (prefers-reduced-motion: reduce) {
@@ -41,7 +45,6 @@
 
 /* Smooth scroll */
 html { scroll-behavior: smooth; scroll-padding-top: 80px; }
-
 body {
   margin: 0;
   font-family: "Segoe UI", system-ui, sans-serif;
@@ -49,7 +52,6 @@ body {
   color: var(--text);
   font-size: var(--fs-md);
 }
-
 h1, h2, h3, h4 { margin: 0; color: var(--text); }
 a { color: inherit; text-decoration: none; }
 .muted { color: var(--text-muted); }
@@ -74,9 +76,15 @@ input:focus, select:focus {
   box-shadow: 0 4px 12px rgba(231, 54, 49, 0.1), 0 0 0 3px var(--primary-soft);
 }
 
-input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible {
+/* UPDATED: Removed input and select from this block to prevent double borders */
+button:focus-visible, a:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
+}
+
+/* UPDATED: Explicitly remove outline since input:focus applies a custom box-shadow */
+input:focus-visible, select:focus-visible {
+  outline: none;
 }
 
 input[type="date"], input[type="month"] {
@@ -84,18 +92,13 @@ input[type="date"], input[type="month"] {
   min-height: 48px;
   line-height: 1.2;
 }
-
-input[type="date"]::-webkit-datetime-edit,
-input[type="month"]::-webkit-datetime-edit {
+input[type="date"]::-webkit-datetime-edit, input[type="month"]::-webkit-datetime-edit {
   padding: 0;
   line-height: 1.2;
 }
-
-input[type="date"]::-webkit-datetime-edit-fields-wrapper,
-input[type="month"]::-webkit-datetime-edit-fields-wrapper {
+input[type="date"]::-webkit-datetime-edit-fields-wrapper, input[type="month"]::-webkit-datetime-edit-fields-wrapper {
   padding: 0;
 }
-
 label.field {
   display: flex;
   flex-direction: column;
@@ -118,8 +121,7 @@ label.field {
 /* ----- Base: hide native password reveal/clear controls ----- */
 /* Every password field already has its own show/hide toggle; the browser
    native one (Edge/IE reveal eye) would render a confusing second icon. */
-input[type="password"]::-ms-reveal,
-input[type="password"]::-ms-clear {
+input[type="password"]::-ms-reveal, input[type="password"]::-ms-clear {
   display: none;
 }
 input[type="password"]::-webkit-credentials-auto-fill-button {
@@ -135,22 +137,18 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
   height: 6px;
   background-color: transparent;
 }
-
 ::-webkit-scrollbar-track {
   background-color: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
   background-color: transparent;
   border-radius: 99px;
-  transition: background-color 0.8s ease; 
+  transition: background-color 0.8s ease;
 }
-
 /* Lalabas ang manipis na scrollbar kapag nag-hover ang user */
 :hover::-webkit-scrollbar-thumb {
   background-color: var(--border-strong);
 }
-
 ::-webkit-scrollbar-thumb:hover {
   background-color: var(--text-muted);
 }

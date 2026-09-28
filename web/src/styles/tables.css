@@ -17,6 +17,7 @@
 .table-wrap {
   overflow-x: auto;
   --table-scroll-shadow: rgba(0, 0, 0, 0.15);
+  
   background-image:
     linear-gradient(to right, var(--surface), transparent),
     linear-gradient(to left, var(--surface), transparent),
@@ -144,7 +145,7 @@
   background: transparent;
   color: var(--text-muted);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 99px; /* UPDATED: Match global pill shape */
   font-weight: 600;
   transition: all 0.2s ease;
 }
@@ -170,6 +171,7 @@
   margin-left: 4px;
   opacity: 0.3;
 }
+
 .sort-icon.active {
   opacity: 1;
   color: var(--primary);
@@ -187,6 +189,7 @@
 .top-items-table th {
   cursor: pointer;
 }
+
 .top-items-table th:hover {
   color: var(--text);
 }
@@ -210,7 +213,6 @@
 .table-fixed {
   table-layout: fixed;
   width: 100%;
-  /* Tinanggal na natin ang min-width: 900px dito */
 }
 .table-fixed td, .table-fixed th {
   word-wrap: break-word;
