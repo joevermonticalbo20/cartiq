@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -21,6 +22,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _username = TextEditingController();
   final _password = TextEditingController();
   final _serverController = TextEditingController();
+
   bool _loading = false;
   bool _checkingOffline = false;
   bool _showPassword = false;
@@ -41,7 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _rescanServer() async {
     setState(() {
       _scanning = true;
-      _serverMsg = 'Scanning local network…';
+      _serverMsg = 'Scanning local network...';
       _serverOk = null;
     });
     try {
@@ -115,10 +117,6 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       if (!mounted) return;
       await Haptics.success();
-      // No imperative navigation here: CartIQApp's home rebuilds from
-      // AuthState (logged in -> RootShell, logged out -> LoginScreen).
-      // A pushReplacement would strand the shell route on top after a
-      // later sign-out, so the login page would never reappear.
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _error = e.message);
@@ -138,11 +136,11 @@ class _LoginScreenState extends State<LoginScreen> {
       _checkingOffline = true;
       _error = null;
     });
-    // Eligibility gate: never open the PIN pad when failure is certain.
-    // Each reason maps to a specific message so the user knows what to do.
+
     final eligibility = await auth.checkOfflineEligibility();
     if (!mounted) return;
     setState(() => _checkingOffline = false);
+
     if (!eligibility.eligible) {
       setState(() {
         _error = eligibility.lockedUntil != null
@@ -152,6 +150,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await Haptics.error();
       return;
     }
+
     String? error;
     var busy = false;
     await showModalBottomSheet<void>(
@@ -164,8 +163,8 @@ class _LoginScreenState extends State<LoginScreen> {
               left: AppSpacing.space5,
               right: AppSpacing.space5,
               top: AppSpacing.space4,
-              bottom: MediaQuery.of(context).viewInsets.bottom +
-                  AppSpacing.space6,
+              bottom:
+                  MediaQuery.of(context).viewInsets.bottom + AppSpacing.space6,
             ),
             child: PinPad(
               title: 'Device PIN',
@@ -182,7 +181,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   if (sheetContext.mounted) {
                     Navigator.pop(sheetContext);
                   }
-                  // No navigation needed: CartIQApp rebuilds from AuthState.
                 } on PinException catch (e) {
                   await Haptics.error();
                   setSheetState(() {
@@ -208,7 +206,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _forgotPassword() async {
     final loginContext = context;
     final api = loginContext.read<AuthState>().api;
-    // Sheet-local flow state: email -> code (PIN pad) -> new password.
+
     var step = 'email';
     final emailCtrl = TextEditingController();
     final pwCtrl = TextEditingController();
@@ -218,6 +216,7 @@ class _LoginScreenState extends State<LoginScreen> {
     String? notice;
     var busy = false;
     var showPw = false;
+
     try {
       await showModalBottomSheet<void>(
         context: loginContext,
@@ -236,12 +235,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 error = null;
               });
               try {
-                // Generic success either way (the server never reveals
-                // whether the address is registered).
                 final data = await api.forgotPassword(email);
                 setSheetState(() {
                   busy = false;
-                  notice = (data['message'] as String?) ??
+                  notice =
+                      (data['message'] as String?) ??
                       'If an account exists for this email, a reset code was sent.';
                   step = 'code';
                 });
@@ -263,16 +261,17 @@ class _LoginScreenState extends State<LoginScreen> {
               }
               if (pwCtrl.text.length < 6) {
                 setSheetState(
-                    () => error = 'New password must be at least 6 characters.');
+                  () => error = 'New password must be at least 6 characters.',
+                );
                 return;
               }
-              // Captured before the async gap (ScaffoldMessenger.of after
-              // await trips use_build_context_synchronously).
+
               final messenger = ScaffoldMessenger.of(loginContext);
               setSheetState(() {
                 busy = true;
                 error = null;
               });
+
               try {
                 await api.resetPassword(
                   email: emailCtrl.text.trim(),
@@ -286,8 +285,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   ..hideCurrentSnackBar()
                   ..showSnackBar(
                     const SnackBar(
-                      content:
-                          Text('Password updated - sign in with the new password.'),
+                      content: Text(
+                        'Password updated - sign in with the new password.',
+                      ),
                       duration: Duration(seconds: 3),
                     ),
                   );
@@ -306,8 +306,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('Reset password',
-                      style: Theme.of(context).textTheme.titleLarge),
+                  Text(
+                    'Reset password',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
                   const SizedBox(height: AppSpacing.space2),
                   Text(
                     'Enter the Gmail address saved on your account. We\'ll send a 6-digit code (expires in 10 minutes).',
@@ -325,9 +327,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   if (error != null) ...[
                     const SizedBox(height: AppSpacing.space2),
-                    Text(error!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: AppColors.danger)),
+                    Text(
+                      error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: AppColors.danger),
+                    ),
                   ],
                   const SizedBox(height: AppSpacing.space4),
                   FilledButton(
@@ -359,12 +363,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('New password',
-                      style: Theme.of(context).textTheme.titleLarge),
+                  Text(
+                    'New password',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
                   const SizedBox(height: AppSpacing.space2),
                   if (notice != null)
-                    Text(notice!,
-                        style: Theme.of(context).textTheme.bodySmall),
+                    Text(notice!, style: Theme.of(context).textTheme.bodySmall),
                   const SizedBox(height: AppSpacing.space4),
                   TextField(
                     controller: pwCtrl,
@@ -373,11 +378,12 @@ class _LoginScreenState extends State<LoginScreen> {
                       labelText: 'New password (min 6)',
                       prefixIcon: const Icon(Icons.lock_outline),
                       suffixIcon: IconButton(
-                        icon: Icon(showPw
-                            ? Icons.visibility_off_rounded
-                            : Icons.visibility_rounded),
-                        onPressed: () =>
-                            setSheetState(() => showPw = !showPw),
+                        icon: Icon(
+                          showPw
+                              ? Icons.visibility_off_rounded
+                              : Icons.visibility_rounded,
+                        ),
+                        onPressed: () => setSheetState(() => showPw = !showPw),
                       ),
                     ),
                   ),
@@ -393,9 +399,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   if (error != null) ...[
                     const SizedBox(height: AppSpacing.space2),
-                    Text(error!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: AppColors.danger)),
+                    Text(
+                      error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: AppColors.danger),
+                    ),
                   ],
                   const SizedBox(height: AppSpacing.space4),
                   FilledButton(
@@ -417,7 +425,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   left: AppSpacing.space5,
                   right: AppSpacing.space5,
                   top: AppSpacing.space4,
-                  bottom: MediaQuery.of(context).viewInsets.bottom +
+                  bottom:
+                      MediaQuery.of(context).viewInsets.bottom +
                       AppSpacing.space6,
                 ),
                 child: body,
@@ -436,78 +445,104 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(AppSpacing.space6),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 380),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 96,
-                        height: 96,
-                        decoration: BoxDecoration(
-                          borderRadius:
-                              BorderRadius.circular(AppRadius.xl),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.primary.withValues(alpha: 0.3),
-                              blurRadius: 16,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: Stack(
+        children: [
+          // 1. Subtle Background Tilted Grid Dot
+          Positioned.fill(
+            child: CustomPaint(
+              painter: _DotGridPainter(
+                color: Theme.of(
+                  context,
+                ).dividerColor.withValues(alpha: 0.15), // Reduced opacity
+                spacing: 24.0,
+                angle: -0.15, // Subtle rotation
+              ),
+            ),
+          ),
+
+          // 2. Main Content
+          SingleChildScrollView(
+            child: Column(
+              children: [
+                // Header (solid gradient covers the dots behind it)
+                const _MobileHeroHeader(),
+
+                Transform.translate(
+                  offset: const Offset(0, -64),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.space6,
+                    ),
+                    child: Container(
+                      constraints: const BoxConstraints(maxWidth: 400),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface,
+                        borderRadius: BorderRadius.circular(AppRadius.xl),
+                        boxShadow: AppShadow.md(),
+                        border: Border.all(
+                          color: Theme.of(context).dividerColor,
                         ),
-                        clipBehavior: Clip.antiAlias,
-                        child: Image.asset(
-                          'assets/logo.png',
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => Container(
-                            color: AppColors.primarySoft,
-                            child: const Icon(
-                              Icons.point_of_sale_rounded,
-                              size: 44,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ),
                       ),
-                      const SizedBox(height: AppSpacing.space3),
-                      Text(
-                        'CartIQ',
-                        style: Theme.of(context).textTheme.headlineMedium,
-                      ),
-                      Text(
-                        'Pota Fries Operations',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      const SizedBox(height: AppSpacing.space5),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(AppSpacing.space5),
+                      padding: const EdgeInsets.all(AppSpacing.space6),
                       child: Form(
                         key: _formKey,
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            const Text(
+                              'Welcome back',
+                              style: TextStyle(
+                                fontSize: 28,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Protected operations POS portal.',
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w500,
+                                    color: AppColors.muted,
+                                  ),
+                            ),
+                            const SizedBox(height: 32),
+
+                            const Text(
+                              'Username',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.accent,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
                             TextFormField(
                               controller: _username,
                               decoration: const InputDecoration(
-                                labelText: 'Username',
                                 prefixIcon: Icon(Icons.person_outline),
                               ),
                               validator: (v) => (v == null || v.trim().isEmpty)
                                   ? 'Enter username'
                                   : null,
                             ),
-                            const SizedBox(height: AppSpacing.space4),
+                            const SizedBox(height: 24),
+
+                            const Text(
+                              'Password',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.accent,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
                             TextFormField(
                               controller: _password,
                               obscureText: !_showPassword,
                               decoration: InputDecoration(
-                                labelText: 'Password',
                                 prefixIcon: const Icon(Icons.lock_outline),
                                 suffixIcon: IconButton(
                                   icon: Icon(
@@ -529,11 +564,13 @@ class _LoginScreenState extends State<LoginScreen> {
                               onFieldSubmitted: (_) =>
                                   _loading ? null : _submit(),
                             ),
-                            const SizedBox(height: AppSpacing.space4),
+                            const SizedBox(height: 24),
+
                             if (_error != null)
                               Padding(
                                 padding: const EdgeInsets.only(
-                                    bottom: AppSpacing.space3),
+                                  bottom: AppSpacing.space3,
+                                ),
                                 child: Text(
                                   _error!,
                                   style: const TextStyle(
@@ -542,56 +579,113 @@ class _LoginScreenState extends State<LoginScreen> {
                                   textAlign: TextAlign.center,
                                 ),
                               ),
+
                             FilledButton(
                               onPressed: _loading ? null : _submit,
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                textStyle: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.5,
+                                ),
+                              ),
                               child: _loading
                                   ? const SizedBox(
                                       height: 18,
                                       width: 18,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
+                                        color: Colors.white,
                                       ),
                                     )
-                                  : const Text('Sign in'),
+                                  : const Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Text('SIGN IN'),
+                                        SizedBox(width: 8),
+                                        Icon(
+                                          Icons.arrow_forward_rounded,
+                                          size: 20,
+                                        ),
+                                      ],
+                                    ),
                             ),
-                            const SizedBox(height: AppSpacing.space2),
-                            TextButton(
-                              onPressed: (_loading || _checkingOffline)
-                                  ? null
-                                  : _continueOffline,
-                              child: _checkingOffline
-                                  ? const SizedBox(
-                                      height: 18,
-                                      width: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Text('Continue offline'),
-                            ),
-                            const SizedBox(height: AppSpacing.space1),
-                            Text(
-                              'No signal? Staff with a device PIN can open the POS offline.',
-                              textAlign: TextAlign.center,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                            TextButton(
-                              onPressed: _loading ? null : _forgotPassword,
-                              child: const Text('Forgot password?'),
-                            ),
-                            const SizedBox(height: AppSpacing.space3),
-                            Text(
-                              'First login after idle can take a few seconds while the server warms up — retry once if it times out.',
-                              textAlign: TextAlign.center,
-                              style: Theme.of(context).textTheme.bodySmall,
+                            const SizedBox(height: 16),
+
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                TextButton(
+                                  onPressed: (_loading || _checkingOffline)
+                                      ? null
+                                      : _continueOffline,
+                                  style: TextButton.styleFrom(
+                                    padding: EdgeInsets.zero,
+                                  ),
+                                  child: _checkingOffline
+                                      ? const SizedBox(
+                                          height: 16,
+                                          width: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Text(
+                                          'Continue offline',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                ),
+                                TextButton(
+                                  onPressed: _loading ? null : _forgotPassword,
+                                  style: TextButton.styleFrom(
+                                    padding: EdgeInsets.zero,
+                                  ),
+                                  child: const Text(
+                                    'Forgot password?',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.space3),
-                  _ServerCard(
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.shield_outlined,
+                      size: 14,
+                      color: Colors.grey,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'ENTERPRISE-GRADE SECURITY',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.2,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 32),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.space6,
+                  ),
+                  child: _ServerCard(
                     showServer: _showServer,
                     onToggle: () => setState(() => _showServer = !_showServer),
                     scanning: _scanning,
@@ -601,11 +695,124 @@ class _LoginScreenState extends State<LoginScreen> {
                     serverMsg: _serverMsg,
                     serverOk: _serverOk,
                   ),
+                ),
+                const SizedBox(height: 48),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileHeroHeader extends StatelessWidget {
+  const _MobileHeroHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 320,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // Base Background
+          Positioned.fill(
+            child: Container(
+              decoration: const BoxDecoration(
+                borderRadius: BorderRadius.vertical(
+                  bottom: Radius.circular(40),
+                ),
+                gradient: RadialGradient(
+                  center: Alignment.topLeft,
+                  radius: 1.5,
+                  colors: [AppColors.highlightSoft, AppColors.cream],
+                  stops: [0.0, 0.8],
+                ),
+              ),
+            ),
+          ),
+
+          // Glowing Orbs
+          Positioned(
+            top: -40,
+            right: -40,
+            child: Container(
+              width: 180,
+              height: 180,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.primarySoft.withValues(alpha: 0.8),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 40,
+            left: -40,
+            child: Container(
+              width: 160,
+              height: 160,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.highlight.withValues(alpha: 0.3),
+              ),
+            ),
+          ),
+
+          // Glass Blur
+          Positioned.fill(
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                bottom: Radius.circular(40),
+              ),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                child: Container(color: Colors.transparent),
+              ),
+            ),
+          ),
+
+          // Foreground Content
+          Align(
+            alignment: Alignment.topCenter,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 64),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primary.withValues(alpha: 0.4),
+                          blurRadius: 16,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                      image: const DecorationImage(
+                        image: AssetImage('assets/logo.png'),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'CartIQ',
+                    style: TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.accent,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
                 ],
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -653,7 +860,7 @@ class _ServerCard extends StatelessWidget {
                     : Icons.expand_more_rounded,
                 size: 18,
               ),
-              label: const Text('Server'),
+              label: const Text('Server configuration'),
             ),
             if (showServer) ...[
               SelectableText(
@@ -676,8 +883,7 @@ class _ServerCard extends StatelessWidget {
               const SizedBox(height: AppSpacing.space2),
               if (serverMsg != null)
                 Padding(
-                  padding:
-                      const EdgeInsets.only(bottom: AppSpacing.space2),
+                  padding: const EdgeInsets.only(bottom: AppSpacing.space2),
                   child: Text(
                     serverMsg!,
                     textAlign: TextAlign.center,
@@ -699,7 +905,7 @@ class _ServerCard extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.radar_rounded, size: 18),
-                label: const Text('Rescan'),
+                label: const Text('Rescan network'),
               ),
               const SizedBox(height: AppSpacing.space2),
               TextField(
@@ -723,5 +929,46 @@ class _ServerCard extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+// Background Dot Grid Painter with Rotation
+class _DotGridPainter extends CustomPainter {
+  final Color color;
+  final double spacing;
+  final double angle;
+
+  _DotGridPainter({
+    required this.color,
+    this.spacing = 24.0,
+    this.angle = -0.15,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    canvas.save();
+    // Rotate from the center of the screen
+    canvas.translate(size.width / 2, size.height / 2);
+    canvas.rotate(angle);
+
+    // Expand the drawing area so corners remain covered after rotation
+    final double maxBounds = size.longestSide;
+    for (double x = -maxBounds; x < maxBounds; x += spacing) {
+      for (double y = -maxBounds; y < maxBounds; y += spacing) {
+        canvas.drawCircle(Offset(x, y), 1.5, paint);
+      }
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _DotGridPainter oldDelegate) {
+    return oldDelegate.color != color ||
+        oldDelegate.spacing != spacing ||
+        oldDelegate.angle != angle;
   }
 }

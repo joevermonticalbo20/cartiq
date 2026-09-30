@@ -1,10 +1,8 @@
 import 'dart:async';
 import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-
 import '../services/auth_state.dart';
 import '../services/api_client.dart';
 import '../services/offline_queue.dart';
@@ -37,7 +35,6 @@ extension PaymentMethodX on PaymentMethod {
     PaymentMethod.gcash => 'GCash',
     PaymentMethod.card => 'Card',
   };
-
   IconData get icon => switch (this) {
     PaymentMethod.cash => Icons.payments_rounded,
     PaymentMethod.gcash => Icons.phone_android_rounded,
@@ -45,9 +42,6 @@ extension PaymentMethodX on PaymentMethod {
   };
 }
 
-/// Persists a checkout sale, clearing [cart] ONLY after durable enqueue.
-/// Throws whatever [queue.enqueue] throws, leaving [cart] untouched so the
-/// cashier can retry. Returns the persisted payload.
 Future<Map<String, dynamic>> persistCheckout({
   required CartState cart,
   required OfflineQueue queue,
@@ -78,8 +72,6 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   String _categoryFilter = 'All';
   Timer? _searchDebounce;
   final _searchController = TextEditingController();
-  // One-shot sale guard: a second tap while persist+sync is in flight mints
-  // a second clientRef (a duplicate charge the server cannot dedupe).
   bool _paying = false;
 
   OfflineQueue get _queue => PersistedOfflineQueue.instance;
@@ -101,8 +93,6 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // New/removed products show up on their own when the cashier returns
-    // to the app — no manual refresh needed. Cart + search are untouched.
     if (state == AppLifecycleState.resumed) _reloadCatalog(forceRefresh: true);
   }
 
@@ -118,18 +108,16 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     setState(() => _catalogFuture = _loadCatalog(forceRefresh: forceRefresh));
   }
 
-  /// Pull-to-refresh / resume entry point: refetches and settles so the
-  /// indicator only completes once the new catalog is in (or failed).
   Future<void> _refreshCatalog() async {
     _reloadCatalog(forceRefresh: true);
     try {
       await _catalogFuture;
-    } catch (_) {
-      // Failure surfaces in the FutureBuilder (error UI + Retry).
-    }
+    } catch (_) {}
   }
 
-  Future<List<Map<String, dynamic>>> _loadCatalog({bool forceRefresh = false}) async {
+  Future<List<Map<String, dynamic>>> _loadCatalog({
+    bool forceRefresh = false,
+  }) async {
     final auth = context.read<AuthState>();
     var token = auth.token;
     if (token == null) {
@@ -139,9 +127,13 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       final data = await auth.api.catalog(token, forceRefresh: forceRefresh);
       return (data['products'] as List).cast<Map<String, dynamic>>();
     } on ApiException catch (e) {
-      // Short-lived access may have lapsed: one silent refresh, like sync.
-      if (e.statusCode == 401 && await auth.refreshSession() && auth.token != null) {
-        final data = await auth.api.catalog(auth.token!, forceRefresh: forceRefresh);
+      if (e.statusCode == 401 &&
+          await auth.refreshSession() &&
+          auth.token != null) {
+        final data = await auth.api.catalog(
+          auth.token!,
+          forceRefresh: forceRefresh,
+        );
         return (data['products'] as List).cast<Map<String, dynamic>>();
       }
       rethrow;
@@ -184,13 +176,11 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
         ? flavors.first['name'] as String
         : null;
     var qty = 1;
-
     if (flavors.isEmpty) {
       _addToCart(product);
       _showSnack('Added: ${product['name']}', success: true);
       return;
     }
-
     await showModalBottomSheet<void>(
       context: context,
       builder: (sheetContext) {
@@ -210,15 +200,17 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.space2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(AppRadius.xs),
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.symmetric(
+                        vertical: AppSpacing.space2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(AppRadius.xs),
+                      ),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.space2),
@@ -291,12 +283,12 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                       minimumSize: const Size.fromHeight(56),
                     ),
                     icon: const Icon(Icons.add_shopping_cart_rounded),
-                    label: Text('Add to order · P$price'),
+                    label: Text('Add to order   P$price'),
                     onPressed: () {
                       _addToCart(product, flavor: selectedFlavor, qty: qty);
                       Navigator.pop(sheetContext);
                       _showSnack(
-                        'Added: ${product['name']}${selectedFlavor != null ? ' ($selectedFlavor)' : ''} × $qty',
+                        'Added: ${product['name']}${selectedFlavor != null ? ' ($selectedFlavor)' : ''}   $qty',
                         success: true,
                       );
                     },
@@ -336,15 +328,11 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   ) async {
     final cart = sheetContext.read<CartState>();
     final auth = sheetContext.read<AuthState>();
-    final sync = context.read<SyncService>();
-
+    final sync = sheetContext.read<SyncService>();
     if (cart.isEmpty) return;
     if (_paying) return;
     _paying = true;
     try {
-      // A sale without a cart can never sync (the server drops
-      // MISSING_LOCATION_CODE records after cash is taken) — block before
-      // any money changes hands instead of enqueue-then-drop.
       final cartCode = auth.locationCode;
       if (cartCode == null || cartCode.isEmpty) {
         if (!mounted) return;
@@ -352,11 +340,8 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
         _showSnack('No cart assigned to this account - ask OWNER', error: true);
         return;
       }
-
       final snapshotTotal = cart.total;
       try {
-        // Enqueue FIRST: cart.clear() below only runs after durable persist,
-        // so a storage failure keeps the sale intact for retry.
         await persistCheckout(
           cart: cart,
           queue: _queue,
@@ -372,12 +357,13 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       } catch (_) {
         if (!mounted) return;
         await Haptics.error();
-        _showSnack('Could not save sale on this device - cart kept', error: true);
+        _showSnack(
+          'Could not save sale on this device - cart kept',
+          error: true,
+        );
         return;
       }
-
       if (sheetContext.mounted) Navigator.pop(sheetContext);
-
       final result = await sync.syncAll();
       if (!mounted) return;
       if (result.fullySynced) {
@@ -387,12 +373,10 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       } else {
         await Haptics.tap();
       }
-      // Queued-offline is a normal flow, not an error - keep it neutral.
-      // Dropped is never reported as success (see SyncResult).
       _showSnack(
         result.fullySynced
-            ? 'Sale recorded · ${method.label} · P${snapshotTotal.toStringAsFixed(0)}'
-            : '${result.message} · P${snapshotTotal.toStringAsFixed(0)}',
+            ? 'Sale recorded   ${method.label}   P${snapshotTotal.toStringAsFixed(0)}'
+            : '${result.message}   P${snapshotTotal.toStringAsFixed(0)}',
         success: result.fullySynced,
         error: result.dropped.isNotEmpty,
       );
@@ -409,7 +393,6 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     }
   }
 
-  /// Confirmation sheet so the change amount can't be missed in a rush.
   Future<void> _showSaleResultSheet({
     required PaymentMethod method,
     required double total,
@@ -437,9 +420,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
               child: Container(
                 width: 40,
                 height: 4,
-                margin: const EdgeInsets.symmetric(
-                  vertical: AppSpacing.space2,
-                ),
+                margin: const EdgeInsets.symmetric(vertical: AppSpacing.space2),
                 decoration: BoxDecoration(
                   color: AppColors.primary.withValues(alpha: 0.3),
                   borderRadius: BorderRadius.circular(AppRadius.xs),
@@ -460,8 +441,8 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
             const SizedBox(height: AppSpacing.space1),
             Text(
               synced
-                  ? '${method.label} · P${total.toStringAsFixed(0)}'
-                  : '${queueMessage ?? 'Will upload when online'} · P${total.toStringAsFixed(0)}',
+                  ? '${method.label}   P${total.toStringAsFixed(0)}'
+                  : '${queueMessage ?? 'Will upload when online'}   P${total.toStringAsFixed(0)}',
               textAlign: TextAlign.center,
               style: Theme.of(ctx).textTheme.bodyMedium,
             ),
@@ -520,7 +501,6 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       top: false,
       child: Column(
         children: [
-          // Search bar (debounced so typing doesn't rebuild the grid per keystroke)
           Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.space4,
@@ -549,9 +529,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
               onChanged: _onSearchChanged,
             ),
           ),
-          // Offline queue strip - visible where the cashier works.
           const PosOfflineStrip(),
-          // Category filters
           SizedBox(
             height: 48,
             child: FutureBuilder<List<Map<String, dynamic>>>(
@@ -673,66 +651,63 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                       AppSpacing.space4,
                       AppSpacing.space4,
                     ),
-                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 190,
-                      childAspectRatio: 0.95,
-                      crossAxisSpacing: AppSpacing.space3,
-                      mainAxisSpacing: AppSpacing.space3,
-                    ),
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 190,
+                          childAspectRatio: 0.95,
+                          crossAxisSpacing: AppSpacing.space3,
+                          mainAxisSpacing: AppSpacing.space3,
+                        ),
                     itemCount: products.length,
                     itemBuilder: (context, i) {
-                    final product = products[i];
-                    final flavorCount = (product['flavors'] as List).length;
-                    final cart = context.watch<CartState>();
-                    final inCartQty = cart.items
-                        .where((it) => it.productName == product['name'])
-                        .fold<int>(0, (s, it) => s + it.qty);
-                    return PosProductCard(
-                      product: product,
-                      flavorCount: flavorCount,
-                      inCartQty: inCartQty,
-                      onTap: () => _openItemSheet(product),
-                      // Long-press = rush-hour quick-add with the default
-                      // (first) flavor, skipping the option sheet.
-                      onLongPress: flavorCount == 0
-                          ? null
-                          : () {
-                              final flavors = (product['flavors'] as List)
-                                  .cast<Map<String, dynamic>>();
-                              final def = flavors.first['name'] as String;
-                              _addToCart(product, flavor: def);
-                              Haptics.select();
-                              _showSnack(
-                                'Added: ${product['name']} ($def)',
-                                success: true,
-                              );
-                            },
-                      onQuickAdd: flavorCount == 0
-                          ? () {
-                              _addToCart(product);
-                              _showSnack(
-                                'Added: ${product['name']}',
-                                success: true,
-                              );
-                            }
-                          : null,
-                    );
-                  },
+                      final product = products[i];
+                      final flavorCount = (product['flavors'] as List).length;
+                      final inCartQty = cart.items
+                          .where((it) => it.productName == product['name'])
+                          .fold<int>(0, (s, it) => s + it.qty);
+                      return PosProductCard(
+                        product: product,
+                        flavorCount: flavorCount,
+                        inCartQty: inCartQty,
+                        onTap: () => _openItemSheet(product),
+                        onLongPress: flavorCount == 0
+                            ? null
+                            : () {
+                                final flavors = (product['flavors'] as List)
+                                    .cast<Map<String, dynamic>>();
+                                final def = flavors.first['name'] as String;
+                                _addToCart(product, flavor: def);
+                                Haptics.select();
+                                _showSnack(
+                                  'Added: ${product['name']} ($def)',
+                                  success: true,
+                                );
+                              },
+                        onQuickAdd: flavorCount == 0
+                            ? () {
+                                _addToCart(product);
+                                _showSnack(
+                                  'Added: ${product['name']}',
+                                  success: true,
+                                );
+                              }
+                            : null,
+                      );
+                    },
                   ),
                 );
               },
             ),
           ),
-          // Persistent cart panel at bottom
           PosCartBar(cart: cart, onTap: _openCartSheet),
         ],
       ),
     );
   }
 }
+
 class _CartSheet extends StatefulWidget {
   const _CartSheet({required this.cart, required this.onPay});
-
   final CartState cart;
   final void Function(PaymentMethod method, double? cashTendered) onPay;
 
@@ -780,9 +755,7 @@ class _CartSheetState extends State<_CartSheet> {
             child: Container(
               width: 40,
               height: 4,
-              margin: const EdgeInsets.symmetric(
-                vertical: AppSpacing.space2,
-              ),
+              margin: const EdgeInsets.symmetric(vertical: AppSpacing.space2),
               decoration: BoxDecoration(
                 color: AppColors.primary.withValues(alpha: 0.3),
                 borderRadius: BorderRadius.circular(AppRadius.xs),
@@ -804,7 +777,8 @@ class _CartSheetState extends State<_CartSheet> {
                     final confirmed = await showAppConfirm(
                       context,
                       title: 'Clear order?',
-                      message: 'This removes every item from the current order. This cannot be undone.',
+                      message:
+                          'This removes every item from the current order. This cannot be undone.',
                       confirmLabel: 'Clear',
                       danger: true,
                     );
@@ -818,9 +792,7 @@ class _CartSheetState extends State<_CartSheet> {
           const SizedBox(height: AppSpacing.space2),
           if (cart.isEmpty)
             Padding(
-              padding: const EdgeInsets.symmetric(
-                vertical: AppSpacing.space7,
-              ),
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.space7),
               child: Column(
                 children: [
                   Container(
@@ -872,8 +844,7 @@ class _CartSheetState extends State<_CartSheet> {
                           height: 40,
                           decoration: BoxDecoration(
                             color: AppColors.primary.withValues(alpha: 0.12),
-                            borderRadius:
-                                BorderRadius.circular(AppRadius.s),
+                            borderRadius: BorderRadius.circular(AppRadius.s),
                           ),
                           alignment: Alignment.center,
                           child: Text(
@@ -936,7 +907,6 @@ class _CartSheetState extends State<_CartSheet> {
             ),
           if (!cart.isEmpty) ...[
             const Divider(height: 24),
-            // Total
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -951,7 +921,6 @@ class _CartSheetState extends State<_CartSheet> {
               ],
             ),
             const SizedBox(height: AppSpacing.space4),
-            // Payment method selector
             Text(
               'Payment method',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -1002,7 +971,6 @@ class _CartSheetState extends State<_CartSheet> {
                 onSubmitted: (_) => _submitIfReady(),
               ),
               const SizedBox(height: AppSpacing.space2),
-              // Bill shortcuts ADD to the tendered amount; Exact sets it.
               Wrap(
                 spacing: AppSpacing.space2,
                 runSpacing: AppSpacing.space2,
@@ -1037,7 +1005,6 @@ class _CartSheetState extends State<_CartSheet> {
                 ],
               ),
               const SizedBox(height: AppSpacing.space3),
-              // Always visible so the cashier sees the running state.
               Container(
                 padding: const EdgeInsets.all(AppSpacing.space3),
                 decoration: BoxDecoration(
@@ -1085,7 +1052,7 @@ class _CartSheetState extends State<_CartSheet> {
               icon: const Icon(Icons.payments_rounded),
               label: Text(
                 _method == PaymentMethod.cash && _tendered > 0
-                    ? 'Record sale · P${cart.total.toStringAsFixed(0)}'
+                    ? 'Record sale   P${cart.total.toStringAsFixed(0)}'
                     : 'Record sale',
               ),
               onPressed: !_canPay ? null : _submitIfReady,
@@ -1100,7 +1067,7 @@ class _CartSheetState extends State<_CartSheet> {
             ],
             const SizedBox(height: AppSpacing.space2),
             Text(
-              'clientRef • duplicate-safe — replays never double-charge',
+              'clientRef   duplicate-safe   replays never double-charge',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall,
             ),

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../theme.dart';
@@ -14,7 +13,6 @@ import 'scan_receipt_screen.dart';
 class ReceiptsScreen extends StatefulWidget {
   const ReceiptsScreen({super.key, this.onScanReceipt});
 
-  /// Optional callback to launch the scan flow (used by the empty-state CTA).
   final Future<void> Function()? onScanReceipt;
 
   @override
@@ -22,8 +20,8 @@ class ReceiptsScreen extends StatefulWidget {
 }
 
 class ReceiptsScreenState extends State<ReceiptsScreen> {
-  /// Public reload handle so RootShell refreshes this tab after a scan.
   void reload() => _loadMore(reset: true);
+
   final List<Map<String, dynamic>> _rows = [];
   int _page = 1;
   bool _loading = false;
@@ -63,16 +61,14 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
     return false;
   }
 
-  /// Records a load failure. When rows already exist the list branch hides
-  /// `_error`, so surface it as a SnackBar instead of failing silently.
   void _fail(String message) {
     if (!mounted) return;
     final hadRows = _rows.isNotEmpty;
     setState(() => _error = message);
     if (hadRows && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Refresh failed: $message')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Refresh failed: $message')));
     }
   }
 
@@ -131,7 +127,8 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
   Widget build(BuildContext context) {
     final filtered = _rows.where((e) => _matches(e, _search)).toList();
     final hasResults = filtered.isNotEmpty;
-    // Group consecutive rows by day with a header (date · receipts · total).
+    final surfaceColor = Theme.of(context).colorScheme.surface;
+
     final grouped = <String, List<Map<String, dynamic>>>{};
     for (final e in filtered) {
       final key = ManilaTime.groupKey(e['date']);
@@ -147,6 +144,7 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
       rows.add((entry.key, entry.value.length, dayTotal));
       rows.addAll(entry.value);
     }
+
     return Scaffold(
       appBar: AppBar(
         title: _searching
@@ -255,8 +253,7 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
                         ),
                         child: SectionHeader(
                           title: date,
-                          eyebrow:
-                              '$count receipt${count != 1 ? 's' : ''}',
+                          eyebrow: '$count receipt${count != 1 ? 's' : ''}',
                           trailing: Text(
                             'P${total.toStringAsFixed(0)}',
                             style: Theme.of(context).textTheme.labelSmall
@@ -269,63 +266,73 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
                     final isOcr = e['source'] == 'OCR';
                     final dateStr = ManilaTime.shortLabel(e['date']);
                     final dateLabel = dateStr.isEmpty ? '-' : dateStr;
-                    return Card(
-                      margin: EdgeInsets.zero,
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.space4,
-                          vertical: AppSpacing.space2,
-                        ),
-                        leading: Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            color: isOcr
-                                ? AppColors.primary.withValues(alpha: 0.13)
-                                : Theme.of(context).dividerColor,
-                            borderRadius: BorderRadius.circular(AppRadius.s),
+
+                    return Container(
+                      clipBehavior: Clip.antiAlias,
+                      decoration: BoxDecoration(
+                        color: surfaceColor,
+                        borderRadius: BorderRadius.circular(AppRadius.l),
+                        boxShadow:
+                            AppShadow.sm(), // Pinalitan ng shadow nang walang border
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.space4,
+                            vertical: AppSpacing.space2,
                           ),
-                          child: Icon(
-                            isOcr
-                                ? Icons.document_scanner_rounded
-                                : Icons.edit_note_rounded,
-                            size: 21,
-                            color: isOcr
-                                ? AppColors.primary
-                                : Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
+                          leading: Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: isOcr
+                                  ? AppColors.primary.withValues(alpha: 0.13)
+                                  : Theme.of(context).dividerColor,
+                              borderRadius: BorderRadius.circular(AppRadius.s),
+                            ),
+                            child: Icon(
+                              isOcr
+                                  ? Icons.document_scanner_rounded
+                                  : Icons.edit_note_rounded,
+                              size: 21,
+                              color: isOcr
+                                  ? AppColors.primary
+                                  : Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                            ),
                           ),
-                        ),
-                        title: Text(
-                          e['vendor'] ?? '',
-                          style: Theme.of(context).textTheme.titleMedium,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          '$dateLabel · ${e['category'] ?? 'Other'}'
-                          '${(e['location'] as Map<String, dynamic>?)?['code'] != null ? ' · ${(e['location'] as Map<String, dynamic>)['code']}' : ''}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              'P${((e['amount'] ?? 0) as num).toStringAsFixed(0)}',
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w800),
-                            ),
-                            const SizedBox(height: 2),
-                            AppBadge(
-                              label: e['source'] ?? 'MANUAL',
-                              variant: isOcr
-                                  ? AppBadgeVariant.warn
-                                  : AppBadgeVariant.neutral,
-                            ),
-                          ],
+                          title: Text(
+                            e['vendor'] ?? '',
+                            style: Theme.of(context).textTheme.titleMedium,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            '$dateLabel   ${e['category'] ?? 'Other'}'
+                            '${(e['location'] as Map<String, dynamic>?)?['code'] != null ? '   ${(e['location'] as Map<String, dynamic>)['code']}' : ''}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                'P${((e['amount'] ?? 0) as num).toStringAsFixed(0)}',
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w800),
+                              ),
+                              const SizedBox(height: 2),
+                              AppBadge(
+                                label: e['source'] ?? 'MANUAL',
+                                variant: isOcr
+                                    ? AppBadgeVariant.warn
+                                    : AppBadgeVariant.neutral,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     );

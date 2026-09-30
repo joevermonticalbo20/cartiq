@@ -1,5 +1,5 @@
 import 'dart:async';
-
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -63,20 +63,21 @@ class _HomeScreenState extends State<HomeScreen> {
     final auth = context.read<AuthState>();
     final sync = context.read<SyncService>();
     final code = auth.locationCode;
+
     if (code == null) {
       if (mounted) setState(() => _loading = false);
       return;
     }
+
     try {
-      // Trigger a sync in the background while we load the dashboard.
-      // Errors are swallowed here: manual sync surfaces them, and the
-      // dashboard below degrades to cached info on failure.
       unawaited(sync.syncAll().then((_) {}).catchError((_) {}));
+
       final token = auth.token;
       if (token == null) {
         if (mounted) setState(() => _loading = false);
         return;
       }
+
       final results = await Future.wait([
         auth.api.dailyReport(token, locationCode: code),
         auth.api.inventory(token, locationCode: code),
@@ -119,9 +120,10 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       setState(() => _loading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Offline — showing cached info')),
+        const SnackBar(content: Text('Offline - showing cached info')),
       );
     }
+
     final count = await _queue.count;
     if (mounted) setState(() => _queueCount = count);
   }
@@ -143,9 +145,13 @@ class _HomeScreenState extends State<HomeScreen> {
     return ((_todaySales - prev) / prev) * 100;
   }
 
+  String _firstName(String full) => full.split(' ').first;
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthState>();
+    final surfaceColor = Theme.of(context).colorScheme.surface;
+
     return RefreshIndicator(
       color: AppColors.primary,
       onRefresh: _refresh,
@@ -171,7 +177,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: AppSpacing.space1),
                     Text(
-                      '${auth.locationCode ?? "No cart"} · ${auth.roleDisplay}',
+                      '${auth.locationCode ?? "No cart"} • ${auth.roleDisplay}',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
@@ -184,15 +190,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     context,
                     title: 'Log out?',
                     message: _queueCount > 0
-                        ? '$_queueCount sale(s) still queued — they stay saved on this device.'
+                        ? '$_queueCount sale(s) still queued - they stay saved on this device.'
                         : 'No queued sales. You can sign back in anytime.',
                     confirmLabel: 'Log out',
                   );
                   if (!confirmed || !context.mounted) return;
+
                   final auth = context.read<AuthState>();
                   if (!auth.isLoggedIn) return;
-                  // Stop any in-flight drain first so no further request
-                  // reuses this session after sign-out.
+
                   context.read<SyncService>().cancelActiveSync();
                   await auth.signOut();
                 },
@@ -203,16 +209,65 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: AppSpacing.space4),
 
-          // ---------- KPI row ----------
-          _KpiRow(
-            todaySales: _todaySales,
-            todayOrders: _todayOrders,
-            avgTicket: _avgTicket,
-            vsYesterday: _vsYesterday,
-            weekSales: _weekSales,
-            loading: _loading,
-          ),
-          const SizedBox(height: AppSpacing.space3),
+          // ---------- MODERN KPI SECTION ----------
+          if (_loading)
+            Container(
+              decoration: BoxDecoration(
+                color: surfaceColor,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: AppShadow.sm(),
+              ),
+              padding: const EdgeInsets.all(AppSpacing.space4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'SALES TODAY',
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                  const SizedBox(height: AppSpacing.space2),
+                  const AppSkeleton(rows: 2, height: 20),
+                ],
+              ),
+            )
+          else ...[
+            // Solid Brand Card (Sales)
+            _SolidBrandCard(
+              title: 'Sales today',
+              value: _todaySales,
+              vsYesterday: _vsYesterday,
+              icon: Icons.attach_money_rounded,
+            ),
+            const SizedBox(height: AppSpacing.space3),
+
+            // 2x2 Style Grid (Orders & Avg Ticket)
+            Row(
+              children: [
+                Expanded(
+                  child: _StandardKpiCard(
+                    title: 'Orders today',
+                    value: '$_todayOrders',
+                    sub: 'Across active carts',
+                    icon: Icons.shopping_bag_rounded,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.space3),
+                Expanded(
+                  child: _StandardKpiCard(
+                    title: 'Avg ticket',
+                    value: 'P${_avgTicket.toStringAsFixed(0)}',
+                    sub: 'Per order today',
+                    icon: Icons.receipt_long_rounded,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.space3),
+
+            // Trend Bar Chart
+            _WeeklyTrendPanel(weekSales: _weekSales),
+          ],
+          const SizedBox(height: AppSpacing.space4),
 
           // ---------- quick actions ----------
           Row(
@@ -236,7 +291,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.space3),
+          const SizedBox(height: AppSpacing.space4),
 
           // ---------- on-shift staff ----------
           if (_onShift.isNotEmpty) ...[
@@ -263,7 +318,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               ),
             ),
-            const SizedBox(height: AppSpacing.space3),
+            const SizedBox(height: AppSpacing.space4),
           ],
 
           // ---------- recent orders ----------
@@ -277,7 +332,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: AppSpacing.space2),
             ..._recentOrders.take(3).map((o) => _RecentOrderTile(order: o)),
-            const SizedBox(height: AppSpacing.space3),
+            const SizedBox(height: AppSpacing.space4),
           ] else if (!_loading) ...[
             _SectionHeader(
               title: 'Recent sales',
@@ -287,473 +342,516 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(height: AppSpacing.space2),
-            Card(
-              child: ListTile(
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.space4,
-                  vertical: AppSpacing.space2,
-                ),
-                leading: Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(AppRadius.s),
+            Container(
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                color: surfaceColor,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: AppShadow.sm(),
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.space4,
+                    vertical: AppSpacing.space2,
                   ),
-                  child: const Icon(
-                    Icons.receipt_long_outlined,
-                    size: 22,
-                    color: AppColors.primary,
+                  leading: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(AppRadius.s),
+                    ),
+                    child: const Icon(
+                      Icons.receipt_long_outlined,
+                      size: 22,
+                      color: AppColors.primary,
+                    ),
                   ),
+                  title: Text(
+                    'No sales yet today',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  subtitle: const Text('Start your first benta on POS'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: widget.onGoPos,
                 ),
-                title: Text(
-                  'No sales yet today',
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-                subtitle: const Text('Start your first benta on POS'),
-                trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: widget.onGoPos,
               ),
             ),
-            const SizedBox(height: AppSpacing.space3),
+            const SizedBox(height: AppSpacing.space4),
           ],
 
           // ---------- sync status ----------
           Consumer<SyncService>(
             builder: (context, sync, _) {
               final syncing = sync.isSyncing;
-              return Card(
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 4,
-                  ),
-                  leading: Badge(
-                    isLabelVisible: _queueCount > 0,
-                    label: Text('$_queueCount'),
-                    backgroundColor: AppColors.warn,
-                    child: CircleAvatar(
-                      radius: 19,
-                      backgroundColor: Theme.of(
-                        context,
-                      ).colorScheme.surfaceContainerHighest,
-                      child: syncing
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Icon(
-                              Icons.cloud_sync_rounded,
-                              size: 20,
-                              color: _queueCount > 0 ? AppColors.warn : null,
-                            ),
+              return Container(
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: surfaceColor,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: AppShadow.sm(),
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
                     ),
+                    leading: Badge(
+                      isLabelVisible: _queueCount > 0,
+                      label: Text('$_queueCount'),
+                      backgroundColor: AppColors.warn,
+                      child: CircleAvatar(
+                        radius: 19,
+                        backgroundColor: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
+                        child: syncing
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Icon(
+                                Icons.cloud_sync_rounded,
+                                size: 20,
+                                color: _queueCount > 0 ? AppColors.warn : null,
+                              ),
+                      ),
+                    ),
+                    title: Text(
+                      syncing
+                          ? 'Syncing...'
+                          : _queueCount > 0
+                          ? '$_queueCount sale${_queueCount != 1 ? 's' : ''} waiting to sync'
+                          : 'Everything synced',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    subtitle: Text(
+                      _queueCount > 0
+                          ? 'Uploads automatically when online'
+                          : 'Offline records upload when online',
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: _manualSync,
                   ),
-                  title: Text(
-                    syncing
-                        ? 'Syncing…'
-                        : _queueCount > 0
-                        ? '$_queueCount sale${_queueCount != 1 ? 's' : ''} waiting to sync'
-                        : 'Everything synced',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  subtitle: Text(
-                    _queueCount > 0
-                        ? 'Uploads automatically when online'
-                        : 'Offline records upload when online',
-                  ),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: _manualSync,
                 ),
               );
             },
           ),
-          const SizedBox(height: AppSpacing.space3),
+          const SizedBox(height: AppSpacing.space4),
 
           // ---------- stock alerts ----------
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _SectionHeader(
-                    title: 'Stock alerts',
-                    trailing: _lowItems.isNotEmpty
-                        ? AppBadge(
-                            label:
-                                '${_lowItems.length} ITEM${_lowItems.length != 1 ? 'S' : ''}',
-                            variant: AppBadgeVariant.danger,
-                          )
-                        : null,
-                  ),
-                  const SizedBox(height: 8),
-                  if (_loading)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 10),
-                      child: LinearProgressIndicator(minHeight: 3),
-                    )
-                  else if (_lowItems.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.check_circle_rounded,
-                            color: AppColors.ok,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'All stocks healthy',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        ],
+          Container(
+            decoration: BoxDecoration(
+              color: surfaceColor,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: AppShadow.sm(),
+            ),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SectionHeader(
+                  title: 'Stock alerts',
+                  trailing: _lowItems.isNotEmpty
+                      ? AppBadge(
+                          label:
+                              '${_lowItems.length} ITEM${_lowItems.length != 1 ? 'S' : ''}',
+                          variant: AppBadgeVariant.danger,
+                        )
+                      : null,
+                ),
+                const SizedBox(height: 8),
+                if (_loading)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 10),
+                    child: LinearProgressIndicator(minHeight: 3),
+                  )
+                else if (_lowItems.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.check_circle_rounded,
+                          color: AppColors.ok,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'All stocks healthy',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  ..._lowItems.map((item) {
+                    final critical = item['status'] == 'critical';
+                    final c = critical ? AppColors.danger : AppColors.warn;
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      leading: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: c.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(AppRadius.s),
+                        ),
+                        child: Icon(
+                          critical
+                              ? Icons.error_rounded
+                              : Icons.warning_amber_rounded,
+                          size: 20,
+                          color: c,
+                        ),
                       ),
-                    )
-                  else
-                    ..._lowItems.map((item) {
-                      final critical = item['status'] == 'critical';
-                      final c = critical ? AppColors.danger : AppColors.warn;
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        dense: true,
-                        leading: Container(
-                          width: 36,
-                          height: 36,
-                          decoration: BoxDecoration(
-                            color: c.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(AppRadius.s),
-                          ),
-                          child: Icon(
-                            critical
-                                ? Icons.error_rounded
-                                : Icons.warning_amber_rounded,
-                            size: 20,
-                            color: c,
-                          ),
+                      title: Text(
+                        item['name'] ?? '',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      subtitle: Text(
+                        '${item['stock']} ${item['unit']} left • threshold ${item['threshold']}',
+                      ),
+                      trailing: Text(
+                        critical ? 'CRITICAL' : 'LOW',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: c,
                         ),
-                        title: Text(
-                          item['name'] ?? '',
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                        subtitle: Text(
-                          '${item['stock']} ${item['unit']} left · threshold ${item['threshold']}',
-                        ),
-                        trailing: Text(
-                          critical ? 'CRITICAL' : 'LOW',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: c,
-                          ),
-                        ),
-                      );
-                    }),
-                  const SizedBox(height: 4),
-                ],
-              ),
+                      ),
+                    );
+                  }),
+                const SizedBox(height: 4),
+              ],
             ),
           ),
         ],
       ),
     );
   }
-
-  String _firstName(String full) => full.split(' ').first;
 }
 
-// ---------- KPI row ----------
-class _KpiRow extends StatelessWidget {
-  const _KpiRow({
-    required this.todaySales,
-    required this.todayOrders,
-    required this.avgTicket,
-    required this.vsYesterday,
-    required this.weekSales,
-    required this.loading,
-  });
-
-  final double todaySales;
-  final int todayOrders;
-  final double avgTicket;
-  final double vsYesterday;
-  final List<double> weekSales;
-  final bool loading;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    if (loading) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.space4),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'SALES TODAY',
-                style: Theme.of(context).textTheme.labelSmall,
-              ),
-              const SizedBox(height: AppSpacing.space2),
-              const AppSkeleton(rows: 2, height: 20),
-            ],
-          ),
-        ),
-      );
-    }
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppRadius.l),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: isDark
-              ? [AppColors.darkPrimarySoft, Theme.of(context).colorScheme.surface]
-              : [AppColors.primarySoft, Theme.of(context).colorScheme.surface],
-        ),
-        border: Border.all(
-          color: isDark
-              ? AppColors.primary.withValues(alpha: 0.3)
-              : AppColors.primary.withValues(alpha: 0.25),
-        ),
-        boxShadow: AppShadow.sm(),
-      ),
-      child: Column(
-        children: [
-          // Main: total sales
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'SALES TODAY',
-                      style: Theme.of(context).textTheme.labelSmall,
-                    ),
-                    const SizedBox(height: 4),
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'P${todaySales.toStringAsFixed(0)}',
-                        style: Theme.of(context).textTheme.headlineMedium
-                            ?.copyWith(color: AppColors.primary),
-                      ),
-                    ),
-                    if (vsYesterday != 0) ...[
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(
-                            vsYesterday >= 0
-                                ? Icons.trending_up_rounded
-                                : Icons.trending_down_rounded,
-                            size: 14,
-                            color: vsYesterday >= 0
-                                ? AppColors.ok
-                                : AppColors.danger,
-                          ),
-                          const SizedBox(width: 3),
-                          Text(
-                            '${vsYesterday >= 0 ? '+' : ''}${vsYesterday.toStringAsFixed(0)}% vs yesterday',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: vsYesterday >= 0
-                                  ? AppColors.ok
-                                  : AppColors.danger,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: AppSpacing.space3),
-              if (weekSales.length >= 2)
-                _Sparkline(values: weekSales)
-              else
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Icon(
-                    Icons.storefront_rounded,
-                    size: 28,
-                    color: AppColors.primary,
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.space3),
-          // Sub KPIs
-          Row(
-            children: [
-              _MiniKpi(
-                label: 'Orders',
-                value: '$todayOrders',
-                icon: Icons.receipt_long_rounded,
-              ),
-              const SizedBox(width: AppSpacing.space3),
-              _MiniKpi(
-                label: 'Avg ticket',
-                value: 'P${avgTicket.toStringAsFixed(0)}',
-                icon: Icons.analytics_rounded,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 7-day sales sparkline for the KPI hero. Pure CustomPainter, no deps.
-class _Sparkline extends StatelessWidget {
-  const _Sparkline({required this.values});
-
-  final List<double> values;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 118,
-      height: 56,
-      padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(AppRadius.m),
-      ),
-      child: CustomPaint(
-        painter: _SparklinePainter(values),
-        child: const SizedBox.expand(),
-      ),
-    );
-  }
-}
-
-class _SparklinePainter extends CustomPainter {
-  _SparklinePainter(this.values);
-
-  final List<double> values;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (values.length < 2) return;
-    final max = values.reduce((a, b) => a > b ? a : b);
-    final min = values.reduce((a, b) => a < b ? a : b);
-    final span = (max - min) == 0 ? 1.0 : (max - min);
-    const pad = 4.0;
-    final pts = List<Offset>.generate(values.length, (i) {
-      final x = pad + (size.width - pad * 2) * (i / (values.length - 1));
-      final y =
-          size.height -
-          pad -
-          (size.height - pad * 2) * ((values[i] - min) / span);
-      return Offset(x, y);
-    });
-
-    final fill = Path()
-      ..moveTo(pts.first.dx, size.height)
-      ..lineTo(pts.first.dx, pts.first.dy);
-    for (final p in pts.skip(1)) {
-      fill.lineTo(p.dx, p.dy);
-    }
-    fill
-      ..lineTo(pts.last.dx, size.height)
-      ..close();
-    canvas.drawPath(
-      fill,
-      Paint()..color = AppColors.primary.withValues(alpha: 0.15),
-    );
-
-    final line = Path()..moveTo(pts.first.dx, pts.first.dy);
-    for (final p in pts.skip(1)) {
-      line.lineTo(p.dx, p.dy);
-    }
-    canvas.drawPath(
-      line,
-      Paint()
-        ..color = AppColors.primary
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round,
-    );
-
-    // Last-day dot in brand yellow with a white halo.
-    final last = pts.last;
-    canvas.drawCircle(last, 5, Paint()..color = Colors.white);
-    canvas.drawCircle(last, 3.2, Paint()..color = AppColors.highlight);
-  }
-
-  @override
-  bool shouldRepaint(covariant _SparklinePainter old) => old.values != values;
-}
-
-class _MiniKpi extends StatelessWidget {
-  const _MiniKpi({
-    required this.label,
+// ---------- NEW: SOLID BRAND KPI CARD ----------
+class _SolidBrandCard extends StatelessWidget {
+  const _SolidBrandCard({
+    required this.title,
     required this.value,
+    required this.vsYesterday,
     required this.icon,
   });
 
-  final String label;
-  final String value;
+  final String title;
+  final double value;
+  final double vsYesterday;
   final IconData icon;
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.space3),
-        decoration: BoxDecoration(
-          color: isDark
-              ? Theme.of(context).colorScheme.surfaceContainerHighest
-                  .withValues(alpha: 0.5)
-              : Colors.white.withValues(alpha: 0.7),
-          borderRadius: BorderRadius.circular(AppRadius.m),
-          border: Border.all(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.08)
-                : AppColors.primary.withValues(alpha: 0.15),
-          ),
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.primary, AppColors.primaryStrong],
         ),
-        child: Row(
-          children: [
-            Icon(icon, size: 18, color: AppColors.primary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodySmall?.copyWith(fontSize: 11),
-                  ),
-                  Text(
-                    value,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 14,
-                    ),
-                  ),
-                ],
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.35),
+            blurRadius: 32,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          // Glowing Orbs
+          Positioned(
+            top: -60,
+            right: -60,
+            child: Container(
+              width: 160,
+              height: 160,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.15),
               ),
             ),
-          ],
-        ),
+          ),
+          Positioned(
+            bottom: -40,
+            left: -20,
+            child: Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.1),
+              ),
+            ),
+          ),
+
+          // Content
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white70,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.25),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(icon, color: Colors.white, size: 20),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'P${value.toStringAsFixed(0)}',
+                  style: const TextStyle(
+                    fontSize: 36,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    letterSpacing: -1,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (vsYesterday != 0)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          vsYesterday >= 0
+                              ? Icons.arrow_upward_rounded
+                              : Icons.arrow_downward_rounded,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${vsYesterday.abs().toStringAsFixed(1)}% vs yesterday',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------- NEW: STANDARD KPI CARD ----------
+class _StandardKpiCard extends StatelessWidget {
+  const _StandardKpiCard({
+    required this.title,
+    required this.value,
+    required this.sub,
+    required this.icon,
+  });
+
+  final String title;
+  final String value;
+  final String sub;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: AppShadow.sm(), // TINANGGAL ANG BORDER DITO
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Theme.of(context).textTheme.bodySmall?.color,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.primarySoft,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: AppColors.primary, size: 16),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            sub,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: Theme.of(context).textTheme.bodySmall?.color,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------- NEW: WEEKLY TREND PANEL ----------
+class _WeeklyTrendPanel extends StatelessWidget {
+  const _WeeklyTrendPanel({required this.weekSales});
+  final List<double> weekSales;
+
+  @override
+  Widget build(BuildContext context) {
+    if (weekSales.isEmpty || weekSales.length < 2) {
+      return const SizedBox.shrink();
+    }
+
+    final maxVal = weekSales.reduce(max);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: AppShadow.sm(), // TINANGGAL ANG BORDER DITO
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Weekly sales trend',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+              ),
+              AppBadge(
+                label: 'P${weekSales.last.toStringAsFixed(0)}',
+                variant: AppBadgeVariant.brand,
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            height: 110,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: weekSales.asMap().entries.map((entry) {
+                final val = entry.value;
+                final heightFactor = maxVal == 0 ? 0.0 : (val / maxVal);
+                final days = ["M", "T", "W", "T", "F", "S", "S"];
+                final label = days[entry.key % days.length];
+
+                return Flexible(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Flexible(
+                        child: FractionallySizedBox(
+                          heightFactor: heightFactor > 0.05
+                              ? heightFactor
+                              : 0.05,
+                          child: Container(
+                            width: 24,
+                            decoration: BoxDecoration(
+                              borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(99),
+                              ),
+                              gradient: LinearGradient(
+                                begin: Alignment.bottomCenter,
+                                end: Alignment.topCenter,
+                                colors: isDark
+                                    ? [
+                                        AppColors.primaryTint.withValues(
+                                          alpha: 0.1,
+                                        ),
+                                        AppColors.primaryStrong,
+                                      ]
+                                    : [
+                                        AppColors.primarySoft,
+                                        AppColors.primary,
+                                      ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context).textTheme.bodySmall?.color,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -782,12 +880,13 @@ class _StaffChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardTheme.color,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(AppRadius.m),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        boxShadow: AppShadow.sm(), // TINANGGAL ANG BORDER DITO
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -850,9 +949,9 @@ class _RecentOrderTile extends StatelessWidget {
         vertical: AppSpacing.space3,
       ),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardTheme.color,
-        borderRadius: BorderRadius.circular(AppRadius.m),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(AppRadius.l),
+        boxShadow: AppShadow.sm(), // TINANGGAL ANG BORDER DITO
       ),
       child: Row(
         children: [
@@ -863,7 +962,7 @@ class _RecentOrderTile extends StatelessWidget {
               color: AppColors.primary.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(AppRadius.s),
             ),
-            child: Icon(
+            child: const Icon(
               Icons.receipt_rounded,
               size: 18,
               color: AppColors.primary,
@@ -912,8 +1011,6 @@ class _RecentOrderTile extends StatelessWidget {
       ),
     );
   }
-
-  // Manila-time formatting lives in ManilaTime (Asia/Manila, UTC+8).
 }
 
 // ---------- quick action ----------
@@ -932,34 +1029,34 @@ class _QuickAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Theme.of(context).colorScheme.surface,
-      borderRadius: BorderRadius.circular(AppRadius.l),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppRadius.l),
-        onTap: onTap,
-          child: Container(
-          padding: const EdgeInsets.symmetric(vertical: AppSpacing.space5),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppRadius.l),
-            border: Border.all(
-              color: Theme.of(context).dividerColor,
-            ),
-          ),
-          child: Column(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(AppRadius.m),
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        boxShadow: AppShadow.sm(), // TINANGGAL ANG BORDER DITO
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.space5),
+            child: Column(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(AppRadius.m),
+                  ),
+                  child: Icon(icon, size: 24, color: color),
                 ),
-                child: Icon(icon, size: 24, color: color),
-              ),
-              const SizedBox(height: AppSpacing.space2),
-              Text(label, style: Theme.of(context).textTheme.titleSmall),
-            ],
+                const SizedBox(height: AppSpacing.space2),
+                Text(label, style: Theme.of(context).textTheme.titleSmall),
+              ],
+            ),
           ),
         ),
       ),
