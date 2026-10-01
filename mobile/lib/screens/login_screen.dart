@@ -1,7 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../services/offline_pin.dart';
@@ -29,6 +28,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _showServer = false;
   bool _scanning = false;
   String? _error;
+
   String? _serverMsg;
   bool? _serverOk;
 
@@ -72,6 +72,7 @@ class _LoginScreenState extends State<LoginScreen> {
       _serverMsg = null;
       _serverOk = null;
     });
+
     try {
       final url = await api.setManualBaseUrl(_serverController.text);
       final ok = await api.testConnection();
@@ -136,7 +137,6 @@ class _LoginScreenState extends State<LoginScreen> {
       _checkingOffline = true;
       _error = null;
     });
-
     final eligibility = await auth.checkOfflineEligibility();
     if (!mounted) return;
     setState(() => _checkingOffline = false);
@@ -156,6 +156,10 @@ class _LoginScreenState extends State<LoginScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (sheetContext) => StatefulBuilder(
         builder: (context, setSheetState) => SafeArea(
           child: Padding(
@@ -166,36 +170,55 @@ class _LoginScreenState extends State<LoginScreen> {
               bottom:
                   MediaQuery.of(context).viewInsets.bottom + AppSpacing.space6,
             ),
-            child: PinPad(
-              title: 'Device PIN',
-              errorText: error,
-              onComplete: (pin) async {
-                if (busy) return;
-                setSheetState(() {
-                  busy = true;
-                  error = null;
-                });
-                try {
-                  await auth.unlockOffline(pin);
-                  await Haptics.success();
-                  if (sheetContext.mounted) {
-                    Navigator.pop(sheetContext);
-                  }
-                } on PinException catch (e) {
-                  await Haptics.error();
-                  setSheetState(() {
-                    busy = false;
-                    error = e.lockedUntil != null
-                        ? '${e.message} (until ${e.lockedUntil!.hour.toString().padLeft(2, "0")}:${e.lockedUntil!.minute.toString().padLeft(2, "0")})'
-                        : e.message;
-                  });
-                } catch (e) {
-                  setSheetState(() {
-                    busy = false;
-                    error = 'Could not unlock: $e';
-                  });
-                }
-              },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.space2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(AppRadius.xs),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.space3),
+                PinPad(
+                  title: 'Device PIN',
+                  errorText: error,
+                  onComplete: (pin) async {
+                    if (busy) return;
+                    setSheetState(() {
+                      busy = true;
+                      error = null;
+                    });
+                    try {
+                      await auth.unlockOffline(pin);
+                      await Haptics.success();
+                      if (sheetContext.mounted) {
+                        Navigator.pop(sheetContext);
+                      }
+                    } on PinException catch (e) {
+                      await Haptics.error();
+                      setSheetState(() {
+                        busy = false;
+                        error = e.lockedUntil != null
+                            ? '${e.message} (until ${e.lockedUntil!.hour.toString().padLeft(2, "0")}:${e.lockedUntil!.minute.toString().padLeft(2, "0")})'
+                            : e.message;
+                      });
+                    } catch (e) {
+                      setSheetState(() {
+                        busy = false;
+                        error = 'Could not unlock: $e';
+                      });
+                    }
+                  },
+                ),
+              ],
             ),
           ),
         ),
@@ -206,11 +229,11 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _forgotPassword() async {
     final loginContext = context;
     final api = loginContext.read<AuthState>().api;
-
     var step = 'email';
     final emailCtrl = TextEditingController();
     final pwCtrl = TextEditingController();
     final pw2Ctrl = TextEditingController();
+
     String? code;
     String? error;
     String? notice;
@@ -221,6 +244,10 @@ class _LoginScreenState extends State<LoginScreen> {
       await showModalBottomSheet<void>(
         context: loginContext,
         isScrollControlled: true,
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
         builder: (sheetContext) => StatefulBuilder(
           builder: (context, setSheetState) {
             Future<void> sendCode() async {
@@ -265,13 +292,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 );
                 return;
               }
-
               final messenger = ScaffoldMessenger.of(loginContext);
               setSheetState(() {
                 busy = true;
                 error = null;
               });
-
               try {
                 await api.resetPassword(
                   email: emailCtrl.text.trim(),
@@ -419,6 +444,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ],
               );
             }
+
             return SafeArea(
               child: Padding(
                 padding: EdgeInsets.only(
@@ -429,7 +455,26 @@ class _LoginScreenState extends State<LoginScreen> {
                       MediaQuery.of(context).viewInsets.bottom +
                       AppSpacing.space6,
                 ),
-                child: body,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.symmetric(
+                          vertical: AppSpacing.space2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(AppRadius.xs),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.space3),
+                    body,
+                  ],
+                ),
               ),
             );
           },
@@ -452,11 +497,9 @@ class _LoginScreenState extends State<LoginScreen> {
           Positioned.fill(
             child: CustomPaint(
               painter: _DotGridPainter(
-                color: Theme.of(
-                  context,
-                ).dividerColor.withValues(alpha: 0.15), // Reduced opacity
+                color: Theme.of(context).dividerColor.withValues(alpha: 0.15),
                 spacing: 24.0,
-                angle: -0.15, // Subtle rotation
+                angle: -0.15,
               ),
             ),
           ),
@@ -465,9 +508,10 @@ class _LoginScreenState extends State<LoginScreen> {
           SingleChildScrollView(
             child: Column(
               children: [
-                // Header (solid gradient covers the dots behind it)
+                // Header
                 const _MobileHeroHeader(),
 
+                // Login Form Card
                 Transform.translate(
                   offset: const Offset(0, -64),
                   child: Padding(
@@ -480,9 +524,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         color: Theme.of(context).colorScheme.surface,
                         borderRadius: BorderRadius.circular(AppRadius.xl),
                         boxShadow: AppShadow.md(),
-                        border: Border.all(
-                          color: Theme.of(context).dividerColor,
-                        ),
+                        // Tinanggal ang border para consistent at borderless
                       ),
                       padding: const EdgeInsets.all(AppSpacing.space6),
                       child: Form(
@@ -528,8 +570,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ? 'Enter username'
                                   : null,
                             ),
-                            const SizedBox(height: 24),
 
+                            const SizedBox(height: 24),
                             const Text(
                               'Password',
                               style: TextStyle(
@@ -564,8 +606,8 @@ class _LoginScreenState extends State<LoginScreen> {
                               onFieldSubmitted: (_) =>
                                   _loading ? null : _submit(),
                             ),
-                            const SizedBox(height: 24),
 
+                            const SizedBox(height: 24),
                             if (_error != null)
                               Padding(
                                 padding: const EdgeInsets.only(
@@ -614,7 +656,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ),
                             ),
                             const SizedBox(height: 16),
-
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
@@ -660,6 +701,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                 ),
+
                 const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -680,6 +722,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ],
                 ),
+
                 const SizedBox(height: 32),
                 Padding(
                   padding: const EdgeInsets.symmetric(
@@ -717,7 +760,6 @@ class _MobileHeroHeader extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // Base Background
           Positioned.fill(
             child: Container(
               decoration: const BoxDecoration(
@@ -733,8 +775,6 @@ class _MobileHeroHeader extends StatelessWidget {
               ),
             ),
           ),
-
-          // Glowing Orbs
           Positioned(
             top: -40,
             right: -40,
@@ -759,8 +799,6 @@ class _MobileHeroHeader extends StatelessWidget {
               ),
             ),
           ),
-
-          // Glass Blur
           Positioned.fill(
             child: ClipRRect(
               borderRadius: const BorderRadius.vertical(
@@ -772,8 +810,6 @@ class _MobileHeroHeader extends StatelessWidget {
               ),
             ),
           ),
-
-          // Foreground Content
           Align(
             alignment: Alignment.topCenter,
             child: Padding(
@@ -842,7 +878,15 @@ class _ServerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final api = context.watch<AuthState>().api;
-    return Card(
+    final surfaceColor = Theme.of(context).colorScheme.surface;
+
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(AppRadius.l),
+        boxShadow: AppShadow.sm(),
+      ),
       child: Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.space4,
@@ -932,7 +976,6 @@ class _ServerCard extends StatelessWidget {
   }
 }
 
-// Background Dot Grid Painter with Rotation
 class _DotGridPainter extends CustomPainter {
   final Color color;
   final double spacing;
@@ -951,11 +994,9 @@ class _DotGridPainter extends CustomPainter {
       ..style = PaintingStyle.fill;
 
     canvas.save();
-    // Rotate from the center of the screen
     canvas.translate(size.width / 2, size.height / 2);
     canvas.rotate(angle);
 
-    // Expand the drawing area so corners remain covered after rotation
     final double maxBounds = size.longestSide;
     for (double x = -maxBounds; x < maxBounds; x += spacing) {
       for (double y = -maxBounds; y < maxBounds; y += spacing) {

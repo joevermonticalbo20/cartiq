@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 import '../services/persisted_queue.dart';
 import '../state/cart_state.dart';
 import '../theme.dart';
@@ -18,28 +17,28 @@ class PosQtyButton extends StatelessWidget {
     return Tooltip(
       message: label,
       child: Material(
-      color: onPressed == null
-          ? Theme.of(context).disabledColor.withValues(alpha: 0.2)
-          : AppColors.primary,
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onPressed == null
-            ? null
-            : () {
-                Haptics.select();
-                onPressed!();
-              },
-        child: SizedBox(
-          width: 48,
-          height: 48,
-          child: Icon(
-            icon,
-            color: onPressed == null
-                ? Theme.of(context).disabledColor
-                : Colors.white,
+        color: onPressed == null
+            ? Theme.of(context).disabledColor.withValues(alpha: 0.2)
+            : AppColors.primary,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onPressed == null
+              ? null
+              : () {
+                  Haptics.select();
+                  onPressed!();
+                },
+          child: SizedBox(
+            width: 48,
+            height: 48,
+            child: Icon(
+              icon,
+              color: onPressed == null
+                  ? Theme.of(context).disabledColor
+                  : Colors.white,
+            ),
           ),
-        ),
         ),
       ),
     );
@@ -77,6 +76,7 @@ class PosOfflineStripState extends State<PosOfflineStrip> {
       builder: (context, snap) {
         final count = snap.hasData ? snap.data! : _count;
         if (count <= 0) return const SizedBox.shrink();
+
         return Container(
           margin: const EdgeInsets.fromLTRB(
             AppSpacing.space4,
@@ -91,7 +91,7 @@ class PosOfflineStripState extends State<PosOfflineStrip> {
           decoration: BoxDecoration(
             color: AppColors.warn.withValues(alpha: 0.14),
             borderRadius: BorderRadius.circular(AppRadius.s),
-            border: Border.all(color: AppColors.warn.withValues(alpha: 0.45)),
+            // Tinanggal ang Border.all para perfectly soft at malinis
           ),
           child: Row(
             children: [
@@ -126,12 +126,14 @@ class PosCartBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isEmpty = cart.isEmpty;
+
     return Container(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        borderRadius:
-            const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
-        border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppRadius.xl),
+        ),
+        // Tinanggal ang top BorderSide dahil sapat na ang shadow para sa separation
         boxShadow: AppShadow.md(),
       ),
       child: SafeArea(

@@ -141,20 +141,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
     _loadMore(reset: true);
   }
 
-  // Consistent UX: Ginamit na rin natin ang RadioListTile para sa pag-edit ng Payment Method
   Future<void> _editPaymentMethod(Map<String, dynamic> order) async {
-    String currentMethod = order['paymentMethod'] ?? 'CASH';
-    File? proofImage;
-
-    final methods = [
-      {'key': 'CASH', 'label': 'Cash', 'icon': Icons.payments_rounded},
-      {
-        'key': 'GCASH',
-        'label': 'GCash (Awtomatikong hihingi ng Proof)',
-        'icon': Icons.phone_android_rounded,
-      },
-      {'key': 'CARD', 'label': 'Card', 'icon': Icons.credit_card_rounded},
-    ];
+    final currentMethod = order['paymentMethod'] ?? 'CASH';
 
     final updated = await showModalBottomSheet<bool>(
       context: context,
@@ -163,172 +151,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => Padding(
-          padding: EdgeInsets.fromLTRB(
-            AppSpacing.space5,
-            AppSpacing.space4,
-            AppSpacing.space5,
-            MediaQuery.of(context).viewInsets.bottom + AppSpacing.space6,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.symmetric(
-                    vertical: AppSpacing.space2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(AppRadius.xs),
-                  ),
-                ),
-              ),
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(AppRadius.m),
-                    ),
-                    child: const Icon(
-                      Icons.payment_rounded,
-                      color: AppColors.primary,
-                      size: 24,
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.space3),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Edit Payment Method',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Baguhin ang paraan ng pagbabayad.',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.space4),
-              const Divider(height: 1),
-              const SizedBox(height: AppSpacing.space3),
-              Text(
-                'Piliin ang bagong mode of payment:',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const SizedBox(height: AppSpacing.space2),
-              ...methods.map(
-                (m) => RadioListTile<String>(
-                  title: Row(
-                    children: [
-                      Icon(
-                        m['icon'] as IconData,
-                        size: 20,
-                        color: AppColors.primary,
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        m['label'] as String,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  ),
-                  value: m['key'] as String,
-                  groupValue: currentMethod,
-                  activeColor: AppColors.primary,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  onChanged: (v) async {
-                    if (v == null) return;
-                    if (v == 'GCASH') {
-                      final picker = ImagePicker();
-                      final image = await picker.pickImage(
-                        source: ImageSource.camera,
-                        imageQuality: 80,
-                      );
-                      if (image != null) {
-                        proofImage = File(image.path);
-                      }
-                    }
-                    setDialogState(() => currentMethod = v);
-                  },
-                ),
-              ),
-              if (currentMethod == 'GCASH' && proofImage != null) ...[
-                const SizedBox(height: AppSpacing.space2),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppColors.ok.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(AppRadius.m),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.check_circle,
-                        color: AppColors.ok,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Tagumpay na nakuha ang proof of payment',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppColors.ok,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-              const SizedBox(height: AppSpacing.space4),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(52),
-                      ),
-                      onPressed: () => Navigator.pop(context, false),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.space3),
-                  Expanded(
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(52),
-                      ),
-                      onPressed: () => Navigator.pop(context, true),
-                      child: const Text('Save Changes'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
+      builder: (modalContext) =>
+          _EditPaymentSheet(initialMethod: currentMethod),
     );
 
     if (updated != true) return;
     if (!mounted) return;
 
+    // Ang updated payment method handling ay dapat ilagay dito para sa database/backend save
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Payment method updated to $currentMethod successfully.'),
+      const SnackBar(
+        content: Text('Payment method updated successfully.'),
         backgroundColor: AppColors.ok,
       ),
     );
@@ -591,31 +424,47 @@ class _HistoryScreenState extends State<HistoryScreen> {
         child: _rows.isEmpty && _loading && _error == null
             ? ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(AppSpacing.space4),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.space4,
+                  AppSpacing.space4,
+                  AppSpacing.space4,
+                  120,
+                ),
                 children: const [AppSkeleton(rows: 6)],
               )
             : !hasResults && !_loading
             ? AppEmptyState(
-                icon: _search.isNotEmpty
+                isError: _error != null,
+                icon: _error != null
+                    ? Icons.error_outline_rounded
+                    : _search.isNotEmpty
                     ? Icons.search_off_rounded
                     : Icons.receipt_long_rounded,
-                title:
-                    _error ??
-                    (_search.isNotEmpty
-                        ? 'No sales match "$_search"'
-                        : 'No sales recorded yet'),
-                subtitle: _search.isNotEmpty
+                title: _error != null
+                    ? _error!
+                    : _search.isNotEmpty
+                    ? 'No sales match "$_search"'
+                    : 'No sales recorded yet',
+                subtitle: _error != null
+                    ? 'Please check your internet connection and try again.'
+                    : _search.isNotEmpty
                     ? 'Try a different product, flavor, or amount.'
                     : (widget.onNewSale != null
                           ? 'Record a sale on the POS tab to see it appear here.'
                           : null),
-                actionLabel: _search.isNotEmpty
+                actionLabel: _error != null
+                    ? 'Tap to retry'
+                    : _search.isNotEmpty
                     ? 'Clear search'
                     : (widget.onNewSale != null ? 'Open POS' : null),
-                actionIcon: _search.isNotEmpty
+                actionIcon: _error != null
+                    ? Icons.refresh_rounded
+                    : _search.isNotEmpty
                     ? Icons.close
                     : Icons.point_of_sale_rounded,
-                onAction: _search.isNotEmpty
+                onAction: _error != null
+                    ? () => _loadMore(reset: true)
+                    : _search.isNotEmpty
                     ? () => setState(() {
                         _search = '';
                         _searchCtrl.clear();
@@ -762,6 +611,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 }
 
+// ---------------------------------------------------------
+// Void Reason Modal
+// ---------------------------------------------------------
 class _VoidReasonSheet extends StatefulWidget {
   const _VoidReasonSheet({required this.reasons});
   final List<String> reasons;
@@ -915,7 +767,189 @@ class _VoidReasonSheetState extends State<_VoidReasonSheet> {
                     }
                     Navigator.pop(context, true);
                   },
-                  child: const Text('Confirm Void Order'),
+                  child: const Text('Confirm'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------
+// Edit Payment Method Modal
+// ---------------------------------------------------------
+class _EditPaymentSheet extends StatefulWidget {
+  const _EditPaymentSheet({required this.initialMethod});
+  final String initialMethod;
+
+  @override
+  State<_EditPaymentSheet> createState() => _EditPaymentSheetState();
+}
+
+class _EditPaymentSheetState extends State<_EditPaymentSheet> {
+  late String currentMethod;
+  File? proofImage;
+
+  // Tinanggal na ang "Card" option gaya ng nirequest mo.
+  final methods = [
+    {'key': 'CASH', 'label': 'Cash', 'icon': Icons.payments_rounded},
+    {'key': 'GCASH', 'label': 'GCash', 'icon': Icons.phone_android_rounded},
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    currentMethod = widget.initialMethod;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        AppSpacing.space5,
+        AppSpacing.space4,
+        AppSpacing.space5,
+        MediaQuery.of(context).viewInsets.bottom + AppSpacing.space6,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.symmetric(vertical: AppSpacing.space2),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(AppRadius.xs),
+              ),
+            ),
+          ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppRadius.m),
+                ),
+                child: const Icon(
+                  Icons.payment_rounded,
+                  color: AppColors.primary,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.space3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Edit Payment Method',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Update transaction payment mode.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.space4),
+          const Divider(height: 1),
+          const SizedBox(height: AppSpacing.space3),
+          Text(
+            'Select new payment method:',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: AppSpacing.space2),
+          ...methods.map(
+            (m) => RadioListTile<String>(
+              title: Row(
+                children: [
+                  Icon(
+                    m['icon'] as IconData,
+                    size: 20,
+                    color: AppColors.primary,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    m['label'] as String,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+              value: m['key'] as String,
+              groupValue: currentMethod,
+              activeColor: AppColors.primary,
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              onChanged: (v) async {
+                if (v == null) return;
+                if (v == 'GCASH') {
+                  final picker = ImagePicker();
+                  final image = await picker.pickImage(
+                    source: ImageSource.camera,
+                    imageQuality: 80,
+                  );
+                  if (image != null) {
+                    proofImage = File(image.path);
+                  }
+                }
+                setState(() => currentMethod = v);
+              },
+            ),
+          ),
+          if (currentMethod == 'GCASH' && proofImage != null) ...[
+            const SizedBox(height: AppSpacing.space2),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.ok.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(AppRadius.m),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: AppColors.ok, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Proof of payment captured successfully',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.ok,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: AppSpacing.space4),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52),
+                  ),
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.space3),
+              Expanded(
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52),
+                  ),
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Save Changes'),
                 ),
               ),
             ],

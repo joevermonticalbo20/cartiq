@@ -1,9 +1,7 @@
 import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../services/receipt_scanner.dart';
@@ -48,12 +46,16 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
     _locationCode = auth.locationCode;
     final token = auth.token;
     if (token == null) return;
-    auth.api.catalog(token).then((data) {
-      if (!mounted) return;
-      setState(() {
-        _locations = (data['locations'] as List).cast<Map<String, dynamic>>();
-      });
-    }).catchError((_) {});
+    auth.api
+        .catalog(token)
+        .then((data) {
+          if (!mounted) return;
+          setState(() {
+            _locations = (data['locations'] as List)
+                .cast<Map<String, dynamic>>();
+          });
+        })
+        .catchError((_) {});
   }
 
   @override
@@ -72,18 +74,20 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
       _message = null;
       _messageIsError = false;
     });
+
     try {
       final picker = ImagePicker();
       final xfile = await picker.pickImage(source: source, imageQuality: 85);
       if (xfile == null) return;
+
       final parsed = await _scanner.scanFromFile(xfile.path);
       if (!mounted) return;
+
       setState(() {
         _vendor.text = parsed.vendor;
         if (parsed.amount != null) _amount.text = parsed.amount.toString();
         if (parsed.dateText != null) _date.text = parsed.dateText!;
-        _note.text =
-            'OCR lines: ${parsed.lines.take(5).join(' / ')}';
+        _note.text = 'OCR lines: ${parsed.lines.take(5).join(' / ')}';
         _message = 'Receipt scanned - review the fields below before saving.';
         _messageIsError = false;
       });
@@ -101,6 +105,7 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
   Future<void> _save(bool ocrSource) async {
     final vendor = TextInputRules.sanitize(_vendor.text).trim();
     final note = TextInputRules.sanitize(_note.text).trim();
+
     if (!TextInputRules.isValidVendor(_vendor.text)) {
       setState(() {
         _message =
@@ -109,6 +114,7 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
       });
       return;
     }
+
     if (!TextInputRules.isValidNote(_note.text)) {
       setState(() {
         _message =
@@ -117,6 +123,7 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
       });
       return;
     }
+
     final amount = MoneyInput.tryParse(_amount.text);
     if (amount == null || amount <= 0) {
       setState(() {
@@ -125,23 +132,23 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
       });
       return;
     }
-    // Expenses are online-only (not queued offline). Surface connectivity
-    // failures honestly instead of silently dropping them.
+
     final auth = context.read<AuthState>();
     if (auth.token == null) {
       setState(() {
-        _message = 'Session expired — please log in again.';
+        _message = 'Session expired - please log in again.';
         _messageIsError = true;
       });
       return;
     }
+
     try {
       final online = await auth.api.health();
       if (!mounted) return;
       if (!online) {
         setState(() {
           _message =
-              'Offline — expenses need a connection and are not queued. Reconnect and try again; POS sales are the only offline-queued records.';
+              'Offline - expenses need a connection and are not queued. Reconnect and try again; POS sales are the only offline-queued records.';
           _messageIsError = true;
         });
         return;
@@ -149,18 +156,19 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
     } catch (_) {
       // Fall through to createExpense which will report the real error.
     }
+
     setState(() {
       _busy = true;
       _message = null;
       _messageIsError = false;
     });
-    // Prefer the OCR-parsed date (ISO, dd/mm/yyyy, or month names);
-    // otherwise the server records upload time. Raw text stays visible.
+
     DateTime expenseDate = DateTime.now();
     final dateText = _date.text.trim();
     if (dateText.isNotEmpty) {
       expenseDate = parseReceiptDate(dateText) ?? DateTime.now();
     }
+
     try {
       await auth.api.createExpense(auth.token ?? '', {
         'vendor': vendor,
@@ -171,9 +179,14 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
         'category': _category,
         'note': note.isEmpty ? '' : note,
       });
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Expense recorded: $vendor (P${amount.toStringAsFixed(2)})')),
+        SnackBar(
+          content: Text(
+            'Expense recorded: $vendor (P${amount.toStringAsFixed(2)})',
+          ),
+        ),
       );
       Navigator.pop(context);
     } on ApiException catch (e) {
@@ -197,11 +210,14 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
             borderRadius: BorderRadius.circular(AppRadius.s),
           ),
           child: Center(
-            child: Text('$n',
-                style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white)),
+            child: Text(
+              '$n',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+              ),
+            ),
           ),
         ),
         const SizedBox(width: AppSpacing.space2),
@@ -216,12 +232,20 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final surfaceColor = Theme.of(context).colorScheme.surface;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Record expense')),
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.space4),
         children: [
-          Card(
+          Container(
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: surfaceColor,
+              borderRadius: BorderRadius.circular(AppRadius.l),
+              boxShadow: AppShadow.sm(),
+            ),
             child: Padding(
               padding: const EdgeInsets.all(AppSpacing.space3),
               child: Row(
@@ -230,7 +254,7 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Expenses need a connection — they are sent immediately and are not queued offline (POS sales queue instead).',
+                      'Expenses need a connection - they are sent immediately and are not queued offline (POS sales queue instead).',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
@@ -239,14 +263,24 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
             ),
           ),
           const SizedBox(height: AppSpacing.space3),
-          Card(
+
+          Container(
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: surfaceColor,
+              borderRadius: BorderRadius.circular(AppRadius.l),
+              boxShadow: AppShadow.sm(),
+            ),
             child: Padding(
               padding: const EdgeInsets.all(AppSpacing.space4),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _stepBadge(1, 'Scan vendor receipt',
-                      icon: Icons.document_scanner_rounded),
+                  _stepBadge(
+                    1,
+                    'Scan vendor receipt',
+                    icon: Icons.document_scanner_rounded,
+                  ),
                   const SizedBox(height: AppSpacing.space3),
                   Text(
                     _ocrSupported
@@ -262,8 +296,9 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
                           style: FilledButton.styleFrom(
                             minimumSize: const Size(0, 48),
                           ),
-                          onPressed:
-                              !_ocrSupported || _busy ? null : () => _pick(ImageSource.camera),
+                          onPressed: !_ocrSupported || _busy
+                              ? null
+                              : () => _pick(ImageSource.camera),
                           icon: const Icon(Icons.photo_camera),
                           label: const Text('Camera'),
                         ),
@@ -274,8 +309,9 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
                           style: FilledButton.styleFrom(
                             minimumSize: const Size(0, 48),
                           ),
-                          onPressed:
-                              !_ocrSupported || _busy ? null : () => _pick(ImageSource.gallery),
+                          onPressed: !_ocrSupported || _busy
+                              ? null
+                              : () => _pick(ImageSource.gallery),
                           icon: const Icon(Icons.photo_library),
                           label: const Text('Gallery'),
                         ),
@@ -292,65 +328,120 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
             ),
           ),
           const SizedBox(height: AppSpacing.space3),
-          Card(
+
+          Container(
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: surfaceColor,
+              borderRadius: BorderRadius.circular(AppRadius.l),
+              boxShadow: AppShadow.sm(),
+            ),
             child: Padding(
               padding: const EdgeInsets.all(AppSpacing.space4),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _stepBadge(2, 'Confirm details', icon: Icons.fact_check_rounded),
-                  const SizedBox(height: AppSpacing.space3),
+                  _stepBadge(
+                    2,
+                    'Confirm details',
+                    icon: Icons.fact_check_rounded,
+                  ),
+                  const SizedBox(height: AppSpacing.space4),
+
+                  // MODERN PREMIUM DROPDOWN: Location
                   DropdownButtonFormField<String>(
-                    initialValue: _locationCode,
+                    isExpanded: true,
+                    value: _locationCode,
+                    icon: const Icon(
+                      Icons.unfold_more_rounded,
+                      size: 20,
+                      color: AppColors.muted,
+                    ),
+                    dropdownColor: surfaceColor,
+                    borderRadius: BorderRadius.circular(AppRadius.l),
+                    elevation: 6,
                     decoration: const InputDecoration(
                       labelText: 'Cart location',
+                      prefixIcon: Icon(Icons.storefront_outlined),
                     ),
                     items: _locations
-                        .map((loc) => DropdownMenuItem(
-                              value: loc['code'] as String,
-                              child: Text('${loc['code']} - ${loc['name']}'),
-                            ))
+                        .map(
+                          (loc) => DropdownMenuItem(
+                            value: loc['code'] as String,
+                            child: Text(
+                              '${loc['code']} - ${loc['name']}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
                         .toList(),
                     onChanged: (v) => setState(() => _locationCode = v),
                   ),
                   const SizedBox(height: AppSpacing.space3),
+
+                  // MODERN PREMIUM DROPDOWN: Category
                   DropdownButtonFormField<String>(
-                    initialValue: _category,
+                    isExpanded: true,
+                    value: _category,
+                    icon: const Icon(
+                      Icons.unfold_more_rounded,
+                      size: 20,
+                      color: AppColors.muted,
+                    ),
+                    dropdownColor: surfaceColor,
+                    borderRadius: BorderRadius.circular(AppRadius.l),
+                    elevation: 6,
                     decoration: const InputDecoration(
                       labelText: 'Category',
+                      prefixIcon: Icon(Icons.category_outlined),
                     ),
                     items: _categories
-                        .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                        .map(
+                          (c) => DropdownMenuItem(
+                            value: c,
+                            child: Text(c, overflow: TextOverflow.ellipsis),
+                          ),
+                        )
                         .toList(),
-                    onChanged: (v) => setState(() => _category = v ?? 'Supplies'),
+                    onChanged: (v) =>
+                        setState(() => _category = v ?? 'Supplies'),
                   ),
                   const SizedBox(height: AppSpacing.space3),
+
                   TextField(
                     controller: _vendor,
                     inputFormatters: const [SingleSpaceFormatter()],
                     decoration: const InputDecoration(
                       labelText: 'Vendor *',
                       helperText: 'Min 2 letters, max 40',
+                      prefixIcon: Icon(Icons.business_rounded),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.space3),
+
                   TextField(
                     controller: _amount,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     inputFormatters: [MoneyInputFormatter()],
                     decoration: const InputDecoration(
                       labelText: 'Amount (PHP) *',
                       helperText: 'Max 7 digits, up to 2 decimals',
+                      prefixIcon: Icon(Icons.payments_outlined),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.space3),
+
                   TextField(
                     controller: _date,
                     decoration: const InputDecoration(
                       labelText: 'Date text (from receipt)',
+                      prefixIcon: Icon(Icons.calendar_today_outlined),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.space3),
+
                   TextField(
                     controller: _note,
                     maxLines: 2,
@@ -358,15 +449,17 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Note / OCR excerpt',
                       helperText: 'Max 40 characters',
+                      prefixIcon: Icon(Icons.notes_rounded),
                     ),
                   ),
                 ],
               ),
             ),
           ),
+
           if (_message != null)
             Padding(
-              padding: const EdgeInsets.only(top: AppSpacing.space2),
+              padding: const EdgeInsets.only(top: AppSpacing.space3),
               child: Container(
                 padding: const EdgeInsets.all(AppSpacing.space3),
                 decoration: BoxDecoration(
@@ -393,18 +486,26 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
                 ),
               ),
             ),
-          const SizedBox(height: AppSpacing.space3),
+          const SizedBox(height: AppSpacing.space4),
+
           FilledButton.icon(
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
+            ),
             onPressed: _busy ? null : () => _save(true),
             icon: const Icon(Icons.save),
             label: const Text('Save expense (OCR)'),
           ),
           const SizedBox(height: AppSpacing.space2),
           OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
+            ),
             onPressed: _busy ? null : () => _save(false),
             icon: const Icon(Icons.edit_note),
             label: const Text('Save as manual entry'),
           ),
+          const SizedBox(height: AppSpacing.space6),
         ],
       ),
     );

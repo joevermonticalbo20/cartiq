@@ -196,24 +196,35 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
               )
             : !hasResults && !_loading
             ? AppEmptyState(
-                icon: _search.isNotEmpty
+                isError: _error != null,
+                icon: _error != null
+                    ? Icons.error_outline_rounded
+                    : _search.isNotEmpty
                     ? Icons.search_off_rounded
                     : Icons.receipt_long,
-                title:
-                    _error ??
-                    (_search.isNotEmpty
-                        ? 'No expenses match "$_search"'
-                        : 'No expenses yet'),
-                subtitle: _search.isNotEmpty
+                title: _error != null
+                    ? _error!
+                    : _search.isNotEmpty
+                    ? 'No expenses match "$_search"'
+                    : 'No expenses yet',
+                subtitle: _error != null
+                    ? 'Please check your internet connection and try again.'
+                    : _search.isNotEmpty
                     ? 'Try a different vendor, category, or amount.'
                     : 'Snap a receipt and CartIQ will fill in the details.',
-                actionLabel: _search.isNotEmpty
+                actionLabel: _error != null
+                    ? 'Tap to retry'
+                    : _search.isNotEmpty
                     ? 'Clear search'
                     : 'Scan a receipt',
-                actionIcon: _search.isNotEmpty
+                actionIcon: _error != null
+                    ? Icons.refresh_rounded
+                    : _search.isNotEmpty
                     ? Icons.close
                     : Icons.camera_alt_rounded,
-                onAction: _search.isNotEmpty
+                onAction: _error != null
+                    ? () => _loadMore(reset: true)
+                    : _search.isNotEmpty
                     ? () => setState(() {
                         _search = '';
                         _searchCtrl.clear();

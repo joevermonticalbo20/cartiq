@@ -1,59 +1,36 @@
 import 'package:flutter/material.dart';
-
 import '../theme.dart';
 
-/// Shimmer loading placeholder mirroring web `Skeleton`.
-/// Pulses soft bars; use for list rows/cards while content loads.
-class AppSkeleton extends StatelessWidget {
-  const AppSkeleton({
-    super.key,
-    this.rows = 4,
-    this.height = 14,
-    this.padding = const EdgeInsets.symmetric(vertical: 4),
-  });
+/// Reusable skeleton loading state na may modern pulsing animation.
+/// Automatically adapts: Card-style kung walang height, simple box kung may height.
+class AppSkeleton extends StatefulWidget {
+  const AppSkeleton({super.key, this.rows = 5, this.height});
 
   final int rows;
-  final double height;
-  final EdgeInsetsGeometry padding;
+  final double? height;
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: List.generate(
-        rows,
-        (i) => Padding(
-          padding: padding,
-          child: _PulseBar(
-            height: height,
-            widthFactor: 0.95 - ((i * 13) % 40) / 100,
-          ),
-        ),
-      ),
-    );
-  }
+  State<AppSkeleton> createState() => _AppSkeletonState();
 }
 
-class _PulseBar extends StatefulWidget {
-  const _PulseBar({required this.height, required this.widthFactor});
-
-  final double height;
-  final double widthFactor;
-
-  @override
-  State<_PulseBar> createState() => _PulseBarState();
-}
-
-class _PulseBarState extends State<_PulseBar>
+class _AppSkeletonState extends State<AppSkeleton>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
+  late AnimationController _controller;
+  late Animation<double> _animation;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
+      duration: const Duration(milliseconds: 1000),
       vsync: this,
-      duration: const Duration(milliseconds: 700),
     )..repeat(reverse: true);
+
+    // I-animate lang ang alpha value para sa mga gray boxes
+    _animation = Tween<double>(
+      begin: 0.04,
+      end: 0.12,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
   @override
@@ -64,24 +41,117 @@ class _PulseBarState extends State<_PulseBar>
 
   @override
   Widget build(BuildContext context) {
-    final base = Theme.of(context).dividerColor;
-    return FractionallySizedBox(
-      alignment: Alignment.centerLeft,
-      widthFactor: widget.widthFactor,
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, child) => Opacity(
-          opacity: 0.45 + 0.4 * _controller.value,
-          child: child,
-        ),
-        child: Container(
-          height: widget.height,
-          decoration: BoxDecoration(
-            color: base,
-            borderRadius: BorderRadius.circular(AppRadius.s),
-          ),
-        ),
-      ),
+    final surfaceColor = Theme.of(context).colorScheme.surface;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Gumamit ng AnimatedBuilder para gray boxes lang ang nag-pa-pulse
+    // at hindi maapektuhan ang solid na puting card at ang shadow nito.
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        final baseColor = isDark
+            ? Colors.white.withValues(alpha: _animation.value)
+            : Colors.black.withValues(alpha: _animation.value);
+
+        return Column(
+          children: List.generate(widget.rows, (index) {
+            // Custom height para sa simpleng text skeletons (e.g. HomeScreen)
+            if (widget.height != null) {
+              return Container(
+                margin: const EdgeInsets.only(bottom: AppSpacing.space2),
+                width: double.infinity,
+                height: widget.height,
+                decoration: BoxDecoration(
+                  color: baseColor,
+                  borderRadius: BorderRadius.circular(AppRadius.xs),
+                ),
+              );
+            }
+
+            // Default: Perfect Card Skeleton (kopyang-kopya ang History/Receipts)
+            return Container(
+              margin: const EdgeInsets.only(bottom: AppSpacing.space2),
+              decoration: BoxDecoration(
+                color: surfaceColor,
+                borderRadius: BorderRadius.circular(AppRadius.l),
+                boxShadow: AppShadow.sm(), // Solid, identical shadow
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.space4,
+                  vertical: AppSpacing.space3,
+                ),
+                child: Row(
+                  children: [
+                    // Leading Icon
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: baseColor,
+                        borderRadius: BorderRadius.circular(AppRadius.s),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.space3),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              // Price placeholder
+                              Container(
+                                width: 56,
+                                height: 18,
+                                decoration: BoxDecoration(
+                                  color: baseColor,
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadius.xs,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              // Item count placeholder
+                              Container(
+                                width: 64,
+                                height: 14,
+                                decoration: BoxDecoration(
+                                  color: baseColor,
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadius.xs,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          // Description/Items placeholder
+                          Container(
+                            width: double.infinity,
+                            height: 14,
+                            decoration: BoxDecoration(
+                              color: baseColor,
+                              borderRadius: BorderRadius.circular(AppRadius.xs),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    // Chevron Trailing
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 20,
+                      color: baseColor,
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        );
+      },
     );
   }
 }

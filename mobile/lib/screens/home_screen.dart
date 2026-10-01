@@ -161,7 +161,7 @@ class _HomeScreenState extends State<HomeScreen> {
           AppSpacing.space4,
           AppSpacing.space3,
           AppSpacing.space4,
-          AppSpacing.space6,
+          120,
         ),
         children: [
           // ---------- header ----------
