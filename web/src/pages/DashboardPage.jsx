@@ -372,7 +372,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="kpi-card-body">
                   <div>
-                    <div className="kpi-card-value">{report ? <>P{Number(todaySales).toLocaleString()}</> : " "}</div>
+                    <div className="kpi-card-value">{report ? <>P{Number(todaySales).toLocaleString()}</> : "—"}</div>
                     <div className="kpi-card-sub">{report ? `${todayOrders} orders - avg P${avgTicket.toFixed(0)} ticket` : "Sales unavailable"}</div>
                   </div>
                   <span className="kpi-card-trend"><TrendArrow dir={salesDir} /> {labelOf(salesDelta)}</span>
@@ -386,7 +386,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="kpi-card-body">
                   <div>
-                    <div className="kpi-card-value">{report ? todayOrders : " "}</div>
+                    <div className="kpi-card-value">{report ? todayOrders : "—"}</div>
                     <div className="kpi-card-sub">Across {activeInventory.length} active carts</div>
                   </div>
                   <span className={`kpi-card-trend ${ordersDir}`}><TrendArrow dir={ordersDir} /> {labelOf(ordersDelta)}</span>

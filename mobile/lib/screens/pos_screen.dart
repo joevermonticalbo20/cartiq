@@ -332,6 +332,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       if (cartCode == null || cartCode.isEmpty) {
         if (!mounted) return;
         await Haptics.error();
+        if (!mounted) return;
         AppMessenger.showGlassToast(
           context: context,
           message: 'No cart assigned to this account - ask OWNER',
@@ -357,6 +358,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       } catch (_) {
         if (!mounted) return;
         await Haptics.error();
+        if (!mounted) return;
         AppMessenger.showGlassToast(
           context: context,
           message: 'Could not save sale on this device - cart kept',
@@ -377,6 +379,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       } else {
         await Haptics.tap();
       }
+      if (!mounted) return;
 
       final change = method == PaymentMethod.cash && cashTendered != null
           ? cashTendered - snapshotTotal

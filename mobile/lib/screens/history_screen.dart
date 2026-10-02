@@ -203,7 +203,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       child: Image.network(
                         url,
                         fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => const Center(
+                        errorBuilder: (_, _, _) => const Center(
                           child: Icon(
                             Icons.broken_image_rounded,
                             color: Colors.white,

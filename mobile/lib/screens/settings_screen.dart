@@ -112,6 +112,7 @@ class SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     if (ok) {
       await reload();
+      if (!mounted) return;
       final username = auth.user?['username'];
       AppMessenger.showGlassToast(
         context: context,
@@ -137,6 +138,7 @@ class SettingsScreenState extends State<SettingsScreen> {
       await Haptics.success();
       if (!mounted) return;
       await reload();
+      if (!mounted) return;
       AppMessenger.showGlassToast(
         context: context,
         message: 'Offline PIN changed',
@@ -175,6 +177,7 @@ class SettingsScreenState extends State<SettingsScreen> {
     await auth.pin.clear();
     await Haptics.success();
     await reload();
+    if (!mounted) return;
     AppMessenger.showGlassToast(
       context: context,
       message: 'Offline PIN disabled',
@@ -281,12 +284,15 @@ class SettingsScreenState extends State<SettingsScreen> {
     next.dispose();
     confirm.dispose();
     if (ok == true && mounted) {
-      await auth.signOut();
+      // Toast BEFORE signOut: AppMessenger inserts into the ROOT overlay
+      // synchronously, so it survives the swap back to LoginScreen. Showing it
+      // after the await would hit a disposed context and silently vanish.
       AppMessenger.showGlassToast(
         context: context,
         message: 'Password changed. Please sign in again.',
         isSuccess: true,
       );
+      await auth.signOut();
     }
   }
 

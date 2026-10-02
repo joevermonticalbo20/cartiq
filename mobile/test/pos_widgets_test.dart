@@ -91,8 +91,8 @@ void main() {
       cart.add('Cheese Fries', 'Cheese', 59);
       cart.add('Cheese Fries', 'Cheese', 59);
       await tester.pumpWidget(_wrap(PosCartBar(cart: cart, onTap: () {})));
-      expect(find.text('2 items in order'), findsOneWidget);
-      expect(find.text('P118'), findsOneWidget);
+      expect(find.text('2 items'), findsOneWidget);
+      expect(find.text('₱118'), findsOneWidget);
     });
   });
 
