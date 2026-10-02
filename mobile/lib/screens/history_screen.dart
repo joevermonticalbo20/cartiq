@@ -7,6 +7,8 @@ import 'package:provider/provider.dart';
 import '../services/auth_state.dart';
 import '../services/api_client.dart';
 import '../theme.dart';
+import '../utils/app_messenger.dart';
+import '../utils/haptics.dart';
 import '../utils/manila_time.dart';
 import '../widgets/app_skeleton.dart';
 import '../widgets/empty_state.dart';
@@ -66,9 +68,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final hadRows = _rows.isNotEmpty;
     setState(() => _error = message);
     if (hadRows && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Refresh failed: $message')));
+      // INAYOS: Gumamit ng bagong bouncing Glass Toast
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Refresh failed: $message',
+        isSuccess: false,
+      );
     }
   }
 
@@ -130,11 +135,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
     if (confirmed != true) return;
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Order voided successfully. Inventory reverted.'),
-        backgroundColor: AppColors.ok,
-      ),
+
+    // INAYOS: Gumamit ng bagong bouncing Glass Toast
+    AppMessenger.showGlassToast(
+      context: context,
+      message: 'Order voided successfully. Inventory reverted.',
+      isSuccess: true,
     );
     _loadMore(reset: true);
   }
@@ -153,13 +159,89 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
     if (updated != true) return;
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Payment method updated successfully.'),
-        backgroundColor: AppColors.ok,
-      ),
+
+    // INAYOS: Gumamit ng bagong bouncing Glass Toast
+    AppMessenger.showGlassToast(
+      context: context,
+      message: 'Payment method updated successfully.',
+      isSuccess: true,
     );
     _loadMore(reset: true);
+  }
+
+  // BAGONG FUNCTION PARA I-VIEW ANG GCASH RECEIPT MULA SA NETWORK
+  void _viewNetworkProof(BuildContext context, String? url) {
+    if (url == null || url.isEmpty) {
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'No receipt image uploaded for this order.',
+        isSuccess: false,
+      );
+      return;
+    }
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.4),
+      builder: (ctx) => BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          insetPadding: const EdgeInsets.all(AppSpacing.space4),
+          child: SizedBox(
+            width: double.infinity,
+            height: MediaQuery.of(context).size.height * 0.7,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Positioned.fill(
+                  child: InteractiveViewer(
+                    minScale: 1.0,
+                    maxScale: 4.0,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.l),
+                      child: Image.network(
+                        url,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Center(
+                          child: Icon(
+                            Icons.broken_image_rounded,
+                            color: Colors.white,
+                            size: 48,
+                          ),
+                        ),
+                        loadingBuilder: (context, child, progress) {
+                          if (progress == null) return child;
+                          return const Center(
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: AppSpacing.space2,
+                  right: AppSpacing.space2,
+                  child: IconButton(
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white.withValues(alpha: 0.25),
+                      side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.4),
+                      ),
+                    ),
+                    icon: const Icon(Icons.close_rounded, color: Colors.white),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _showOrderDetails(Map<String, dynamic> order) async {
@@ -318,6 +400,25 @@ class _HistoryScreenState extends State<HistoryScreen> {
               ).textTheme.bodySmall?.copyWith(fontSize: 10),
               overflow: TextOverflow.ellipsis,
             ),
+
+            // BAGONG BUTTON PARA I-VIEW ANG GCASH RECEIPT KUNG GCASH ANG BINAYAD
+            if (paymentMethod == 'GCASH') ...[
+              const SizedBox(height: AppSpacing.space4),
+              FilledButton.tonalIcon(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                  backgroundColor: AppColors.info.withValues(alpha: 0.1),
+                  foregroundColor: AppColors.info,
+                ),
+                icon: const Icon(Icons.image_outlined, size: 18),
+                label: const Text('View GCash Receipt'),
+                onPressed: () {
+                  // I-a-assume natin na may 'proofImageUrl' data mula sa API kapag GCash
+                  _viewNetworkProof(sheetContext, order['proofImageUrl']);
+                },
+              ),
+            ],
+
             const SizedBox(height: AppSpacing.space5),
             Row(
               children: [
@@ -608,7 +709,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                   controller: _searchCtrl,
                                   autofocus: true,
                                   decoration: InputDecoration(
-                                    hintText: 'Search history...',
+                                    hintText: 'Search product, flavor...',
                                     border: InputBorder.none,
                                     enabledBorder: InputBorder.none,
                                     focusedBorder: InputBorder.none,
@@ -699,7 +800,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 }
 
 // ---------------------------------------------------------
-// Void Reason Modal (Inayos ang deprecated RadioListTile)
+// Void Reason Modal
 // ---------------------------------------------------------
 class _VoidReasonSheet extends StatefulWidget {
   const _VoidReasonSheet({required this.reasons});
@@ -790,7 +891,6 @@ class _VoidReasonSheetState extends State<_VoidReasonSheet> {
             style: Theme.of(context).textTheme.titleSmall,
           ),
           const SizedBox(height: AppSpacing.space2),
-          // FIX: Inalis ang nagde-deprecate na RadioListTile at ginawang custom row
           ...widget.reasons.map(
             (reason) => InkWell(
               onTap: () {
@@ -882,7 +982,7 @@ class _VoidReasonSheetState extends State<_VoidReasonSheet> {
 }
 
 // ---------------------------------------------------------
-// Edit Payment Method Modal (Inayos ang deprecated RadioListTile)
+// Edit Payment Method Modal (INAYOS: Kopyang-kopya ang GCash layout sa POS)
 // ---------------------------------------------------------
 class _EditPaymentSheet extends StatefulWidget {
   const _EditPaymentSheet({required this.initialMethod});
@@ -895,6 +995,7 @@ class _EditPaymentSheet extends StatefulWidget {
 class _EditPaymentSheetState extends State<_EditPaymentSheet> {
   late String currentMethod;
   File? proofImage;
+  bool _isPickingImage = false;
 
   final methods = [
     {'key': 'CASH', 'label': 'Cash', 'icon': Icons.payments_rounded},
@@ -905,6 +1006,75 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
   void initState() {
     super.initState();
     currentMethod = widget.initialMethod;
+  }
+
+  // Kinuha mula sa pos_screen.dart
+  Future<void> _pickGCashProof() async {
+    if (_isPickingImage) return;
+    setState(() => _isPickingImage = true);
+    try {
+      final picker = ImagePicker();
+      final xfile = await picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 80,
+      );
+      if (xfile != null) {
+        setState(() => proofImage = File(xfile.path));
+        Haptics.success();
+      }
+    } finally {
+      if (mounted) setState(() => _isPickingImage = false);
+    }
+  }
+
+  // Kinuha mula sa pos_screen.dart
+  void _viewGCashProof() {
+    if (proofImage == null) return;
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.4),
+      builder: (ctx) => BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          insetPadding: const EdgeInsets.all(AppSpacing.space4),
+          child: SizedBox(
+            width: double.infinity,
+            height: MediaQuery.of(context).size.height * 0.7,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Positioned.fill(
+                  child: InteractiveViewer(
+                    minScale: 1.0,
+                    maxScale: 4.0,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.l),
+                      child: Image.file(proofImage!, fit: BoxFit.contain),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: AppSpacing.space2,
+                  right: AppSpacing.space2,
+                  child: IconButton(
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white.withValues(alpha: 0.25),
+                      side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.4),
+                      ),
+                    ),
+                    icon: const Icon(Icons.close_rounded, color: Colors.white),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -972,78 +1142,93 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
             style: Theme.of(context).textTheme.titleSmall,
           ),
           const SizedBox(height: AppSpacing.space2),
-          // FIX: Inalis ang nagde-deprecate na RadioListTile
-          ...methods.map(
-            (m) => InkWell(
-              onTap: () async {
-                final v = m['key'] as String;
-                if (v == 'GCash') {
-                  final picker = ImagePicker();
-                  final image = await picker.pickImage(
-                    source: ImageSource.camera,
-                    imageQuality: 80,
-                  );
-                  if (image != null) {
-                    proofImage = File(image.path);
-                  }
-                }
-                setState(() => currentMethod = v);
-              },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 12,
-                  horizontal: 8,
+
+          // INAYOS: Parehong Payment Method Chips mula sa POS Screen
+          Row(
+            children: [
+              for (final m in methods) ...[
+                Expanded(
+                  child: _PaymentChip(
+                    label: m['label'] as String,
+                    icon: m['icon'] as IconData,
+                    selected: currentMethod == m['key'],
+                    onTap: () async {
+                      Haptics.select();
+                      final v = m['key'] as String;
+                      setState(() => currentMethod = v);
+                      if (v == 'GCASH' && proofImage == null) {
+                        await _pickGCashProof();
+                      }
+                    },
+                  ),
                 ),
-                child: Row(
-                  children: [
-                    Icon(
-                      currentMethod == m['key']
-                          ? Icons.radio_button_checked_rounded
-                          : Icons.radio_button_unchecked_rounded,
-                      color: currentMethod == m['key']
-                          ? AppColors.primary
-                          : Colors.grey,
-                      size: 22,
-                    ),
-                    const SizedBox(width: 12),
-                    Icon(
-                      m['icon'] as IconData,
-                      size: 20,
-                      color: AppColors.primary,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      m['label'] as String,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+                if (m != methods.last) const SizedBox(width: AppSpacing.space2),
+              ],
+            ],
           ),
-          if (currentMethod == 'GCash' && proofImage != null) ...[
-            const SizedBox(height: AppSpacing.space2),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.ok.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(AppRadius.m),
-              ),
-              child: Row(
+
+          // INAYOS: GCash Proof Capture / Retake / View UI
+          if (currentMethod == 'GCASH') ...[
+            const SizedBox(height: AppSpacing.space4),
+            if (proofImage != null)
+              Row(
                 children: [
-                  const Icon(Icons.check_circle, color: AppColors.ok, size: 20),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Proof of payment captured successfully',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppColors.ok,
-                      fontWeight: FontWeight.bold,
+                  Expanded(
+                    flex: 3,
+                    child: FilledButton.tonalIcon(
+                      onPressed: _viewGCashProof,
+                      icon: const Icon(Icons.visibility_outlined, size: 16),
+                      label: const Text(
+                        'View proof',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.ok.withValues(alpha: 0.12),
+                        foregroundColor: AppColors.ok,
+                        minimumSize: const Size(0, 52),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.space2),
+                  Expanded(
+                    flex: 2,
+                    child: OutlinedButton.icon(
+                      onPressed: _pickGCashProof,
+                      icon: const Icon(Icons.camera_alt_outlined, size: 16),
+                      label: const Text(
+                        'Retake',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 52),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
                     ),
                   ),
                 ],
+              )
+            else
+              OutlinedButton.icon(
+                onPressed: _pickGCashProof,
+                icon: const Icon(Icons.camera_alt_outlined),
+                label: const Text('Capture Proof of Payment'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(56),
+                ),
               ),
-            ),
           ],
+
           const SizedBox(height: AppSpacing.space4),
           Row(
             children: [
@@ -1069,6 +1254,58 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+// Lokal na kopya ng Payment Chip (mula pos_screen)
+class _PaymentChip extends StatelessWidget {
+  const _PaymentChip({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected
+          ? AppColors.primary
+          : AppColors.primary.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(AppRadius.m),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.m),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.space4),
+          alignment: Alignment.center,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                color: selected ? Colors.white : AppColors.primary,
+                size: 24,
+              ),
+              const SizedBox(height: AppSpacing.space1),
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? Colors.white : AppColors.primary,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'dart:ui'; // Idinagdag para sa glass blur effect
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -35,6 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
   double _todaySales = 0;
   int _todayOrders = 0;
   int _queueCount = 0;
+
   List<Map<String, dynamic>> _lowItems = const [];
   List<Map<String, dynamic>> _onShift = const [];
   List<Map<String, dynamic>> _recentOrders = const [];
@@ -183,9 +185,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
-              IconButton.filledTonal(
-                style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
-                onPressed: () async {
+              // GLASSMORPHISM LOG OUT BUTTON
+              _GlassIconButton(
+                tooltip: 'Log out',
+                icon: Icons.logout_rounded,
+                color: AppColors.danger,
+                onTap: () async {
                   final confirmed = await showAppConfirm(
                     context,
                     title: 'Log out?',
@@ -200,8 +205,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   context.read<SyncService>().cancelActiveSync();
                   await auth.signOut();
                 },
-                icon: const Icon(Icons.logout_rounded, size: 20),
-                tooltip: 'Log out',
               ),
             ],
           ),
@@ -234,7 +237,6 @@ class _HomeScreenState extends State<HomeScreen> {
               title: 'Sales today',
               value: _todaySales,
               vsYesterday: _vsYesterday,
-              // PINALITAN: Tinanggal ang dollar sign (attach_money), ginawang cash icon (payments)
               icon: Icons.payments_rounded,
             ),
             const SizedBox(height: AppSpacing.space3),
@@ -494,6 +496,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ..._lowItems.map((item) {
                     final critical = item['status'] == 'critical';
                     final c = critical ? AppColors.danger : AppColors.warn;
+
                     return ListTile(
                       contentPadding: EdgeInsets.zero,
                       dense: true,
@@ -762,6 +765,7 @@ class _WeeklyTrendPanel extends StatelessWidget {
     if (weekSales.isEmpty || weekSales.length < 2) {
       return const SizedBox.shrink();
     }
+
     final maxVal = weekSales.reduce(max);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -1053,6 +1057,67 @@ class _QuickAction extends StatelessWidget {
                 const SizedBox(height: AppSpacing.space2),
                 Text(label, style: Theme.of(context).textTheme.titleSmall),
               ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------- NEW: GLASSMORPHISM LOG OUT BUTTON ----------
+class _GlassIconButton extends StatelessWidget {
+  const _GlassIconButton({
+    required this.icon,
+    required this.color,
+    required this.onTap,
+    required this.tooltip,
+  });
+
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+  final String tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              // DITO ANG FIX: Ginawang tinted (pula) ang anino at background para mapansin agad
+              color: color.withValues(alpha: 0.15),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(99),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                // DITO ANG FIX: Naka-base sa 'danger' color (pula) na may low opacity imbes na transparent
+                color: color.withValues(alpha: 0.12),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.4),
+                  width: 1.2,
+                ),
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: onTap,
+                  child: Icon(icon, color: color, size: 20),
+                ),
+              ),
             ),
           ),
         ),

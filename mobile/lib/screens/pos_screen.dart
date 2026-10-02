@@ -14,6 +14,7 @@ import '../services/persisted_queue.dart';
 import '../services/sync_service.dart';
 import '../state/cart_state.dart';
 import '../theme.dart';
+import '../utils/app_messenger.dart';
 import '../utils/haptics.dart';
 import '../utils/money_input.dart';
 import '../widgets/app_dialog.dart';
@@ -143,26 +144,6 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _showSnack(String message, {bool error = false, bool success = false}) {
-    if (!mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: error
-            ? AppColors.danger
-            : success
-            ? AppColors.ok
-            : Theme.of(context).brightness == Brightness.dark
-            ? AppColors.accentSoft
-            : AppColors.accent,
-        content: Text(message, style: const TextStyle(color: Colors.white)),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
-
   void _addToCart(Map<String, dynamic> product, {String? flavor, int qty = 1}) {
     final cart = context.read<CartState>();
     final price = (product['basePrice'] as num).toDouble();
@@ -183,7 +164,11 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
     if (flavors.isEmpty) {
       _addToCart(product);
-      _showSnack('Added: ${product['name']}', success: true);
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Added: ${product['name']}',
+        isSuccess: true,
+      );
       return;
     }
 
@@ -293,9 +278,11 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                     onPressed: () {
                       _addToCart(product, flavor: selectedFlavor, qty: qty);
                       Navigator.pop(sheetContext);
-                      _showSnack(
-                        'Added: ${product['name']}${selectedFlavor != null ? ' ($selectedFlavor)' : ''} x $qty',
-                        success: true,
+                      AppMessenger.showGlassToast(
+                        context: context,
+                        message:
+                            'Added: ${product['name']}${selectedFlavor != null ? ' ($selectedFlavor)' : ''} x $qty',
+                        isSuccess: true,
                       );
                     },
                   ),
@@ -345,7 +332,11 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       if (cartCode == null || cartCode.isEmpty) {
         if (!mounted) return;
         await Haptics.error();
-        _showSnack('No cart assigned to this account - ask OWNER', error: true);
+        AppMessenger.showGlassToast(
+          context: context,
+          message: 'No cart assigned to this account - ask OWNER',
+          isSuccess: false,
+        );
         return;
       }
 
@@ -366,9 +357,10 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       } catch (_) {
         if (!mounted) return;
         await Haptics.error();
-        _showSnack(
-          'Could not save sale on this device - cart kept',
-          error: true,
+        AppMessenger.showGlassToast(
+          context: context,
+          message: 'Could not save sale on this device - cart kept',
+          isSuccess: false,
         );
         return;
       }
@@ -386,127 +378,22 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
         await Haptics.tap();
       }
 
-      _showSnack(
-        result.fullySynced
-            ? 'Sale recorded • ${method.label} • ₱${snapshotTotal.toStringAsFixed(0)}'
-            : '${result.message} • ₱${snapshotTotal.toStringAsFixed(0)}',
-        success: result.fullySynced,
-        error: result.dropped.isNotEmpty,
-      );
-
-      if (!mounted) return;
-      await _showSaleResultSheet(
-        method: method,
-        total: snapshotTotal,
-        cashTendered: cashTendered,
-        synced: result.fullySynced,
-        queueMessage: result.fullySynced ? null : result.message,
+      final change = method == PaymentMethod.cash && cashTendered != null
+          ? cashTendered - snapshotTotal
+          : null;
+      final paymentDetails =
+          '${method.label} • ₱${snapshotTotal.toStringAsFixed(0)}'
+          '${change == null ? '' : ' • Change ₱${change.toStringAsFixed(0)}'}';
+      AppMessenger.showGlassToast(
+        context: context,
+        message: result.fullySynced
+            ? 'Sale recorded • $paymentDetails'
+            : '${result.message} • $paymentDetails',
+        isSuccess: result.fullySynced,
       );
     } finally {
       _paying = false;
     }
-  }
-
-  Future<void> _showSaleResultSheet({
-    required PaymentMethod method,
-    required double total,
-    required double? cashTendered,
-    required bool synced,
-    required String? queueMessage,
-  }) async {
-    final change = method == PaymentMethod.cash && cashTendered != null
-        ? cashTendered - total
-        : 0;
-
-    await showModalBottomSheet<void>(
-      context: context,
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.space6,
-          AppSpacing.space3,
-          AppSpacing.space6,
-          AppSpacing.space7,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.symmetric(vertical: AppSpacing.space2),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(AppRadius.xs),
-                ),
-              ),
-            ),
-            Icon(
-              synced ? Icons.check_circle_rounded : Icons.cloud_upload_outlined,
-              size: 56,
-              color: synced ? AppColors.ok : AppColors.warn,
-            ),
-            const SizedBox(height: AppSpacing.space3),
-            Text(
-              synced ? 'Sale recorded' : 'Sale queued offline',
-              textAlign: TextAlign.center,
-              style: Theme.of(ctx).textTheme.titleLarge,
-            ),
-            const SizedBox(height: AppSpacing.space1),
-            Text(
-              synced
-                  ? '${method.label} • ₱${total.toStringAsFixed(0)}'
-                  : '${queueMessage ?? 'Will upload when online'} • ₱${total.toStringAsFixed(0)}',
-              textAlign: TextAlign.center,
-              style: Theme.of(ctx).textTheme.bodyMedium,
-            ),
-            if (method == PaymentMethod.cash && (cashTendered ?? 0) > 0) ...[
-              const SizedBox(height: AppSpacing.space4),
-              Container(
-                padding: const EdgeInsets.all(AppSpacing.space4),
-                decoration: BoxDecoration(
-                  color: AppColors.ok.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(AppRadius.m),
-                  border: Border.all(
-                    color: AppColors.ok.withValues(alpha: 0.4),
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Change',
-                      style: TextStyle(
-                        color: AppColors.ok,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 16,
-                      ),
-                    ),
-                    Text(
-                      '₱${change.toStringAsFixed(0)}',
-                      style: const TextStyle(
-                        color: AppColors.ok,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 28,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            const SizedBox(height: AppSpacing.space5),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(56),
-              ),
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('New sale'),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   @override
@@ -722,17 +609,21 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                                                 flavors.first['name'] as String;
                                             _addToCart(product, flavor: def);
                                             Haptics.select();
-                                            _showSnack(
-                                              'Added: ${product['name']} ($def)',
-                                              success: true,
+                                            AppMessenger.showGlassToast(
+                                              context: context,
+                                              message:
+                                                  'Added: ${product['name']} ($def)',
+                                              isSuccess: true,
                                             );
                                           },
                                     onQuickAdd: flavorCount == 0
                                         ? () {
                                             _addToCart(product);
-                                            _showSnack(
-                                              'Added: ${product['name']}',
-                                              success: true,
+                                            AppMessenger.showGlassToast(
+                                              context: context,
+                                              message:
+                                                  'Added: ${product['name']}',
+                                              isSuccess: true,
                                             );
                                           }
                                         : null,

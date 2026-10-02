@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../theme.dart';
+import '../utils/app_messenger.dart';
 import '../utils/manila_time.dart';
 import '../widgets/app_badge.dart';
 import '../widgets/app_skeleton.dart';
@@ -69,9 +70,11 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
     final hadRows = _rows.isNotEmpty;
     setState(() => _error = message);
     if (hadRows && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Refresh failed: $message')));
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Refresh failed: $message',
+        isSuccess: false,
+      );
     }
   }
 

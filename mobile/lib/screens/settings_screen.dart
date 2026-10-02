@@ -8,6 +8,7 @@ import '../services/sync_service.dart';
 import '../config.dart';
 import '../state/theme_controller.dart';
 import '../theme.dart';
+import '../utils/app_messenger.dart';
 import '../utils/haptics.dart';
 import '../utils/manila_time.dart';
 import '../utils/pin_setup.dart';
@@ -112,7 +113,11 @@ class SettingsScreenState extends State<SettingsScreen> {
     if (ok) {
       await reload();
       final username = auth.user?['username'];
-      _showSnack('Offline PIN set for $username', success: true);
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Offline PIN set for $username',
+        isSuccess: true,
+      );
     }
   }
 
@@ -132,17 +137,29 @@ class SettingsScreenState extends State<SettingsScreen> {
       await Haptics.success();
       if (!mounted) return;
       await reload();
-      _showSnack('Offline PIN changed', success: true);
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Offline PIN changed',
+        isSuccess: true,
+      );
     } on PinException catch (e) {
       if (!mounted) return;
-      _showSnack(e.message, error: true);
+      AppMessenger.showGlassToast(
+        context: context,
+        message: e.message,
+        isSuccess: false,
+      );
     }
   }
 
   Future<void> _disablePinFlow(AuthState auth) async {
     if (!await auth.api.health()) {
       if (!mounted) return;
-      _showSnack('Connect to the internet to disable the PIN.', error: true);
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Connect to the internet to disable the PIN.',
+        isSuccess: false,
+      );
       return;
     }
     if (!mounted) return;
@@ -158,7 +175,11 @@ class SettingsScreenState extends State<SettingsScreen> {
     await auth.pin.clear();
     await Haptics.success();
     await reload();
-    _showSnack('Offline PIN disabled', success: true);
+    AppMessenger.showGlassToast(
+      context: context,
+      message: 'Offline PIN disabled',
+      isSuccess: true,
+    );
   }
 
   Future<void> _changePasswordFlow(AuthState auth) async {
@@ -261,7 +282,11 @@ class SettingsScreenState extends State<SettingsScreen> {
     confirm.dispose();
     if (ok == true && mounted) {
       await auth.signOut();
-      _showSnack('Password changed. Please sign in again.', success: true);
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Password changed. Please sign in again.',
+        isSuccess: true,
+      );
     }
   }
 
@@ -283,24 +308,6 @@ class SettingsScreenState extends State<SettingsScreen> {
     sync.cancelActiveSync();
     await auth.signOut();
     await Haptics.success();
-  }
-
-  void _showSnack(String message, {bool error = false, bool success = false}) {
-    if (!mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: error
-            ? AppColors.danger
-            : success
-            ? AppColors.ok
-            : null,
-        content: Text(message, style: const TextStyle(color: Colors.white)),
-        duration: const Duration(seconds: 2),
-      ),
-    );
   }
 
   @override
@@ -400,7 +407,15 @@ class SettingsScreenState extends State<SettingsScreen> {
 
           const SectionHeader(title: 'Sync & storage', eyebrow: 'Offline data'),
           const SizedBox(height: AppSpacing.space3),
-          _SyncSection(onToast: _showSnack),
+          _SyncSection(
+            onToast: (message, {error = false, success = false}) {
+              AppMessenger.showGlassToast(
+                context: context,
+                message: message,
+                isSuccess: success || !error,
+              );
+            },
+          ),
           const SizedBox(height: AppSpacing.space6),
 
           const SectionHeader(title: 'Session', eyebrow: 'This device'),
@@ -879,25 +894,18 @@ class _ServerSectionState extends State<_ServerSection> {
       final url = await api.rescan();
       widget.onChanged();
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: Text('Server: $url'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Server: $url',
+        isSuccess: true,
+      );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: Text('Rescan failed: $e'),
-            backgroundColor: AppColors.danger,
-            duration: const Duration(seconds: 2),
-          ),
-        );
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Rescan failed: $e',
+        isSuccess: false,
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
