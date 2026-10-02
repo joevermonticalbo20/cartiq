@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+
 import '../services/auth_state.dart';
 import '../services/api_client.dart';
 import '../theme.dart';
@@ -23,9 +25,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
   int _page = 1;
   bool _loading = false;
   bool _done = false;
+
   bool _searching = false;
   String _search = '';
   final _searchCtrl = TextEditingController();
+
   String? _error;
 
   @override
@@ -43,8 +47,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   bool _matches(Map<String, dynamic> order, String q) {
     if (q.isEmpty) return true;
     final lq = q.toLowerCase();
-    final total =
-        '₱${((order['total'] ?? 0) as num).toStringAsFixed(0)}'; // Pinalitan ang P ng ₱
+    final total = '₱${((order['total'] ?? 0) as num).toStringAsFixed(0)}';
     if (total.toLowerCase().contains(lq)) return true;
     final items = (order['items'] as List?) ?? [];
     for (final it in items) {
@@ -273,14 +276,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               ),
                             ),
                             Text(
-                              '₱${unitPrice.toStringAsFixed(0)} each', // Pinalitan ang P ng ₱
+                              '₱${unitPrice.toStringAsFixed(0)} each',
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ],
                         ),
                       ),
                       Text(
-                        '₱${lineTotal.toStringAsFixed(0)}', // Pinalitan ang P ng ₱
+                        '₱${lineTotal.toStringAsFixed(0)}',
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                     ],
@@ -299,7 +302,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 Text(
-                  '₱${total.toStringAsFixed(0)}', // Pinalitan ang P ng ₱
+                  '₱${total.toStringAsFixed(0)}',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     color: AppColors.primary,
                     fontWeight: FontWeight.w900,
@@ -357,6 +360,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final hasResults = filtered.isNotEmpty;
     final surfaceColor = Theme.of(context).colorScheme.surface;
 
+    final topPadding = MediaQuery.of(context).padding.top + 90;
+
     final grouped = <String, List<Map<String, dynamic>>>{};
     for (final o in filtered) {
       final key = ManilaTime.groupKey(o['createdAt']);
@@ -375,233 +380,326 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: _searching
-            ? TextField(
-                controller: _searchCtrl,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  hintText: 'Search product, flavor, amount...',
-                  border: InputBorder.none,
-                ),
-                style: Theme.of(context).textTheme.titleMedium,
-                onChanged: (v) => setState(() => _search = v.trim()),
-              )
-            : const Text('Sales history'),
-        actions: [
-          if (_searching)
-            IconButton(
-              icon: const Icon(Icons.close),
-              tooltip: 'Close search',
-              onPressed: () {
-                setState(() {
-                  _searching = false;
-                  _search = '';
-                  _searchCtrl.clear();
-                });
-              },
-            )
-          else
-            IconButton(
-              icon: const Icon(Icons.search),
-              tooltip: 'Search sales',
-              onPressed: () => setState(() => _searching = true),
-            ),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: () async => _loadMore(reset: true),
-        child: _rows.isEmpty && _loading && _error == null
-            ? ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.space4,
-                  AppSpacing.space4,
-                  AppSpacing.space4,
-                  120,
-                ),
-                children: const [AppSkeleton(rows: 6)],
-              )
-            : !hasResults && !_loading
-            ? AppEmptyState(
-                isError: _error != null,
-                icon: _error != null
-                    ? Icons.error_outline_rounded
-                    : _search.isNotEmpty
-                    ? Icons.search_off_rounded
-                    : Icons.receipt_long_rounded,
-                title: _error != null
-                    ? _error!
-                    : _search.isNotEmpty
-                    ? 'No sales match "$_search"'
-                    : 'No sales recorded yet',
-                subtitle: _error != null
-                    ? 'Please check your internet connection and try again.'
-                    : _search.isNotEmpty
-                    ? 'Try a different product, flavor, or amount.'
-                    : (widget.onNewSale != null
-                          ? 'Record a sale on the POS tab to see it appear here.'
-                          : null),
-                actionLabel: _error != null
-                    ? 'Tap to retry'
-                    : _search.isNotEmpty
-                    ? 'Clear search'
-                    : (widget.onNewSale != null ? 'Open POS' : null),
-                actionIcon: _error != null
-                    ? Icons.refresh_rounded
-                    : _search.isNotEmpty
-                    ? Icons.close
-                    : Icons.point_of_sale_rounded,
-                onAction: _error != null
-                    ? () => _loadMore(reset: true)
-                    : _search.isNotEmpty
-                    ? () => setState(() {
-                        _search = '';
-                        _searchCtrl.clear();
-                        _searching = false;
-                      })
-                    : widget.onNewSale,
-              )
-            : NotificationListener<ScrollNotification>(
-                onNotification: (n) {
-                  if (n.metrics.pixels > n.metrics.maxScrollExtent - 200) {
-                    _loadMore();
-                  }
-                  return false;
-                },
-                child: ListView.separated(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(AppSpacing.space4),
-                  itemCount: rows.length + (_loading ? 1 : 0),
-                  separatorBuilder: (_, _) =>
-                      const SizedBox(height: AppSpacing.space2),
-                  itemBuilder: (context, i) {
-                    if (i >= rows.length) {
-                      return const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(12),
-                          child: CircularProgressIndicator(),
-                        ),
-                      );
-                    }
-                    final row = rows[i];
-                    if (row is (String, int, double)) {
-                      final (date, count, total) = row;
-                      return Padding(
-                        padding: const EdgeInsets.only(
-                          top: AppSpacing.space2,
-                          bottom: AppSpacing.space1,
-                        ),
-                        child: SectionHeader(
-                          title: date,
-                          eyebrow: '$count sale${count != 1 ? 's' : ''}',
-                          trailing: Text(
-                            '₱${total.toStringAsFixed(0)}', // Pinalitan ang P ng ₱
-                            style: Theme.of(context).textTheme.labelSmall
-                                ?.copyWith(fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                      );
-                    }
-                    final o = row as Map<String, dynamic>;
-                    final items = (o['items'] as List)
-                        .map(
-                          (it) =>
-                              '${it['qty']}x ${it['productName']}${it['flavor'] != null ? ' (${it['flavor']})' : ''}',
-                        )
-                        .join(', ');
-                    return Container(
-                      clipBehavior: Clip.antiAlias,
-                      decoration: BoxDecoration(
-                        color: surfaceColor,
-                        borderRadius: BorderRadius.circular(AppRadius.l),
-                        boxShadow: AppShadow.sm(),
+      extendBody: true,
+      body: Stack(
+        children: [
+          RefreshIndicator(
+            onRefresh: () async => _loadMore(reset: true),
+            child: _rows.isEmpty && _loading && _error == null
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: EdgeInsets.fromLTRB(
+                      AppSpacing.space4,
+                      topPadding,
+                      AppSpacing.space4,
+                      120,
+                    ),
+                    children: const [AppSkeleton(rows: 6)],
+                  )
+                : !hasResults && !_loading
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: EdgeInsets.fromLTRB(0, topPadding, 0, 120),
+                    children: [
+                      AppEmptyState(
+                        isError: _error != null,
+                        icon: _error != null
+                            ? Icons.error_outline_rounded
+                            : _search.isNotEmpty
+                            ? Icons.search_off_rounded
+                            : Icons.receipt_long_rounded,
+                        title: _error != null
+                            ? _error!
+                            : _search.isNotEmpty
+                            ? 'No sales match "$_search"'
+                            : 'No sales recorded yet',
+                        subtitle: _error != null
+                            ? 'Please check your internet connection and try again.'
+                            : _search.isNotEmpty
+                            ? 'Try a different product, flavor, or amount.'
+                            : (widget.onNewSale != null
+                                  ? 'Record a sale on the POS tab to see it appear here.'
+                                  : null),
+                        actionLabel: _error != null
+                            ? 'Tap to retry'
+                            : _search.isNotEmpty
+                            ? 'Clear search'
+                            : (widget.onNewSale != null ? 'Open POS' : null),
+                        actionIcon: _error != null
+                            ? Icons.refresh_rounded
+                            : _search.isNotEmpty
+                            ? Icons.close
+                            : Icons.point_of_sale_rounded,
+                        onAction: _error != null
+                            ? () => _loadMore(reset: true)
+                            : _search.isNotEmpty
+                            ? () => setState(() {
+                                _search = '';
+                                _searchCtrl.clear();
+                                _searching = false;
+                              })
+                            : widget.onNewSale,
                       ),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: () => _showOrderDetails(o),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.space4,
-                              vertical: AppSpacing.space3,
+                    ],
+                  )
+                : NotificationListener<ScrollNotification>(
+                    onNotification: (n) {
+                      if (n.metrics.pixels > n.metrics.maxScrollExtent - 200) {
+                        _loadMore();
+                      }
+                      return false;
+                    },
+                    child: ListView.separated(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: EdgeInsets.fromLTRB(
+                        AppSpacing.space4,
+                        topPadding,
+                        AppSpacing.space4,
+                        120,
+                      ),
+                      itemCount: rows.length + (_loading ? 1 : 0),
+                      separatorBuilder: (_, _) =>
+                          const SizedBox(height: AppSpacing.space2),
+                      itemBuilder: (context, i) {
+                        if (i >= rows.length) {
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(12),
+                              child: CircularProgressIndicator(),
                             ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 44,
-                                  height: 44,
-                                  decoration: BoxDecoration(
-                                    color: AppColors.ok.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(
-                                      AppRadius.s,
-                                    ),
-                                  ),
-                                  child: const Icon(
-                                    Icons.payments_rounded,
-                                    size: 21,
-                                    color: AppColors.ok,
-                                  ),
+                          );
+                        }
+                        final row = rows[i];
+                        if (row is (String, int, double)) {
+                          final (date, count, total) = row;
+                          return Padding(
+                            padding: const EdgeInsets.only(
+                              top: AppSpacing.space2,
+                              bottom: AppSpacing.space1,
+                            ),
+                            child: SectionHeader(
+                              title: date,
+                              eyebrow: '$count sale${count != 1 ? 's' : ''}',
+                              trailing: Text(
+                                '₱${total.toStringAsFixed(0)}',
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                          );
+                        }
+                        final o = row as Map<String, dynamic>;
+                        final items = (o['items'] as List)
+                            .map(
+                              (it) =>
+                                  '${it['qty']}x ${it['productName']}${it['flavor'] != null ? ' (${it['flavor']})' : ''}',
+                            )
+                            .join(', ');
+                        return Container(
+                          clipBehavior: Clip.antiAlias,
+                          decoration: BoxDecoration(
+                            color: surfaceColor,
+                            borderRadius: BorderRadius.circular(AppRadius.l),
+                            boxShadow: AppShadow.sm(),
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () => _showOrderDetails(o),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.space4,
+                                  vertical: AppSpacing.space3,
                                 ),
-                                const SizedBox(width: AppSpacing.space3),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 44,
+                                      height: 44,
+                                      decoration: BoxDecoration(
+                                        color: AppColors.ok.withValues(
+                                          alpha: 0.1,
+                                        ),
+                                        borderRadius: BorderRadius.circular(
+                                          AppRadius.s,
+                                        ),
+                                      ),
+                                      child: const Icon(
+                                        Icons.payments_rounded,
+                                        size: 21,
+                                        color: AppColors.ok,
+                                      ),
+                                    ),
+                                    const SizedBox(width: AppSpacing.space3),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
-                                          Text(
-                                            '₱${((o['total'] ?? 0) as num).toStringAsFixed(0)}', // Pinalitan ang P ng ₱
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .titleMedium
-                                                ?.copyWith(
-                                                  fontWeight: FontWeight.w800,
-                                                ),
+                                          Row(
+                                            children: [
+                                              Text(
+                                                '₱${((o['total'] ?? 0) as num).toStringAsFixed(0)}',
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .titleMedium
+                                                    ?.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                    ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Text(
+                                                '${(o['items'] as List).length} item(s)',
+                                                style: Theme.of(
+                                                  context,
+                                                ).textTheme.bodySmall,
+                                              ),
+                                            ],
                                           ),
-                                          const SizedBox(width: 8),
+                                          const SizedBox(height: 2),
                                           Text(
-                                            '${(o['items'] as List).length} item(s)',
+                                            items,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
                                             style: Theme.of(
                                               context,
                                             ).textTheme.bodySmall,
                                           ),
                                         ],
                                       ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        items,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.bodySmall,
-                                      ),
-                                    ],
-                                  ),
+                                    ),
+                                    const Icon(
+                                      Icons.chevron_right_rounded,
+                                      size: 20,
+                                      color: Colors.grey,
+                                    ),
+                                  ],
                                 ),
-                                const Icon(
-                                  Icons.chevron_right_rounded,
-                                  size: 20,
-                                  color: Colors.grey,
-                                ),
-                              ],
+                              ),
                             ),
                           ),
+                        );
+                      },
+                    ),
+                  ),
+          ),
+
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.space4,
+                  vertical: AppSpacing.space3,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _GlassPillContainer(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 250),
+                          child: _searching
+                              ? TextField(
+                                  key: const ValueKey('searchField'),
+                                  controller: _searchCtrl,
+                                  autofocus: true,
+                                  decoration: InputDecoration(
+                                    hintText: 'Search history...',
+                                    border: InputBorder.none,
+                                    enabledBorder: InputBorder.none,
+                                    focusedBorder: InputBorder.none,
+                                    fillColor: Colors.transparent,
+                                    filled: true,
+                                    isDense: true,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 20,
+                                      vertical: 14,
+                                    ),
+                                    hintStyle: TextStyle(
+                                      color: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall?.color,
+                                    ),
+                                  ),
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.titleMedium,
+                                  onChanged: (v) =>
+                                      setState(() => _search = v.trim()),
+                                )
+                              : Container(
+                                  key: const ValueKey('titleText'),
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 20,
+                                    vertical: 14,
+                                  ),
+                                  child: Text(
+                                    'Sales history',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleLarge
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: -0.5,
+                                        ),
+                                  ),
+                                ),
                         ),
                       ),
-                    );
-                  },
+                    ),
+                    const SizedBox(width: AppSpacing.space2),
+
+                    _GlassPillContainer(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 4,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: _searching
+                              ? [
+                                  IconButton(
+                                    icon: const Icon(Icons.close_rounded),
+                                    tooltip: 'Close search',
+                                    onPressed: () {
+                                      setState(() {
+                                        _searching = false;
+                                        _search = '';
+                                        _searchCtrl.clear();
+                                      });
+                                    },
+                                  ),
+                                ]
+                              : [
+                                  IconButton(
+                                    icon: const Icon(Icons.search_rounded),
+                                    tooltip: 'Search sales',
+                                    onPressed: () =>
+                                        setState(() => _searching = true),
+                                  ),
+                                ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
 // ---------------------------------------------------------
-// Void Reason Modal
+// Void Reason Modal (Inayos ang deprecated RadioListTile)
 // ---------------------------------------------------------
 class _VoidReasonSheet extends StatefulWidget {
   const _VoidReasonSheet({required this.reasons});
@@ -692,20 +790,36 @@ class _VoidReasonSheetState extends State<_VoidReasonSheet> {
             style: Theme.of(context).textTheme.titleSmall,
           ),
           const SizedBox(height: AppSpacing.space2),
+          // FIX: Inalis ang nagde-deprecate na RadioListTile at ginawang custom row
           ...widget.reasons.map(
-            (reason) => RadioListTile<String>(
-              title: Text(
-                reason,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              value: reason,
-              groupValue: selectedReason,
-              activeColor: AppColors.danger,
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              onChanged: (v) {
-                setState(() => selectedReason = v ?? widget.reasons.first);
+            (reason) => InkWell(
+              onTap: () {
+                setState(() => selectedReason = reason);
               },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 12,
+                  horizontal: 8,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      selectedReason == reason
+                          ? Icons.radio_button_checked_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                      color: selectedReason == reason
+                          ? AppColors.danger
+                          : Colors.grey,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      reason,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
           AnimatedCrossFade(
@@ -768,7 +882,7 @@ class _VoidReasonSheetState extends State<_VoidReasonSheet> {
 }
 
 // ---------------------------------------------------------
-// Edit Payment Method Modal
+// Edit Payment Method Modal (Inayos ang deprecated RadioListTile)
 // ---------------------------------------------------------
 class _EditPaymentSheet extends StatefulWidget {
   const _EditPaymentSheet({required this.initialMethod});
@@ -858,29 +972,11 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
             style: Theme.of(context).textTheme.titleSmall,
           ),
           const SizedBox(height: AppSpacing.space2),
+          // FIX: Inalis ang nagde-deprecate na RadioListTile
           ...methods.map(
-            (m) => RadioListTile<String>(
-              title: Row(
-                children: [
-                  Icon(
-                    m['icon'] as IconData,
-                    size: 20,
-                    color: AppColors.primary,
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    m['label'] as String,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ],
-              ),
-              value: m['key'] as String,
-              groupValue: currentMethod,
-              activeColor: AppColors.primary,
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              onChanged: (v) async {
-                if (v == null) return;
+            (m) => InkWell(
+              onTap: () async {
+                final v = m['key'] as String;
                 if (v == 'GCash') {
                   final picker = ImagePicker();
                   final image = await picker.pickImage(
@@ -893,6 +989,36 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
                 }
                 setState(() => currentMethod = v);
               },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 12,
+                  horizontal: 8,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      currentMethod == m['key']
+                          ? Icons.radio_button_checked_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                      color: currentMethod == m['key']
+                          ? AppColors.primary
+                          : Colors.grey,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 12),
+                    Icon(
+                      m['icon'] as IconData,
+                      size: 20,
+                      color: AppColors.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      m['label'] as String,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
           if (currentMethod == 'GCash' && proofImage != null) ...[
@@ -943,6 +1069,46 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _GlassPillContainer extends StatelessWidget {
+  const _GlassPillContainer({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final surfaceColor = Theme.of(context).colorScheme.surface;
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            decoration: BoxDecoration(
+              color: surfaceColor.withValues(alpha: 0.25),
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.4),
+                width: 1.2,
+              ),
+            ),
+            child: child,
+          ),
+        ),
       ),
     );
   }

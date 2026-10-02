@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
-import 'dart:ui';
+import 'dart:ui'; // Idinagdag para sa glass blur effect
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -70,6 +70,7 @@ class PosScreen extends StatefulWidget {
 
 class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   late Future<List<Map<String, dynamic>>> _catalogFuture;
+  bool _searching = false;
   String _search = '';
   String _categoryFilter = 'All';
   Timer? _searchDebounce;
@@ -166,6 +167,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     final cart = context.read<CartState>();
     final price = (product['basePrice'] as num).toDouble();
     final name = product['name'] as String;
+
     for (var i = 0; i < qty; i++) {
       cart.add(name, flavor, price);
     }
@@ -224,7 +226,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                   ),
                   const SizedBox(height: AppSpacing.space1),
                   Text(
-                    'P${product['basePrice']} each',
+                    '₱${product['basePrice']} each',
                     style: Theme.of(sheetContext).textTheme.bodySmall,
                   ),
                   const SizedBox(height: AppSpacing.space5),
@@ -287,12 +289,12 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                       minimumSize: const Size.fromHeight(56),
                     ),
                     icon: const Icon(Icons.add_shopping_cart_rounded),
-                    label: Text('Add to order   P$price'),
+                    label: Text('Add to order • ₱$price'),
                     onPressed: () {
                       _addToCart(product, flavor: selectedFlavor, qty: qty);
                       Navigator.pop(sheetContext);
                       _showSnack(
-                        'Added: ${product['name']}${selectedFlavor != null ? ' ($selectedFlavor)' : ''}   $qty',
+                        'Added: ${product['name']}${selectedFlavor != null ? ' ($selectedFlavor)' : ''} x $qty',
                         success: true,
                       );
                     },
@@ -386,8 +388,8 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
       _showSnack(
         result.fullySynced
-            ? 'Sale recorded   ${method.label}   P${snapshotTotal.toStringAsFixed(0)}'
-            : '${result.message}   P${snapshotTotal.toStringAsFixed(0)}',
+            ? 'Sale recorded • ${method.label} • ₱${snapshotTotal.toStringAsFixed(0)}'
+            : '${result.message} • ₱${snapshotTotal.toStringAsFixed(0)}',
         success: result.fullySynced,
         error: result.dropped.isNotEmpty,
       );
@@ -454,8 +456,8 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
             const SizedBox(height: AppSpacing.space1),
             Text(
               synced
-                  ? '${method.label}   P${total.toStringAsFixed(0)}'
-                  : '${queueMessage ?? 'Will upload when online'}   P${total.toStringAsFixed(0)}',
+                  ? '${method.label} • ₱${total.toStringAsFixed(0)}'
+                  : '${queueMessage ?? 'Will upload when online'} • ₱${total.toStringAsFixed(0)}',
               textAlign: TextAlign.center,
               style: Theme.of(ctx).textTheme.bodyMedium,
             ),
@@ -482,7 +484,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                       ),
                     ),
                     Text(
-                      'P${change.toStringAsFixed(0)}',
+                      '₱${change.toStringAsFixed(0)}',
                       style: const TextStyle(
                         color: AppColors.ok,
                         fontWeight: FontWeight.w800,
@@ -510,229 +512,359 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final cart = context.watch<CartState>();
+    final topPadding = MediaQuery.of(context).padding.top + 90;
 
     return SafeArea(
       top: false,
+      bottom: false,
       child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.space4,
-              AppSpacing.space3,
-              AppSpacing.space4,
-              AppSpacing.space2,
-            ),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search product...',
-                prefixIcon: const Icon(Icons.search),
-                isDense: true,
-                suffixIcon: _search.isEmpty
-                    ? null
-                    : IconButton(
-                        icon: const Icon(Icons.clear),
-                        tooltip: 'Clear search',
-                        onPressed: () {
-                          _searchDebounce?.cancel();
-                          _searchController.clear();
-                          setState(() => _search = '');
-                        },
-                      ),
-              ),
-              onChanged: _onSearchChanged,
-            ),
-          ),
-          const PosOfflineStrip(),
-          SizedBox(
-            height: 48,
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: _catalogFuture,
-              builder: (context, snap) {
-                if (!snap.hasData) return const SizedBox.shrink();
-                final categories = [
-                  'All',
-                  ...?snap.data
-                      ?.map((p) => p['category'] as String?)
-                      .where((c) => c != null && c.isNotEmpty)
-                      .toSet(),
-                ];
-                return ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.space4,
-                  ),
-                  itemCount: categories.length,
-                  separatorBuilder: (_, _) =>
-                      const SizedBox(width: AppSpacing.space2),
-                  itemBuilder: (context, i) {
-                    final cat = categories[i];
-                    final selected = cat == _categoryFilter;
-                    return FilterChip(
-                      label: Text(cat ?? ''),
-                      selected: selected,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.pill),
-                      ),
-                      // TINA-TRANSPARENT ANG BORDER PARA "GLASS" EFFECT
-                      side: selected
-                          ? BorderSide.none
-                          : BorderSide(
-                              color: Theme.of(
-                                context,
-                              ).dividerColor.withValues(alpha: 0.15),
-                              width: 1.5,
-                            ),
-                      backgroundColor: Theme.of(
-                        context,
-                      ).colorScheme.surface.withValues(alpha: 0.5),
-                      elevation: 0,
-                      pressElevation: 0,
-                      showCheckmark: false,
-                      selectedColor: AppColors.primary,
-                      labelStyle: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        // Pinalambot yung kulay ng text pag hindi selected
-                        color: selected ? Colors.white : AppColors.muted,
-                      ),
-                      onSelected: (_) {
-                        Haptics.select();
-                        setState(() => _categoryFilter = cat ?? 'All');
-                      },
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: AppSpacing.space2),
           Expanded(
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: _catalogFuture,
-              builder: (context, snap) {
-                if (snap.connectionState != ConnectionState.done) {
-                  return ListView(
-                    padding: const EdgeInsets.all(AppSpacing.space4),
-                    children: const [AppSkeleton(rows: 6)],
-                  );
-                }
-                if (snap.hasError) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(AppSpacing.space6),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.cloud_off_outlined, size: 48),
-                          const SizedBox(height: AppSpacing.space3),
-                          Text(
-                            'Catalog unavailable:\n${snap.error}',
-                            textAlign: TextAlign.center,
+            child: Stack(
+              children: [
+                // 1. SCROLLABLE CONTENT (Grid, Categories, Offline Strip)
+                RefreshIndicator(
+                  onRefresh: _refreshCatalog,
+                  child: FutureBuilder<List<Map<String, dynamic>>>(
+                    future: _catalogFuture,
+                    builder: (context, snap) {
+                      List<Map<String, dynamic>> products = [];
+                      List<String> categories = ['All'];
+
+                      if (snap.hasData) {
+                        categories.addAll(
+                          snap.data!
+                              .map((p) => p['category'])
+                              .whereType<String>()
+                              .where((c) => c.isNotEmpty)
+                              .toSet(),
+                        );
+
+                        products = snap.data!
+                            .where(
+                              (p) =>
+                                  (_search.isEmpty ||
+                                      (p['name'] as String)
+                                          .toLowerCase()
+                                          .contains(_search)) &&
+                                  (_categoryFilter == 'All' ||
+                                      p['category'] == _categoryFilter),
+                            )
+                            .toList();
+                      }
+
+                      return CustomScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        slivers: [
+                          SliverToBoxAdapter(
+                            child: SizedBox(height: topPadding),
                           ),
-                          const SizedBox(height: AppSpacing.space4),
-                          FilledButton.icon(
-                            icon: const Icon(Icons.refresh_rounded),
-                            label: const Text('Retry'),
-                            onPressed: _reloadCatalog,
+                          const SliverToBoxAdapter(child: PosOfflineStrip()),
+                          if (snap.hasData)
+                            SliverToBoxAdapter(
+                              child: SizedBox(
+                                height: 48,
+                                child: ListView.separated(
+                                  scrollDirection: Axis.horizontal,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: AppSpacing.space4,
+                                  ),
+                                  itemCount: categories.length,
+                                  separatorBuilder: (_, _) =>
+                                      const SizedBox(width: AppSpacing.space2),
+                                  itemBuilder: (context, i) {
+                                    final cat = categories[i];
+                                    final selected = cat == _categoryFilter;
+                                    return FilterChip(
+                                      label: Text(cat),
+                                      selected: selected,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(
+                                          AppRadius.pill,
+                                        ),
+                                      ),
+                                      side: selected
+                                          ? BorderSide.none
+                                          : BorderSide(
+                                              color: Theme.of(context)
+                                                  .dividerColor
+                                                  .withValues(alpha: 0.15),
+                                              width: 1.5,
+                                            ),
+                                      backgroundColor: Theme.of(context)
+                                          .colorScheme
+                                          .surface
+                                          .withValues(alpha: 0.5),
+                                      elevation: 0,
+                                      pressElevation: 0,
+                                      showCheckmark: false,
+                                      selectedColor: AppColors.primary,
+                                      labelStyle: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        color: selected
+                                            ? Colors.white
+                                            : AppColors.muted,
+                                      ),
+                                      onSelected: (_) {
+                                        Haptics.select();
+                                        setState(() => _categoryFilter = cat);
+                                      },
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                          if (snap.hasData)
+                            const SliverToBoxAdapter(
+                              child: SizedBox(height: AppSpacing.space2),
+                            ),
+
+                          if (snap.connectionState != ConnectionState.done)
+                            SliverPadding(
+                              padding: const EdgeInsets.all(AppSpacing.space4),
+                              sliver: SliverToBoxAdapter(
+                                child: Column(
+                                  children: const [AppSkeleton(rows: 6)],
+                                ),
+                              ),
+                            )
+                          else if (snap.hasError)
+                            SliverToBoxAdapter(
+                              child: Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(
+                                    AppSpacing.space6,
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.cloud_off_outlined,
+                                        size: 48,
+                                      ),
+                                      const SizedBox(height: AppSpacing.space3),
+                                      Text(
+                                        'Catalog unavailable:\n${snap.error}',
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      const SizedBox(height: AppSpacing.space4),
+                                      FilledButton.icon(
+                                        icon: const Icon(Icons.refresh_rounded),
+                                        label: const Text('Retry'),
+                                        onPressed: _reloadCatalog,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            )
+                          else if (products.isEmpty)
+                            SliverToBoxAdapter(
+                              child: Padding(
+                                padding: const EdgeInsets.only(
+                                  top: 60,
+                                  bottom: AppSpacing.space4,
+                                ),
+                                child: AppEmptyState(
+                                  compact: true,
+                                  icon: Icons.search_off_rounded,
+                                  title: 'No products match',
+                                  subtitle: _search.isNotEmpty
+                                      ? 'Try a different name or category.'
+                                      : 'Pull down to refresh the catalog.',
+                                ),
+                              ),
+                            )
+                          else
+                            SliverPadding(
+                              padding: const EdgeInsets.fromLTRB(
+                                AppSpacing.space4,
+                                AppSpacing.space1,
+                                AppSpacing.space4,
+                                AppSpacing.space4,
+                              ),
+                              sliver: SliverGrid(
+                                gridDelegate:
+                                    const SliverGridDelegateWithMaxCrossAxisExtent(
+                                      maxCrossAxisExtent: 190,
+                                      childAspectRatio: 0.95,
+                                      crossAxisSpacing: AppSpacing.space3,
+                                      mainAxisSpacing: AppSpacing.space3,
+                                    ),
+                                delegate: SliverChildBuilderDelegate((
+                                  context,
+                                  i,
+                                ) {
+                                  final product = products[i];
+                                  final flavorCount =
+                                      (product['flavors'] as List).length;
+                                  final inCartQty = cart.items
+                                      .where(
+                                        (it) =>
+                                            it.productName == product['name'],
+                                      )
+                                      .fold<int>(0, (s, it) => s + it.qty);
+
+                                  return PosProductCard(
+                                    product: product,
+                                    flavorCount: flavorCount,
+                                    inCartQty: inCartQty,
+                                    onTap: () => _openItemSheet(product),
+                                    onLongPress: flavorCount == 0
+                                        ? null
+                                        : () {
+                                            final flavors =
+                                                (product['flavors'] as List)
+                                                    .cast<
+                                                      Map<String, dynamic>
+                                                    >();
+                                            final def =
+                                                flavors.first['name'] as String;
+                                            _addToCart(product, flavor: def);
+                                            Haptics.select();
+                                            _showSnack(
+                                              'Added: ${product['name']} ($def)',
+                                              success: true,
+                                            );
+                                          },
+                                    onQuickAdd: flavorCount == 0
+                                        ? () {
+                                            _addToCart(product);
+                                            _showSnack(
+                                              'Added: ${product['name']}',
+                                              success: true,
+                                            );
+                                          }
+                                        : null,
+                                  );
+                                }, childCount: products.length),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+
+                // 2. BAGONG FLOATING GLASS PILL HEADER (KAMUKHA NG HISTORY SCREEN)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.space4,
+                        vertical: AppSpacing.space3,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _GlassPillContainer(
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 250),
+                                child: _searching
+                                    ? TextField(
+                                        key: const ValueKey('searchField'),
+                                        controller: _searchController,
+                                        autofocus: true,
+                                        decoration: InputDecoration(
+                                          hintText: 'Search product...',
+                                          border: InputBorder.none,
+                                          enabledBorder: InputBorder.none,
+                                          focusedBorder: InputBorder.none,
+                                          fillColor: Colors.transparent,
+                                          filled: true,
+                                          isDense: true,
+                                          contentPadding:
+                                              const EdgeInsets.symmetric(
+                                                horizontal: 20,
+                                                vertical: 14,
+                                              ),
+                                          hintStyle: TextStyle(
+                                            color: Theme.of(
+                                              context,
+                                            ).textTheme.bodySmall?.color,
+                                          ),
+                                        ),
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleMedium,
+                                        onChanged: _onSearchChanged,
+                                      )
+                                    : Container(
+                                        key: const ValueKey('titleText'),
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 20,
+                                          vertical: 14,
+                                        ),
+                                        child: Text(
+                                          'POS',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleLarge
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w800,
+                                                letterSpacing: -0.5,
+                                              ),
+                                        ),
+                                      ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.space2),
+                          _GlassPillContainer(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                                vertical: 4,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: _searching
+                                    ? [
+                                        IconButton(
+                                          icon: const Icon(Icons.close_rounded),
+                                          tooltip: 'Close search',
+                                          onPressed: () {
+                                            _searchDebounce?.cancel();
+                                            _searchController.clear();
+                                            setState(() {
+                                              _search = '';
+                                              _searching = false;
+                                            });
+                                          },
+                                        ),
+                                      ]
+                                    : [
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.search_rounded,
+                                          ),
+                                          tooltip: 'Search product',
+                                          onPressed: () =>
+                                              setState(() => _searching = true),
+                                        ),
+                                      ],
+                              ),
+                            ),
                           ),
                         ],
                       ),
                     ),
-                  );
-                }
-                final products = (snap.data ?? const [])
-                    .where(
-                      (p) =>
-                          (_search.isEmpty ||
-                              (p['name'] as String).toLowerCase().contains(
-                                _search,
-                              )) &&
-                          (_categoryFilter == 'All' ||
-                              p['category'] == _categoryFilter),
-                    )
-                    .toList();
-
-                if (products.isEmpty) {
-                  return RefreshIndicator(
-                    onRefresh: _refreshCatalog,
-                    child: ListView(
-                      padding: const EdgeInsets.fromLTRB(
-                        AppSpacing.space4,
-                        60,
-                        AppSpacing.space4,
-                        AppSpacing.space4,
-                      ),
-                      children: [
-                        AppEmptyState(
-                          compact: true,
-                          icon: Icons.search_off_rounded,
-                          title: 'No products match',
-                          subtitle: _search.isNotEmpty
-                              ? 'Try a different name or category.'
-                              : 'Pull down to refresh the catalog.',
-                        ),
-                      ],
-                    ),
-                  );
-                }
-                return RefreshIndicator(
-                  onRefresh: _refreshCatalog,
-                  child: GridView.builder(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.space4,
-                      AppSpacing.space1,
-                      AppSpacing.space4,
-                      AppSpacing.space4,
-                    ),
-                    gridDelegate:
-                        const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 190,
-                          childAspectRatio: 0.95,
-                          crossAxisSpacing: AppSpacing.space3,
-                          mainAxisSpacing: AppSpacing.space3,
-                        ),
-                    itemCount: products.length,
-                    itemBuilder: (context, i) {
-                      final product = products[i];
-                      final flavorCount = (product['flavors'] as List).length;
-                      final inCartQty = cart.items
-                          .where((it) => it.productName == product['name'])
-                          .fold<int>(0, (s, it) => s + it.qty);
-                      return PosProductCard(
-                        product: product,
-                        flavorCount: flavorCount,
-                        inCartQty: inCartQty,
-                        onTap: () => _openItemSheet(product),
-                        onLongPress: flavorCount == 0
-                            ? null
-                            : () {
-                                final flavors = (product['flavors'] as List)
-                                    .cast<Map<String, dynamic>>();
-                                final def = flavors.first['name'] as String;
-                                _addToCart(product, flavor: def);
-                                Haptics.select();
-                                _showSnack(
-                                  'Added: ${product['name']} ($def)',
-                                  success: true,
-                                );
-                              },
-                        onQuickAdd: flavorCount == 0
-                            ? () {
-                                _addToCart(product);
-                                _showSnack(
-                                  'Added: ${product['name']}',
-                                  success: true,
-                                );
-                              }
-                            : null,
-                      );
-                    },
                   ),
-                );
-              },
+                ),
+              ],
             ),
           ),
+
+          // Cart Bar at the bottom
           PosCartBar(cart: cart, onTap: _openCartSheet),
+
+          // INAYOS NA: Tinaasan pa lalo ang padding (120) para umangat ang Cart Bar at hindi tabunan ng root menu
+          const SizedBox(height: 120),
         ],
       ),
     );
@@ -743,6 +875,7 @@ class _CartSheet extends StatefulWidget {
   const _CartSheet({required this.cart, required this.onPay});
   final CartState cart;
   final void Function(PaymentMethod method, double? cashTendered) onPay;
+
   @override
   State<_CartSheet> createState() => _CartSheetState();
 }
@@ -750,7 +883,6 @@ class _CartSheet extends StatefulWidget {
 class _CartSheetState extends State<_CartSheet> {
   PaymentMethod _method = PaymentMethod.cash;
   final _cashController = TextEditingController();
-
   File? _gcashProofImage;
   bool _isPickingImage = false;
 
@@ -761,8 +893,10 @@ class _CartSheetState extends State<_CartSheet> {
   }
 
   double get _tendered => double.tryParse(_cashController.text) ?? 0;
+
   double get _change =>
       _method == PaymentMethod.cash ? _tendered - widget.cart.total : 0;
+
   bool get _canPay =>
       _method != PaymentMethod.cash || _tendered >= widget.cart.total;
 
@@ -1002,7 +1136,7 @@ class _CartSheetState extends State<_CartSheet> {
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                       Text(
-                                        'P${item.unitPrice.toStringAsFixed(0)} each',
+                                        '₱${item.unitPrice.toStringAsFixed(0)} each',
                                         style: Theme.of(
                                           context,
                                         ).textTheme.bodySmall,
@@ -1041,7 +1175,7 @@ class _CartSheetState extends State<_CartSheet> {
                                 SizedBox(
                                   width: 60,
                                   child: Text(
-                                    'P${item.lineTotal.toStringAsFixed(0)}',
+                                    '₱${item.lineTotal.toStringAsFixed(0)}',
                                     textAlign: TextAlign.end,
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w800,
@@ -1074,7 +1208,7 @@ class _CartSheetState extends State<_CartSheet> {
                 children: [
                   Text('Total', style: Theme.of(context).textTheme.titleMedium),
                   Text(
-                    'P${cart.total.toStringAsFixed(0)}',
+                    '₱${cart.total.toStringAsFixed(0)}',
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       color: AppColors.primary,
                       fontWeight: FontWeight.w800,
@@ -1106,7 +1240,6 @@ class _CartSheetState extends State<_CartSheet> {
                               _cashController.clear();
                             }
                           });
-
                           if (m == PaymentMethod.gcash &&
                               _gcashProofImage == null) {
                             await _pickGCashProof();
@@ -1119,7 +1252,6 @@ class _CartSheetState extends State<_CartSheet> {
                   ],
                 ],
               ),
-
               if (_method == PaymentMethod.gcash) ...[
                 const SizedBox(height: AppSpacing.space4),
                 if (_gcashProofImage != null)
@@ -1182,7 +1314,6 @@ class _CartSheetState extends State<_CartSheet> {
                     ),
                   ),
               ],
-
               if (_method == PaymentMethod.cash) ...[
                 const SizedBox(height: AppSpacing.space4),
                 TextField(
@@ -1198,7 +1329,7 @@ class _CartSheetState extends State<_CartSheet> {
                   ],
                   decoration: const InputDecoration(
                     labelText: 'Cash tendered (PHP)',
-                    prefixText: 'P ',
+                    prefixText: '₱ ',
                   ),
                   onChanged: (_) => setState(() {}),
                   onSubmitted: (_) => _submitIfReady(),
@@ -1220,7 +1351,7 @@ class _CartSheetState extends State<_CartSheet> {
                       ),
                     for (final amt in _quickCash(cart.total))
                       ActionChip(
-                        label: Text('P$amt'),
+                        label: Text('₱$amt'),
                         onPressed: () {
                           Haptics.select();
                           _cashController.text = amt.toStringAsFixed(0);
@@ -1264,7 +1395,7 @@ class _CartSheetState extends State<_CartSheet> {
                         ),
                       ),
                       Text(
-                        'P${(_tendered >= cart.total ? _change : cart.total - _tendered).toStringAsFixed(0)}',
+                        '₱${(_tendered >= cart.total ? _change : cart.total - _tendered).toStringAsFixed(0)}',
                         style: TextStyle(
                           color: _tendered >= cart.total
                               ? AppColors.ok
@@ -1285,7 +1416,7 @@ class _CartSheetState extends State<_CartSheet> {
                 icon: const Icon(Icons.payments_rounded),
                 label: Text(
                   _method == PaymentMethod.cash && _tendered > 0
-                      ? 'Record sale   P${cart.total.toStringAsFixed(0)}'
+                      ? 'Record sale • ₱${cart.total.toStringAsFixed(0)}'
                       : 'Record sale',
                 ),
                 onPressed: !_canPay ? null : _submitIfReady,
@@ -1293,14 +1424,14 @@ class _CartSheetState extends State<_CartSheet> {
               if (!_canPay) ...[
                 const SizedBox(height: AppSpacing.space2),
                 Text(
-                  'Enter P${cart.total.toStringAsFixed(0)} or more to record the sale',
+                  'Enter ₱${cart.total.toStringAsFixed(0)} or more to record the sale',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
               const SizedBox(height: AppSpacing.space2),
               Text(
-                'clientRef   duplicate-safe   replays never double-charge',
+                'clientRef • duplicate-safe • replays never double-charge',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
@@ -1367,6 +1498,47 @@ class _PaymentMethodChip extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------- BAGONG REUSABLE WIDGET PARA SA GLASS PILL ----------
+class _GlassPillContainer extends StatelessWidget {
+  const _GlassPillContainer({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final surfaceColor = Theme.of(context).colorScheme.surface;
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            decoration: BoxDecoration(
+              color: surfaceColor.withValues(alpha: 0.25),
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.4),
+                width: 1.2,
+              ),
+            ),
+            child: child,
           ),
         ),
       ),

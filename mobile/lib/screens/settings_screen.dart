@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../services/offline_pin.dart';
@@ -17,14 +18,38 @@ import '../widgets/section_header.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
-
   @override
   State<SettingsScreen> createState() => SettingsScreenState();
 }
 
 class SettingsScreenState extends State<SettingsScreen> {
+  bool? _hasPin;
+  DateTime? _lastOnline;
+  PinEligibility? _eligibility;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAuthData();
+  }
+
+  Future<void> _loadAuthData() async {
+    final auth = context.read<AuthState>();
+    final hasPin = await auth.pin.hasPin;
+    final lastOnline = await auth.lastOnline;
+    final eligibility = await auth.checkOfflineEligibility();
+
+    if (mounted) {
+      setState(() {
+        _hasPin = hasPin;
+        _lastOnline = lastOnline;
+        _eligibility = eligibility;
+      });
+    }
+  }
+
   Future<void> reload() async {
-    if (mounted) setState(() {});
+    await _loadAuthData();
   }
 
   Future<String?> _askPin({required String title, String? errorText}) async {
@@ -85,7 +110,7 @@ class SettingsScreenState extends State<SettingsScreen> {
     final ok = await showPinSetupFlow(context, auth);
     if (!mounted) return;
     if (ok) {
-      setState(() {});
+      await reload();
       final username = auth.user?['username'];
       _showSnack('Offline PIN set for $username', success: true);
     }
@@ -94,13 +119,10 @@ class SettingsScreenState extends State<SettingsScreen> {
   Future<void> _changePinFlow(AuthState auth) async {
     final username = auth.user?['username'] as String?;
     if (username == null) return;
-
     final oldPin = await _askPin(title: 'Enter current PIN');
     if (oldPin == null || !mounted) return;
-
     final next = await _askPin(title: 'Choose a new 6-digit PIN');
     if (next == null || !mounted) return;
-
     try {
       await auth.pin.changePin(
         username: username,
@@ -109,7 +131,7 @@ class SettingsScreenState extends State<SettingsScreen> {
       );
       await Haptics.success();
       if (!mounted) return;
-      setState(() {});
+      await reload();
       _showSnack('Offline PIN changed', success: true);
     } on PinException catch (e) {
       if (!mounted) return;
@@ -124,7 +146,6 @@ class SettingsScreenState extends State<SettingsScreen> {
       return;
     }
     if (!mounted) return;
-
     final confirmed = await showAppConfirm(
       context,
       title: 'Disable offline PIN?',
@@ -134,10 +155,9 @@ class SettingsScreenState extends State<SettingsScreen> {
       danger: true,
     );
     if (!confirmed || !mounted) return;
-
     await auth.pin.clear();
     await Haptics.success();
-    setState(() {});
+    await reload();
     _showSnack('Offline PIN disabled', success: true);
   }
 
@@ -148,7 +168,6 @@ class SettingsScreenState extends State<SettingsScreen> {
     var obscure = true;
     String? error;
     var pending = false;
-
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -256,7 +275,7 @@ class SettingsScreenState extends State<SettingsScreen> {
       context,
       title: 'Log out?',
       message: queued > 0
-          ? '$queued sale(s) still queued   they stay saved on this device.'
+          ? '$queued sale(s) still queued - they stay saved on this device.'
           : 'No queued sales. You can sign back in anytime.',
       confirmLabel: 'Log out',
     );
@@ -299,8 +318,9 @@ class SettingsScreenState extends State<SettingsScreen> {
         children: [
           const SectionHeader(title: 'Account', eyebrow: 'Signed in as'),
           const SizedBox(height: AppSpacing.space3),
-          _AccountCard(auth: auth),
-          const SizedBox(height: AppSpacing.space4),
+          _AccountCard(auth: auth, lastOnline: _lastOnline),
+          const SizedBox(height: AppSpacing.space6),
+
           const SectionHeader(
             title: 'Offline PIN',
             eyebrow: 'No-internet login',
@@ -308,84 +328,105 @@ class SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: AppSpacing.space3),
           _PinSection(
             auth: auth,
+            hasPin: _hasPin,
             onSetup: () => _setupPinFlow(auth),
             onChange: () => _changePinFlow(auth),
             onDisable: () => _disablePinFlow(auth),
           ),
-          const SizedBox(height: AppSpacing.space4),
+          const SizedBox(height: AppSpacing.space6),
+
           const SectionHeader(title: 'Appearance', eyebrow: 'Theme'),
           const SizedBox(height: AppSpacing.space3),
 
-          // Theme Switcher Borderless Container
           Container(
-            clipBehavior: Clip.antiAlias,
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.space4,
+              vertical: AppSpacing.space2,
+            ),
             decoration: BoxDecoration(
               color: surfaceColor,
-              borderRadius: BorderRadius.circular(AppRadius.l),
+              borderRadius: BorderRadius.circular(AppRadius.pill),
               boxShadow: AppShadow.sm(),
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.space4),
-              child: SegmentedButton<ThemeMode>(
-                segments: const [
-                  ButtonSegment(
-                    value: ThemeMode.light,
-                    icon: Icon(Icons.light_mode_outlined),
-                    label: Text('Light'),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _ThemeButton(
+                    currentMode: theme.mode,
+                    targetMode: ThemeMode.light,
+                    icon: Icons.light_mode_outlined,
+                    label: 'Light',
+                    onTap: () {
+                      Haptics.select();
+                      theme.setMode(ThemeMode.light);
+                    },
                   ),
-                  ButtonSegment(
-                    value: ThemeMode.dark,
-                    icon: Icon(Icons.dark_mode_outlined),
-                    label: Text('Dark'),
+                ),
+                const SizedBox(width: AppSpacing.space2),
+                Expanded(
+                  child: _ThemeButton(
+                    currentMode: theme.mode,
+                    targetMode: ThemeMode.dark,
+                    icon: Icons.dark_mode_outlined,
+                    label: 'Dark',
+                    onTap: () {
+                      Haptics.select();
+                      theme.setMode(ThemeMode.dark);
+                    },
                   ),
-                  ButtonSegment(
-                    value: ThemeMode.system,
-                    icon: Icon(Icons.settings_suggest_outlined),
-                    label: Text('Auto'),
+                ),
+                const SizedBox(width: AppSpacing.space2),
+                Expanded(
+                  child: _ThemeButton(
+                    currentMode: theme.mode,
+                    targetMode: ThemeMode.system,
+                    icon: Icons.settings_suggest_outlined,
+                    label: 'Auto',
+                    onTap: () {
+                      Haptics.select();
+                      theme.setMode(ThemeMode.system);
+                    },
                   ),
-                ],
-                selected: {theme.mode},
-                onSelectionChanged: (modes) => theme.setMode(modes.first),
-              ),
+                ),
+              ],
             ),
           ),
+          const SizedBox(height: AppSpacing.space6),
 
-          const SizedBox(height: AppSpacing.space4),
           const SectionHeader(title: 'Server', eyebrow: 'Backend connection'),
           const SizedBox(height: AppSpacing.space3),
           _ServerSection(onChanged: () => setState(() {})),
-          const SizedBox(height: AppSpacing.space4),
+          const SizedBox(height: AppSpacing.space6),
+
           const SectionHeader(title: 'Sync & storage', eyebrow: 'Offline data'),
           const SizedBox(height: AppSpacing.space3),
           _SyncSection(onToast: _showSnack),
-          const SizedBox(height: AppSpacing.space4),
+          const SizedBox(height: AppSpacing.space6),
+
           const SectionHeader(title: 'Session', eyebrow: 'This device'),
           const SizedBox(height: AppSpacing.space3),
-
-          // Session Container
           Container(
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
               color: surfaceColor,
-              borderRadius: BorderRadius.circular(AppRadius.l),
+              borderRadius: BorderRadius.circular(AppRadius.xl),
               boxShadow: AppShadow.sm(),
             ),
             child: Material(
               color: Colors.transparent,
               child: Column(
                 children: [
-                  ListTile(
-                    leading: const Icon(Icons.password_outlined),
-                    title: const Text('Change password'),
-                    subtitle: const Text('Needs internet'),
-                    trailing: const Icon(Icons.chevron_right_rounded),
+                  _PremiumTile(
+                    icon: Icons.password_outlined,
+                    iconColor: AppColors.info,
+                    title: 'Change password',
+                    subtitle: 'Needs internet',
                     onTap: () => _changePasswordFlow(auth),
                   ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.logout_rounded),
-                    title: const Text('Log out'),
-                    trailing: const Icon(Icons.chevron_right_rounded),
+                  _PremiumTile(
+                    icon: Icons.logout_rounded,
+                    iconColor: AppColors.danger,
+                    title: 'Log out',
                     onTap: () =>
                         _signOutFlow(auth, context.read<SyncService>()),
                   ),
@@ -393,70 +434,61 @@ class SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ),
+          const SizedBox(height: AppSpacing.space6),
 
-          const SizedBox(height: AppSpacing.space4),
           const SectionHeader(title: 'About', eyebrow: 'CartIQ POS'),
           const SizedBox(height: AppSpacing.space3),
-
-          // About Container
           Container(
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
               color: surfaceColor,
-              borderRadius: BorderRadius.circular(AppRadius.l),
+              borderRadius: BorderRadius.circular(AppRadius.xl),
               boxShadow: AppShadow.sm(),
             ),
             child: Material(
               color: Colors.transparent,
               child: Column(
                 children: [
-                  const ListTile(
-                    leading: Icon(Icons.info_outline_rounded),
-                    title: Text('Version'),
-                    subtitle: Text('v1.0.0   Pota Fries Operations'),
+                  const _PremiumTile(
+                    icon: Icons.info_outline_rounded,
+                    iconColor: AppColors.primary,
+                    title: 'Version',
+                    subtitle: 'v1.0.0 • Pota Fries Operations',
                   ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.dns_outlined),
-                    title: const Text('Backend'),
-                    subtitle: Text(AppConfig.apiBaseUrl),
+                  _PremiumTile(
+                    icon: Icons.dns_outlined,
+                    iconColor: Colors.deepPurple,
+                    title: 'Backend',
+                    subtitle: AppConfig.apiBaseUrl,
                   ),
-                  const Divider(height: 1),
-                  const ListTile(
-                    leading: Icon(Icons.security_outlined),
-                    title: Text('Disabled accounts'),
-                    subtitle: Text(
-                      'Stop working within 7 days offline, immediately when online.',
-                    ),
+                  const _PremiumTile(
+                    icon: Icons.security_outlined,
+                    iconColor: Colors.teal,
+                    title: 'Disabled accounts',
+                    subtitle:
+                        'Stop working within 7 days offline, immediately when online.',
                   ),
-                  const Divider(height: 1),
-                  FutureBuilder<PinEligibility>(
-                    future: auth.checkOfflineEligibility(),
-                    builder: (context, snap) {
-                      final e = snap.data;
-                      final subtitle = e == null
-                          ? 'Checking...'
-                          : e.eligible
-                          ? 'Ready   PIN set for this staff account'
-                          : e.message;
-                      return ListTile(
-                        leading: Icon(
-                          e != null && e.eligible
-                              ? Icons.offline_bolt_outlined
-                              : Icons.offline_bolt_outlined,
-                        ),
-                        title: const Text('Offline login'),
-                        subtitle: Text(subtitle),
-                        trailing: e == null
-                            ? null
-                            : AppBadge(
-                                label: e.eligible ? 'READY' : 'NOT READY',
-                                variant: e.eligible
-                                    ? AppBadgeVariant.ok
-                                    : AppBadgeVariant.neutral,
-                              ),
-                      );
-                    },
+                  _PremiumTile(
+                    icon: Icons.offline_bolt_outlined,
+                    iconColor: _eligibility != null && _eligibility!.eligible
+                        ? AppColors.ok
+                        : AppColors.warn,
+                    title: 'Offline login',
+                    subtitle: _eligibility == null
+                        ? 'Checking...'
+                        : _eligibility!.eligible
+                        ? 'Ready • PIN set for this staff account'
+                        : _eligibility!.message,
+                    trailing: _eligibility == null
+                        ? null
+                        : AppBadge(
+                            label: _eligibility!.eligible
+                                ? 'READY'
+                                : 'NOT READY',
+                            variant: _eligibility!.eligible
+                                ? AppBadgeVariant.ok
+                                : AppBadgeVariant.neutral,
+                          ),
                   ),
                 ],
               ),
@@ -468,48 +500,213 @@ class SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
+class _ThemeButton extends StatelessWidget {
+  const _ThemeButton({
+    required this.currentMode,
+    required this.targetMode,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final ThemeMode currentMode;
+  final ThemeMode targetMode;
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isSelected = currentMode == targetMode;
+
+    return Material(
+      color: isSelected
+          ? AppColors.primary.withValues(alpha: 0.12)
+          : Colors.transparent,
+      borderRadius: BorderRadius.circular(AppRadius.pill),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            border: Border.all(
+              color: isSelected
+                  ? AppColors.primary.withValues(alpha: 0.3)
+                  : Colors.transparent,
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                color: isSelected ? AppColors.primary : AppColors.muted,
+                size: 16,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: isSelected ? AppColors.primary : AppColors.muted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PremiumTile extends StatelessWidget {
+  const _PremiumTile({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    this.subtitle,
+    this.trailing,
+    this.onTap,
+    this.customWidget,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String? subtitle;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+  final Widget? customWidget;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.space4,
+          vertical: AppSpacing.space3,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(AppRadius.m),
+              ),
+              child: Icon(icon, color: iconColor, size: 22),
+            ),
+            const SizedBox(width: AppSpacing.space3),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                    ),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle!,
+                      style: Theme.of(context).textTheme.bodySmall,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (customWidget != null)
+              customWidget!
+            else if (trailing != null)
+              trailing!
+            else if (onTap != null)
+              const Padding(
+                padding: EdgeInsets.only(left: 8.0),
+                child: Icon(
+                  Icons.chevron_right_rounded,
+                  size: 20,
+                  color: Colors.grey,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _AccountCard extends StatelessWidget {
-  const _AccountCard({required this.auth});
+  const _AccountCard({required this.auth, required this.lastOnline});
+
   final AuthState auth;
+  final DateTime? lastOnline;
 
   @override
   Widget build(BuildContext context) {
     final name = auth.displayName;
     final surfaceColor = Theme.of(context).colorScheme.surface;
 
+    final label = lastOnline == null
+        ? 'Never verified • connect once to enable offline login'
+        : 'Last verified ${ManilaTime.formatTime(lastOnline!)}'
+              '${auth.offlineMode ? ' • OFFLINE MODE' : ''}';
+
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: surfaceColor,
-        borderRadius: BorderRadius.circular(AppRadius.l),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
         boxShadow: AppShadow.sm(),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.space4),
+        padding: const EdgeInsets.all(AppSpacing.space5),
         child: Column(
           children: [
             Row(
               children: [
                 CircleAvatar(
-                  radius: 24,
+                  radius: 30,
                   backgroundColor: AppColors.primary.withValues(alpha: 0.12),
                   child: Text(
                     name.isNotEmpty ? name[0].toUpperCase() : '?',
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       color: AppColors.primary,
+                      fontWeight: FontWeight.w900,
                     ),
                   ),
                 ),
-                const SizedBox(width: AppSpacing.space3),
+                const SizedBox(width: AppSpacing.space4),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(name, style: Theme.of(context).textTheme.titleLarge),
-                      const SizedBox(height: 2),
                       Text(
-                        '${auth.locationCode ?? "No cart"}   ${auth.roleDisplay}',
-                        style: Theme.of(context).textTheme.bodySmall,
+                        name,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      // FIX: Tinanggal na ang string interpolation warning
+                      Text(
+                        auth.locationCode ?? "No cart assigned",
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: AppColors.muted,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ],
                   ),
@@ -522,34 +719,34 @@ class _AccountCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: AppSpacing.space3),
-            FutureBuilder<DateTime?>(
-              future: auth.lastOnline,
-              builder: (context, snap) {
-                final last = snap.data;
-                final label = last == null
-                    ? 'Never verified   connect once to enable offline login'
-                    : 'Last verified ${ManilaTime.formatTime(ManilaTime.parse(last) ?? last)}'
-                          '${auth.offlineMode ? '   OFFLINE MODE' : ''}';
-                return Row(
-                  children: [
-                    Icon(
-                      auth.offlineMode
-                          ? Icons.wifi_off_rounded
-                          : Icons.verified_outlined,
-                      size: 16,
-                      color: Theme.of(context).textTheme.bodySmall?.color,
-                    ),
-                    const SizedBox(width: AppSpacing.space2),
-                    Expanded(
-                      child: Text(
-                        label,
-                        style: Theme.of(context).textTheme.bodySmall,
+            const SizedBox(height: AppSpacing.space4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).dividerColor.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(AppRadius.m),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    auth.offlineMode
+                        ? Icons.wifi_off_rounded
+                        : Icons.verified_outlined,
+                    size: 16,
+                    color: auth.offlineMode ? AppColors.warn : AppColors.ok,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: auth.offlineMode ? AppColors.warn : null,
                       ),
                     ),
-                  ],
-                );
-              },
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -561,12 +758,14 @@ class _AccountCard extends StatelessWidget {
 class _PinSection extends StatelessWidget {
   const _PinSection({
     required this.auth,
+    required this.hasPin,
     required this.onSetup,
     required this.onChange,
     required this.onDisable,
   });
 
   final AuthState auth;
+  final bool? hasPin;
   final VoidCallback onSetup;
   final VoidCallback onChange;
   final VoidCallback onDisable;
@@ -581,79 +780,71 @@ class _PinSection extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           color: surfaceColor,
-          borderRadius: BorderRadius.circular(AppRadius.l),
+          borderRadius: BorderRadius.circular(AppRadius.xl),
           boxShadow: AppShadow.sm(),
         ),
-        child: const ListTile(
-          leading: Icon(Icons.pin_outlined),
-          title: Text('Offline PIN'),
-          subtitle: Text('Staff accounts only. Owners always sign in online.'),
+        child: const _PremiumTile(
+          icon: Icons.pin_outlined,
+          iconColor: Colors.grey,
+          title: 'Offline PIN',
+          subtitle: 'Staff accounts only. Owners always sign in online.',
         ),
       );
     }
 
-    return FutureBuilder<bool>(
-      future: auth.pin.hasPin,
-      builder: (context, snap) {
-        final hasPin = snap.data ?? false;
-        return Container(
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: surfaceColor,
-            borderRadius: BorderRadius.circular(AppRadius.l),
-            boxShadow: AppShadow.sm(),
-          ),
-          child: Material(
-            color: Colors.transparent,
-            child: Column(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.pin_outlined),
-                  title: const Text('Offline PIN'),
-                  subtitle: Text(
-                    hasPin
-                        ? 'On   opens this device without internet'
-                        : 'Off   set one to open the app with no signal',
-                  ),
-                  trailing: AppBadge(
-                    label: hasPin ? 'ON' : 'OFF',
-                    variant: hasPin
-                        ? AppBadgeVariant.ok
-                        : AppBadgeVariant.neutral,
-                  ),
-                ),
-                if (snap.connectionState == ConnectionState.done) ...[
-                  const Divider(height: 1),
-                  if (!hasPin)
-                    ListTile(
-                      leading: const Icon(Icons.add_rounded),
-                      title: const Text('Set up PIN'),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: onSetup,
-                    )
-                  else ...[
-                    ListTile(
-                      leading: const Icon(Icons.edit_outlined),
-                      title: const Text('Change PIN'),
-                      subtitle: const Text('Works offline with current PIN'),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: onChange,
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
-                      leading: const Icon(Icons.remove_circle_outline_rounded),
-                      title: const Text('Disable PIN'),
-                      subtitle: const Text('Needs internet'),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: onDisable,
-                    ),
-                  ],
-                ],
-              ],
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        boxShadow: AppShadow.sm(),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: Column(
+          children: [
+            _PremiumTile(
+              icon: Icons.pin_rounded,
+              iconColor: AppColors.primary,
+              title: 'Offline PIN',
+              subtitle: hasPin == true
+                  ? 'On • opens this device without internet'
+                  : 'Off • set one to open the app with no signal',
+              trailing: AppBadge(
+                label: hasPin == true ? 'ON' : 'OFF',
+                variant: hasPin == true
+                    ? AppBadgeVariant.ok
+                    : AppBadgeVariant.neutral,
+              ),
             ),
-          ),
-        );
-      },
+            if (hasPin != null) ...[
+              if (!hasPin!)
+                _PremiumTile(
+                  icon: Icons.add_rounded,
+                  iconColor: AppColors.ok,
+                  title: 'Set up PIN',
+                  onTap: onSetup,
+                )
+              else ...[
+                _PremiumTile(
+                  icon: Icons.edit_outlined,
+                  iconColor: AppColors.info,
+                  title: 'Change PIN',
+                  subtitle: 'Works offline with current PIN',
+                  onTap: onChange,
+                ),
+                _PremiumTile(
+                  icon: Icons.remove_circle_outline_rounded,
+                  iconColor: AppColors.warn,
+                  title: 'Disable PIN',
+                  subtitle: 'Needs internet',
+                  onTap: onDisable,
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -661,7 +852,6 @@ class _PinSection extends StatelessWidget {
 class _ServerSection extends StatefulWidget {
   const _ServerSection({required this.onChanged});
   final VoidCallback onChanged;
-
   @override
   State<_ServerSection> createState() => _ServerSectionState();
 }
@@ -798,68 +988,69 @@ class _ServerSectionState extends State<_ServerSection> {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: surfaceColor,
-        borderRadius: BorderRadius.circular(AppRadius.l),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
         boxShadow: AppShadow.sm(),
       ),
       child: Material(
         color: Colors.transparent,
         child: Column(
           children: [
-            ListTile(
-              leading: const Icon(Icons.dns_outlined),
-              title: const Text('Active server'),
-              subtitle: Text(
-                api.currentBaseUrl +
-                    (api.isManualUrl ? '   manual override' : ''),
-              ),
+            _PremiumTile(
+              icon: Icons.dns_outlined,
+              iconColor: Colors.deepPurple,
+              title: 'Active server',
+              subtitle:
+                  api.currentBaseUrl +
+                  (api.isManualUrl ? ' • manual override' : ''),
             ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.radar_outlined),
-              title: const Text('Rescan network'),
+            _PremiumTile(
+              icon: Icons.radar_outlined,
+              iconColor: AppColors.info,
+              title: 'Rescan network',
               trailing: _busy
                   ? const SizedBox(
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.chevron_right_rounded),
+                  : const Icon(Icons.chevron_right_rounded, color: Colors.grey),
               onTap: _busy ? null : _rescan,
             ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.edit_outlined),
-              title: const Text('Enter server manually'),
-              trailing: const Icon(Icons.chevron_right_rounded),
+            _PremiumTile(
+              icon: Icons.edit_outlined,
+              iconColor: Colors.teal,
+              title: 'Enter server manually',
               onTap: _manualEntry,
             ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.restart_alt_rounded),
-              title: const Text('Reset to default'),
-              trailing: const Icon(Icons.chevron_right_rounded),
+            _PremiumTile(
+              icon: Icons.restart_alt_rounded,
+              iconColor: AppColors.warn,
+              title: 'Reset to default',
               onTap: _resetDefault,
             ),
-            const Divider(height: 1),
-            SwitchListTile(
-              secondary: const Icon(Icons.wifi_find_rounded),
-              title: const Text('Offline LAN pilot'),
-              subtitle: const Text(
-                'May attach to a same-Wi-Fi dev server instead of production. Off unless piloting.',
+            _PremiumTile(
+              icon: Icons.wifi_find_rounded,
+              iconColor: AppColors.primary,
+              title: 'Offline LAN pilot',
+              subtitle:
+                  'May attach to a same-Wi-Fi dev server instead of production. Off unless piloting.',
+              customWidget: Switch(
+                // FIX: Gamitin ang activeThumbColor imbes na activeColor
+                activeThumbColor: AppColors.primary,
+                value: _lanEnabled ?? false,
+                onChanged: _lanEnabled == null
+                    ? null
+                    : (v) async {
+                        await api.setLanDiscovery(v);
+                        if (!mounted) return;
+                        setState(() => _lanEnabled = v);
+                        if (!v) {
+                          await api.resetServerToDefault();
+                          widget.onChanged();
+                          if (mounted) setState(() {});
+                        }
+                      },
               ),
-              value: _lanEnabled ?? false,
-              onChanged: _lanEnabled == null
-                  ? null
-                  : (v) async {
-                      await api.setLanDiscovery(v);
-                      if (!mounted) return;
-                      setState(() => _lanEnabled = v);
-                      if (!v) {
-                        await api.resetServerToDefault();
-                        widget.onChanged();
-                        if (mounted) setState(() {});
-                      }
-                    },
             ),
           ],
         ),
@@ -882,7 +1073,7 @@ class _SyncSection extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: surfaceColor,
-        borderRadius: BorderRadius.circular(AppRadius.l),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
         boxShadow: AppShadow.sm(),
       ),
       child: Material(
@@ -891,17 +1082,16 @@ class _SyncSection extends StatelessWidget {
           children: [
             FutureBuilder<int>(
               future: sync.queue.count,
-              builder: (context, snap) => ListTile(
-                leading: const Icon(Icons.cloud_upload_outlined),
-                title: const Text('Queued sales'),
-                subtitle: Text(
-                  snap.data == null
-                      ? '...'
-                      : snap.data == 0
-                      ? 'All synced'
-                      : '${snap.data} waiting to sync',
-                ),
-                trailing: ElevatedButton(
+              builder: (context, snap) => _PremiumTile(
+                icon: Icons.cloud_upload_outlined,
+                iconColor: AppColors.primary,
+                title: 'Queued sales',
+                subtitle: snap.data == null
+                    ? '...'
+                    : snap.data == 0
+                    ? 'All synced'
+                    : '${snap.data} waiting to sync',
+                customWidget: FilledButton.tonal(
                   onPressed: () async {
                     final result = await sync.syncAll();
                     onToast(
@@ -909,28 +1099,31 @@ class _SyncSection extends StatelessWidget {
                           ? 'Synced ${result.synced} sale(s)'
                           : result.online
                           ? '${result.remaining} remaining'
-                          : 'Offline   will sync when connected',
+                          : 'Offline • will sync when connected',
                       error: result.dropped.isNotEmpty,
                       success: result.fullySynced,
                     );
                   },
-                  child: const Text('Sync now'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    minimumSize: const Size(0, 36),
+                  ),
+                  child: const Text('Sync now', style: TextStyle(fontSize: 12)),
                 ),
               ),
             ),
-            const Divider(height: 1),
             FutureBuilder<DateTime?>(
               future: api.catalogUpdatedAt(),
-              builder: (context, snap) => ListTile(
-                leading: const Icon(Icons.inventory_2_outlined),
-                title: const Text('Catalog cache'),
-                subtitle: Text(
-                  snap.data == null
-                      ? 'Never downloaded'
-                      : 'Updated ${ManilaTime.formatTime(ManilaTime.parse(snap.data) ?? snap.data!)}',
-                ),
-                trailing: PopupMenuButton<String>(
+              builder: (context, snap) => _PremiumTile(
+                icon: Icons.inventory_2_outlined,
+                iconColor: AppColors.ok,
+                title: 'Catalog cache',
+                subtitle: snap.data == null
+                    ? 'Never downloaded'
+                    : 'Updated ${ManilaTime.formatTime(snap.data!)}',
+                customWidget: PopupMenuButton<String>(
                   tooltip: 'Catalog options',
+                  icon: const Icon(Icons.more_vert_rounded, color: Colors.grey),
                   onSelected: (v) async {
                     if (v == 'refresh') {
                       final token = context.read<AuthState>().token;

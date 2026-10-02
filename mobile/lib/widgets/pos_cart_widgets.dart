@@ -4,10 +4,8 @@ import '../state/cart_state.dart';
 import '../theme.dart';
 import '../utils/haptics.dart';
 
-/// Round +/- stepper used in the item option sheet. Presentational only.
 class PosQtyButton extends StatelessWidget {
   const PosQtyButton({super.key, required this.icon, this.onPressed});
-
   final IconData icon;
   final VoidCallback? onPressed;
 
@@ -45,10 +43,8 @@ class PosQtyButton extends StatelessWidget {
   }
 }
 
-/// Thin persistent strip showing queued-offline sales where the cashier works.
 class PosOfflineStrip extends StatefulWidget {
   const PosOfflineStrip({super.key});
-
   @override
   State<PosOfflineStrip> createState() => PosOfflineStripState();
 }
@@ -113,10 +109,8 @@ class PosOfflineStripState extends State<PosOfflineStrip> {
   }
 }
 
-/// Persistent cart panel at the bottom of POS. Tapping opens the cart sheet.
 class PosCartBar extends StatelessWidget {
   const PosCartBar({super.key, required this.cart, required this.onTap});
-
   final CartState cart;
   final VoidCallback onTap;
 
@@ -124,83 +118,85 @@ class PosCartBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final isEmpty = cart.isEmpty;
 
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.space4,
-          AppSpacing.space2,
-          AppSpacing.space4,
-          AppSpacing
-              .space4, // Nagdagdag ng konting espasyo sa ilalim para sa floating effect
+    return Center(
+      // INAYOS: Pinagitna ang buong Cart Bar
+      child: Container(
+        constraints: const BoxConstraints(
+          maxWidth: 220,
+        ), // INAYOS: Pinaikli para hindi full-width
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          boxShadow: [
+            BoxShadow(
+              color: isEmpty
+                  ? Colors.black.withValues(alpha: 0.1)
+                  : AppColors.primary.withValues(alpha: 0.3),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
         ),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppRadius.pill), // PILL SHAPE
-            boxShadow: [
-              BoxShadow(
-                color: isEmpty
-                    ? Colors.black.withValues(alpha: 0.1)
-                    : AppColors.primary.withValues(alpha: 0.3),
-                blurRadius: 16,
-                offset: const Offset(0, 6),
+        child: Material(
+          color: isEmpty
+              ? AppColors.primary.withValues(alpha: 0.5)
+              : AppColors.primary,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: isEmpty ? null : onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.space5,
+                vertical: 10, // INAYOS: Mas manipis at compact
               ),
-            ],
-          ),
-          child: Material(
-            color: isEmpty
-                ? AppColors.primary.withValues(alpha: 0.5)
-                : AppColors.primary,
-            borderRadius: BorderRadius.circular(AppRadius.pill), // PILL SHAPE
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: isEmpty ? null : onTap,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal:
-                      AppSpacing.space6, // Mas malapad para magmukhang pill
-                  vertical: AppSpacing.space4,
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.receipt_long_rounded, color: Colors.white),
-                    const SizedBox(width: AppSpacing.space3),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
+              child: Row(
+                mainAxisSize: MainAxisSize.min, // Hugs content
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.shopping_basket_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          isEmpty
+                              ? 'Order empty'
+                              : '${cart.totalQty} item${cart.totalQty != 1 ? 's' : ''}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                        ),
+                        if (!isEmpty) ...[
                           Text(
-                            isEmpty
-                                ? 'Order empty'
-                                : '${cart.totalQty} item${cart.totalQty != 1 ? 's' : ''} in order',
+                            '₱${cart.total.toStringAsFixed(0)}',
                             style: const TextStyle(
                               color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 14,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 15,
+                              height: 1.1,
                             ),
                           ),
-                          if (!isEmpty) ...[
-                            const SizedBox(height: AppSpacing.space1),
-                            Text(
-                              'P${cart.total.toStringAsFixed(0)}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 18,
-                              ),
-                            ),
-                          ],
                         ],
-                      ),
+                      ],
                     ),
-                    if (!isEmpty)
-                      const Icon(
-                        Icons.chevron_right_rounded,
-                        color: Colors.white,
-                      ),
+                  ),
+                  if (!isEmpty) ...[
+                    const SizedBox(width: 8),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                   ],
-                ),
+                ],
               ),
             ),
           ),
