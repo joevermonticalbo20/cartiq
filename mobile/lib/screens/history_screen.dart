@@ -12,7 +12,6 @@ import '../widgets/section_header.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key, this.onNewSale});
-
   final VoidCallback? onNewSale;
 
   @override
@@ -44,7 +43,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
   bool _matches(Map<String, dynamic> order, String q) {
     if (q.isEmpty) return true;
     final lq = q.toLowerCase();
-    final total = 'P${((order['total'] ?? 0) as num).toStringAsFixed(0)}';
+    final total =
+        '₱${((order['total'] ?? 0) as num).toStringAsFixed(0)}'; // Pinalitan ang P ng ₱
     if (total.toLowerCase().contains(lq)) return true;
     final items = (order['items'] as List?) ?? [];
     for (final it in items) {
@@ -110,14 +110,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Future<void> _promptVoidOrder(Map<String, dynamic> order) async {
     final orderId = order['id'] ?? order['clientRef'];
     if (orderId == null) return;
-
     final reasons = [
       'Wrong item punched',
       'Customer cancelled',
       'Duplicate order',
       'Others',
     ];
-
     final confirmed = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -127,23 +125,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ),
       builder: (modalContext) => _VoidReasonSheet(reasons: reasons),
     );
-
     if (confirmed != true) return;
     if (!mounted) return;
-
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Order voided successfully. Inventory reverted.'),
         backgroundColor: AppColors.ok,
       ),
     );
-
     _loadMore(reset: true);
   }
 
   Future<void> _editPaymentMethod(Map<String, dynamic> order) async {
     final currentMethod = order['paymentMethod'] ?? 'CASH';
-
     final updated = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -154,18 +148,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
       builder: (modalContext) =>
           _EditPaymentSheet(initialMethod: currentMethod),
     );
-
     if (updated != true) return;
     if (!mounted) return;
-
-    // Ang updated payment method handling ay dapat ilagay dito para sa database/backend save
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Payment method updated successfully.'),
         backgroundColor: AppColors.ok,
       ),
     );
-
     _loadMore(reset: true);
   }
 
@@ -260,7 +250,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               child: ListView.separated(
                 shrinkWrap: true,
                 itemCount: items.length,
-                separatorBuilder: (_, __) =>
+                separatorBuilder: (_, _) =>
                     const SizedBox(height: AppSpacing.space3),
                 itemBuilder: (context, index) {
                   final item = items[index];
@@ -269,7 +259,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   final qty = item['qty'] ?? 1;
                   final unitPrice = (item['unitPrice'] ?? 0) as num;
                   final lineTotal = qty * unitPrice;
-
                   return Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -284,14 +273,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               ),
                             ),
                             Text(
-                              'P${unitPrice.toStringAsFixed(0)} each',
+                              '₱${unitPrice.toStringAsFixed(0)} each', // Pinalitan ang P ng ₱
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ],
                         ),
                       ),
                       Text(
-                        'P${lineTotal.toStringAsFixed(0)}',
+                        '₱${lineTotal.toStringAsFixed(0)}', // Pinalitan ang P ng ₱
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                     ],
@@ -310,7 +299,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 Text(
-                  'P${total.toStringAsFixed(0)}',
+                  '₱${total.toStringAsFixed(0)}', // Pinalitan ang P ng ₱
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     color: AppColors.primary,
                     fontWeight: FontWeight.w900,
@@ -374,6 +363,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       final label = key == 'unknown' ? 'Unknown date' : key;
       (grouped[label] ??= []).add(o);
     }
+
     final rows = <Object>[];
     for (final entry in grouped.entries) {
       final dayTotal = entry.value.fold<double>(
@@ -506,7 +496,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           title: date,
                           eyebrow: '$count sale${count != 1 ? 's' : ''}',
                           trailing: Text(
-                            'P${total.toStringAsFixed(0)}',
+                            '₱${total.toStringAsFixed(0)}', // Pinalitan ang P ng ₱
                             style: Theme.of(context).textTheme.labelSmall
                                 ?.copyWith(fontWeight: FontWeight.w800),
                           ),
@@ -520,7 +510,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               '${it['qty']}x ${it['productName']}${it['flavor'] != null ? ' (${it['flavor']})' : ''}',
                         )
                         .join(', ');
-
                     return Container(
                       clipBehavior: Clip.antiAlias,
                       decoration: BoxDecoration(
@@ -563,7 +552,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                       Row(
                                         children: [
                                           Text(
-                                            'P${((o['total'] ?? 0) as num).toStringAsFixed(0)}',
+                                            '₱${((o['total'] ?? 0) as num).toStringAsFixed(0)}', // Pinalitan ang P ng ₱
                                             style: Theme.of(context)
                                                 .textTheme
                                                 .titleMedium
@@ -793,7 +782,6 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
   late String currentMethod;
   File? proofImage;
 
-  // Tinanggal na ang "Card" option gaya ng nirequest mo.
   final methods = [
     {'key': 'CASH', 'label': 'Cash', 'icon': Icons.payments_rounded},
     {'key': 'GCASH', 'label': 'GCash', 'icon': Icons.phone_android_rounded},
@@ -893,7 +881,7 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
               dense: true,
               onChanged: (v) async {
                 if (v == null) return;
-                if (v == 'GCASH') {
+                if (v == 'GCash') {
                   final picker = ImagePicker();
                   final image = await picker.pickImage(
                     source: ImageSource.camera,
@@ -907,7 +895,7 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
               },
             ),
           ),
-          if (currentMethod == 'GCASH' && proofImage != null) ...[
+          if (currentMethod == 'GCash' && proofImage != null) ...[
             const SizedBox(height: AppSpacing.space2),
             Container(
               padding: const EdgeInsets.all(10),

@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+
 import '../services/auth_state.dart';
 import '../services/api_client.dart';
 import '../services/offline_queue.dart';
@@ -27,18 +31,17 @@ String newClientRef() {
   return '$hex-${DateTime.now().millisecondsSinceEpoch}';
 }
 
-enum PaymentMethod { cash, gcash, card }
+enum PaymentMethod { cash, gcash }
 
 extension PaymentMethodX on PaymentMethod {
   String get label => switch (this) {
     PaymentMethod.cash => 'Cash',
     PaymentMethod.gcash => 'GCash',
-    PaymentMethod.card => 'Card',
   };
+
   IconData get icon => switch (this) {
     PaymentMethod.cash => Icons.payments_rounded,
     PaymentMethod.gcash => Icons.phone_android_rounded,
-    PaymentMethod.card => Icons.credit_card_rounded,
   };
 }
 
@@ -61,7 +64,6 @@ Future<Map<String, dynamic>> persistCheckout({
 
 class PosScreen extends StatefulWidget {
   const PosScreen({super.key});
-
   @override
   State<PosScreen> createState() => _PosScreenState();
 }
@@ -176,11 +178,13 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
         ? flavors.first['name'] as String
         : null;
     var qty = 1;
+
     if (flavors.isEmpty) {
       _addToCart(product);
       _showSnack('Added: ${product['name']}', success: true);
       return;
     }
+
     await showModalBottomSheet<void>(
       context: context,
       builder: (sheetContext) {
@@ -329,9 +333,11 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     final cart = sheetContext.read<CartState>();
     final auth = sheetContext.read<AuthState>();
     final sync = sheetContext.read<SyncService>();
+
     if (cart.isEmpty) return;
     if (_paying) return;
     _paying = true;
+
     try {
       final cartCode = auth.locationCode;
       if (cartCode == null || cartCode.isEmpty) {
@@ -340,6 +346,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
         _showSnack('No cart assigned to this account - ask OWNER', error: true);
         return;
       }
+
       final snapshotTotal = cart.total;
       try {
         await persistCheckout(
@@ -363,9 +370,12 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
         );
         return;
       }
+
       if (sheetContext.mounted) Navigator.pop(sheetContext);
+
       final result = await sync.syncAll();
       if (!mounted) return;
+
       if (result.fullySynced) {
         await Haptics.success();
       } else if (result.dropped.isNotEmpty) {
@@ -373,6 +383,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       } else {
         await Haptics.tap();
       }
+
       _showSnack(
         result.fullySynced
             ? 'Sale recorded   ${method.label}   P${snapshotTotal.toStringAsFixed(0)}'
@@ -380,6 +391,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
         success: result.fullySynced,
         error: result.dropped.isNotEmpty,
       );
+
       if (!mounted) return;
       await _showSaleResultSheet(
         method: method,
@@ -403,6 +415,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     final change = method == PaymentMethod.cash && cashTendered != null
         ? cashTendered - total
         : 0;
+
     await showModalBottomSheet<void>(
       context: context,
       builder: (ctx) => Padding(
@@ -497,6 +510,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final cart = context.watch<CartState>();
+
     return SafeArea(
       top: false,
       child: Column(
@@ -557,16 +571,34 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                     return FilterChip(
                       label: Text(cat ?? ''),
                       selected: selected,
-                      onSelected: (_) {
-                        Haptics.select();
-                        setState(() => _categoryFilter = cat ?? 'All');
-                      },
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.pill),
+                      ),
+                      // TINA-TRANSPARENT ANG BORDER PARA "GLASS" EFFECT
+                      side: selected
+                          ? BorderSide.none
+                          : BorderSide(
+                              color: Theme.of(
+                                context,
+                              ).dividerColor.withValues(alpha: 0.15),
+                              width: 1.5,
+                            ),
+                      backgroundColor: Theme.of(
+                        context,
+                      ).colorScheme.surface.withValues(alpha: 0.5),
+                      elevation: 0,
+                      pressElevation: 0,
                       showCheckmark: false,
                       selectedColor: AppColors.primary,
                       labelStyle: TextStyle(
                         fontWeight: FontWeight.w700,
-                        color: selected ? Colors.white : null,
+                        // Pinalambot yung kulay ng text pag hindi selected
+                        color: selected ? Colors.white : AppColors.muted,
                       ),
+                      onSelected: (_) {
+                        Haptics.select();
+                        setState(() => _categoryFilter = cat ?? 'All');
+                      },
                     );
                   },
                 );
@@ -619,6 +651,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                               p['category'] == _categoryFilter),
                     )
                     .toList();
+
                 if (products.isEmpty) {
                   return RefreshIndicator(
                     onRefresh: _refreshCatalog,
@@ -710,7 +743,6 @@ class _CartSheet extends StatefulWidget {
   const _CartSheet({required this.cart, required this.onPay});
   final CartState cart;
   final void Function(PaymentMethod method, double? cashTendered) onPay;
-
   @override
   State<_CartSheet> createState() => _CartSheetState();
 }
@@ -718,6 +750,9 @@ class _CartSheet extends StatefulWidget {
 class _CartSheetState extends State<_CartSheet> {
   PaymentMethod _method = PaymentMethod.cash;
   final _cashController = TextEditingController();
+
+  File? _gcashProofImage;
+  bool _isPickingImage = false;
 
   @override
   void dispose() {
@@ -736,10 +771,78 @@ class _CartSheetState extends State<_CartSheet> {
     widget.onPay(_method, _method == PaymentMethod.cash ? _tendered : null);
   }
 
+  Future<void> _pickGCashProof() async {
+    if (_isPickingImage) return;
+    setState(() => _isPickingImage = true);
+    try {
+      final picker = ImagePicker();
+      final xfile = await picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 80,
+      );
+      if (xfile != null) {
+        setState(() => _gcashProofImage = File(xfile.path));
+        Haptics.success();
+      }
+    } finally {
+      if (mounted) setState(() => _isPickingImage = false);
+    }
+  }
+
+  void _viewGCashProof() {
+    if (_gcashProofImage == null) return;
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.4),
+      builder: (ctx) => BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          insetPadding: const EdgeInsets.all(AppSpacing.space4),
+          child: SizedBox(
+            width: double.infinity,
+            height: MediaQuery.of(context).size.height * 0.7,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Positioned.fill(
+                  child: InteractiveViewer(
+                    minScale: 1.0,
+                    maxScale: 4.0,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.l),
+                      child: Image.file(_gcashProofImage!, fit: BoxFit.contain),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: AppSpacing.space2,
+                  right: AppSpacing.space2,
+                  child: IconButton(
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white.withValues(alpha: 0.25),
+                      side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.4),
+                      ),
+                    ),
+                    icon: const Icon(Icons.close_rounded, color: Colors.white),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final cart = widget.cart;
+    final cart = context.watch<CartState>();
     final viewInsets = MediaQuery.of(context).viewInsets.bottom;
+
     return Padding(
       padding: EdgeInsets.fromLTRB(
         AppSpacing.space5,
@@ -747,332 +850,463 @@ class _CartSheetState extends State<_CartSheet> {
         AppSpacing.space5,
         AppSpacing.space5 + viewInsets,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.symmetric(vertical: AppSpacing.space2),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(AppRadius.xs),
-              ),
-            ),
-          ),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Current order',
-                  style: Theme.of(context).textTheme.titleLarge,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.symmetric(vertical: AppSpacing.space2),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(AppRadius.xs),
                 ),
               ),
-              if (!cart.isEmpty)
-                TextButton.icon(
-                  onPressed: () async {
-                    Haptics.tap();
-                    final confirmed = await showAppConfirm(
-                      context,
-                      title: 'Clear order?',
-                      message:
-                          'This removes every item from the current order. This cannot be undone.',
-                      confirmLabel: 'Clear',
-                      danger: true,
-                    );
-                    if (confirmed) cart.clear();
-                  },
-                  icon: const Icon(Icons.delete_outline, size: 18),
-                  label: const Text('Clear'),
-                ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.space2),
-          if (cart.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.space7),
-              child: Column(
-                children: [
-                  Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    alignment: Alignment.center,
-                    child: const Icon(
-                      Icons.shopping_basket_outlined,
-                      size: 30,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.space3),
-                  Text(
-                    'No items yet',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.space1),
-                  Text(
-                    'Tap a product to start the order.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            )
-          else
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 280),
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: cart.items.length,
-                separatorBuilder: (_, _) => const Divider(height: 1),
-                itemBuilder: (context, i) {
-                  final item = cart.items[i];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.space2,
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(AppRadius.s),
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            '${item.qty}',
-                            style: const TextStyle(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: AppSpacing.space3),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                item.flavor == null
-                                    ? item.productName
-                                    : '${item.productName} (${item.flavor})',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              Text(
-                                'P${item.unitPrice.toStringAsFixed(0)} each',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.remove_circle_outline),
-                          tooltip: 'Decrease quantity',
-                          onPressed: () => cart.changeQty(item, -1),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.add_circle_outline),
-                          tooltip: 'Increase quantity',
-                          onPressed: () => cart.changeQty(item, 1),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        const SizedBox(width: AppSpacing.space2),
-                        SizedBox(
-                          width: 60,
-                          child: Text(
-                            'P${item.lineTotal.toStringAsFixed(0)}',
-                            textAlign: TextAlign.end,
-                            style: const TextStyle(fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
             ),
-          if (!cart.isEmpty) ...[
-            const Divider(height: 24),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Total', style: Theme.of(context).textTheme.titleMedium),
-                Text(
-                  'P${cart.total.toStringAsFixed(0)}',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w800,
+                Expanded(
+                  child: Text(
+                    'Current order',
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
+                if (!cart.isEmpty)
+                  TextButton.icon(
+                    onPressed: () async {
+                      Haptics.tap();
+                      final confirmed = await showAppConfirm(
+                        context,
+                        title: 'Clear order?',
+                        message:
+                            'This removes every item from the current order. This cannot be undone.',
+                        confirmLabel: 'Clear',
+                        danger: true,
+                      );
+                      if (confirmed) cart.clear();
+                    },
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    label: const Text('Clear'),
+                  ),
               ],
-            ),
-            const SizedBox(height: AppSpacing.space4),
-            Text(
-              'Payment method',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: Theme.of(context).textTheme.bodySmall?.color,
-              ),
             ),
             const SizedBox(height: AppSpacing.space2),
-            Row(
-              children: [
-                for (final m in PaymentMethod.values) ...[
-                  Expanded(
-                    child: _PaymentMethodChip(
-                      method: m,
-                      selected: _method == m,
-                      onTap: () {
-                        Haptics.select();
-                        setState(() => _method = m);
-                        if (m != PaymentMethod.cash) {
-                          _cashController.clear();
-                        }
-                      },
-                    ),
-                  ),
-                  if (m != PaymentMethod.values.last)
-                    const SizedBox(width: AppSpacing.space2),
-                ],
-              ],
-            ),
-            if (_method == PaymentMethod.cash) ...[
-              const SizedBox(height: AppSpacing.space4),
-              TextField(
-                controller: _cashController,
-                autofocus: true,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
+            if (cart.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  vertical: AppSpacing.space7,
                 ),
-                textInputAction: TextInputAction.done,
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[\d.]')),
-                  MoneyInputFormatter(),
-                ],
-                decoration: const InputDecoration(
-                  labelText: 'Cash tendered (PHP)',
-                  prefixText: 'P ',
-                ),
-                onChanged: (_) => setState(() {}),
-                onSubmitted: (_) => _submitIfReady(),
-              ),
-              const SizedBox(height: AppSpacing.space2),
-              Wrap(
-                spacing: AppSpacing.space2,
-                runSpacing: AppSpacing.space2,
-                children: [
-                  for (final bill in const [20, 50, 100, 500, 1000])
-                    ActionChip(
-                      label: Text('+$bill'),
-                      onPressed: () {
-                        Haptics.select();
-                        final next = _tendered + bill;
-                        _cashController.text = next.toStringAsFixed(0);
-                        setState(() {});
-                      },
-                    ),
-                  for (final amt in _quickCash(cart.total))
-                    ActionChip(
-                      label: Text('P$amt'),
-                      onPressed: () {
-                        Haptics.select();
-                        _cashController.text = amt.toStringAsFixed(0);
-                        setState(() {});
-                      },
-                    ),
-                  ActionChip(
-                    label: const Text('Exact'),
-                    onPressed: () {
-                      Haptics.select();
-                      _cashController.text = cart.total.toStringAsFixed(0);
-                      setState(() {});
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.space3),
-              Container(
-                padding: const EdgeInsets.all(AppSpacing.space3),
-                decoration: BoxDecoration(
-                  color: _tendered >= cart.total
-                      ? AppColors.ok.withValues(alpha: 0.12)
-                      : AppColors.danger.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(AppRadius.s),
-                  border: Border.all(
-                    color: _tendered >= cart.total
-                        ? AppColors.ok.withValues(alpha: 0.4)
-                        : AppColors.danger.withValues(alpha: 0.4),
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                child: Column(
                   children: [
-                    Text(
-                      _tendered >= cart.total ? 'Change' : 'Short by',
-                      style: TextStyle(
-                        color: _tendered >= cart.total
-                            ? AppColors.ok
-                            : AppColors.danger,
-                        fontWeight: FontWeight.w700,
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      alignment: Alignment.center,
+                      child: const Icon(
+                        Icons.shopping_basket_outlined,
+                        size: 30,
+                        color: AppColors.primary,
                       ),
                     ),
+                    const SizedBox(height: AppSpacing.space3),
                     Text(
-                      'P${(_tendered >= cart.total ? _change : cart.total - _tendered).toStringAsFixed(0)}',
-                      style: TextStyle(
-                        color: _tendered >= cart.total
-                            ? AppColors.ok
-                            : AppColors.danger,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 18,
-                      ),
+                      'No items yet',
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: AppSpacing.space1),
+                    Text(
+                      'Tap a product to start the order.',
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
                 ),
+              )
+            else
+              Column(
+                children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 280),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: cart.items.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (context, i) {
+                        final item = cart.items[i];
+                        return Dismissible(
+                          key: ValueKey(item.key),
+                          direction: DismissDirection.endToStart,
+                          background: Container(
+                            alignment: Alignment.centerRight,
+                            padding: const EdgeInsets.only(
+                              right: AppSpacing.space5,
+                            ),
+                            color: AppColors.danger,
+                            child: const Icon(
+                              Icons.delete_outline,
+                              color: Colors.white,
+                            ),
+                          ),
+                          onDismissed: (direction) {
+                            Haptics.select();
+                            cart.changeQty(item, -item.qty);
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: AppSpacing.space2,
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary.withValues(
+                                      alpha: 0.12,
+                                    ),
+                                    borderRadius: BorderRadius.circular(
+                                      AppRadius.s,
+                                    ),
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    '${item.qty}',
+                                    style: const TextStyle(
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: AppSpacing.space3),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        item.flavor == null
+                                            ? item.productName
+                                            : '${item.productName} (${item.flavor})',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      Text(
+                                        'P${item.unitPrice.toStringAsFixed(0)} each',
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: Icon(
+                                    item.qty == 1
+                                        ? Icons.delete_outline
+                                        : Icons.remove_circle_outline,
+                                  ),
+                                  color: item.qty == 1
+                                      ? AppColors.danger
+                                      : null,
+                                  tooltip: item.qty == 1
+                                      ? 'Remove item'
+                                      : 'Decrease quantity',
+                                  onPressed: () {
+                                    Haptics.select();
+                                    cart.changeQty(item, -1);
+                                  },
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.add_circle_outline),
+                                  tooltip: 'Increase quantity',
+                                  onPressed: () {
+                                    Haptics.select();
+                                    cart.changeQty(item, 1);
+                                  },
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                const SizedBox(width: AppSpacing.space2),
+                                SizedBox(
+                                  width: 60,
+                                  child: Text(
+                                    'P${item.lineTotal.toStringAsFixed(0)}',
+                                    textAlign: TextAlign.end,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.space2),
+                  TextButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.add_circle_outline, size: 18),
+                    label: const Text('Add more items'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ],
               ),
-            ],
-            const SizedBox(height: AppSpacing.space4),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(56),
+            if (!cart.isEmpty) ...[
+              const Divider(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Total', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    'P${cart.total.toStringAsFixed(0)}',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
               ),
-              icon: const Icon(Icons.payments_rounded),
-              label: Text(
-                _method == PaymentMethod.cash && _tendered > 0
-                    ? 'Record sale   P${cart.total.toStringAsFixed(0)}'
-                    : 'Record sale',
+              const SizedBox(height: AppSpacing.space4),
+              Text(
+                'Payment method',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: Theme.of(context).textTheme.bodySmall?.color,
+                ),
               ),
-              onPressed: !_canPay ? null : _submitIfReady,
-            ),
-            if (!_canPay) ...[
+              const SizedBox(height: AppSpacing.space2),
+              Row(
+                children: [
+                  for (final m in PaymentMethod.values) ...[
+                    Expanded(
+                      child: _PaymentMethodChip(
+                        method: m,
+                        selected: _method == m,
+                        onTap: () async {
+                          Haptics.select();
+                          setState(() {
+                            _method = m;
+                            if (m != PaymentMethod.cash) {
+                              _cashController.clear();
+                            }
+                          });
+
+                          if (m == PaymentMethod.gcash &&
+                              _gcashProofImage == null) {
+                            await _pickGCashProof();
+                          }
+                        },
+                      ),
+                    ),
+                    if (m != PaymentMethod.values.last)
+                      const SizedBox(width: AppSpacing.space2),
+                  ],
+                ],
+              ),
+
+              if (_method == PaymentMethod.gcash) ...[
+                const SizedBox(height: AppSpacing.space4),
+                if (_gcashProofImage != null)
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: FilledButton.tonalIcon(
+                          onPressed: _viewGCashProof,
+                          icon: const Icon(Icons.visibility_outlined, size: 16),
+                          label: const Text(
+                            'View proof of payment',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.ok.withValues(
+                              alpha: 0.12,
+                            ),
+                            foregroundColor: AppColors.ok,
+                            minimumSize: const Size(0, 52),
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.space2),
+                      Expanded(
+                        flex: 2,
+                        child: OutlinedButton.icon(
+                          onPressed: _pickGCashProof,
+                          icon: const Icon(Icons.camera_alt_outlined, size: 16),
+                          label: const Text(
+                            'Retake',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 52),
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  OutlinedButton.icon(
+                    onPressed: _pickGCashProof,
+                    icon: const Icon(Icons.camera_alt_outlined),
+                    label: const Text('Capture Proof of Payment'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(56),
+                    ),
+                  ),
+              ],
+
+              if (_method == PaymentMethod.cash) ...[
+                const SizedBox(height: AppSpacing.space4),
+                TextField(
+                  controller: _cashController,
+                  autofocus: true,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  textInputAction: TextInputAction.done,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[\d.]')),
+                    MoneyInputFormatter(),
+                  ],
+                  decoration: const InputDecoration(
+                    labelText: 'Cash tendered (PHP)',
+                    prefixText: 'P ',
+                  ),
+                  onChanged: (_) => setState(() {}),
+                  onSubmitted: (_) => _submitIfReady(),
+                ),
+                const SizedBox(height: AppSpacing.space2),
+                Wrap(
+                  spacing: AppSpacing.space2,
+                  runSpacing: AppSpacing.space2,
+                  children: [
+                    for (final bill in const [20, 50, 100, 500, 1000])
+                      ActionChip(
+                        label: Text('+$bill'),
+                        onPressed: () {
+                          Haptics.select();
+                          final next = _tendered + bill;
+                          _cashController.text = next.toStringAsFixed(0);
+                          setState(() {});
+                        },
+                      ),
+                    for (final amt in _quickCash(cart.total))
+                      ActionChip(
+                        label: Text('P$amt'),
+                        onPressed: () {
+                          Haptics.select();
+                          _cashController.text = amt.toStringAsFixed(0);
+                          setState(() {});
+                        },
+                      ),
+                    ActionChip(
+                      label: const Text('Exact'),
+                      onPressed: () {
+                        Haptics.select();
+                        _cashController.text = cart.total.toStringAsFixed(0);
+                        setState(() {});
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.space3),
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.space3),
+                  decoration: BoxDecoration(
+                    color: _tendered >= cart.total
+                        ? AppColors.ok.withValues(alpha: 0.12)
+                        : AppColors.danger.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(AppRadius.s),
+                    border: Border.all(
+                      color: _tendered >= cart.total
+                          ? AppColors.ok.withValues(alpha: 0.4)
+                          : AppColors.danger.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _tendered >= cart.total ? 'Change' : 'Short by',
+                        style: TextStyle(
+                          color: _tendered >= cart.total
+                              ? AppColors.ok
+                              : AppColors.danger,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        'P${(_tendered >= cart.total ? _change : cart.total - _tendered).toStringAsFixed(0)}',
+                        style: TextStyle(
+                          color: _tendered >= cart.total
+                              ? AppColors.ok
+                              : AppColors.danger,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: AppSpacing.space4),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(56),
+                ),
+                icon: const Icon(Icons.payments_rounded),
+                label: Text(
+                  _method == PaymentMethod.cash && _tendered > 0
+                      ? 'Record sale   P${cart.total.toStringAsFixed(0)}'
+                      : 'Record sale',
+                ),
+                onPressed: !_canPay ? null : _submitIfReady,
+              ),
+              if (!_canPay) ...[
+                const SizedBox(height: AppSpacing.space2),
+                Text(
+                  'Enter P${cart.total.toStringAsFixed(0)} or more to record the sale',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
               const SizedBox(height: AppSpacing.space2),
               Text(
-                'Enter P${cart.total.toStringAsFixed(0)} or more to record the sale',
+                'clientRef   duplicate-safe   replays never double-charge',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
-            const SizedBox(height: AppSpacing.space2),
-            Text(
-              'clientRef   duplicate-safe   replays never double-charge',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
           ],
-        ],
+        ),
       ),
     );
   }

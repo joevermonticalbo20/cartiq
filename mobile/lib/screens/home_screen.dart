@@ -195,10 +195,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     confirmLabel: 'Log out',
                   );
                   if (!confirmed || !context.mounted) return;
-
                   final auth = context.read<AuthState>();
                   if (!auth.isLoggedIn) return;
-
                   context.read<SyncService>().cancelActiveSync();
                   await auth.signOut();
                 },
@@ -236,7 +234,8 @@ class _HomeScreenState extends State<HomeScreen> {
               title: 'Sales today',
               value: _todaySales,
               vsYesterday: _vsYesterday,
-              icon: Icons.attach_money_rounded,
+              // PINALITAN: Tinanggal ang dollar sign (attach_money), ginawang cash icon (payments)
+              icon: Icons.payments_rounded,
             ),
             const SizedBox(height: AppSpacing.space3),
 
@@ -255,7 +254,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Expanded(
                   child: _StandardKpiCard(
                     title: 'Avg ticket',
-                    value: 'P${_avgTicket.toStringAsFixed(0)}',
+                    value: '₱${_avgTicket.toStringAsFixed(0)}',
                     sub: 'Per order today',
                     icon: Icons.receipt_long_rounded,
                   ),
@@ -600,7 +599,6 @@ class _SolidBrandCard extends StatelessWidget {
               ),
             ),
           ),
-
           // Content
           Padding(
             padding: const EdgeInsets.all(24),
@@ -630,7 +628,7 @@ class _SolidBrandCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'P${value.toStringAsFixed(0)}',
+                  '₱${value.toStringAsFixed(0)}',
                   style: const TextStyle(
                     fontSize: 36,
                     fontWeight: FontWeight.w900,
@@ -701,7 +699,7 @@ class _StandardKpiCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: AppShadow.sm(), // TINANGGAL ANG BORDER DITO
+        boxShadow: AppShadow.sm(),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -756,6 +754,7 @@ class _StandardKpiCard extends StatelessWidget {
 // ---------- NEW: WEEKLY TREND PANEL ----------
 class _WeeklyTrendPanel extends StatelessWidget {
   const _WeeklyTrendPanel({required this.weekSales});
+
   final List<double> weekSales;
 
   @override
@@ -763,7 +762,6 @@ class _WeeklyTrendPanel extends StatelessWidget {
     if (weekSales.isEmpty || weekSales.length < 2) {
       return const SizedBox.shrink();
     }
-
     final maxVal = weekSales.reduce(max);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -772,7 +770,7 @@ class _WeeklyTrendPanel extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: AppShadow.sm(), // TINANGGAL ANG BORDER DITO
+        boxShadow: AppShadow.sm(),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -785,7 +783,7 @@ class _WeeklyTrendPanel extends StatelessWidget {
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
               ),
               AppBadge(
-                label: 'P${weekSales.last.toStringAsFixed(0)}',
+                label: '₱${weekSales.last.toStringAsFixed(0)}',
                 variant: AppBadgeVariant.brand,
               ),
             ],
@@ -880,13 +878,12 @@ class _StaffChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(AppRadius.m),
-        boxShadow: AppShadow.sm(), // TINANGGAL ANG BORDER DITO
+        boxShadow: AppShadow.sm(),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -951,7 +948,7 @@ class _RecentOrderTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(AppRadius.l),
-        boxShadow: AppShadow.sm(), // TINANGGAL ANG BORDER DITO
+        boxShadow: AppShadow.sm(),
       ),
       child: Row(
         children: [
@@ -992,7 +989,7 @@ class _RecentOrderTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                'P${total.toStringAsFixed(0)}',
+                '₱${total.toStringAsFixed(0)}',
                 style: const TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: 14,
@@ -1034,7 +1031,7 @@ class _QuickAction extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(AppRadius.xl),
-        boxShadow: AppShadow.sm(), // TINANGGAL ANG BORDER DITO
+        boxShadow: AppShadow.sm(),
       ),
       child: Material(
         color: Colors.transparent,

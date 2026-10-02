@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:dropdown_button2/dropdown_button2.dart';
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../services/receipt_scanner.dart';
@@ -22,8 +23,11 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
   final _amount = TextEditingController();
   final _date = TextEditingController();
   final _note = TextEditingController();
-  String? _locationCode;
-  String _category = 'Supplies';
+
+  // FIX FOR v3.1.0: Gumamit ng ValueNotifier para sa UI State
+  final ValueNotifier<String?> _locationNotifier = ValueNotifier(null);
+  final ValueNotifier<String> _categoryNotifier = ValueNotifier('Supplies');
+
   bool _busy = false;
   String? _message;
   bool _messageIsError = false;
@@ -43,7 +47,9 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
   void initState() {
     super.initState();
     final auth = context.read<AuthState>();
-    _locationCode = auth.locationCode;
+    // Set initial location
+    _locationNotifier.value = auth.locationCode;
+
     final token = auth.token;
     if (token == null) return;
     auth.api
@@ -65,6 +71,8 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
     _amount.dispose();
     _date.dispose();
     _note.dispose();
+    _locationNotifier.dispose(); // Cleanup
+    _categoryNotifier.dispose(); // Cleanup
     super.dispose();
   }
 
@@ -170,13 +178,14 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
     }
 
     try {
+      // API LOGIC UNTOUCHED: Kinukuha lang natin ang string sa loob ng notifier gamit ang .value
       await auth.api.createExpense(auth.token ?? '', {
         'vendor': vendor,
-        'locationCode': _locationCode,
+        'locationCode': _locationNotifier.value,
         'amount': amount,
         'date': expenseDate.toIso8601String(),
         'source': ocrSource ? 'OCR' : 'MANUAL',
-        'category': _category,
+        'category': _categoryNotifier.value,
         'note': note.isEmpty ? '' : note,
       });
 
@@ -348,63 +357,267 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
                   ),
                   const SizedBox(height: AppSpacing.space4),
 
-                  // MODERN PREMIUM DROPDOWN: Location
-                  DropdownButtonFormField<String>(
-                    isExpanded: true,
-                    value: _locationCode,
-                    icon: const Icon(
-                      Icons.unfold_more_rounded,
-                      size: 20,
-                      color: AppColors.muted,
-                    ),
-                    dropdownColor: surfaceColor,
-                    borderRadius: BorderRadius.circular(AppRadius.l),
-                    elevation: 6,
-                    decoration: const InputDecoration(
-                      labelText: 'Cart location',
-                      prefixIcon: Icon(Icons.storefront_outlined),
-                    ),
-                    items: _locations
-                        .map(
-                          (loc) => DropdownMenuItem(
-                            value: loc['code'] as String,
-                            child: Text(
-                              '${loc['code']} - ${loc['name']}',
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                  // DROPDOWN 1: Location (FIXED FOR v3.1.0)
+                  ValueListenableBuilder<String?>(
+                    valueListenable: _locationNotifier,
+                    builder: (context, locationValue, child) {
+                      return InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'Cart location',
+                          prefixIcon: Icon(Icons.storefront_outlined),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
                           ),
-                        )
-                        .toList(),
-                    onChanged: (v) => setState(() => _locationCode = v),
+                        ),
+                        isEmpty: locationValue == null,
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton2<String>(
+                            isExpanded: true,
+                            // FIX 1: Gumamit ng valueListenable imbes na value
+                            valueListenable: _locationNotifier,
+                            iconStyleData: const IconStyleData(
+                              icon: Icon(Icons.unfold_more_rounded, size: 20),
+                              iconEnabledColor: AppColors.muted,
+                            ),
+                            buttonStyleData: const ButtonStyleData(
+                              padding: EdgeInsets.zero,
+                              height: 24,
+                            ),
+                            dropdownStyleData: DropdownStyleData(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.l,
+                                ),
+                                color: surfaceColor,
+                              ),
+                              elevation: 6,
+                              offset: const Offset(0, -8),
+                            ),
+                            menuItemStyleData: MenuItemStyleData(
+                              padding: EdgeInsets.zero,
+                              overlayColor: WidgetStateProperty.all(
+                                Colors.transparent,
+                              ),
+                            ),
+                            selectedItemBuilder: (BuildContext context) {
+                              return _locations.map<Widget>((loc) {
+                                return Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    '${loc['code']} - ${loc['name']}',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                );
+                              }).toList();
+                            },
+                            items: _locations.asMap().entries.map((entry) {
+                              final index = entry.key;
+                              final loc = entry.value;
+                              final code = loc['code'] as String;
+                              final name = loc['name'] as String;
+                              final isSelected = locationValue == code;
+
+                              // FIX 2: Gumamit ng DropdownItem imbes na DropdownMenuItem
+                              return DropdownItem<String>(
+                                value: code,
+                                child: TweenAnimationBuilder<double>(
+                                  duration: Duration(
+                                    milliseconds: 200 + (index * 40),
+                                  ),
+                                  curve: Curves.easeOutBack,
+                                  tween: Tween<double>(begin: 0.0, end: 1.0),
+                                  builder: (context, val, child) {
+                                    return Transform.translate(
+                                      offset: Offset(0, 15 * (1 - val)),
+                                      child: Transform.scale(
+                                        scaleY: 0.9 + (0.1 * val),
+                                        alignment: Alignment.topCenter,
+                                        child: Opacity(
+                                          opacity: val.clamp(0.0, 1.0),
+                                          child: child,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12.0,
+                                      vertical: 4.0,
+                                    ),
+                                    child: Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 10,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: isSelected
+                                            ? AppColors.primary.withValues(
+                                                alpha: 0.12,
+                                              )
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(
+                                          AppRadius.pill,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        '$code - $name',
+                                        style: TextStyle(
+                                          color: isSelected
+                                              ? AppColors.primary
+                                              : Theme.of(
+                                                  context,
+                                                ).textTheme.bodyLarge?.color,
+                                          fontWeight: isSelected
+                                              ? FontWeight.w800
+                                              : FontWeight.normal,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (v) {
+                              if (v != null) _locationNotifier.value = v;
+                            },
+                          ),
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(height: AppSpacing.space3),
 
-                  // MODERN PREMIUM DROPDOWN: Category
-                  DropdownButtonFormField<String>(
-                    isExpanded: true,
-                    value: _category,
-                    icon: const Icon(
-                      Icons.unfold_more_rounded,
-                      size: 20,
-                      color: AppColors.muted,
-                    ),
-                    dropdownColor: surfaceColor,
-                    borderRadius: BorderRadius.circular(AppRadius.l),
-                    elevation: 6,
-                    decoration: const InputDecoration(
-                      labelText: 'Category',
-                      prefixIcon: Icon(Icons.category_outlined),
-                    ),
-                    items: _categories
-                        .map(
-                          (c) => DropdownMenuItem(
-                            value: c,
-                            child: Text(c, overflow: TextOverflow.ellipsis),
+                  // DROPDOWN 2: Category (FIXED FOR v3.1.0)
+                  ValueListenableBuilder<String>(
+                    valueListenable: _categoryNotifier,
+                    builder: (context, categoryValue, child) {
+                      return InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'Category',
+                          prefixIcon: Icon(Icons.category_outlined),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
                           ),
-                        )
-                        .toList(),
-                    onChanged: (v) =>
-                        setState(() => _category = v ?? 'Supplies'),
+                        ),
+                        isEmpty: categoryValue.isEmpty,
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton2<String>(
+                            isExpanded: true,
+                            // FIX 1: valueListenable
+                            valueListenable: _categoryNotifier,
+                            iconStyleData: const IconStyleData(
+                              icon: Icon(Icons.unfold_more_rounded, size: 20),
+                              iconEnabledColor: AppColors.muted,
+                            ),
+                            buttonStyleData: const ButtonStyleData(
+                              padding: EdgeInsets.zero,
+                              height: 24,
+                            ),
+                            dropdownStyleData: DropdownStyleData(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.l,
+                                ),
+                                color: surfaceColor,
+                              ),
+                              elevation: 6,
+                              offset: const Offset(0, -8),
+                            ),
+                            menuItemStyleData: MenuItemStyleData(
+                              padding: EdgeInsets.zero,
+                              overlayColor: WidgetStateProperty.all(
+                                Colors.transparent,
+                              ),
+                            ),
+                            selectedItemBuilder: (BuildContext context) {
+                              return _categories.map<Widget>((c) {
+                                return Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    c,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                );
+                              }).toList();
+                            },
+                            items: _categories.asMap().entries.map((entry) {
+                              final index = entry.key;
+                              final c = entry.value;
+                              final isSelected = categoryValue == c;
+
+                              // FIX 2: DropdownItem
+                              return DropdownItem<String>(
+                                value: c,
+                                child: TweenAnimationBuilder<double>(
+                                  duration: Duration(
+                                    milliseconds: 200 + (index * 40),
+                                  ),
+                                  curve: Curves.easeOutBack,
+                                  tween: Tween<double>(begin: 0.0, end: 1.0),
+                                  builder: (context, val, child) {
+                                    return Transform.translate(
+                                      offset: Offset(0, 15 * (1 - val)),
+                                      child: Transform.scale(
+                                        scaleY: 0.9 + (0.1 * val),
+                                        alignment: Alignment.topCenter,
+                                        child: Opacity(
+                                          opacity: val.clamp(0.0, 1.0),
+                                          child: child,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12.0,
+                                      vertical: 4.0,
+                                    ),
+                                    child: Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 10,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: isSelected
+                                            ? AppColors.primary.withValues(
+                                                alpha: 0.12,
+                                              )
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(
+                                          AppRadius.pill,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        c,
+                                        style: TextStyle(
+                                          color: isSelected
+                                              ? AppColors.primary
+                                              : Theme.of(
+                                                  context,
+                                                ).textTheme.bodyLarge?.color,
+                                          fontWeight: isSelected
+                                              ? FontWeight.w800
+                                              : FontWeight.normal,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (v) {
+                              if (v != null) _categoryNotifier.value = v;
+                            },
+                          ),
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(height: AppSpacing.space3),
 

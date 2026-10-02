@@ -76,7 +76,6 @@ class PosOfflineStripState extends State<PosOfflineStrip> {
       builder: (context, snap) {
         final count = snap.hasData ? snap.data! : _count;
         if (count <= 0) return const SizedBox.shrink();
-
         return Container(
           margin: const EdgeInsets.fromLTRB(
             AppSpacing.space4,
@@ -91,7 +90,6 @@ class PosOfflineStripState extends State<PosOfflineStrip> {
           decoration: BoxDecoration(
             color: AppColors.warn.withValues(alpha: 0.14),
             borderRadius: BorderRadius.circular(AppRadius.s),
-            // Tinanggal ang Border.all para perfectly soft at malinis
           ),
           child: Row(
             children: [
@@ -116,7 +114,6 @@ class PosOfflineStripState extends State<PosOfflineStrip> {
 }
 
 /// Persistent cart panel at the bottom of POS. Tapping opens the cart sheet.
-/// Empty state is visually muted but keeps layout stable.
 class PosCartBar extends StatelessWidget {
   const PosCartBar({super.key, required this.cart, required this.onTap});
 
@@ -127,35 +124,41 @@ class PosCartBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final isEmpty = cart.isEmpty;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(AppRadius.xl),
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.space4,
+          AppSpacing.space2,
+          AppSpacing.space4,
+          AppSpacing
+              .space4, // Nagdagdag ng konting espasyo sa ilalim para sa floating effect
         ),
-        // Tinanggal ang top BorderSide dahil sapat na ang shadow para sa separation
-        boxShadow: AppShadow.md(),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.space4,
-            AppSpacing.space3,
-            AppSpacing.space4,
-            AppSpacing.space3,
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.pill), // PILL SHAPE
+            boxShadow: [
+              BoxShadow(
+                color: isEmpty
+                    ? Colors.black.withValues(alpha: 0.1)
+                    : AppColors.primary.withValues(alpha: 0.3),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
+              ),
+            ],
           ),
           child: Material(
             color: isEmpty
                 ? AppColors.primary.withValues(alpha: 0.5)
                 : AppColors.primary,
-            borderRadius: BorderRadius.circular(AppRadius.m),
+            borderRadius: BorderRadius.circular(AppRadius.pill), // PILL SHAPE
+            clipBehavior: Clip.antiAlias,
             child: InkWell(
-              borderRadius: BorderRadius.circular(AppRadius.m),
               onTap: isEmpty ? null : onTap,
-              child: Container(
+              child: Padding(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.space5,
+                  horizontal:
+                      AppSpacing.space6, // Mas malapad para magmukhang pill
                   vertical: AppSpacing.space4,
                 ),
                 child: Row(
