@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole, assertOwnLocation } from "../middleware/auth.js";
-import { fmtStock, mapsForOrderLine, oversellShortage } from "../services/inventory_rules.js";
+import { fmtStock, mapsForOrderLine, oversellShortage, planVoidRestores } from "../services/inventory_rules.js";
 import { manilaDayRange } from "../services/timezone.js";
 import { emit } from "./events.js";
 
@@ -336,31 +336,10 @@ router.patch("/orders/:id", requireAuth, requireRole("OWNER"), async (req, res, 
         tx.ingredientMap.findMany(),
         tx.inventoryItem.findMany({ where: { locationId: existing.locationId } }),
       ]);
-      const invByName = new Map(invRows.map((r) => [r.name, r]));
-      const warnings = [];
-      const restores = new Map(); // invId -> { inv, restoreQty }
-      for (const row of existing.items ?? []) {
-        const flavorKey = row.flavor ?? "";
-        const byItem = new Map();
-        for (const m of maps) {
-          if (m.productName !== row.productName) continue;
-          if (m.flavor !== flavorKey && m.flavor !== "") continue;
-          const current = byItem.get(m.itemName);
-          if (!current || (m.flavor === flavorKey && current.flavor !== flavorKey)) {
-            byItem.set(m.itemName, m);
-          }
-        }
-        for (const map of byItem.values()) {
-          const inv = invByName.get(map.itemName);
-          if (!inv) {
-            warnings.push(`no inventory row "${map.itemName}" at void — restore skipped`);
-            continue;
-          }
-          const add = map.amountPerUnit * row.qty;
-          const prev = restores.has(inv.id) ? restores.get(inv.id).newStock : inv.stock;
-          restores.set(inv.id, { inv, newStock: prev + add, added: (restores.get(inv.id)?.added ?? 0) + add });
-        }
-      }
+      // Restore arithmetic + the orphan warning live in one shared helper
+      // (services/inventory_rules.js) so the POS, the Edge Function and the
+      // forecast can never disagree about which recipe a line consumed.
+      const { restores, warnings } = planVoidRestores(existing.items ?? [], maps, invRows);
       const alloc = await tx.allocIds({ stockAdjustments: restores.size });
       const adjIds = alloc.stockAdjustments ?? [];
       let i = 0;

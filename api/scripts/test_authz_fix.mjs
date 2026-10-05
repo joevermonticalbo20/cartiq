@@ -50,18 +50,45 @@ ok("orders qty 101 -> 400", badQty.status === 400, `got ${badQty.status}`);
 const catalog = await req("GET", "/catalog", { token: t2 });
 const prod = catalog.data?.products?.[0];
 if (prod) {
-  const invBefore = await req("GET", "/inventory?code=CART-01", { token: t2 });
+  // Snapshot stock for this product's recipe ingredients BEFORE the sale, then
+  // assert the VOID puts it back. This used to be captured and thrown away
+  // (`void invBefore`), which is exactly why a VOID that silently restored
+  // nothing still reported success.
+  const stockMap = async () => {
+    const inv = await req("GET", "/inventory?code=CART-01", { token: t2 });
+    // GET /inventory returns { locations: [{ id, code, name, items: [...] }] }
+    const rows = (inv.data?.locations ?? []).flatMap((loc) => loc.items ?? []);
+    return new Map(rows.map((r) => [r.name, Number(r.stock)]));
+  };
+  const before = await stockMap();
   const create = await req("POST", "/orders", { token: t2, body: { clientRef: `void-test-${Date.now()}`, locationCode: "CART-01", items: [{ productName: prod.name, flavor: prod.flavors?.[0]?.name ?? null, qty: 1, unitPrice: prod.basePrice ?? 10 }] } });
   ok("create order for void", create.status === 201, `got ${create.status}`);
   if (create.status === 201) {
     const oid = create.data?.order?.id;
+    const during = await stockMap();
+    const deducted = [...before].filter(([name, was]) => during.has(name) && during.get(name) < was);
+    ok("sale deducted recipe stock", deducted.length > 0, `${deducted.length} ingredient(s) moved`);
+
     const voided = await req("PATCH", `/orders/${oid}`, { token: t2, body: { status: "VOID", reason: "test" } });
     ok("void restores", voided.status === 200 && Array.isArray(voided.data?.restored) && Array.isArray(voided.data?.warnings), `got ${voided.status}`);
+    // Every ingredient the sale touched must be back where it started.
+    const after = await stockMap();
+    const notRestored = [...before].filter(([name, was]) =>
+      deducted.some(([dName]) => dName === name) && Math.abs(after.get(name) - was) > 0.001);
+    ok("void returns every deducted ingredient to its original stock",
+      notRestored.length === 0,
+      notRestored.length ? notRestored.map(([n, v]) => `${n}: ${v} vs ${after.get(n)}`).join("; ")
+        : `no warnings expected, got ${JSON.stringify(voided.data?.warnings ?? [])}`);
+    // An unrestorable line must be reported, never returned as a clean success.
+    const orphanWarnings = (voided.data?.warnings ?? []).filter((w) => /no recipe matched|generic recipe/.test(String(w)));
+    ok("void reports any unrestorable line instead of failing silently",
+      voided.status !== 200 || orphanWarnings.length === 0,
+      `warnings=${JSON.stringify(orphanWarnings)}`);
+
     const again = await req("PATCH", `/orders/${oid}`, { token: t2, body: { status: "VOID" } });
     // Sequential re-void: outside fast-path 400 (parallel races get 409).
     ok("double void -> 400", again.status === 400, `got ${again.status}`);
   }
-  void invBefore;
 } else {
   console.log("SKIP void test: no products in catalog");
 }

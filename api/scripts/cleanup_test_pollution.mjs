@@ -17,6 +17,7 @@
 //    NOT be auto-restored (prior values unknown) — reported for recount.
 import "dotenv/config";
 import { db } from "../src/firestore.js";
+import { planVoidRestores } from "../src/services/inventory_rules.js";
 
 const COMMIT = process.argv.includes("--commit");
 const USE_PROD = process.argv.includes("--prod");
@@ -76,24 +77,12 @@ async function main() {
     log(`order #${o.id} ${o.status} clientRef=${o.clientRef} total=${o.total}${needsRestock ? " +RESTOCK" : " (already restored)"}`, "");
     if (COMMIT && needsRestock) {
       const invRows = await db.inventoryItems.findMany({ where: { locationId: o.locationId } });
-      const invByName = new Map(invRows.map((r) => [r.name, r]));
-      const adds = new Map();
-      for (const row of o.items ?? []) {
-        const flavorKey = row.flavor ?? "";
-        const byItem = new Map();
-        for (const m of maps) {
-          if (m.productName !== row.productName) continue;
-          if (m.flavor !== flavorKey && m.flavor !== "") continue;
-          const cur = byItem.get(m.itemName);
-          if (!cur || (m.flavor === flavorKey && cur.flavor !== flavorKey)) byItem.set(m.itemName, m);
-        }
-        for (const map of byItem.values()) {
-          const inv = invByName.get(map.itemName);
-          if (!inv) continue;
-          const prev = adds.has(inv.id) ? adds.get(inv.id).newStock : inv.stock;
-          adds.set(inv.id, { inv, newStock: prev + map.amountPerUnit * row.qty });
-        }
-      }
+      // Same shared restore planner as the POS void path, so a restock here
+      // can never disagree with a real VOID. Its warnings are logged: an
+      // unmatched recipe means this order canNOT be restocked, and staying
+      // silent about that is how stock quietly drifted before.
+      const { restores: adds, warnings } = planVoidRestores(o.items ?? [], maps, invRows);
+      for (const w of warnings) log(`  order #${o.id} WARNING: ${w}`, "");
       const alloc = adds.size ? await db.stockAdjustments.nextIds(adds.size) : [];
       const [adjIds] = [alloc];
       let i = 0;

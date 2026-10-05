@@ -609,6 +609,63 @@ function mapsForOrderLine(maps, productName, flavorKey) {
   return [...byItem.values()];
 }
 
+/**
+ * Mirror of planVoidRestores in api/src/services/inventory_rules.js - keep the
+ * two bodies identical. Pure so the arithmetic is testable without a database.
+ *
+ * The orphan case: the product rename endpoint deliberately rewrites
+ * ingredientMaps to the new name while past orders keep the old one
+ * ("historical truth"). Matching is exact-string, so an order sold before a
+ * rename (or a flavor rename) matches NO map and used to return
+ * { restored: [], warnings: [] } - a clean 200 that silently lost stock. A
+ * line with zero matched maps is now always reported.
+ */
+function planVoidRestores(orderItems, maps, invRows) {
+  const invByName = new Map(invRows.map((r) => [r.name, r]));
+  const warnings = [];
+  const restores = new Map();
+  for (const row of orderItems ?? []) {
+    const flavorKey = row.flavor ?? "";
+    const label = [row.productName, row.flavor].filter(Boolean).join(" / ");
+    const matched = mapsForOrderLine(maps, row.productName, flavorKey);
+    if (matched.length === 0) {
+      warnings.push(
+        `no recipe matched "${label}" at void — stock NOT restored ` +
+        `(product or flavor was renamed after this sale)`,
+      );
+      continue;
+    }
+    // Flavour-drift guard (mirror of the Express version): a FLAVOURED line
+    // resolving only to generic ("") recipes, on a product that does carry
+    // flavour-specific recipes, means that flavour's override was renamed
+    // after the sale - the deduction used the flavour amount but the restore
+    // would use the generic one. Genuinely flavourless products have no
+    // flavour-specific maps, so this stays quiet for them.
+    if (
+      flavorKey &&
+      matched.every((m) => m.flavor === "") &&
+      maps.some((m) => m.productName === row.productName && m.flavor !== "")
+    ) {
+      warnings.push(
+        `only the generic recipe matched "${label}" at void — stock restored at ` +
+        `the generic amount, not the flavour amount ` +
+        `(that flavour's recipe was likely renamed after this sale)`,
+      );
+    }
+    for (const map of matched) {
+      const inv = invByName.get(map.itemName);
+      if (!inv) {
+        warnings.push(`no inventory row "${map.itemName}" at void — restore skipped`);
+        continue;
+      }
+      const add = map.amountPerUnit * row.qty;
+      const prev = restores.has(inv.id) ? restores.get(inv.id).newStock : inv.stock;
+      restores.set(inv.id, { inv, newStock: prev + add, added: (restores.get(inv.id)?.added ?? 0) + add, });
+    }
+  }
+  return { restores, warnings };
+}
+
 function manilaDayRange(dateStr) {
   const start = new Date(String(dateStr) + "T00:00:00+08:00");
   if (!Number.isFinite(start.getTime())) return null;
@@ -1131,31 +1188,7 @@ async function handlePatchOrder(req, origin, orderId, user) {
       fsQueryEqual("inventoryItems", "locationId", fresh.locationId, 10000),
       fsGet("_counters", "stockAdjustments"),
     ]);
-    const invByName = new Map(invRows.map((r) => [r.name, r]));
-    const warnings = [];
-    const restores = new Map();
-    for (const row of fresh.items || []) {
-      const flavorKey = row.flavor ?? "";
-      const byItem = new Map();
-      for (const m of maps) {
-        if (m.productName !== row.productName) continue;
-        if (m.flavor !== flavorKey && m.flavor !== "") continue;
-        const current = byItem.get(m.itemName);
-        if (!current || (m.flavor === flavorKey && current.flavor !== flavorKey)) {
-          byItem.set(m.itemName, m);
-        }
-      }
-      for (const map of byItem.values()) {
-        const inv = invByName.get(map.itemName);
-        if (!inv) {
-          warnings.push(`no inventory row "${map.itemName}" at void — restore skipped`);
-          continue;
-        }
-        const add = map.amountPerUnit * row.qty;
-        const prev = restores.has(inv.id) ? restores.get(inv.id).newStock : inv.stock;
-        restores.set(inv.id, { inv, newStock: prev + add, added: (restores.get(inv.id)?.added ?? 0) + add });
-      }
-    }
+    const { restores, warnings } = planVoidRestores(fresh.items || [], maps, invRows);
     const adjNext = adjCounter && adjCounter.next !== undefined ? Number(adjCounter.next) || 1 : 1;
     const now = new Date();
     const writes = [];
