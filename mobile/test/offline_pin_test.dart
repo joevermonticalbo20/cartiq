@@ -27,6 +27,22 @@ class FakeApi extends ApiClient {
   Object? meOutcome;
   Object? refreshOutcome;
 
+  /// Username the fake will "log in" as; defaults to whatever is passed in.
+  Map<String, dynamic>? loginUser;
+
+  @override
+  Future<Map<String, dynamic>> login(String username, String password) async {
+    return {
+      'token': 'tok',
+      'refreshToken': 'ref',
+      'user': loginUser ??
+          {'username': username, 'role': 'STAFF', 'name': username},
+    };
+  }
+
+  @override
+  Future<void> logout(String? refreshToken) async {}
+
   @override
   Future<Map<String, dynamic>> me(String token) async {
     final o = meOutcome;
@@ -227,7 +243,7 @@ void main() {
       );
     });
 
-    test('signOut wipes tokens, profile, PIN, catalog', () async {
+    test('signOut wipes session state but KEEPS the device PIN', () async {
       final store = FakeStore();
       store.values.addAll({
         'cartiq_token': 't',
@@ -235,15 +251,40 @@ void main() {
         'cartiq_profile': '{}',
         'cartiq_last_online': DateTime.now().toIso8601String(),
         'cartiq_catalog_json': '{}',
+        'cartiq_pin_prompted': '1',
       });
       final auth = AuthState(apiClient: FakeApi(store: store), secureStorage: store);
       await auth.pin.setupPin(username: 'u', pin: '123456');
       await auth.signOut();
 
       expect(auth.isLoggedIn, isFalse);
-      expect(
-        store.values.keys.where((k) => k.startsWith('cartiq_')),
-        isEmpty,
+      // Session-scoped keys are gone...
+      for (final k in [
+        'cartiq_token',
+        'cartiq_refresh_token',
+        'cartiq_profile',
+        'cartiq_last_online',
+        'cartiq_catalog_json',
+      ]) {
+        expect(store.values.containsKey(k), isFalse, reason: '$k should be wiped');
+      }
+      // ...but the PIN and the already-prompted flag are device state. Wiping
+      // them on sign-out is what made staff invent a new PIN every login.
+      expect(await auth.pin.hasPin, isTrue);
+      expect(store.values['cartiq_pin_prompted'], '1');
+    });
+
+    test('a leftover PIN cannot unlock once the session is gone', () async {
+      // The PIN is inert without a cached token+profile, so keeping it across
+      // sign-out carries no authority.
+      final store = FakeStore();
+      final auth = AuthState(apiClient: FakeApi(store: store), secureStorage: store);
+      await auth.pin.setupPin(username: 'u', pin: '123456');
+      await auth.signOut();
+
+      await expectLater(
+        auth.unlockOffline('123456'),
+        throwsA(isA<PinException>()),
       );
     });
 
@@ -257,6 +298,72 @@ void main() {
       expect(await auth.needsPinSetupPrompt(), isTrue);
       await auth.markPinPromptShown();
       expect(await auth.needsPinSetupPrompt(), isFalse);
+    });
+
+    // The bug reported from the field: "every login asks for a new PIN".
+    // signIn used to delete cartiq_pin_prompted whenever pinnedUser
+    // (!= currentUser), which is true whenever NO pin exists - i.e. after the
+    // staff member skipped setup. So each login re-armed the prompt forever.
+    test('REGRESSION: skipping PIN setup does not re-prompt on next login', () async {
+      final store = FakeStore();
+      final api = FakeApi(store: store);
+      final auth = AuthState(apiClient: api, secureStorage: store);
+
+      await auth.signIn('staff01', 'pw');
+      expect(await auth.needsPinSetupPrompt(), isTrue, reason: 'first login asks');
+      await auth.markPinPromptShown(); // staff taps "not now"
+
+      await auth.signOut();
+      await auth.signIn('staff01', 'pw');
+      expect(
+        await auth.needsPinSetupPrompt(),
+        isFalse,
+        reason: 'same staff, same device, already asked once - must not nag again',
+      );
+    });
+
+    test('a DIFFERENT user taking over the device does get re-prompted', () async {
+      final store = FakeStore();
+      final api = FakeApi(store: store);
+      final auth = AuthState(apiClient: api, secureStorage: store);
+
+      await auth.signIn('staff01', 'pw');
+      await auth.pin.setupPin(username: 'staff01', pin: '111111');
+      await auth.markPinPromptShown();
+      expect(await auth.needsPinSetupPrompt(), isFalse);
+
+      await auth.signOut();
+      await auth.signIn('staff02', 'pw'); // genuine takeover
+
+      expect(
+        await auth.pin.hasPin,
+        isFalse,
+        reason: "the previous user's PIN must not survive a takeover",
+      );
+      expect(
+        await auth.needsPinSetupPrompt(),
+        isTrue,
+        reason: 'the new user needs their own PIN',
+      );
+    });
+
+    test('signing back in as the same user keeps the PIN', () async {
+      final store = FakeStore();
+      final api = FakeApi(store: store);
+      final auth = AuthState(apiClient: api, secureStorage: store);
+
+      await auth.signIn('staff01', 'pw');
+      await auth.pin.setupPin(username: 'staff01', pin: '222222');
+      await auth.signOut();
+      await auth.signIn('staff01', 'pw');
+
+      expect(await auth.pin.hasPin, isTrue);
+      expect(await auth.needsPinSetupPrompt(), isFalse);
+      // And the PIN still verifies - it was not silently re-hashed or lost.
+      await expectLater(
+        auth.pin.verifyPin(username: 'staff01', pin: '222222'),
+        completes,
+      );
     });
 
     test('needsPinSetupPrompt: false for owner, offline, or PIN set', () async {

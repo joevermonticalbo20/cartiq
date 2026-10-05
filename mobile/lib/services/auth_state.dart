@@ -218,11 +218,14 @@ class AuthState extends ChangeNotifier {
     // A different user takes over this device: their PIN setup starts over.
     final pinnedUser = await pin.pinUsername;
     final currentUser = user?['username'] as String?;
-    if (pinnedUser != null && pinnedUser != currentUser) {
+    // Only a GENUINE user switch re-arms the one-time prompt. This used to be
+    // `pinnedUser != currentUser`, which is also true when pinnedUser is null -
+    // i.e. every login by someone who skipped or has no PIN. That deleted the
+    // "already asked" flag on every single login, so the app asked for a new
+    // PIN forever. No PIN at all is first-run, which the flag already covers.
+    final tookOverDevice = pinnedUser != null && pinnedUser != currentUser;
+    if (tookOverDevice) {
       await pin.clear();
-    }
-    if (pinnedUser != currentUser) {
-      // New (or first) user on this device: offer PIN setup once.
       try {
         await storage.delete(key: 'cartiq_pin_prompted');
       } catch (_) {}
@@ -245,15 +248,25 @@ class AuthState extends ChangeNotifier {
       'cartiq_refresh_token',
       'cartiq_profile',
       'cartiq_last_online',
-      'cartiq_pin_prompted',
       'cartiq_catalog_json',
       'cartiq_catalog_ts',
     ]) {
+      // NOTE: cartiq_pin_prompted is deliberately NOT here. It records that
+      // this device already offered PIN setup - device state, not session
+      // state. Deleting it on sign-out re-armed the prompt on the next login,
+      // which is the nag reported from the field. A genuine user switch still
+      // resets it, in signIn().
       try {
         await storage.delete(key: k);
       } catch (_) {}
     }
-    await pin.clear();
+    // PIN state is deliberately KEPT. It is bound to the device and the
+    // account, not to the session: wiping it here meant a staff member who
+    // signed out and back in had to invent a new PIN every time. A genuine
+    // takeover by a different user is handled in signIn(), which compares
+    // pinUsername against the new account and clears it there. A leftover PIN
+    // is inert anyway - unlockOffline requires a cached token + profile, and
+    // signOut just removed both.
     notifyListeners();
   }
 

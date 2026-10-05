@@ -64,5 +64,20 @@ Future<bool> showPinSetupFlow(BuildContext context, AuthState auth) async {
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(e.message)));
     return false;
+  } catch (e) {
+    // setupPin writes through flutter_secure_storage, which can fail on its own
+    // terms (Android Keystore invalidated by a device restore or a changed
+    // signing key). Catching only PinException let that PlatformException
+    // escape uncaught: no PIN stored, no message shown, and the next login
+    // asked again - the exact loop reported from the field.
+    if (!context.mounted) return false;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Could not save the PIN on this device. Try again.'),
+        ),
+      );
+    return false;
   }
 }
