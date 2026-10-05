@@ -212,11 +212,32 @@ IPv4 address (e.g. `192.168.100.217`). The API must be running with
   to their assigned cart (`POST /orders`, `/inventory/adjustments`,
   `/expenses` → 403 outside it; OWNERs bypass). Usernames trim on login;
   passwords capped at 72 bytes (bcrypt limit); self-deactivation blocked.
-  Refresh rejects disabled accounts. Extra guards: `/auth/refresh` 60/15min,
+  Refresh rejects disabled accounts.
+
+  **Rate limiting — two different stories (read this before trusting it):**
+
+  *Production* is the Supabase Edge Function, which currently enforces only:
+
+  | Guard | Limit |
+  |---|---|
+  | `/auth/login` | 20 / 15 min **per username** + 60 / 15 min per IP |
+  | `/auth/forgot-password` | 5 / hr per IP+email |
+  | `/auth/reset-password`, `/auth/verify-reset-code` | 20 / hr per IP |
+
+  The login guard keys on username *as well as* IP on purpose: staff sharing
+  one campus NAT egress IP each keep their own budget, and an attacker
+  rotating source IPs still cannot exceed 20 guesses at any one account.
+
+  The `api/` Express app additionally mounts `/auth/refresh` 60/15min,
   `/orders` 120/min, `/iot`+`/shifts` 300/min, `/events/ticket` 60/min,
   `/export` 30/hr, `/analytics`+`/reorders` 120/min, `/expenses` 60/min,
-  `/auth/change-password` 10/hr, `/import` and `/locations` 20/hour
-  (all in-memory, single-instance). Trust proxy is env-driven
+  `/auth/change-password` 10/hr, `/import` and `/locations` 20/hr — **these
+  are NOT enforced in production yet.** Only the login and OTP guards above
+  have been ported. Treat the remainder as a to-do, not a guarantee.
+
+  All limiters are in-memory and per-process/isolate, so counters reset on
+  restart and multiply across instances — do not scale past one instance
+  without a shared store. Trust proxy is env-driven in Express
   (`TRUST_PROXY`, auto-on when `NODE_ENV=production`) so per-IP buckets stay
   fair behind Render's proxy.
 - **Manual shift tools (OWNER):** `POST /shifts/manual` (missed-tap correction),

@@ -10,7 +10,7 @@ boundaries are Asia/Manila. Alert dedupe is by structured `dedupeKey`
 
 | Endpoint | Method | Body / Params | Response |
 |---|---|---|---|
-| `/auth/login` | POST | `{username, password}` (20/15min/IP) | `{token(15min), refreshToken(30d), user}` |
+| `/auth/login` | POST | `{username, password}` — **Express: 20/15min per IP. Production Edge Function: 20/15min per username + 60/15min per IP** (the username tier is IP-independent, so rotating source IPs cannot buy extra guesses; the per-IP tier still catches username spraying, and shared campus NATs don't lock the whole team out) | `{token(15min), refreshToken(30d), user}`, or `429 {error}` when limited |
 | `/auth/refresh` | POST | `{refreshToken}` (60/15min/IP, rotation, rejects disabled accounts) | `{token, refreshToken, user}` |
 | `/auth/logout` | POST | `{refreshToken?}` idempotent | `{loggedOut:true}` |
 | `/auth/forgot-password` | POST | `{email}` — Gmail OTP (6-digit, 10-min, single-use). Generic success whether or not the address is registered (5/hr per IP+email; silent 60s resend cooldown) | `{success:true, message}` |

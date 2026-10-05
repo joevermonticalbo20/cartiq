@@ -693,6 +693,17 @@ async function handleLogin(req, origin) {
     return jsonRes(origin, { error: "username and password are required" }, 400);
   }
   const cleanUsername = String(username).trim();
+  // Abuse guard BEFORE the Firestore read and bcrypt compare, so a
+  // rate-limited attempt costs one map lookup instead of a DB read plus a
+  // hash comparison - otherwise the endpoint doubles as a quota burner
+  // against the Spark read quota.
+  if (!loginRateAllowed(req, cleanUsername)) {
+    return jsonRes(
+      origin,
+      { error: "Too many login attempts - please try again in 15 minutes" },
+      429,
+    );
+  }
   const found = await fsQueryEqual("users", "username", cleanUsername, 1);
   const user = found[0] || null;
   if (!user || user.active === false) {
@@ -4514,6 +4525,24 @@ function edgeRateAllowed(key, max, windowMs) {
 function clientIp(req) {
   const fwd = req.headers.get("x-forwarded-for") || "";
   return fwd.split(",")[0].trim();
+}
+
+// ---------- login abuse guard ----------
+// Mirrors the Express loginLimiter (api/src/routes/auth.js:25) with one
+// deliberate change: two tiers instead of a single per-IP bucket.
+//   per-username  20 / 15 min -> stops distributed guessing of ONE account
+//   per-IP        60 / 15 min -> stops one host spraying MANY usernames
+// Keying on username also means staff sharing one campus NAT egress IP each
+// keep their own budget, instead of one typo-prone login locking out the
+// whole team - which a plain per-IP copy of Express would have caused.
+// Mirrors the key shape already used by the forgot-password limiter.
+function loginRateAllowed(req, username) {
+  const ip = clientIp(req);
+  const user = String(username).trim().toLowerCase();
+  return (
+    edgeRateAllowed(`login:u:${user}`, 20, 15 * 60 * 1000) &&
+    edgeRateAllowed(`login:ip:${ip}`, 60, 15 * 60 * 1000)
+  );
 }
 
 // ---------- Gmail API sender (mirror api/src/services/gmail.js) ----------
