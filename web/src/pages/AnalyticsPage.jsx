@@ -136,8 +136,17 @@ export default function AnalyticsPage() {
         const prevSales = Math.max(0, extSales - curSales);
 
         setTrends(cur.data);
+        // Only TOTALS can be derived for the previous window, by subtracting
+        // the extended-window totals. `top_items` deliberately is NOT derived:
+        // you cannot subtract a list, and /analytics/trends only accepts
+        // `days=` (no from/to), so the previous window's best-sellers are not
+        // available here. Spreading `cur.data` used to supply it, which made
+        // prevTrends.top_items the SAME array as trends.top_items - so the
+        // Top Item trend compared each item against itself and rendered a
+        // permanent, fabricated 0.0%. Leaving it absent makes the KPI show
+        // "no prior data", which is true. A real trend needs from/to on the
+        // trends endpoint.
         setPrevTrends({
-          ...cur.data,
           total_sales: prevSales,
           orders: Math.max(0, (ext.data.orders ?? 0) - (cur.data.orders ?? 0)),
         });
@@ -199,7 +208,9 @@ export default function AnalyticsPage() {
     for (const item of items) {
       const cat = item.name?.split(" ")[0] ?? "Other";
       if (!byCategory[cat]) byCategory[cat] = 0;
-      byCategory[cat] += item.sales;
+      // Number() because += on a numeric string would concatenate
+      // ("100" + "50" = "10050") and quietly corrupt the donut.
+      byCategory[cat] += Number(item.sales) || 0;
     }
     const total = Object.values(byCategory).reduce((s, v) => s + v, 0);
     return Object.entries(byCategory)

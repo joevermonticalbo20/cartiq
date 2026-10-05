@@ -108,6 +108,12 @@ export function readRefreshToken() {
 }
 
 export function clearSession() {
+  // The GET cache is session-scoped data. Clearing it here (rather than at
+  // each logout call site) means every exit path is covered - the explicit
+  // Settings/sidebar logouts AND the automatic 401/403 logout in the response
+  // interceptor below. Without this, on a shared cart device the next user
+  // could be served the previous user's cached /catalog for up to its TTL.
+  clearApiCache();
   for (const key of [TOKEN_KEY, REFRESH_KEY]) {
     try {
       localStorage.removeItem(key);

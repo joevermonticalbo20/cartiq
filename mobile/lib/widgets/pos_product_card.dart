@@ -92,7 +92,7 @@ class PosProductCard extends StatelessWidget {
                   children: [
                     Flexible(
                       child: Text(
-                        'P$price',
+                        '₱$price',
                         style: Theme.of(context).textTheme.headlineSmall
                             ?.copyWith(
                               color: AppColors.primary,

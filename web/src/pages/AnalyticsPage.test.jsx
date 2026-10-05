@@ -183,3 +183,50 @@ describe("AnalyticsPage forecast honesty guards", () => {
     expect(screen.getByText("↑")).toBeInTheDocument();
   });
 });
+
+// Regression: prevTrends was built by spreading cur.data, so prevTrends.top_items
+// WAS trends.top_items. The Top Item KPI then compared each item against itself
+// and rendered a permanent, fabricated "0.0% vs prior period". The previous
+// window's best-sellers cannot be derived (a list cannot be subtracted, and
+// /analytics/trends takes only `days=`), so the honest state is no trend at all.
+describe("AnalyticsPage Top Item trend honesty", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockApiAllOk();
+  });
+
+  function topItemCard(container) {
+    const cards = [...container.querySelectorAll(".kpi-card")];
+    return cards.find(
+      (c) => c.querySelector(".kpi-card-label")?.textContent === "Top Item",
+    );
+  }
+
+  it("renders no trend for Top Item instead of a fabricated 0.0%", async () => {
+    const { container } = renderPage();
+    await screen.findByText("Quick Summary");
+
+    const card = topItemCard(container);
+    expect(card).toBeTruthy();
+    expect(card.querySelector(".kpi-card-trend")).toBeNull();
+    expect(card.textContent).not.toMatch(/0\.0%/);
+  });
+
+  it("still shows the current best-seller and its quantity", async () => {
+    const { container } = renderPage();
+    await screen.findByText("Quick Summary");
+
+    const card = topItemCard(container);
+    expect(card.querySelector(".kpi-card-value").textContent).toBe("Cheese Fries");
+    expect(card.querySelector(".kpi-card-sub").textContent).toBe("60 sold");
+  });
+
+  it("keeps the three genuinely derivable trends", async () => {
+    const { container } = renderPage();
+    await screen.findByText("Quick Summary");
+
+    // Total Revenue, Total Orders and Average Spend are totals, so the
+    // extended-minus-current subtraction is valid for those.
+    expect(container.querySelectorAll(".kpi-card-trend")).toHaveLength(3);
+  });
+});

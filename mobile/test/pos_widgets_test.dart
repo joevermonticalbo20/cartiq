@@ -27,7 +27,7 @@ void main() {
         onTap: () {},
       )));
       expect(find.text('Cheese Fries'), findsOneWidget);
-      expect(find.text('P59'), findsOneWidget);
+      expect(find.text('₱59'), findsOneWidget);
       expect(find.text('2 flavors'), findsOneWidget);
     });
 
