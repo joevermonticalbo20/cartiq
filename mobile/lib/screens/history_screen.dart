@@ -6,10 +6,12 @@ import 'package:provider/provider.dart';
 
 import '../services/auth_state.dart';
 import '../services/api_client.dart';
+import '../services/data_refresh.dart';
 import '../theme.dart';
 import '../utils/app_messenger.dart';
 import '../utils/haptics.dart';
 import '../utils/manila_time.dart';
+import '../widgets/app_badge.dart';
 import '../widgets/app_skeleton.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/section_header.dart';
@@ -35,6 +37,30 @@ class _HistoryScreenState extends State<HistoryScreen> {
   String? _error;
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Subscribe once the provider is reachable. All five tabs live in an
+    // IndexedStack, so this screen stays mounted while a sale happens on the
+    // POS - without this it kept showing yesterday until a pull-to-refresh.
+    final bus = context.read<DataRefresh?>();
+    if (bus != null && !identical(bus, _bus)) {
+      _bus?.removeListener(_onDataChanged);
+      _bus = bus..addListener(_onDataChanged);
+    }
+  }
+
+  DataRefresh? _bus;
+
+  /// Monotonic request stamp. A slow response from before a refresh must not
+  /// overwrite fresher rows, so late answers are dropped.
+  int _requestSeq = 0;
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _loadMore(reset: true);
+  }
+
+  @override
   void initState() {
     super.initState();
     _loadMore();
@@ -42,6 +68,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   void dispose() {
+    _bus?.removeListener(_onDataChanged);
+    _bus = null;
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -79,6 +107,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   Future<void> _loadMore({bool reset = false}) async {
     if (_loading || (_done && !reset)) return;
+    final seq = ++_requestSeq;
     setState(() {
       _loading = true;
       _error = null;
@@ -98,6 +127,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
       );
       final batch = (data['data'] as List).cast<Map<String, dynamic>>();
       if (!mounted) return;
+      // A newer refresh started while this was in flight; its answer wins.
+      if (seq != _requestSeq) return;
       setState(() {
         if (reset) _rows.clear();
         _rows.addAll(batch);
@@ -105,26 +136,40 @@ class _HistoryScreenState extends State<HistoryScreen> {
         _done = batch.length < 10;
       });
     } on ApiException catch (e) {
+      if (seq != _requestSeq) return;
       _fail(e.message);
     } on FormatException {
+      if (seq != _requestSeq) return;
       _fail('Server returned an unexpected response.');
     } catch (e) {
+      if (seq != _requestSeq) return;
       _fail('Unexpected error: $e');
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && seq == _requestSeq) setState(() => _loading = false);
     }
   }
 
   Future<void> _promptVoidOrder(Map<String, dynamic> order) async {
-    final orderId = order['id'] ?? order['clientRef'];
-    if (orderId == null) return;
+    // The route needs the NUMERIC id. `clientRef` is a string and is not
+    // accepted here; the old `?? order['clientRef']` fallback was harmless
+    // only because this value was never actually used.
+    final rawId = order['id'];
+    if (rawId is! num) {
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Cannot void: order has no numeric id.',
+        isSuccess: false,
+      );
+      return;
+    }
+    final orderId = rawId.toInt();
     final reasons = [
       'Wrong item punched',
       'Customer cancelled',
       'Duplicate order',
       'Others',
     ];
-    final confirmed = await showModalBottomSheet<bool>(
+    final reason = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -133,21 +178,109 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ),
       builder: (modalContext) => _VoidReasonSheet(reasons: reasons),
     );
-    if (confirmed != true) return;
+    if (reason == null) return;
     if (!mounted) return;
 
-    // INAYOS: Gumamit ng bagong bouncing Glass Toast
+    final auth = context.read<AuthState>();
+    final token = auth.token;
+    if (token == null) {
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Session expired. Please log in again.',
+        isSuccess: false,
+      );
+      return;
+    }
+
+    Map<String, dynamic> res;
+    try {
+      res = await auth.api.voidOrder(token, orderId, reason: reason);
+    } on ApiException catch (e) {
+      // This previously showed "Order voided successfully" without ever
+      // calling the API — a fake success on an action that mutated nothing.
+      if (!mounted) return;
+      AppMessenger.showGlassToast(
+        context: context,
+        message: e.message,
+        isSuccess: false,
+      );
+      return;
+    } catch (e) {
+      if (!mounted) return;
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Could not reach the server. Order not voided.',
+        isSuccess: false,
+      );
+      return;
+    }
+    if (!mounted) return;
+
+    // The server tells us what it could and could not put back. If a recipe
+    // no longer matches (product/flavour renamed after the sale) nothing is
+    // restored, so say so instead of claiming a clean void.
+    final restored = (res['restored'] as List?) ?? [];
+    final warnings =
+        (res['warnings'] as List?)?.map((w) => '$w').where((w) => w.isNotEmpty).toList() ??
+            const <String>[];
+    final unrestored = warnings
+        .where((w) => w.contains('no recipe matched') || w.contains('generic recipe'))
+        .toList();
+
+    final msg = unrestored.isNotEmpty
+        ? 'Voided · ${restored.length} restored · ${unrestored.length} NOT restored'
+        : (restored.isEmpty
+            ? 'Voided · no stock needed restoring'
+            : 'Voided · ${restored.length} ingredient${restored.length == 1 ? '' : 's'} restored');
+
     AppMessenger.showGlassToast(
       context: context,
-      message: 'Order voided successfully. Inventory reverted.',
-      isSuccess: true,
+      message: msg,
+      isSuccess: unrestored.isEmpty,
     );
-    _loadMore(reset: true);
+    if (unrestored.isNotEmpty && mounted) {
+      // Surface the detail where it cannot be missed — the operator needs to
+      // recount, and silently lost stock is the bug this whole path exists to
+      // prevent.
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          icon: const Icon(Icons.warning_amber_rounded, color: AppColors.danger),
+          title: const Text('Stock not fully restored'),
+          content: SingleChildScrollView(
+            child: Text(
+              '${unrestored.join('\n\n')}\n\n'
+              'The sale is voided, but this stock was NOT put back. '
+              'Please recount it.',
+              style: const TextStyle(height: 1.4),
+            ),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Understood'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Reflect the new state locally first so the row turns red immediately,
+    // then reconcile against the server.
+    setState(() {
+      order['status'] = 'VOID';
+      order['voidReason'] = reason;
+    });
+    // Home totals and the day header elsewhere need to know the money moved.
+    // Bumped before the await below, and guarded, rather than reading context
+    // after an async gap.
+    if (mounted) _bus?.bump('void');
+    await _loadMore(reset: true);
   }
 
   Future<void> _editPaymentMethod(Map<String, dynamic> order) async {
     final currentMethod = order['paymentMethod'] ?? 'CASH';
-    final updated = await showModalBottomSheet<bool>(
+    final method = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -157,16 +290,54 @@ class _HistoryScreenState extends State<HistoryScreen> {
       builder: (modalContext) =>
           _EditPaymentSheet(initialMethod: currentMethod),
     );
-    if (updated != true) return;
+    if (method == null) return;
     if (!mounted) return;
 
-    // INAYOS: Gumamit ng bagong bouncing Glass Toast
+    // Same fake-success defect as the void path: this showed "Payment method
+    // updated successfully" without ever issuing a request.
+    final rawId = order['id'];
+    final auth = context.read<AuthState>();
+    final token = auth.token;
+    if (rawId is! num || token == null) {
+      AppMessenger.showGlassToast(
+        context: context,
+        message: token == null
+            ? 'Session expired. Please log in again.'
+            : 'Cannot update: order has no numeric id.',
+        isSuccess: false,
+      );
+      return;
+    }
+    final chosen = method;
+    try {
+      await auth.api.updateOrderPayment(token, rawId.toInt(), chosen);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      AppMessenger.showGlassToast(
+        context: context,
+        message: e.message,
+        isSuccess: false,
+      );
+      return;
+    } catch (e) {
+      if (!mounted) return;
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Could not reach the server. Not saved.',
+        isSuccess: false,
+      );
+      return;
+    }
+    if (!mounted) return;
+
     AppMessenger.showGlassToast(
       context: context,
-      message: 'Payment method updated successfully.',
+      message: 'Payment method updated to $chosen.',
       isSuccess: true,
     );
-    _loadMore(reset: true);
+    setState(() => order['paymentMethod'] = chosen);
+    if (mounted) _bus?.bump('payment');
+    await _loadMore(reset: true);
   }
 
   // BAGONG FUNCTION PARA I-VIEW ANG GCASH RECEIPT MULA SA NETWORK
@@ -251,6 +422,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final clientRef = order['clientRef'] ?? order['id'] ?? 'N/A';
     final dt = ManilaTime.parse(order['createdAt']);
     final dateStr = dt == null ? 'Unknown' : ManilaTime.formatTime(dt);
+    // Both actions below are rejected by the API on a voided order, so they
+    // are hidden rather than left to fail. A reversed sale is read-only.
+    final isVoided = (order['status'] ?? 'PAID').toString() == 'VOID';
+    final voidReason = order['voidReason'];
 
     await showModalBottomSheet<void>(
       context: context,
@@ -288,7 +463,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   'Order details',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
-                GestureDetector(
+                if (isVoided)
+                  const AppBadge(
+                    label: 'VOIDED',
+                    variant: AppBadgeVariant.danger,
+                    icon: Icons.block_rounded,
+                  )
+                else
+                  GestureDetector(
                   onTap: () {
                     Navigator.pop(sheetContext);
                     _editPaymentMethod(order);
@@ -386,12 +568,47 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 Text(
                   '₱${total.toStringAsFixed(0)}',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: AppColors.primary,
+                    color: isVoided ? AppColors.danger : AppColors.primary,
                     fontWeight: FontWeight.w900,
+                    decoration: isVoided ? TextDecoration.lineThrough : null,
+                    decorationColor: AppColors.danger,
                   ),
                 ),
               ],
             ),
+            if (isVoided) ...[
+              const SizedBox(height: AppSpacing.space3),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppSpacing.space3),
+                decoration: BoxDecoration(
+                  color: AppColors.danger.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(AppRadius.s),
+                  border: Border.all(
+                    color: AppColors.danger.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'This sale was voided',
+                      style: TextStyle(
+                        color: AppColors.danger,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (voidReason != null && '$voidReason'.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Reason: $voidReason',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: AppSpacing.space3),
             Text(
               'Ref: $clientRef',
@@ -422,22 +639,23 @@ class _HistoryScreenState extends State<HistoryScreen> {
             const SizedBox(height: AppSpacing.space5),
             Row(
               children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.danger,
-                      side: const BorderSide(color: AppColors.danger),
-                      minimumSize: const Size.fromHeight(48),
+                if (!isVoided)
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.danger,
+                        side: const BorderSide(color: AppColors.danger),
+                        minimumSize: const Size.fromHeight(48),
+                      ),
+                      icon: const Icon(Icons.block_rounded, size: 18),
+                      label: const Text('Void Order'),
+                      onPressed: () {
+                        Navigator.pop(sheetContext);
+                        _promptVoidOrder(order);
+                      },
                     ),
-                    icon: const Icon(Icons.block_rounded, size: 18),
-                    label: const Text('Void Order'),
-                    onPressed: () {
-                      Navigator.pop(sheetContext);
-                      _promptVoidOrder(order);
-                    },
                   ),
-                ),
-                const SizedBox(width: AppSpacing.space3),
+                if (!isVoided) const SizedBox(width: AppSpacing.space3),
                 Expanded(
                   child: FilledButton(
                     style: FilledButton.styleFrom(
@@ -472,11 +690,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     final rows = <Object>[];
     for (final entry in grouped.entries) {
-      final dayTotal = entry.value.fold<double>(
+      // A voided sale is not money. Summing it into the day's takings was the
+      // bug reported from the field: the total never moved after a void.
+      // Voided rows stay visible (an operator needs the audit trail) but they
+      // do not count toward the figure, and the count excludes them too so the
+      // header and the number cannot disagree.
+      final payable = entry.value
+          .where((o) => (o['status'] ?? 'PAID').toString() != 'VOID')
+          .toList();
+      final voidedCount = entry.value.length - payable.length;
+      final dayTotal = payable.fold<double>(
         0,
         (s, o) => s + ((o['total'] ?? 0) as num).toDouble(),
       );
-      rows.add((entry.key, entry.value.length, dayTotal));
+      rows.add((entry.key, payable.length, dayTotal, voidedCount));
       rows.addAll(entry.value);
     }
 
@@ -571,8 +798,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           );
                         }
                         final row = rows[i];
-                        if (row is (String, int, double)) {
-                          final (date, count, total) = row;
+                        if (row is (String, int, double, int)) {
+                          final (date, count, total, voided) = row;
                           return Padding(
                             padding: const EdgeInsets.only(
                               top: AppSpacing.space2,
@@ -580,7 +807,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             ),
                             child: SectionHeader(
                               title: date,
-                              eyebrow: '$count sale${count != 1 ? 's' : ''}',
+                              eyebrow: voided > 0
+                                  ? '$count sale${count != 1 ? 's' : ''} · $voided voided'
+                                  : '$count sale${count != 1 ? 's' : ''}',
                               trailing: Text(
                                 '₱${total.toStringAsFixed(0)}',
                                 style: Theme.of(context).textTheme.labelSmall
@@ -596,12 +825,28 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                   '${it['qty']}x ${it['productName']}${it['flavor'] != null ? ' (${it['flavor']})' : ''}',
                             )
                             .join(', ');
+                        // Voided sales read as voided at a glance: red wash,
+                        // danger border, a struck-through amount and an
+                        // explicit badge. Previously every row looked
+                        // identical with a green payment icon, so a reversed
+                        // sale was indistinguishable from a real one.
+                        final isVoided =
+                            (o['status'] ?? 'PAID').toString() == 'VOID';
                         return Container(
                           clipBehavior: Clip.antiAlias,
                           decoration: BoxDecoration(
-                            color: surfaceColor,
+                            color: isVoided
+                                ? AppColors.danger.withValues(alpha: 0.06)
+                                : surfaceColor,
                             borderRadius: BorderRadius.circular(AppRadius.l),
-                            boxShadow: AppShadow.sm(),
+                            boxShadow: isVoided
+                                ? null
+                                : AppShadow.sm(),
+                            border: isVoided
+                                ? Border.all(
+                                    color: AppColors.danger.withValues(alpha: 0.35),
+                                  )
+                                : null,
                           ),
                           child: Material(
                             color: Colors.transparent,
@@ -618,17 +863,22 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                       width: 44,
                                       height: 44,
                                       decoration: BoxDecoration(
-                                        color: AppColors.ok.withValues(
-                                          alpha: 0.1,
-                                        ),
+                                        color: (isVoided
+                                                ? AppColors.danger
+                                                : AppColors.ok)
+                                            .withValues(alpha: 0.1),
                                         borderRadius: BorderRadius.circular(
                                           AppRadius.s,
                                         ),
                                       ),
-                                      child: const Icon(
-                                        Icons.payments_rounded,
+                                      child: Icon(
+                                        isVoided
+                                            ? Icons.block_rounded
+                                            : Icons.payments_rounded,
                                         size: 21,
-                                        color: AppColors.ok,
+                                        color: isVoided
+                                            ? AppColors.danger
+                                            : AppColors.ok,
                                       ),
                                     ),
                                     const SizedBox(width: AppSpacing.space3),
@@ -647,6 +897,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                                     ?.copyWith(
                                                       fontWeight:
                                                           FontWeight.w800,
+                                                      color: isVoided
+                                                          ? AppColors.danger
+                                                          : null,
+                                                      decoration: isVoided
+                                                          ? TextDecoration.lineThrough
+                                                          : null,
+                                                      decorationColor:
+                                                          AppColors.danger,
                                                     ),
                                               ),
                                               const SizedBox(width: 8),
@@ -656,6 +914,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                                   context,
                                                 ).textTheme.bodySmall,
                                               ),
+                                              if (isVoided) ...[
+                                                const SizedBox(width: 8),
+                                                const AppBadge(
+                                                  label: 'VOIDED',
+                                                  variant: AppBadgeVariant.danger,
+                                                  icon: Icons.block_rounded,
+                                                ),
+                                              ],
                                             ],
                                           ),
                                           const SizedBox(height: 2),
@@ -968,7 +1234,13 @@ class _VoidReasonSheetState extends State<_VoidReasonSheet> {
                         otherController.text.trim().isEmpty) {
                       return;
                     }
-                    Navigator.pop(context, true);
+                    // Return the reason itself, not a bare `true` - the API
+                    // stores voidReason, and an operator reading the audit
+                    // trail later needs to know why the sale was reversed.
+                    final text = selectedReason == 'Others'
+                        ? otherController.text.trim()
+                        : selectedReason;
+                    Navigator.pop(context, text);
                   },
                   child: const Text('Confirm'),
                 ),
@@ -1156,9 +1428,15 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
                       Haptics.select();
                       final v = m['key'] as String;
                       setState(() => currentMethod = v);
-                      if (v == 'GCASH' && proofImage == null) {
-                        await _pickGCashProof();
-                      }
+                      // No longer auto-opens the proof picker. There is no
+                      // upload endpoint anywhere in the app (no multipart in
+                      // ApiClient), so the picked image was never sent - but
+                      // selecting GCash was BLOCKED on attaching one, so the
+                      // operator filed a receipt that went nowhere and was
+                      // told "Payment method updated successfully". Choosing a
+                      // payment method must not depend on that. TODO: either
+                      // add a receipt-proof upload endpoint or drop the
+                      // attach UI, so nothing implies it was transmitted.
                     },
                   ),
                 ),
@@ -1247,7 +1525,7 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
                   style: FilledButton.styleFrom(
                     minimumSize: const Size.fromHeight(52),
                   ),
-                  onPressed: () => Navigator.pop(context, true),
+                  onPressed: () => Navigator.pop(context, currentMethod),
                   child: const Text('Save Changes'),
                 ),
               ),

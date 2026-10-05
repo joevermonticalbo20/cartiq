@@ -489,6 +489,53 @@ class ApiClient {
     return (r['data'] as List?) ?? [];
   }
 
+  /// Void an order: flips it to VOID and restores recipe stock server-side.
+  ///
+  /// Returns the raw `{ order, restored[], warnings[] }` payload. The
+  /// warnings matter: a line whose recipe matched nothing (the product was
+  /// renamed after the sale) restores NOTHING, and the API reports that
+  /// rather than silently understating stock. Callers must surface them
+  /// instead of claiming a clean void.
+  ///
+  /// [orderId] must be the numeric order id — the `clientRef` string is not
+  /// accepted by this route.
+  Future<Map<String, dynamic>> voidOrder(
+    String token,
+    int orderId, {
+    String? reason,
+  }) async {
+    final res = await _send(
+      () => _http.patch(
+        _uri('/orders/$orderId'),
+        headers: _headers(token: token),
+        body: jsonEncode({
+          'status': 'VOID',
+          if (reason != null && reason.isNotEmpty) 'reason': reason,
+        }),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  /// Correct the payment method on a PAID order (stock untouched).
+  ///
+  /// The API rejects this on a VOID order, so callers should not offer the
+  /// action for voided rows rather than letting the user tap into an error.
+  Future<Map<String, dynamic>> updateOrderPayment(
+    String token,
+    int orderId,
+    String paymentMethod,
+  ) async {
+    final res = await _send(
+      () => _http.patch(
+        _uri('/orders/$orderId'),
+        headers: _headers(token: token),
+        body: jsonEncode({'paymentMethod': paymentMethod}),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> stockAlerts(
     String token, {
     bool unreadOnly = true,

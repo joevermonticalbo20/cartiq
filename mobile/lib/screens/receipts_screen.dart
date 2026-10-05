@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
+import '../services/data_refresh.dart';
 import '../theme.dart';
 import '../utils/app_messenger.dart';
 import '../utils/manila_time.dart';
@@ -36,6 +37,23 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
   String? _error;
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final bus = context.read<DataRefresh?>();
+    if (bus != null && !identical(bus, _bus)) {
+      _bus?.removeListener(_onDataChanged);
+      _bus = bus..addListener(_onDataChanged);
+    }
+  }
+
+  DataRefresh? _bus;
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _loadMore(reset: true);
+  }
+
+  @override
   void initState() {
     super.initState();
     _loadMore();
@@ -43,6 +61,8 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
 
   @override
   void dispose() {
+    _bus?.removeListener(_onDataChanged);
+    _bus = null;
     _searchCtrl.dispose();
     super.dispose();
   }

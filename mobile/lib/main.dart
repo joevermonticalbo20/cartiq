@@ -5,6 +5,7 @@ import 'screens/login_screen.dart';
 import 'screens/root_shell.dart';
 import 'services/api_client.dart';
 import 'services/auth_state.dart';
+import 'services/data_refresh.dart';
 import 'services/persisted_queue.dart';
 import 'services/sync_service.dart';
 import 'state/cart_state.dart';
@@ -44,6 +45,12 @@ Future<void> main() async {
   final auth = AuthState(apiClient: api);
   final sync = SyncService(api: api, auth: auth, queue: PersistedOfflineQueue.instance);
   final themeController = ThemeController();
+  // One instance for the whole app: every mounted tab subscribes to it so a
+  // sale on the POS reaches Sales History, Home and Receipts without a manual
+  // pull-to-refresh. Provided with `.value`, not `create:`, because the
+  // MultiProvider sits inside a build method and `create` would hand each tab
+  // a different instance.
+  final dataRefresh = DataRefresh();
   try {
     await themeController.load();
   } catch (e) {
@@ -57,6 +64,7 @@ Future<void> main() async {
     auth: auth,
     sync: sync,
     themeController: themeController,
+    dataRefresh: dataRefresh,
     startupWarnings: startupWarnings,
   ));
 }
@@ -69,6 +77,7 @@ class _BootApp extends StatefulWidget {
     required this.auth,
     required this.sync,
     required this.themeController,
+    required this.dataRefresh,
     this.startupWarnings = const [],
   });
 
@@ -76,6 +85,7 @@ class _BootApp extends StatefulWidget {
   final AuthState auth;
   final SyncService sync;
   final ThemeController themeController;
+  final DataRefresh dataRefresh;
 
   /// Non-fatal problems hit while starting up (degraded offline storage, an
   /// unreadable preference store). Shown on the splash so a degraded POS is
@@ -144,6 +154,7 @@ class _BootAppState extends State<_BootApp> {
         auth: widget.auth,
         sync: widget.sync,
         themeController: widget.themeController,
+        dataRefresh: widget.dataRefresh,
       );
     }
     return MaterialApp(
@@ -242,11 +253,13 @@ class CartIQApp extends StatefulWidget {
     required this.auth,
     required this.sync,
     required this.themeController,
+    required this.dataRefresh,
   });
 
   final AuthState auth;
   final SyncService sync;
   final ThemeController themeController;
+  final DataRefresh dataRefresh;
 
   @override
   State<CartIQApp> createState() => _CartIQAppState();
@@ -285,6 +298,7 @@ class _CartIQAppState extends State<CartIQApp> {
         ChangeNotifierProvider.value(value: widget.auth),
         ChangeNotifierProvider.value(value: widget.themeController),
         ChangeNotifierProvider.value(value: widget.sync),
+        ChangeNotifierProvider.value(value: widget.dataRefresh),
         ChangeNotifierProvider(create: (_) => CartState()),
       ],
       child: Consumer2<ThemeController, AuthState>(

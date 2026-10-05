@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/auth_state.dart';
+import '../services/data_refresh.dart';
 import '../services/offline_queue.dart';
 import '../services/persisted_queue.dart';
 import '../services/sync_service.dart';
@@ -47,6 +48,25 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription<int>? _queueSub;
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Today's totals must move the moment a sale is recorded or voided on
+    // another tab - this screen stays mounted inside the IndexedStack.
+    final bus = context.read<DataRefresh?>();
+    if (bus != null && !identical(bus, _bus)) {
+      _bus?.removeListener(_onDataChanged);
+      _bus = bus..addListener(_onDataChanged);
+    }
+  }
+
+  DataRefresh? _bus;
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _refresh();
+  }
+
+  @override
   void initState() {
     super.initState();
     _refresh();
@@ -57,6 +77,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _bus?.removeListener(_onDataChanged);
+    _bus = null;
     _queueSub?.cancel();
     super.dispose();
   }

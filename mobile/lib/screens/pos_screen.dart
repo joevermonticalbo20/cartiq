@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../services/auth_state.dart';
+import '../services/data_refresh.dart';
 import '../services/api_client.dart';
 import '../services/offline_queue.dart';
 import '../services/persisted_queue.dart';
@@ -329,6 +330,9 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
     try {
       final cartCode = auth.locationCode;
+      // Captured before any await so the later bump never touches a context
+      // that may have been unmounted mid-checkout.
+      final refresh = context.read<DataRefresh?>();
       if (cartCode == null || cartCode.isEmpty) {
         if (!mounted) return;
         await Haptics.error();
@@ -371,6 +375,13 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
       final result = await sync.syncAll();
       if (!mounted) return;
+
+      // The sale is durably queued (and synced when online), so tell the other
+      // tabs now instead of waiting for a pull-to-refresh. Sales History,
+      // Home and Receipts subscribe to this and re-read. `refresh` was
+      // captured before the awaits above, because reading context after an
+      // await is unsafe.
+      refresh?.bump('sale');
 
       if (result.fullySynced) {
         await Haptics.success();
