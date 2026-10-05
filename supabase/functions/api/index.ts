@@ -5154,6 +5154,11 @@ async function handleHealth(origin) {
     service: "cartiq-api",
     via: "supabase-edge",
     version: "0.1.0",
+    // Build marker: bump whenever a change here needs verifying in
+    // production. A green deploy workflow does NOT prove the running code
+    // is the committed code, so this is the only reliable way to confirm
+    // which build is actually serving traffic.
+    build: "ratelimit-voidwarn-2026-10-05",
     uptimeSec: 0,
     checks: {
       db: { status: db ? "ok" : "fail" },
