@@ -15,17 +15,50 @@ import 'widgets/brand_hero.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await PersistedOfflineQueue.instance.open();
+
+  // Everything below runs BEFORE runApp(). In release there is no red error
+  // screen, so any uncaught throw here leaves the operator staring at a blank
+  // white window with no way out - which is exactly the symptom reported
+  // after installing the APK. Two realistic triggers: sqflite refusing to open
+  // cartiq_queue.db (corrupt/locked after an interrupted write), and
+  // flutter_secure_storage throwing when the Android Keystore can no longer
+  // decrypt its entries (device restore or a changed signing key).
+  //
+  // Both are handled internally by their services now, but this stays as a
+  // backstop: startup degrades, it never blanks.
+  final startupWarnings = <String>[];
+
+  try {
+    await PersistedOfflineQueue.instance.open();
+    if (PersistedOfflineQueue.instance.isDegraded) {
+      startupWarnings.add(
+        'Offline storage unavailable - unsynced sales will not survive '
+        'closing the app.',
+      );
+    }
+  } catch (e) {
+    startupWarnings.add('Offline storage unavailable ($e).');
+  }
 
   final api = ApiClient();
   final auth = AuthState(apiClient: api);
   final sync = SyncService(api: api, auth: auth, queue: PersistedOfflineQueue.instance);
   final themeController = ThemeController();
-  await themeController.load();
+  try {
+    await themeController.load();
+  } catch (e) {
+    startupWarnings.add('Saved preferences unavailable ($e).');
+  }
 
   // Show UI immediately; server discovery runs behind the splash so a slow
   // /24 scan never leaves the user on a black screen.
-  runApp(_BootApp(api: api, auth: auth, sync: sync, themeController: themeController));
+  runApp(_BootApp(
+    api: api,
+    auth: auth,
+    sync: sync,
+    themeController: themeController,
+    startupWarnings: startupWarnings,
+  ));
 }
 
 /// Startup splash: finds the API on the LAN in the background with progress,
@@ -36,12 +69,18 @@ class _BootApp extends StatefulWidget {
     required this.auth,
     required this.sync,
     required this.themeController,
+    this.startupWarnings = const [],
   });
 
   final ApiClient api;
   final AuthState auth;
   final SyncService sync;
   final ThemeController themeController;
+
+  /// Non-fatal problems hit while starting up (degraded offline storage, an
+  /// unreadable preference store). Shown on the splash so a degraded POS is
+  /// never silently degraded.
+  final List<String> startupWarnings;
 
   @override
   State<_BootApp> createState() => _BootAppState();
@@ -138,6 +177,23 @@ class _BootAppState extends State<_BootApp> {
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.bodySmall),
                     ],
+                    for (final w in widget.startupWarnings) ...[
+                      const SizedBox(height: AppSpacing.space3),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.errorContainer,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          w,
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.onErrorContainer,
+                              ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: AppSpacing.space5),
                     OutlinedButton(
                       onPressed: _skip,
@@ -200,6 +256,10 @@ class _CartIQAppState extends State<CartIQApp> {
   late final Future<void> _restoreFuture;
   late final SyncLifecycleObserver _syncObserver;
 
+  /// Last state we handed to the sync service, so start/stop happens once
+  /// per transition rather than on every rebuild.
+  bool? _syncRunning;
+
   @override
   void initState() {
     super.initState();
@@ -211,7 +271,10 @@ class _CartIQAppState extends State<CartIQApp> {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(_syncObserver);
-    widget.sync.stop();
+    // Stop on the way out so a timer is never left running after teardown.
+    try {
+      widget.sync.stop();
+    } catch (_) {}
     super.dispose();
   }
 
@@ -226,6 +289,26 @@ class _CartIQAppState extends State<CartIQApp> {
       ],
       child: Consumer2<ThemeController, AuthState>(
         builder: (context, theme, auth, _) {
+          // Sync is started/stopped from a post-frame callback, never from
+          // build(): a throw inside build() is a build error, and in release
+          // that renders a blank ErrorWidget instead of the app.
+          final loggedIn = auth.isLoggedIn;
+          if (loggedIn != _syncRunning) {
+            _syncRunning = loggedIn;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              try {
+                if (loggedIn) {
+                  widget.sync.start();
+                } else {
+                  widget.sync.stop();
+                }
+              } catch (_) {
+                // A sync that cannot start must not take the POS down; sales
+                // still queue locally and drain on the next manual attempt.
+              }
+            });
+          }
           return MaterialApp(
             title: 'CartIQ POS',
             debugShowCheckedModeBanner: false,
@@ -242,12 +325,14 @@ class _CartIQAppState extends State<CartIQApp> {
                       body: Center(child: CircularProgressIndicator()),
                     );
                   }
-                  if (auth.isLoggedIn) {
-                    widget.sync.start();
-                    return const RootShell();
+                  // restoreSession() is guarded internally, but never let an
+                  // unexpected error leave the user with no way into the app.
+                  if (snap.hasError) {
+                    return LoginScreen();
                   }
-                  widget.sync.stop();
-                  return const LoginScreen();
+                  return auth.isLoggedIn
+                      ? const RootShell()
+                      : const LoginScreen();
                 },
               ),
             ),

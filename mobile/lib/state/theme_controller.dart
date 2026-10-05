@@ -13,7 +13,17 @@ class ThemeController extends ChangeNotifier {
   bool get isDark => _mode == ThemeMode.dark;
 
   Future<void> load() async {
-    final saved = await storage.read(key: 'cartiq_theme_mode');
+    // This is awaited from main() before runApp(), so a throw here means a
+    // blank white window. flutter_secure_storage reads through the Android
+    // Keystore, which legitimately fails (key invalidated by a device
+    // restore, a changed signing key, or a reset keystore). A missing theme
+    // preference is not worth losing the app over - fall back to system.
+    String? saved;
+    try {
+      saved = await storage.read(key: 'cartiq_theme_mode');
+    } catch (_) {
+      saved = null;
+    }
     if (saved == 'light') {
       _mode = ThemeMode.light;
     } else if (saved == 'dark') {
@@ -26,14 +36,18 @@ class ThemeController extends ChangeNotifier {
 
   Future<void> setMode(ThemeMode mode) async {
     _mode = mode;
-    await storage.write(
-      key: 'cartiq_theme_mode',
-      value: switch (mode) {
-        ThemeMode.light => 'light',
-        ThemeMode.dark => 'dark',
-        _ => 'system',
-      },
-    );
+    try {
+      await storage.write(
+        key: 'cartiq_theme_mode',
+        value: switch (mode) {
+          ThemeMode.light => 'light',
+          ThemeMode.dark => 'dark',
+          _ => 'system',
+        },
+      );
+    } catch (_) {
+      // Preference simply will not persist; the in-session change still holds.
+    }
     notifyListeners();
   }
 

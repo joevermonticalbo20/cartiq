@@ -59,8 +59,17 @@ class AuthState extends ChangeNotifier {
   }
 
   Future<void> restoreSession() async {
-    token = await storage.read(key: 'cartiq_token');
-    refreshToken = await storage.read(key: 'cartiq_refresh_token');
+    // flutter_secure_storage reads through the Android Keystore, which can
+    // legitimately fail (device restore, changed signing key, reset
+    // keystore). An unreadable cache must mean "no saved session", never a
+    // crash on startup.
+    try {
+      token = await storage.read(key: 'cartiq_token');
+      refreshToken = await storage.read(key: 'cartiq_refresh_token');
+    } catch (_) {
+      token = null;
+      refreshToken = null;
+    }
     if (token != null) {
       try {
         final data = await api.me(token!);
