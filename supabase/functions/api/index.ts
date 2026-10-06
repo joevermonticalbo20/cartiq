@@ -719,6 +719,22 @@ function cleanRfidUid(value) {
   return validRfidUid(v) ? v : null;
 }
 
+/**
+ * Key used ONLY to match a tap against a stored card. Case-insensitive and
+ * separator-tolerant, so a card stored as "04A2B3C4" matches a tap of
+ * "04a2b3c4" or "04 A2 B3 C4".
+ *
+ * Deliberately separate from normalizeRfidUid: the tapped UID is reported
+ * verbatim in the UNKNOWN_CARD alert and in the shift record, so rewriting it
+ * would misreport the tap AND corrupt what gets stored (a tap of "H7-pppq1"
+ * used to surface as "H7PPPQ1").
+ */
+function lookupUid(value) {
+  return String(value ?? "")
+    .replace(/[:\s-]/g, "")
+    .toUpperCase();
+}
+
 const CLAIM_PENDING = "pending";
 const CLAIM_BOUND = "bound";
 const CLAIM_CONFLICT = "conflict";
@@ -2872,14 +2888,14 @@ async function handleDeviceShifts(req, origin, device) {
     // otherwise never match a tap and the card would become an UNKNOWN_CARD
     // alert forever.
     const byUid = new Map(
-      users.filter((u) => u.rfidUid).map((u) => [normalizeRfidUid(u.rfidUid), u]),
+      users.filter((u) => u.rfidUid).map((u) => [lookupUid(u.rfidUid), u]),
     );
 
     const plans = [];
     const createdNeedles = new Set();
     const newAlerts = [];
     for (const e of rows) {
-      const uid = normalizeRfidUid(e.staff_uid);
+      const uid = String(e.staff_uid ?? "").trim();
       const event = String(e.event ?? "").toUpperCase();
       if (!uid || uid.length > 64 || !SHIFT_EVENTS.includes(event)) {
         rejected.push({ staff_uid: uid || null, reason: "invalid uid or event" });
@@ -2890,7 +2906,7 @@ async function handleDeviceShifts(req, origin, device) {
         rejected.push({ staff_uid: uid || null, reason: "invalid ts" });
         continue;
       }
-      const user = byUid.get(uid) ?? null;
+      const user = byUid.get(lookupUid(uid)) ?? null;
       plans.push({ uid, event, ts, user });
       if (!user) {
         const dedupeKey = `unknown:${location.id}:${uid}`;
