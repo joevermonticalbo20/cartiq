@@ -41,6 +41,22 @@ export function cleanRfidUid(value) {
   return validRfidUid(v) ? v : null;
 }
 
+/**
+ * Key used ONLY to match a tap against a stored card. Case-insensitive and
+ * separator-tolerant, so a card stored as "04A2B3C4" matches a tap of
+ * "04a2b3c4" or "04 A2 B3 C4".
+ *
+ * Deliberately separate from [normalizeRfidUid]: the tap's UID is reported
+ * verbatim in the UNKNOWN_CARD alert and in the shift record, so what the
+ * operator is shown stays exactly what the reader sent. Rewriting it here
+ * would both misreport the tap and corrupt what gets stored.
+ */
+export function lookupUid(value) {
+  return String(value ?? "")
+    .replace(/[:\s-]/g, "")
+    .toUpperCase();
+}
+
 // A registration claim is the handshake between the POS app (which knows WHO
 // is registering) and the ESP32 reader (which only ever sees the tag UID).
 // The app opens a claim scoped to its cart, the reader reports a tap, and the

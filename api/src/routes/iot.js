@@ -3,7 +3,7 @@ import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { requireDevice } from "../middleware/device.js";
 import { manilaDayRange, manilaDayStart } from "../services/timezone.js";
-import { normalizeRfidUid } from "../services/rfid.js";
+import { lookupUid, normalizeRfidUid } from "../services/rfid.js";
 import { CLAIM_BOUND, resolveClaim } from "../services/rfid_claims.js";
 import { bindClaimedTag } from "../services/rfid_bind.js";
 
@@ -230,7 +230,7 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
       const byUid = new Map(
         users
           .filter((u) => u.rfidUid)
-          .map((u) => [normalizeRfidUid(u.rfidUid), u]),
+          .map((u) => [lookupUid(u.rfidUid), u]),
       );
 
       // ---- COMPUTE PHASE (same validation/messages as before) ----
@@ -238,7 +238,7 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
       const createdNeedles = new Set();
       const newAlerts = [];
       for (const e of rows) {
-        const uid = normalizeRfidUid(e.staff_uid);
+        const uid = String(e.staff_uid ?? "").trim();
         const event = String(e.event ?? "").toUpperCase();
         if (!uid || uid.length > 64 || !EVENTS.includes(event)) {
           rejected.push({ staff_uid: uid || null, reason: "invalid uid or event" });
@@ -249,7 +249,7 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
           rejected.push({ staff_uid: uid || null, reason: "invalid ts" });
           continue;
         }
-        const user = byUid.get(uid) ?? null;
+        const user = byUid.get(lookupUid(uid)) ?? null;
         plans.push({ uid, event, ts, user });
         if (!user) {
           const dedupeKey = `unknown:${location.id}:${uid}`;
