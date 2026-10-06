@@ -9,7 +9,9 @@ router.get("/catalog", requireAuth, async (_req, res, next) => {
     // POS bootstrap: always fresh (nocache). A stale catalog would sell
     // removed products or wrong prices — correctness beats quota here, and
     // catalog loads are infrequent (screen open / pull-to-refresh).
-    const [products, locations] = await Promise.all([
+    // Archived products (active === false) are hidden from the POS but stay
+    // in history/reports. Pre-archive docs have no field and count as active.
+    const [all, locations] = await Promise.all([
       prisma.product.findMany({
         include: { flavors: { orderBy: { name: "asc" } } },
         orderBy: { name: "asc" },
@@ -22,6 +24,7 @@ router.get("/catalog", requireAuth, async (_req, res, next) => {
         nocache: true,
       }),
     ]);
+    const products = all.filter((p) => p.active !== false);
     return res.json({ products, locations });
   } catch (err) {
     return next(err);

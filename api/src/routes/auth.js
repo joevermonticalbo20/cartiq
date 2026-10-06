@@ -17,6 +17,9 @@ import {
   RESET_INVALID_MESSAGE,
 } from "../services/password_reset.js";
 import { sendGmail, resetEmailContent, gmailStatus } from "../services/gmail.js";
+import { cleanRfidUid, normalizeRfidUid } from "../services/rfid.js";
+import { openClaim, getClaim, claimView } from "../services/rfid_claims.js";
+import { emit } from "./events.js";
 
 // Rate limiter: 20 attempts per 15 min per IP. High enough that the
 // project's own regression suite (~10 logins back-to-back from one dev
@@ -56,6 +59,9 @@ function publicUser(user) {
     username: user.username,
     role: user.role,
     email: user.email ?? null,
+    // Normalized on read so a row stored before the normalization fix still
+    // matches a tap. Clients use this to decide whether to prompt for a tag.
+    rfidUid: user.rfidUid ? normalizeRfidUid(user.rfidUid) : null,
     location: user.location
       ? { id: user.location.id, code: user.location.code, name: user.location.name }
       : null,
@@ -116,6 +122,112 @@ router.get("/me", requireAuth, async (req, res, next) => {
     });
     if (!user) return res.status(404).json({ error: "User not found" });
     return res.json({ user: publicUser(user) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ============================================================================
+// RFID self-service: register the card a staff member uses for IN/OUT taps.
+//
+// The reader (ESP32 + MFRC522) only ever reports a tag UID - it has no idea
+// who is holding the card. So the app, which knows the signed-in user, opens a
+// short-lived claim on its cart first; the next tap on that cart's reader
+// resolves it. GET /my-rfid/claim/:id lets the app poll for the outcome.
+//
+// These routes are for the account owner. An owner reassigning somebody else's
+// tag stays on PATCH /auth/staff/:id.
+// ============================================================================
+
+// GET /api/auth/my-rfid (Bearer) -> { rfidUid }
+router.get("/my-rfid", requireAuth, async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    return res.json({ rfidUid: user.rfidUid ? normalizeRfidUid(user.rfidUid) : null });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /api/auth/my-rfid/claim (Bearer)
+// Body: { locationCode? } - optional for STAFF (their own cart), required for
+// OWNER, who is not assigned to a cart.
+router.post("/my-rfid/claim", requireAuth, async (req, res, next) => {
+  try {
+    const { locationCode, event } = req.body ?? {};
+    // null = enrolling a card only. IN/OUT = the person is clocking on or off,
+    // and the tap must record that instead of the firmware's blind toggle.
+    let cleanEvent = null;
+    if (event !== undefined && event !== null && String(event).trim() !== "") {
+      cleanEvent = String(event).trim().toUpperCase();
+      if (!["IN", "OUT"].includes(cleanEvent)) {
+        return res.status(400).json({ error: 'event must be "IN" or "OUT"' });
+      }
+    }
+    let location;
+    if (locationCode !== undefined && locationCode !== null && String(locationCode).trim() !== "") {
+      location = await prisma.location.findUnique({
+        where: { code: String(locationCode).trim().toUpperCase() },
+      });
+      if (!location) return res.status(404).json({ error: "Location not found" });
+      // A STAFF member may only claim on their own cart: otherwise any account
+      // could aim a registration at a cart it has no shift access to.
+      if (req.user.role !== "OWNER" && req.user.locationId !== location.id) {
+        return res.status(403).json({ error: "Forbidden: you can only register on your own cart" });
+      }
+    } else if (req.user.locationId) {
+      location = await prisma.location.findUnique({ where: { id: req.user.locationId } });
+    }
+    if (!location) {
+      return res.status(400).json({
+        error: "locationCode is required - you are not assigned to a cart",
+      });
+    }
+    const claim = openClaim({
+      userId: req.user.sub,
+      locationId: location.id,
+      locationCode: location.code,
+      event: cleanEvent,
+    });
+    return res.status(201).json({ claim: claimView(claim) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// GET /api/auth/my-rfid/claim/:claimId (Bearer) -> { status, rfidUid, ... }
+router.get("/my-rfid/claim/:claimId", requireAuth, async (req, res, next) => {
+  try {
+    const claim = getClaim(String(req.params.claimId));
+    // Unknown and someone-else's claim are answered identically so a claim id
+    // cannot be used to probe for other users' registrations.
+    if (!claim || claim.userId !== req.user.sub) {
+      return res.status(404).json({ error: "Claim not found" });
+    }
+    return res.json({ claim: claimView(claim) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// DELETE /api/auth/my-rfid (Bearer) -> unbind this account's own tag
+router.delete("/my-rfid", requireAuth, async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const previous = user.rfidUid ? normalizeRfidUid(user.rfidUid) : null;
+    if (!previous) {
+      return res.json({ rfidUid: null, removed: false });
+    }
+    await prisma.user.update({ where: { id: user.id }, data: { rfidUid: null } });
+    emit("rfid:unbound", {
+      userId: user.id,
+      name: user.name,
+      username: user.username,
+      rfidUid: previous,
+    });
+    return res.json({ rfidUid: null, removed: true });
   } catch (err) {
     return next(err);
   }
@@ -483,8 +595,18 @@ router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) 
       if (!loc) return res.status(404).json({ error: "Location not found" });
       locationId = loc.id;
     }
-    if (rfidUid) {
-      const uidTaken = await prisma.user.findUnique({ where: { rfidUid } });
+    // Normalize to the form the reader emits (zero-padded uppercase hex) so a
+    // later tap matches. An unparseable uid is rejected outright rather than
+    // stored, otherwise it would read as registered and never match a tap.
+    let cleanRfid = null;
+    if (rfidUid !== undefined && rfidUid !== null && String(rfidUid).trim() !== "") {
+      cleanRfid = cleanRfidUid(rfidUid);
+      if (!cleanRfid) {
+        return res.status(400).json({
+          error: "rfidUid must be 4-10 bytes of hex, e.g. 04A2B3C4",
+        });
+      }
+      const uidTaken = await prisma.user.findUnique({ where: { rfidUid: cleanRfid } });
       if (uidTaken) return res.status(409).json({ error: "RFID UID already registered" });
     }
 
@@ -496,7 +618,7 @@ router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) 
         role: "STAFF",
         active: true,
         locationId,
-        rfidUid: rfidUid ?? null,
+        rfidUid: cleanRfid,
         email: cleanEmail,
       },
     });
@@ -539,14 +661,20 @@ router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, n
       }
     }
     if (rfidUid !== undefined) {
-      if (rfidUid === null || rfidUid === "") {
+      if (rfidUid === null || String(rfidUid).trim() === "") {
         data.rfidUid = null;
       } else {
+        const cleanRfid = cleanRfidUid(rfidUid);
+        if (!cleanRfid) {
+          return res.status(400).json({
+            error: "rfidUid must be 4-10 bytes of hex, e.g. 04A2B3C4",
+          });
+        }
         const taken = await prisma.user.findFirst({
-          where: { rfidUid, id: { not: user.id } },
+          where: { rfidUid: cleanRfid, id: { not: user.id } },
         });
         if (taken) return res.status(409).json({ error: "RFID UID already registered" });
-        data.rfidUid = rfidUid;
+        data.rfidUid = cleanRfid;
       }
     }
     if (email !== undefined) {

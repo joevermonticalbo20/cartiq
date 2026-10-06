@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { Plus, Edit2, Trash2, RefreshCw, Tag, AlertTriangle } from "lucide-react";
+import { Plus, Edit2, Trash2, RefreshCw, Tag, AlertTriangle, Archive, ArchiveRestore } from "lucide-react";
 
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
@@ -111,6 +111,11 @@ export default function ProductsPage() {
 
   const [deleting, setDeleting] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Archive target: { product, toActive } — hide from POS (active=false) or
+  // bring back (active=true). History/reports keep working either way.
+  const [archiving, setArchiving] = useState(null);
+  const [isArchiving, setIsArchiving] = useState(false);
 
   const [flavorDraft, setFlavorDraft] = useState("");
   const [flavorError, setFlavorError] = useState("");
@@ -683,6 +688,27 @@ export default function ProductsPage() {
     }
   }
 
+  async function handleArchiveToggle() {
+    if (!archiving || isArchiving) return;
+    const { product, toActive } = archiving;
+    setIsArchiving(true);
+    try {
+      await api.patch(`/products/${product.id}`, { active: toActive });
+      toast(
+        toActive
+          ? `Product "${product.name}" restored to the POS catalog`
+          : `Product "${product.name}" archived — hidden from POS, history kept`,
+        "success"
+      );
+      load();
+    } catch (err) {
+      toast(getFriendlyError(err, toActive ? "Restore failed." : "Archive failed."), "error");
+    } finally {
+      setArchiving(null);
+      setIsArchiving(false);
+    }
+  }
+
   function openEdit(p) {
     const prices = p.flavorPrices ?? {};
     setEditing({
@@ -788,7 +814,12 @@ export default function ProductsPage() {
                 {
                   key: "name",
                   label: "Name",
-                  render: (p) => <strong>{p.name}</strong>,
+                  render: (p) => (
+                    <span className="flex flex-wrap items-center gap-1">
+                      <strong>{p.name}</strong>
+                      {p.active === false && <Badge variant="neutral">Archived</Badge>}
+                    </span>
+                  ),
                 },
                 {
                   key: "category",
@@ -845,7 +876,7 @@ export default function ProductsPage() {
                 {
                   key: "actions",
                   label: "",
-                  width: 120,
+                  width: 168,
                   align: "right",
                   render: (p) => (
                     <div className="flex items-center justify-end gap-1">
@@ -866,6 +897,13 @@ export default function ProductsPage() {
                         title="Rename product"
                       >
                         <Tag size={13} />
+                      </button>
+                      <button
+                        className="ghost small-btn"
+                        onClick={() => setArchiving({ product: p, toActive: p.active === false })}
+                        title={p.active === false ? "Restore product to POS catalog" : "Archive product (hide from POS)"}
+                      >
+                        {p.active === false ? <ArchiveRestore size={13} /> : <Archive size={13} />}
                       </button>
                       <button
                         className="danger-ghost small-btn"
@@ -1061,7 +1099,7 @@ export default function ProductsPage() {
           open={Boolean(deleting)}
           title="Delete product?"
           message={deleting
-            ? `"${deleting.name}" is used in ${deleting.recipeCount} recipe(s) and ${deleting.orderLines} order line(s). Delete is blocked while any reference exists.`
+            ? `"${deleting.name}" is used in ${deleting.recipeCount} recipe(s) and ${deleting.orderLines} order line(s). Delete is blocked while any reference exists. Archive it instead to hide it from the POS.`
             : ""}
           confirmLabel="Delete Product"
           danger
@@ -1069,6 +1107,23 @@ export default function ProductsPage() {
           pendingLabel="Deleting..."
           onConfirm={handleDelete}
           onCancel={() => setDeleting(null)}
+        />
+
+        {/* ARCHIVE / RESTORE CONFIRMATION */}
+        <ConfirmDialog
+          open={Boolean(archiving)}
+          title={archiving?.toActive ? "Restore product?" : "Archive product?"}
+          message={archiving
+            ? archiving.toActive
+              ? `"${archiving.product.name}" will show in the POS catalog again.`
+              : `"${archiving.product.name}" will be hidden from the POS catalog. Sales history and reports are kept.`
+            : ""}
+          confirmLabel={archiving?.toActive ? "Restore Product" : "Archive Product"}
+          danger={!archiving?.toActive}
+          pending={isArchiving}
+          pendingLabel={archiving?.toActive ? "Restoring..." : "Archiving..."}
+          onConfirm={handleArchiveToggle}
+          onCancel={() => setArchiving(null)}
         />
       </div>
     </PageErrorBoundary>

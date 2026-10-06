@@ -105,7 +105,7 @@ const MODELS = {
   },
   products: {
     numeric: true,
-    defaults: () => ({ category: "Fries", flavorIds: [] }),
+    defaults: () => ({ category: "Fries", flavorIds: [], active: true }),
     uniques: ["name"],
   },
   flavors: {

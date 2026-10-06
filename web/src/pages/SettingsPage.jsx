@@ -4,6 +4,7 @@ import { KeyRound, Plus, RefreshCw, Eye, EyeOff, Edit2, Trash2, Cpu, ShoppingCar
 
 import api, { clearSession } from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
+import { useRfidEvents } from "../hooks/useRfidEvents.js";
 import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import Skeleton from "../components/Skeleton.jsx";
@@ -153,6 +154,20 @@ export default function SettingsPage() {
     else document.body.style.overflow = "";
     return () => { document.body.style.overflow = ""; };
   }, [isAnyModalOpen]);
+
+  function reloadStaff() {
+    // A card is registered from the POS app at the cart, so this list goes
+    // stale while the owner is sitting on this page. Refetch only the staff
+    // list on a live event instead of reloading every owner table.
+    api
+      .get("/auth/staff")
+      .then(({ data }) => setStaff(data?.data ?? []))
+      .catch(() => {});
+  }
+
+  // Mounted here (not only in the shell) so a registration lands straight in
+  // the card column of the table below.
+  useRfidEvents({ onChange: reloadStaff });
 
   function loadOwnerData() {
     if (!isOwner) return;

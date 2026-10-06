@@ -155,6 +155,8 @@ router.get("/products", requireAuth, async (_req, res, next) => {
           name: p.name,
           category: p.category,
           basePrice: p.basePrice,
+          // Missing on pre-archive docs means active (backwards compatible).
+          active: p.active !== false,
           flavorPrices,
           flavors: (p.flavors ?? []).map((f) => ({
             id: f.id,
@@ -305,17 +307,18 @@ router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, nex
 // recipe rows is rejected with 409 (delete the rows first).
 router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const { category, basePrice, addFlavorIds, removeFlavorIds, flavorPrices, addRecipes, removeRecipes } = req.body ?? {};
+    const { category, basePrice, active, addFlavorIds, removeFlavorIds, flavorPrices, addRecipes, removeRecipes } = req.body ?? {};
     if (
       category === undefined &&
       basePrice === undefined &&
+      active === undefined &&
       addFlavorIds === undefined &&
       removeFlavorIds === undefined &&
       flavorPrices === undefined &&
       addRecipes === undefined &&
       removeRecipes === undefined
     ) {
-      return res.status(400).json({ error: "provide category, basePrice, flavorIds, flavorPrices, or recipes" });
+      return res.status(400).json({ error: "provide category, basePrice, active, flavorIds, flavorPrices, or recipes" });
     }
     const existing = await prisma.product.findUnique({
       where: { id: Number(req.params.id) },
@@ -324,6 +327,14 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
     if (!existing) return res.status(404).json({ error: "Product not found" });
     const data = {};
     if (category !== undefined) data.category = String(category).slice(0, 60) || "Fries";
+    // Archive switch: active=false hides the product from the POS catalog
+    // but keeps history/reports intact. Restore with active=true.
+    if (active !== undefined) {
+      if (typeof active !== "boolean") {
+        return res.status(400).json({ error: "active must be true or false" });
+      }
+      data.active = active;
+    }
     if (basePrice !== undefined) {
       const price = validPrice(basePrice);
       if (price === null) {

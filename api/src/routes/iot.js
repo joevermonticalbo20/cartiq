@@ -3,6 +3,9 @@ import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { requireDevice } from "../middleware/device.js";
 import { manilaDayRange, manilaDayStart } from "../services/timezone.js";
+import { normalizeRfidUid } from "../services/rfid.js";
+import { CLAIM_BOUND, resolveClaim } from "../services/rfid_claims.js";
+import { bindClaimedTag } from "../services/rfid_bind.js";
 
 const router = Router();
 
@@ -189,6 +192,25 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
       });
     }
 
+    // A tap is the only moment a card is physically present, so this is where a
+    // pending self-service registration is completed. Runs BEFORE the txn so
+    // the user lookup below already sees the freshly bound tag - the tap then
+    // records a real shift for the person who just registered.
+    const registrations = [];
+    for (const e of rows) {
+      const uid = String(e?.staff_uid ?? "").trim();
+      if (!uid) continue;
+      const bound = await bindClaimedTag({ rawUid: uid, locationId: location.id });
+      if (!bound) continue;
+      registrations.push(bound);
+      // The person pressed Time In or Time Out in the app, so the shift must
+      // record THAT. The firmware only knows how to toggle, and toggling would
+      // silently log someone OUT when they meant to clock IN.
+      if (bound.outcome === "bound" && bound.desiredEvent) {
+        e.event = bound.desiredEvent;
+      }
+    }
+
     // Same reads-first restructure as /iot/readings: users and unread
     // UNKNOWN_CARD alerts are prefetched, then shifts + alerts are written.
     // accepted/rejected live INSIDE the txn (see above) so contention
@@ -201,14 +223,22 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
         tx.user.findMany(),
         tx.alert.findMany({ where: { type: "UNKNOWN_CARD", isRead: false } }),
       ]);
-      const byUid = new Map(users.filter((u) => u.rfidUid).map((u) => [u.rfidUid, u]));
+      // Both sides of the comparison are normalized. A row stored before the
+      // normalization fix (lowercase, or with separators a human pasted in)
+      // would otherwise never match a tap and the card would silently become
+      // an UNKNOWN_CARD alert forever.
+      const byUid = new Map(
+        users
+          .filter((u) => u.rfidUid)
+          .map((u) => [normalizeRfidUid(u.rfidUid), u]),
+      );
 
       // ---- COMPUTE PHASE (same validation/messages as before) ----
       const plans = [];
       const createdNeedles = new Set();
       const newAlerts = [];
       for (const e of rows) {
-        const uid = String(e.staff_uid ?? "").trim();
+        const uid = normalizeRfidUid(e.staff_uid);
         const event = String(e.event ?? "").toUpperCase();
         if (!uid || uid.length > 64 || !EVENTS.includes(event)) {
           rejected.push({ staff_uid: uid || null, reason: "invalid uid or event" });
@@ -278,7 +308,25 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
       return { accepted, rejected };
     });
 
-    return res.status(201).json({ accepted: outcome.accepted, rejected: outcome.rejected });
+    // The shift is committed now, so tell each claim what was ACTUALLY written.
+    // The app toasts from this rather than from what was requested: a tap can
+    // still be rejected (bad event, closed cart) and the person must be told
+    // the truth, not what they hoped for.
+    for (const reg of registrations) {
+      if (reg.outcome !== "bound" || !reg.claimId) continue;
+      const written = outcome.accepted.find(
+        (a) => normalizeRfidUid(a.staff_uid) === reg.rfidUid && a.matched,
+      );
+      resolveClaim(reg.claimId, CLAIM_BOUND, reg.rfidUid, null, written?.event ?? null);
+    }
+
+    return res.status(201).json({
+      accepted: outcome.accepted,
+      rejected: outcome.rejected,
+      // Tell the reader's owner what the tap did: registered a card, refused
+      // one that belongs to someone else, or nothing was pending.
+      registrations,
+    });
   } catch (err) {
     return next(err);
   }

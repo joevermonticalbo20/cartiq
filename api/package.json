@@ -9,6 +9,9 @@
   },
   "scripts": {
     "dev": "node --watch src/server.js",
+    "dev:emulator": "node scripts/dev_emulator.mjs",
+    "dev:emulator:watch": "node --watch scripts/dev_emulator.mjs",
+    "demo:setup": "node scripts/demo_setup.mjs",
     "start": "node src/server.js",
     "test": "node --test test/*.test.js",
     "db:seed": "node scripts/seed_firestore.mjs",

@@ -252,6 +252,75 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  // --- RFID card registration (self-service) -------------------------------
+  // The reader (ESP32 + MFRC522) only ever reports a tag UID; it does not know
+  // who is holding the card. So the app opens a short-lived claim on its cart
+  // and polls until the next tap on that cart's reader resolves it.
+
+  /// The tag UID bound to this account, or null when none is registered.
+  Future<String?> myRfid(String token) async {
+    final res = await _send(
+      () => _http.get(_uri('/auth/my-rfid'), headers: _headers(token: token)),
+    );
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    return body['rfidUid'] as String?;
+  }
+
+  /// Announce "someone is at this cart with a card". Returns the claim as
+  /// `{claimId, status, expiresAt, locationCode, event}`.
+  ///
+  /// [locationCode] is only needed for an owner, who is not assigned to a cart;
+  /// staff always use their own.
+  ///
+  /// [event] is `"IN"` / `"OUT"` when the person is clocking on or off, and null
+  /// when they are only enrolling a card. Passing it means the tap records that
+  /// shift instead of the firmware's blind IN/OUT toggle.
+  Future<Map<String, dynamic>> startRfidClaim(
+    String token, {
+    String? locationCode,
+    String? event,
+  }) async {
+    final res = await _send(
+      () => _http.post(
+        _uri('/auth/my-rfid/claim'),
+        headers: _headers(token: token),
+        body: jsonEncode({
+          'locationCode': ?locationCode,
+          'event': ?event,
+        }),
+      ),
+    );
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    return body['claim'] as Map<String, dynamic>;
+  }
+
+  /// Poll a claim. Returns the same shape as [startRfidClaim] with `status` one
+  /// of `pending`, `bound`, `conflict` or `expired`.
+  Future<Map<String, dynamic>> rfidClaimStatus(
+    String token,
+    String claimId,
+  ) async {
+    final res = await _send(
+      () => _http.get(
+        _uri('/auth/my-rfid/claim/$claimId'),
+        headers: _headers(token: token),
+      ),
+    );
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    return body['claim'] as Map<String, dynamic>;
+  }
+
+  /// Remove this account's own card. Throws when offline.
+  Future<Map<String, dynamic>> unbindRfid(String token) async {
+    final res = await _send(
+      () => _http.delete(
+        _uri('/auth/my-rfid'),
+        headers: _headers(token: token),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
   /// Request a Gmail OTP for password reset. Always succeeds with the same
   /// generic message (the server never reveals whether the email is known).
   Future<Map<String, dynamic>> forgotPassword(String email) async {

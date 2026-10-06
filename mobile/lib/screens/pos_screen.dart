@@ -78,6 +78,9 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   Timer? _searchDebounce;
   final _searchController = TextEditingController();
   bool _paying = false;
+  // Guards the explicit header refresh button so a double tap cannot fire
+  // two concurrent catalog refetches.
+  bool _refreshingCatalog = false;
 
   OfflineQueue get _queue => PersistedOfflineQueue.instance;
 
@@ -109,15 +112,51 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     });
   }
 
-  void _reloadCatalog({bool forceRefresh = false}) {
-    setState(() => _catalogFuture = _loadCatalog(forceRefresh: forceRefresh));
+  /// Starts a catalog load and returns THAT future.
+///
+/// Returning the new future matters: callers must await the value, never the
+/// `_catalogFuture` field. Re-reading the field after the first refresh
+/// completed would hand back an already-finished future, so the second tap
+/// would resolve instantly without ever hitting the network.
+Future<List<Map<String, dynamic>>> _reloadCatalog({
+    bool forceRefresh = false,
+  }) {
+    final future = _loadCatalog(forceRefresh: forceRefresh);
+    // Block body on purpose: an arrow closure would RETURN the assigned
+    // Future, which trips Flutter's `setState() callback returned a Future`
+    // assertion. Assign only.
+    setState(() {
+      _catalogFuture = future;
+    });
+    return future;
   }
 
   Future<void> _refreshCatalog() async {
-    _reloadCatalog(forceRefresh: true);
+    if (_refreshingCatalog) return;
+    setState(() => _refreshingCatalog = true);
     try {
-      await _catalogFuture;
-    } catch (_) {}
+      final products = await _reloadCatalog(forceRefresh: true);
+      if (!mounted) return;
+      // Say how many products came back so a stale backend is visible:
+      // archiving on the web must change this number on the next refresh.
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Catalog updated • ${products.length} product(s)',
+        isSuccess: true,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      // Never swallow: a failed refresh that looks identical to success is
+      // how a stale catalog goes unnoticed (wrong server, expired session).
+      final msg = e is ApiException ? e.message : 'Refresh failed: $e';
+      AppMessenger.showGlassToast(
+        context: context,
+        message: msg,
+        isSuccess: false,
+      );
+    } finally {
+      if (mounted) setState(() => _refreshingCatalog = false);
+    }
   }
 
   Future<List<Map<String, dynamic>>> _loadCatalog({
@@ -552,7 +591,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                                       FilledButton.icon(
                                         icon: const Icon(Icons.refresh_rounded),
                                         label: const Text('Retry'),
-                                        onPressed: _reloadCatalog,
+                                        onPressed: _refreshCatalog,
                                       ),
                                     ],
                                   ),
@@ -728,31 +767,45 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
-                                children: _searching
-                                    ? [
-                                        IconButton(
-                                          icon: const Icon(Icons.close_rounded),
-                                          tooltip: 'Close search',
-                                          onPressed: () {
-                                            _searchDebounce?.cancel();
-                                            _searchController.clear();
-                                            setState(() {
-                                              _search = '';
-                                              _searching = false;
-                                            });
-                                          },
-                                        ),
-                                      ]
-                                    : [
-                                        IconButton(
-                                          icon: const Icon(
-                                            Icons.search_rounded,
-                                          ),
-                                          tooltip: 'Search product',
-                                          onPressed: () =>
-                                              setState(() => _searching = true),
-                                        ),
-                                      ],
+                                children: [
+                                  // Explicit force-refresh: the catalog cache
+                                  // keeps products alive for 15 minutes, so an
+                                  // archive/restored item in the dashboard is
+                                  // invisible until a real refetch happens.
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.sync_rounded,
+                                      size: 20,
+                                    ),
+                                    tooltip:
+                                        'Refresh catalog (drops the local cache)',
+                                    onPressed: _refreshingCatalog
+                                        ? null
+                                        : _refreshCatalog,
+                                  ),
+                                  if (_searching)
+                                    IconButton(
+                                      icon: const Icon(Icons.close_rounded),
+                                      tooltip: 'Close search',
+                                      onPressed: () {
+                                        _searchDebounce?.cancel();
+                                        _searchController.clear();
+                                        setState(() {
+                                          _search = '';
+                                          _searching = false;
+                                        });
+                                      },
+                                    )
+                                  else
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.search_rounded,
+                                      ),
+                                      tooltip: 'Search product',
+                                      onPressed: () =>
+                                          setState(() => _searching = true),
+                                    ),
+                                ],
                               ),
                             ),
                           ),

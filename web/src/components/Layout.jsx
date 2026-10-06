@@ -17,6 +17,11 @@ import {
 } from "lucide-react";
 import api, { readSessionToken, readRefreshToken, clearSession } from "../api.js";
 import ConfirmDialog from "./ConfirmDialog.jsx";
+import { useLiveStream } from "../hooks/useLiveStream.js";
+import { useOrderNotifications } from "../hooks/useOrderNotifications.js";
+import { useRfidEvents } from "../hooks/useRfidEvents.js";
+import { useOrderSound } from "../hooks/useOrderSound.js";
+import NotificationBell from "./NotificationBell.jsx";
 
 const NAV_GROUPS = [
   {
@@ -48,6 +53,16 @@ const NAV_GROUPS = [
 export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
+
+  // One SSE connection for the whole app, mounted in the shell so live order
+  // notifications work from every screen - not just the Dashboard.
+  useLiveStream();
+  const { play: playOrderSound } = useOrderSound();
+  useOrderNotifications({ playSound: playOrderSound });
+
+  // Card registrations happen on a phone at the cart, so the dashboard is where
+  // the owner needs to see them land.
+  useRfidEvents();
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem("cartiq_sidebar_collapsed") === "1"
   );
@@ -192,6 +207,7 @@ export default function Layout() {
           </div>
           
           <div className="user-chip">
+            <NotificationBell />
             <button
               className="ghost icon-only theme-toggle"
               title={dark ? "Switch to light mode" : "Switch to dark mode"}

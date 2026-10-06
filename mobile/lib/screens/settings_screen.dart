@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../services/offline_pin.dart';
+import '../services/rfid_registration.dart';
 import '../services/sync_service.dart';
 import '../config.dart';
 import '../state/theme_controller.dart';
@@ -14,6 +15,7 @@ import '../utils/manila_time.dart';
 import '../utils/pin_setup.dart';
 import '../widgets/pin_pad.dart';
 import '../widgets/app_badge.dart';
+import '../widgets/rfid_claim_dialog.dart';
 import '../widgets/app_dialog.dart';
 import '../widgets/section_header.dart';
 
@@ -105,6 +107,118 @@ class SettingsScreenState extends State<SettingsScreen> {
       ),
     );
     return result;
+  }
+
+  /// Clock in or out by tapping the card on the cart reader.
+///
+/// The dialog is the same one card enrolment uses; only the requested shift
+/// differs. The toast reports what the server actually wrote, so it can never
+/// say "Time in" for a shift the log does not have.
+Future<void> _clockFlow(AuthState auth, String event) async {
+  if (auth.offlineMode || auth.token == null) {
+    AppMessenger.showGlassToast(
+      context: context,
+      message: 'Needs internet to clock in or out.',
+      isSuccess: false,
+    );
+    return;
+  }
+  final isIn = event == 'IN';
+  final result = await RfidClaimDialog.show(
+    context,
+    token: auth.token!,
+    registration: auth.rfidRegistration,
+    event: event,
+    title: isIn ? 'Tap to time in' : 'Tap to time out',
+    message: isIn
+        ? 'Tap your staff card on the reader to start your shift.'
+        : 'Tap your staff card on the reader to end your shift.',
+  );
+  if (!mounted || result == null) return;
+  final ok = result is RfidBound;
+  await Haptics.success();
+  if (!mounted) return;
+  AppMessenger.showGlassToast(
+    context: context,
+    message: RfidRegistrationService.describe(result, event: event),
+    isSuccess: ok,
+  );
+}
+
+
+  /// RFID card management, and the permanent way back in for anyone who skipped
+  /// the post-login prompt.
+  ///
+  /// A registered card can be replaced (lost card) or removed (borrowed or
+  /// handed back). Both need the server, so offline is refused up front rather
+  /// than after a long wait.
+  Future<void> _rfidFlow(AuthState auth) async {
+    if (auth.offlineMode || auth.token == null) {
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Needs internet to change your card.',
+        isSuccess: false,
+      );
+      return;
+    }
+
+    if (auth.hasRfidCard) {
+      final action = await showAppChoices(
+        context,
+        title: 'RFID card',
+        message: 'Card ${auth.rfidUid} is registered to this account.',
+        choices: const [
+          AppChoice(value: 'replace', label: 'Tap a different card'),
+          AppChoice(
+            value: 'remove',
+            label: 'Remove this card',
+            danger: true,
+          ),
+        ],
+      );
+      if (!mounted || action == null) return;
+
+      if (action == 'remove') {
+        final confirmed = await showAppConfirm(
+          context,
+          title: 'Remove this card?',
+          message:
+              'You will have to type your username to clock in and out until you register a new card.',
+          confirmLabel: 'Remove',
+          danger: true,
+        );
+        if (!confirmed || !mounted) return;
+        final removed = await auth.unbindRfid();
+        if (!mounted) return;
+        await reload();
+        if (!mounted) return;
+        AppMessenger.showGlassToast(
+          context: context,
+          message: RfidRegistrationService.describe(removed),
+          isSuccess: removed is RfidUnbound,
+        );
+        return;
+      }
+    }
+
+    final result = await RfidClaimDialog.show(
+      context,
+      token: auth.token!,
+      registration: auth.rfidRegistration,
+      title: auth.hasRfidCard ? 'Tap your new card' : 'Tap your RFID card',
+      message: auth.hasRfidCard
+          ? 'Card ${auth.rfidUid} will be replaced by whichever card you tap next.'
+          : null,
+    );
+    if (!mounted) return;
+    await reload();
+    if (!mounted) return;
+    if (result == null) return;
+    AppMessenger.showGlassToast(
+      context: context,
+      message: RfidRegistrationService.describe(result),
+      isSuccess: result is RfidBound,
+    );
   }
 
   Future<void> _setupPinFlow(AuthState auth) async {
@@ -437,6 +551,30 @@ class SettingsScreenState extends State<SettingsScreen> {
               color: Colors.transparent,
               child: Column(
                 children: [
+                  _PremiumTile(
+                    icon: Icons.contactless_outlined,
+                    iconColor: auth.hasRfidCard ? AppColors.ok : AppColors.info,
+                    title: auth.hasRfidCard ? 'RFID card' : 'Register RFID card',
+                    subtitle: auth.hasRfidCard
+                        ? auth.rfidUid
+                        : 'Tap a card on the cart reader',
+                    trailing: auth.hasRfidCard
+                        ? const AppBadge(
+                            label: 'Registered',
+                            variant: AppBadgeVariant.ok,
+                          )
+                        : null,
+                    onTap: () => _rfidFlow(auth),
+                  ),
+                  // Time in / out, only once a card exists: without one there
+                  // is nothing for the reader to identify.
+                  if (auth.hasRfidCard) ...[
+                    _TimeRow(
+                      auth: auth,
+                      onPressed: (event) => _clockFlow(auth, event),
+                    ),
+                    const SizedBox(height: AppSpacing.space2),
+                  ],
                   _PremiumTile(
                     icon: Icons.password_outlined,
                     iconColor: AppColors.info,
@@ -1162,6 +1300,55 @@ class _SyncSection extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+/// The Time in / Time out pair. Sits directly under the card tile because the
+/// two are one task: register once, then clock in every day.
+class _TimeRow extends StatelessWidget {
+  const _TimeRow({required this.auth, required this.onPressed});
+
+  final AuthState auth;
+  final void Function(String event) onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.space4,
+        AppSpacing.space3,
+        AppSpacing.space4,
+        AppSpacing.space3,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(0, 48),
+                backgroundColor: AppColors.ok,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => onPressed('IN'),
+              icon: const Icon(Icons.login_rounded, size: 18),
+              label: const Text('Time in'),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.space2),
+          Expanded(
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(0, 48),
+                foregroundColor: AppColors.danger,
+                side: const BorderSide(color: AppColors.danger),
+              ),
+              onPressed: () => onPressed('OUT'),
+              icon: const Icon(Icons.logout_rounded, size: 18),
+              label: const Text('Time out'),
+            ),
+          ),
+        ],
       ),
     );
   }

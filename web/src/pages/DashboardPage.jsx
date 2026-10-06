@@ -20,15 +20,14 @@ import {
   X,
 } from "lucide-react";
 
-import api, { API_BASE } from "../api.js";
+import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import SensorPanel from "../components/SensorPanel.jsx";
 import Select from "../components/Select.jsx";
-import { useToast } from "../components/Toast.jsx";
-import { useSSE } from "../hooks/useSSE.js";
+import { useLiveEvent, useLiveStatus } from "../hooks/useLiveStream.js";
 
 function statusClass(s) {
   if (s === "critical") return "critical";
@@ -62,7 +61,6 @@ function getLocalToday() {
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const toast = useToast();
   const { user } = useOutletContext();
   const firstName = user?.name ? user.name.split(" ")[0] : "there";
 
@@ -97,15 +95,6 @@ export default function DashboardPage() {
 
   useEffect(() => {
     api.get("/catalog", { cacheTtl: 60000 }).then(({ data }) => setLocations(data.locations)).catch(() => {});
-  }, []);
-
-  const getStreamTicket = useCallback(async () => {
-    try {
-      const { data } = await api.post("/events/ticket", {});
-      return data?.ticket ?? null;
-    } catch {
-      return null;
-    }
   }, []);
 
   const refresh = useCallback(async () => {
@@ -152,35 +141,34 @@ export default function DashboardPage() {
     return () => { clearTimeout(timer); clearInterval(t); };
   }, [refresh]);
 
-  useSSE(`${API_BASE}/events`, {
-    getTicket: getStreamTicket,
-    onStatus: setSseStatus,
-    onEvent: (event, data) => {
-      const isViewingLive = !dateFilter || dateFilter === getLocalToday();
-      if (!isViewingLive) return;
+  useLiveStatus(setSseStatus);
 
-      if (event === "order:new") {
-        if (cartFilter && data.locationCode && data.locationCode !== cartFilter) return;
-        setReport((r) =>
-          r
-            ? {
-                ...r,
-                total_sales: (r.total_sales ?? 0) + (data.total ?? 0),
-                orders: (r.orders ?? 0) + 1,
-              }
-            : r
-        );
-        setLivePulse((n) => n + 1);
-        toast(`New order: P${(data.total ?? 0).toFixed(0)} @ ${data.locationCode ?? " "}`, "success");
-      } else if (event === "alert:new") {
-        if (cartFilter && data.locationCode && data.locationCode !== cartFilter) return;
-        setAlerts((a) => [
-          { id: data.id, type: data.type, message: data.message },
-          ...(Array.isArray(a) ? a : []),
-        ].slice(0, 5));
-        toast(`Alert: ${data.message}`, "warn");
-      }
-    },
+  // Live events come from the app-wide connection in Layout, so this page
+  // only reacts to the ones it renders. Toasts live in the shell (see
+  // useOrderNotifications) so a sale is announced from every screen.
+  useLiveEvent("order:new", (data) => {
+    // KPI counters only make sense for the live period.
+    if (dateFilter && dateFilter !== getLocalToday()) return;
+    if (cartFilter && data?.locationCode && data.locationCode !== cartFilter) return;
+    setReport((r) =>
+      r
+        ? {
+            ...r,
+            total_sales: (r.total_sales ?? 0) + (data?.total ?? 0),
+            orders: (r.orders ?? 0) + 1,
+          }
+        : r
+    );
+    setLivePulse((n) => n + 1);
+  });
+
+  useLiveEvent("alert:new", (data) => {
+    setAlerts((a) =>
+      [
+        { id: data?.id, type: data?.type, message: data?.message },
+        ...(Array.isArray(a) ? a : []),
+      ].slice(0, 5)
+    );
   });
 
   const safeInventory = Array.isArray(inventory) ? inventory : [];

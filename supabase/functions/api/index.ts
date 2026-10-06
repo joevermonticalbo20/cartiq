@@ -688,6 +688,185 @@ async function allocNumericId(model) {
 }
 
 // ---------- auth helpers (mirror api/src/routes/auth.js + middleware/auth.js) ----------
+// ============================================================================
+// RFID tag rules - mirrors api/src/services/rfid.js and rfid_claims.js.
+// Keep both paths in sync: the POS app talks to whichever API is deployed.
+// ============================================================================
+
+/**
+ * Normalize a tag UID to the single stored form.
+ *
+ * Not cosmetic: POST /shifts matches a tapped tag against users.rfidUid with
+ * exact string equality, and the firmware emits zero-padded UPPERCASE hex. A uid
+ * stored as "04a2b3c4" would never match a tap of "04A2B3C4", so the card would
+ * silently degrade into an UNKNOWN_CARD alert instead of a shift.
+ */
+function normalizeRfidUid(value) {
+  return String(value ?? "")
+    .replace(/[:\s-]/g, "")
+    .toUpperCase();
+}
+
+const RFID_UID_RE = /^[0-9A-F]{8,20}$/;
+
+function validRfidUid(value) {
+  return RFID_UID_RE.test(normalizeRfidUid(value));
+}
+
+/** Trim + validate, or null when the input is not a usable tag UID. */
+function cleanRfidUid(value) {
+  const v = normalizeRfidUid(value);
+  return validRfidUid(v) ? v : null;
+}
+
+const CLAIM_PENDING = "pending";
+const CLAIM_BOUND = "bound";
+const CLAIM_CONFLICT = "conflict";
+const CLAIM_EXPIRED = "expired";
+
+const RFID_CLAIM_TTL_MS = 90 * 1000;
+const RFID_CLAIM_MAX = 200;
+
+// Claims live in Firestore, not in module memory.
+//
+// The Express API keeps claims in a Map, but Edge isolates share no memory: a
+// claim opened on one isolate and a tap arriving on another would never meet,
+// and the registration would just silently time out. Firestore is the only
+// state both sides can see. The cost is a few reads per tap, which is
+// negligible next to the stream's own polling.
+const CLAIM_COLLECTION = "rfidClaims";
+const LIVE_EVENTS_COLLECTION = "liveEvents";
+
+function claimExpiry(rec) {
+  const v = rec?.exp;
+  if (v instanceof Date) return v.getTime();
+  if (typeof v === "number") return v;
+  if (typeof v === "string") return Date.parse(v) || 0;
+  return 0;
+}
+
+function claimIsPending(rec, now = Date.now()) {
+  return !!rec && rec.status === CLAIM_PENDING && claimExpiry(rec) > now;
+}
+
+/**
+ * Only one claim per cart can be live, so a newer prompt evicts an older one.
+ * Without this, two people prompting on the same cart leave two claims and a tap
+ * resolves against whichever was found first - registering the wrong card.
+ */
+async function openClaim({ userId, locationId, locationCode, event }) {
+  const claimId = crypto.randomUUID().replace(/-/g, "");
+  const now = Date.now();
+
+  // Evict this user's other live claims and any live claim on the same cart.
+  const byLocation = await fsQueryEqual(CLAIM_COLLECTION, "locationId", locationId, RFID_CLAIM_MAX)
+    .catch(() => []);
+  const writes = [];
+  for (const rec of byLocation) {
+    if (claimIsPending(rec, now)) {
+      writes.push(updateWrite(CLAIM_COLLECTION, rec.claimId ?? rec._name, { status: CLAIM_EXPIRED }, null));
+    }
+  }
+  const mine = await fsQueryEqual(CLAIM_COLLECTION, "userId", userId, RFID_CLAIM_MAX)
+    .catch(() => []);
+  for (const rec of mine) {
+    if (claimIsPending(rec, now)) {
+      writes.push(updateWrite(CLAIM_COLLECTION, rec.claimId ?? rec._name, { status: CLAIM_EXPIRED }, null));
+    }
+  }
+
+  const rec = {
+    claimId,
+    userId,
+    locationId,
+    locationCode,
+    event: event ?? null,
+    resolvedEvent: null,
+    status: CLAIM_PENDING,
+    rfidUid: null,
+    holderName: null,
+    exp: new Date(now + RFID_CLAIM_TTL_MS),
+    createdAt: new Date(now),
+  };
+  writes.push(createWrite(CLAIM_COLLECTION, claimId, rec));
+  await fsCommit(writes);
+  return rec;
+}
+
+async function getClaim(claimId) {
+  if (!claimId) return null;
+  const rec = await fsGet(CLAIM_COLLECTION, claimId).catch(() => null);
+  return rec ? { ...rec, claimId } : null;
+}
+
+async function resolveClaim(claimId, status, rfidUid, holderName, event) {
+  const rec = await getClaim(claimId);
+  if (!rec || rec.status !== CLAIM_PENDING) return null;
+  await fsPatch(CLAIM_COLLECTION, claimId, {
+    status,
+    rfidUid: rfidUid ?? null,
+    holderName: holderName ?? null,
+    resolvedEvent: event ?? null,
+  });
+  return { ...rec, status, rfidUid, holderName, resolvedEvent: event };
+}
+
+async function findActiveClaimForLocation(locationId) {
+  const recs = await fsQueryEqual(CLAIM_COLLECTION, "locationId", locationId, RFID_CLAIM_MAX)
+    .catch(() => []);
+  const now = Date.now();
+  let best = null;
+  for (const rec of recs) {
+    if (!claimIsPending(rec, now)) continue;
+    // Newest wins if somehow more than one survived.
+    if (!best || claimExpiry(rec) > claimExpiry(best)) best = rec;
+  }
+  return best;
+}
+
+function claimView(claim, now = Date.now()) {
+  if (!claim) return null;
+  const expired = claimExpiry(claim) <= now;
+  const status =
+    expired && claim.status === CLAIM_PENDING ? CLAIM_EXPIRED : claim.status;
+  return {
+    claimId: claim.claimId,
+    status,
+    rfidUid: claim.rfidUid ?? null,
+    holderName: claim.holderName ?? null,
+    locationCode: claim.locationCode,
+    event: claim.event ?? null,
+    resolvedEvent: claim.resolvedEvent ?? null,
+    expiresAt: new Date(claimExpiry(claim)).toISOString(),
+  };
+}
+
+/**
+ * Publish a live event for the SSE stream to pick up.
+ *
+ * The Edge function has no in-process broadcaster (isolates share no memory),
+ * so the stream polls this collection like it already polls orders and alerts.
+ * One write per event, only on real RFID activity - not on the stream path, so
+ * it does not add to the polling cost.
+ */
+async function broadcastEvent(event, data) {
+  try {
+    const counters = await readCounters(["liveEvents"]);
+    const { ids } = counterWritesFor(counters, { liveEvents: 1 });
+    await fsCommit([
+      createWrite(LIVE_EVENTS_COLLECTION, ids.liveEvents[0], {
+        id: ids.liveEvents[0],
+        event,
+        payload: JSON.stringify(data),
+        createdAt: new Date(),
+      }),
+    ]);
+  } catch {
+    // A missed live event must never fail the request that caused it: the
+    // binding is already durable in Firestore and the web refetches on reload.
+  }
+}
+
 async function publicUser(user) {
   let location = null;
   if (user.locationId !== null && user.locationId !== undefined) {
@@ -700,6 +879,9 @@ async function publicUser(user) {
     username: user.username,
     role: user.role,
     email: user.email ?? null,
+    // Normalized on read so a row stored before the normalization fix still
+    // matches a tap. Clients use this to decide whether to prompt for a card.
+    rfidUid: user.rfidUid ? normalizeRfidUid(user.rfidUid) : null,
     location,
   };
 }
@@ -830,7 +1012,10 @@ async function handleCatalog(req, origin) {
   ]);
   const byName = (a, b) => String(a.name || "").localeCompare(String(b.name || ""));
   const cleanFlavors = flavors.map(cleanDoc);
+  // Archived products (active === false) stay out of the POS catalog but keep
+  // their history. Pre-archive docs have no field and count as active.
   const out = products
+    .filter((p) => p.active !== false)
     .sort(byName)
     .map((p) => {
       const ids = new Set(p.flavorIds || []);
@@ -1960,6 +2145,8 @@ function attachFlavors(product, flavors, maps, orders, invNames) {
     name: product.name,
     category: product.category,
     basePrice: product.basePrice,
+    // Missing on pre-archive docs means active (backwards compatible).
+    active: product.active !== false,
     flavorPrices,
     flavors: linked.map((f) => ({
       id: f.id,
@@ -2104,18 +2291,26 @@ async function handleCreateProduct(req) {
 
 async function handlePatchProduct(req, id) {
   const body = await req.json().catch(() => null);
-  const { category, basePrice, addFlavorIds, removeFlavorIds, flavorPrices, addRecipes, removeRecipes } = body || {};
+  const { category, basePrice, active, addFlavorIds, removeFlavorIds, flavorPrices, addRecipes, removeRecipes } = body || {};
   if (
-    category === undefined && basePrice === undefined &&
+    category === undefined && basePrice === undefined && active === undefined &&
     addFlavorIds === undefined && removeFlavorIds === undefined &&
     flavorPrices === undefined && addRecipes === undefined && removeRecipes === undefined
   ) {
-    return { status: 400, body: { error: "provide category, basePrice, flavorIds, flavorPrices, or recipes" } };
+    return { status: 400, body: { error: "provide category, basePrice, active, flavorIds, flavorPrices, or recipes" } };
   }
   const existing = await fsGet("products", id);
   if (!existing) return { status: 404, body: { error: "Product not found" } };
   const data = {};
   if (category !== undefined) data.category = String(category).slice(0, 60) || "Fries";
+  // Archive switch: active=false hides the product from the POS catalog
+  // but keeps history/reports intact. Restore with active=true.
+  if (active !== undefined) {
+    if (typeof active !== "boolean") {
+      return { status: 400, body: { error: "active must be true or false" } };
+    }
+    data.active = active;
+  }
   if (basePrice !== undefined) {
     const price = validPrice(basePrice);
     if (price === null) {
@@ -2557,6 +2752,77 @@ async function handleIotReadings(req, origin, device) {
   return { status: 201, body: { accepted: outcome.accepted, rejected: outcome.rejected } };
 }
 
+/**
+ * Bind a tapped tag to the user who opened a registration claim.
+ * Mirrors api/src/services/rfid_bind.js.
+ */
+async function bindClaimedTag({ rawUid, locationId }) {
+  const claim = await findActiveClaimForLocation(locationId);
+  if (!claim) return null;
+
+  const rfidUid = normalizeRfidUid(rawUid);
+  if (!rfidUid) return null;
+
+  const users = await fsListAll("users");
+  const holder = users.find((u) => u.rfidUid && normalizeRfidUid(u.rfidUid) === rfidUid) || null;
+
+  if (holder && Number(holder.id) !== Number(claim.userId)) {
+    // Never silently move another person's card. Say who holds it instead: the
+    // person at the cart needs to know they grabbed the wrong card.
+    await resolveClaim(claim.claimId, CLAIM_CONFLICT, rfidUid, holder.name);
+    await broadcastEvent("rfid:conflict", {
+      rfidUid,
+      locationCode: claim.locationCode,
+      holderName: holder.name,
+      claimedBy: claim.userId,
+    });
+    return { outcome: "conflict", rfidUid, holderName: holder.name };
+  }
+
+  let target = holder;
+  if (!target) {
+    target = users.find((u) => Number(u.id) === Number(claim.userId)) || null;
+    if (!target) {
+      await resolveClaim(claim.claimId, CLAIM_CONFLICT, rfidUid);
+      return { outcome: "error", message: "Account not found" };
+    }
+  }
+
+  // Re-registering replaces the old card rather than failing, so a staff member
+  // who lost a tag can enrol a new one. Report the swap: the previous UID stops
+  // working immediately, so the UI has to be able to say which one was replaced.
+  const previousUid = target.rfidUid ? normalizeRfidUid(target.rfidUid) : null;
+  const replacedExisting = !holder && !!previousUid && previousUid !== rfidUid;
+
+  if (!holder) {
+    await fsCommit([updateWrite("users", target.id, { rfidUid }, null)]);
+  }
+  await resolveClaim(claim.claimId, CLAIM_BOUND, rfidUid, null, claim.event);
+  await broadcastEvent("rfid:bound", {
+    userId: target.id,
+    name: target.name,
+    username: target.username,
+    rfidUid,
+    previousRfidUid: replacedExisting ? previousUid : null,
+    locationCode: claim.locationCode,
+    replacedExisting,
+  });
+  return {
+    outcome: "bound",
+    rfidUid,
+    previousRfidUid: replacedExisting ? previousUid : null,
+    replacedExisting,
+    userId: target.id,
+    name: target.name,
+    username: target.username,
+    locationCode: claim.locationCode,
+    // Handed back so the tap route can override the firmware's toggle and tell
+    // the app which shift was actually written.
+    claimId: claim.claimId,
+    desiredEvent: claim.event ?? null,
+  };
+}
+
 async function handleDeviceShifts(req, origin, device) {
   const body = await req.json().catch(() => null);
   const rows = asArray(body, "events");
@@ -2571,21 +2837,49 @@ async function handleDeviceShifts(req, origin, device) {
     return { status: 400, body: { error: `cart_id "${body.cart_id}" does not match device location "${location.code}"` } };
   }
 
+  // A tap is the only moment a card is physically present, so this is where a
+  // pending self-service registration is completed, and where an app-requested
+  // Time In / Time Out is honoured. Runs BEFORE the batch so the user lookup
+  // below already sees the freshly bound tag.
+  const registrations = [];
+  for (const e of rows) {
+    const uid = String(e?.staff_uid ?? "").trim();
+    if (!uid) continue;
+    const bound = await bindClaimedTag({ rawUid: uid, locationId: location.id });
+    if (!bound) continue;
+    registrations.push(bound);
+    // The person pressed Time in / Time out in the app, so the shift must
+    // record THAT. The firmware only knows how to toggle, and toggling would
+    // silently log someone OUT when they meant to clock IN.
+    if (bound.outcome === "bound" && bound.desiredEvent) {
+      e.event = bound.desiredEvent;
+    }
+  }
+
   const outcome = await withRetry(async () => {
     const accepted = [];
     const rejected = [];
     const [users, unknownAlerts] = await Promise.all([
       fsListAll("users"),
-      fsQueryEqual("alerts", "type", "UNKNOWN_CARD", 10000),
+      // Only recent unread UNKNOWN_CARD alerts matter for the dedupe check below.
+      // A limit of 10000 read every one of them on EVERY tap batch - with a few
+      // hundred stale alerts that alone could burn thousands of reads per tap.
+      fsQueryEqual("alerts", "type", "UNKNOWN_CARD", 50),
     ]);
     const unreadAlerts = unknownAlerts.filter((a) => a.isRead === false);
-    const byUid = new Map(users.filter((u) => u.rfidUid).map((u) => [u.rfidUid, u]));
+    // Both sides of the comparison are normalized. A row stored before the
+    // normalization fix (lowercase, or separators a human pasted in) would
+    // otherwise never match a tap and the card would become an UNKNOWN_CARD
+    // alert forever.
+    const byUid = new Map(
+      users.filter((u) => u.rfidUid).map((u) => [normalizeRfidUid(u.rfidUid), u]),
+    );
 
     const plans = [];
     const createdNeedles = new Set();
     const newAlerts = [];
     for (const e of rows) {
-      const uid = String(e.staff_uid ?? "").trim();
+      const uid = normalizeRfidUid(e.staff_uid);
       const event = String(e.event ?? "").toUpperCase();
       if (!uid || uid.length > 64 || !SHIFT_EVENTS.includes(event)) {
         rejected.push({ staff_uid: uid || null, reason: "invalid uid or event" });
@@ -2653,7 +2947,27 @@ async function handleDeviceShifts(req, origin, device) {
     return { accepted, rejected };
   }, 4);
 
-  return { status: 201, body: { accepted: outcome.accepted, rejected: outcome.rejected } };
+  // The batch is committed now, so tell each claim what was ACTUALLY written.
+  // The app toasts from this rather than from what was requested: a tap can
+  // still be rejected, and the person must be told the truth.
+  for (const reg of registrations) {
+    if (reg.outcome !== "bound" || !reg.claimId) continue;
+    const written = outcome.accepted.find(
+      (a) => normalizeRfidUid(a.staff_uid) === reg.rfidUid && a.matched,
+    );
+    await resolveClaim(reg.claimId, CLAIM_BOUND, reg.rfidUid, null, written?.event ?? null);
+  }
+
+  return {
+    status: 201,
+    body: {
+      accepted: outcome.accepted,
+      rejected: outcome.rejected,
+      // Tell the reader's owner what the tap did: registered a card, refused
+      // one that belongs to someone else, or nothing was pending.
+      registrations,
+    },
+  };
 }
 
 async function handleManualShift(req) {
@@ -4881,8 +5195,16 @@ async function handleCreateStaff(req) {
     if (!loc) return { status: 404, body: { error: "Location not found" } };
     locationId = loc.id;
   }
-  if (rfidUid) {
-    if (await fsQueryEqual("users", "rfidUid", rfidUid, 1).then((r) => r[0])) {
+  // Normalize to the form the reader emits (zero-padded uppercase hex) so a
+  // later tap matches. An unparseable uid is rejected outright rather than
+  // stored, otherwise it would read as registered and never match a tap.
+  let cleanRfid = null;
+  if (rfidUid !== undefined && rfidUid !== null && String(rfidUid).trim() !== "") {
+    cleanRfid = cleanRfidUid(rfidUid);
+    if (!cleanRfid) {
+      return { status: 400, body: { error: "rfidUid must be 4-10 bytes of hex, e.g. 04A2B3C4" } };
+    }
+    if (await fsQueryEqual("users", "rfidUid", cleanRfid, 1).then((r) => r[0])) {
       return { status: 409, body: { error: "RFID UID already registered" } };
     }
   }
@@ -4898,7 +5220,7 @@ async function handleCreateStaff(req) {
       role: "STAFF",
       active: true,
       locationId,
-      rfidUid: rfidUid ?? null,
+      rfidUid: cleanRfid,
       email: cleanEmail,
       createdAt: new Date(),
     };
@@ -4942,14 +5264,24 @@ async function handlePatchStaff(req, id, me) {
     }
   }
   if (rfidUid !== undefined) {
-    if (rfidUid === null || rfidUid === "") {
+    if (rfidUid === null || String(rfidUid).trim() === "") {
       data.rfidUid = null;
     } else {
+      const cleanRfid = cleanRfidUid(rfidUid);
+      if (!cleanRfid) {
+        return { status: 400, body: { error: "rfidUid must be 4-10 bytes of hex, e.g. 04A2B3C4" } };
+      }
       const all = await fsListAll("users");
-      if (all.some((u) => u.rfidUid === rfidUid && Number(u.id) !== Number(user.id))) {
+      // Compare normalized so a legacy lowercase row is still recognised as a
+      // collision instead of letting two accounts end up sharing a card.
+      if (
+        all.some(
+          (u) => u.rfidUid && normalizeRfidUid(u.rfidUid) === cleanRfid && Number(u.id) !== Number(user.id),
+        )
+      ) {
         return { status: 409, body: { error: "RFID UID already registered" } };
       }
-      data.rfidUid = rfidUid;
+      data.rfidUid = cleanRfid;
     }
   }
   if (email !== undefined) {
@@ -4981,14 +5313,101 @@ async function handlePatchStaff(req, id, me) {
   };
 }
 
+// ---------- RFID self-service (mirrors api/src/routes/auth.js) ----------
+// The reader (ESP32 + MFRC522) only reports a tag UID; it does not know who is
+// holding the card. So the app, which knows the signed-in user, opens a claim on
+// its cart first, and the next tap on that cart's reader resolves it. These
+// routes are for the account owner; reassigning somebody else's tag stays on
+// PATCH /auth/staff/:id.
+
+async function handleMyRfid(req, origin, user) {
+  return jsonRes(origin, {
+    rfidUid: user.rfidUid ? normalizeRfidUid(user.rfidUid) : null,
+  });
+}
+
+async function handleMyRfidUnbind(req, origin, user) {
+  const previous = user.rfidUid ? normalizeRfidUid(user.rfidUid) : null;
+  if (!previous) return jsonRes(origin, { rfidUid: null, removed: false });
+  await fsPatch("users", user.id, { rfidUid: null });
+  await broadcastEvent("rfid:unbound", {
+    userId: user.id,
+    name: user.name,
+    username: user.username,
+    rfidUid: previous,
+  });
+  return jsonRes(origin, { rfidUid: null, removed: true });
+}
+
+async function handleRfidClaimOpen(req, origin, user) {
+  const body = await req.json().catch(() => null);
+  const { locationCode, event } = body || {};
+
+  // null = enrolling a card only. IN/OUT = the person is clocking on or off,
+  // and the tap must record that instead of the firmware's blind toggle.
+  let cleanEvent = null;
+  if (event !== undefined && event !== null && String(event).trim() !== "") {
+    cleanEvent = String(event).trim().toUpperCase();
+    if (!["IN", "OUT"].includes(cleanEvent)) {
+      return jsonRes(origin, { error: 'event must be "IN" or "OUT"' }, 400);
+    }
+  }
+
+  let location = null;
+  if (locationCode !== undefined && locationCode !== null && String(locationCode).trim() !== "") {
+    const code = String(locationCode).trim().toUpperCase();
+    location = await fsQueryEqual("locations", "code", code, 1).then((r) => r[0] || null).catch(() => null);
+    if (!location) return jsonRes(origin, { error: "Location not found" }, 404);
+    // A staff member may only claim on their own cart: otherwise any account
+    // could aim a registration at a cart it has no shift access to.
+    if (user.role !== "OWNER" && Number(user.locationId) !== Number(location.id)) {
+      return jsonRes(origin, { error: "Forbidden: you can only register on your own cart" }, 403);
+    }
+  } else if (user.locationId !== null && user.locationId !== undefined) {
+    location = await fsGet("locations", user.locationId).catch(() => null);
+  }
+  if (!location) {
+    return jsonRes(origin, { error: "locationCode is required - you are not assigned to a cart" }, 400);
+  }
+
+  const claim = await openClaim({
+    userId: user.id,
+    locationId: location.id,
+    locationCode: location.code,
+    event: cleanEvent,
+  });
+  return jsonRes(origin, { claim: claimView(claim) }, 201);
+}
+
+async function handleRfidClaimStatus(req, origin, user, path) {
+  const claimId = decodeURIComponent(path.slice("/auth/my-rfid/claim/".length));
+  const claim = await getClaim(claimId);
+  // Unknown and someone-else's claim are answered identically so a claim id
+  // cannot be used to probe for other users' registrations.
+  if (!claim || Number(claim.userId) !== Number(user.id)) {
+    return jsonRes(origin, { error: "Claim not found" }, 404);
+  }
+  return jsonRes(origin, { claim: claimView(claim) });
+}
+
 // ---------- events: ticket + poll stream (mirror api/src/routes/events.js) ----------
 // The Express version broadcasts in-process (single Render instance). Edge
 // isolates share no memory, so each stream polls Firestore for new orders /
 // alerts and emits them. The web client already auto-reconnects with backoff
 // and refetches a fresh ticket per (re)connect — no client change needed.
 const TICKET_TTL_MS = 60 * 1000;
+// Read budget. Firestore bills one read per document returned, so this poll is
+// the single biggest consumer on the free tier: at 5s with 25 docs per
+// collection it cost ~36,000 reads per hour PER CONNECTED TAB, which exhausts
+// the 50,000/day allowance in well under two hours of watching the dashboard.
+//
+// 15s with 5 docs per collection is ~2,400 reads/hour - about 15x cheaper. The
+// client already reconnects with backoff and the UI treats the stream as a
+// "something happened" hint that triggers a refetch, so a few seconds of extra
+// latency costs nothing visible.
 const STREAM_MAX_MS = 50 * 1000;
-const STREAM_POLL_MS = 5000;
+const STREAM_POLL_MS = 15000;
+const STREAM_PAGE = 5;
 
 function randomHexToken(n) {
   const b = new Uint8Array(n);
@@ -5059,13 +5478,16 @@ async function handleEventStream(req, origin, inUrl) {
   const idDesc = [{ field: "id", dir: "DESCENDING" }];
   let lastOrderId = 0;
   let lastAlertId = 0;
+  let lastLiveId = 0;
   try {
-    const [orders, alerts] = await Promise.all([
+    const [orders, alerts, live] = await Promise.all([
       fsRunQuery("orders", { orderBy: idDesc, limit: 1 }),
       fsRunQuery("alerts", { orderBy: idDesc, limit: 1 }),
+      fsRunQuery(LIVE_EVENTS_COLLECTION, { orderBy: idDesc, limit: 1 }).catch(() => []),
     ]);
     if (orders[0] && Number.isInteger(Number(orders[0].id))) lastOrderId = Number(orders[0].id);
     if (alerts[0] && Number.isInteger(Number(alerts[0].id))) lastAlertId = Number(alerts[0].id);
+    if (live[0] && Number.isInteger(Number(live[0].id))) lastLiveId = Number(live[0].id);
   } catch { /* start from zero */ }
 
   const enc = new TextEncoder();
@@ -5089,8 +5511,8 @@ async function handleEventStream(req, origin, inUrl) {
         }
         try {
           const [orders, alerts] = await Promise.all([
-            fsRunQuery("orders", { orderBy: idDesc, limit: 25 }),
-            fsRunQuery("alerts", { orderBy: idDesc, limit: 25 }),
+            fsRunQuery("orders", { orderBy: idDesc, limit: STREAM_PAGE }),
+            fsRunQuery("alerts", { orderBy: idDesc, limit: STREAM_PAGE }),
           ]);
           const freshOrders = orders
             .filter((o) => Number.isInteger(Number(o.id)) && Number(o.id) > lastOrderId)
@@ -5113,6 +5535,20 @@ async function handleEventStream(req, origin, inUrl) {
           for (const a of freshAlerts) {
             lastAlertId = Math.max(lastAlertId, Number(a.id));
             send(sseEncode("alert:new", { id: a.id, type: a.type, message: a.message }));
+          }
+          // RFID bindings are published to liveEvents (the Edge function has no
+          // in-process broadcaster) and re-emitted here so the dashboard shows
+          // a card being registered without waiting for a page reload.
+          const live = await fsRunQuery(LIVE_EVENTS_COLLECTION, { orderBy: idDesc, limit: STREAM_PAGE })
+            .catch(() => []);
+          const freshLive = live
+            .filter((e) => Number.isInteger(Number(e.id)) && Number(e.id) > lastLiveId)
+            .sort((a, b) => Number(a.id) - Number(b.id));
+          for (const e of freshLive) {
+            lastLiveId = Math.max(lastLiveId, Number(e.id));
+            let parsed = {};
+            try { parsed = JSON.parse(e.payload ?? "{}"); } catch { /* keep the frame minimal */ }
+            send(sseEncode(e.event || "rfid:update", { id: e.id, ...parsed }));
           }
         } catch { /* transient - keep stream alive */ }
         if (!closed) {
@@ -5194,6 +5630,23 @@ Deno.serve(async (req) => {
       if (req.method === "POST" && path === "/auth/reset-password") return await handleResetPassword(req, origin);
       if (req.method === "POST" && path === "/auth/verify-reset-code") return await handleVerifyResetCode(req, origin);
       if (req.method === "GET" && path === "/auth/me") return await handleMe(req, origin);
+      // --- RFID self-service (mirrors api/src/routes/auth.js) ---
+      if (path.startsWith("/auth/my-rfid")) {
+        const auth = await authUser(req);
+        if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
+        if (req.method === "GET" && path === "/auth/my-rfid") {
+          return await handleMyRfid(req, origin, auth.user);
+        }
+        if (req.method === "POST" && path === "/auth/my-rfid/claim") {
+          return await handleRfidClaimOpen(req, origin, auth.user);
+        }
+        if (req.method === "GET" && path.startsWith("/auth/my-rfid/claim/")) {
+          return await handleRfidClaimStatus(req, origin, auth.user, path);
+        }
+        if (req.method === "DELETE" && path === "/auth/my-rfid") {
+          return await handleMyRfidUnbind(req, origin, auth.user);
+        }
+      }
       if (req.method === "GET" && path === "/secure-ping") {
         const auth = await authUser(req);
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);

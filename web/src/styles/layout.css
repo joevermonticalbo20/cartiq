@@ -160,6 +160,191 @@
 
 .user-chip button.icon-only:hover { background: var(--surface-alt); }
 
+/* Unread-order bell: relative so the count bubble can sit on the icon. */
+.user-chip button.notif-btn { position: relative; }
+
+.notif-wrap { position: relative; display: inline-flex; }
+
+.notif-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 330px;
+  max-height: 420px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+  z-index: 60;
+  animation: notif-in 0.14s ease-out;
+}
+
+@keyframes notif-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.notif-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+}
+
+.notif-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.notif-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.notif-icon-btn:hover { background: var(--surface-alt); color: var(--text); }
+.notif-icon-btn[aria-pressed="true"] { color: var(--primary); }
+
+.notif-clear {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  cursor: pointer;
+  border-radius: 6px;
+}
+.notif-clear:hover { background: var(--primary-soft); }
+
+.notif-empty {
+  margin: 0;
+  padding: 22px 14px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.notif-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Row is a <button>, so it inherits the global button skin (red fill + glow)
+   from buttons.css. Everything that skin sets must be reset here, otherwise a
+   press paints the whole row solid red. The hover rule below repeats the
+   :not(:disabled) so it outranks `button:hover:not(:disabled)`. */
+.notif-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+  color: var(--text);
+  font-weight: 400;
+  font-size: 13px;
+  cursor: pointer;
+  transform: none;
+}
+
+/* Selectors repeat the .ghost class so they outrank `button.ghost:hover`
+   (0,3,1) and cannot be repainted by the global skin. */
+.notif-item.ghost:hover:not(:disabled),
+.notif-item.ghost:active:not(:disabled) {
+  background: var(--surface-alt);
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+  color: var(--text);
+}
+
+/* Keyboard focus only: a quiet ring, never a fill. */
+.notif-item.ghost:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: -2px;
+  background: var(--surface-alt);
+  box-shadow: none;
+}
+
+.notif-item-icon {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.notif-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.notif-item-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.notif-item-total { font-weight: 700; white-space: nowrap; }
+
+.notif-item-meta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notif-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  border: 2px solid var(--surface);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 .user-profile-wrapper {
   display: flex;
   align-items: center;

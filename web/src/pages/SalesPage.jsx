@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useOutletContext, useSearchParams } from "react-router-dom";
 import { ReceiptText, RefreshCw, X, Download, Edit2 } from "lucide-react";
 
 import api from "../api.js";
@@ -19,9 +19,15 @@ export default function SalesPage() {
   const toast = useToast();
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
+  const [searchParams] = useSearchParams();
 
   const [locations, setLocations] = useState([]);
-  const [loc, setLoc] = useState("");
+
+  // Deep link from the notification bell: /sales?cart=CART-01. Seeded with a
+  // lazy initialiser rather than an effect, so the first render is already
+  // filtered (no flash of unfiltered rows, and no cascading setState). `loc`
+  // stays the single source of truth for the query below.
+  const [loc, setLoc] = useState(() => searchParams.get("cart") ?? "");
   const [date, setDate] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
   const [confirming, setConfirming] = useState(null);

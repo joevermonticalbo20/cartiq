@@ -2,9 +2,11 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_state.dart';
+import '../services/rfid_registration.dart';
 import '../utils/haptics.dart';
 import '../utils/pin_setup.dart';
 import '../widgets/app_dialog.dart';
+import '../widgets/rfid_claim_dialog.dart';
 import '../theme.dart';
 
 import 'home_screen.dart';
@@ -53,7 +55,58 @@ class _RootShellState extends State<RootShell> {
   @override
   void initState() {
     super.initState();
+    // RFID first: clocking in and out needs a card, so it is the more useful of
+    // the two prompts. They are separate callbacks rather than one chain so a
+    // skipped PIN setup cannot suppress the card prompt (and vice versa).
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybePromptRfid());
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybePromptPin());
+  }
+
+  /// Post-login nudge for a staff member with no card on file. Skipping is
+  /// silent by design: Settings > Session always offers it again.
+  Future<void> _maybePromptRfid() async {
+    if (!mounted) return;
+    final auth = context.read<AuthState>();
+    if (!await auth.needsRfidPrompt()) return;
+
+    // Marked as offered before showing, not after: a skip must not nag on every
+    // cold start.
+    await auth.markRfidPromptShown();
+    if (!mounted) return;
+
+    final confirmed = await showAppConfirm(
+      context,
+      title: 'Tap your RFID card',
+      message:
+          'Register a staff card on the reader at this cart so you can clock in and out by tapping.',
+      confirmLabel: 'Tap card',
+    );
+
+    if (!confirmed || !mounted) return;
+    if (auth.token == null) return;
+
+    final result = await RfidClaimDialog.show(
+      context,
+      token: auth.token!,
+      registration: auth.rfidRegistration,
+    );
+    if (!mounted || result == null) return;
+
+    // A success already folded the new UID into auth.user; the others report
+    // why nothing was saved.
+    final isSuccess = result is RfidBound;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            isSuccess
+                ? RfidRegistrationService.describe(result)
+                : '${RfidRegistrationService.describe(result)}'
+                      '   You can retry in Settings.',
+          ),
+        ),
+      );
   }
 
   Future<void> _maybePromptPin() async {

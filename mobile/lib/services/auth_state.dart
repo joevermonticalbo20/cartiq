@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'api_client.dart';
 import 'kv_store.dart';
 import 'offline_pin.dart';
+import 'rfid_registration.dart';
 
 /// Holds the session token and profile for the whole app.
 class AuthState extends ChangeNotifier {
@@ -230,6 +231,23 @@ class AuthState extends ChangeNotifier {
         await storage.delete(key: 'cartiq_pin_prompted');
       } catch (_) {}
     }
+
+    // The RFID prompt is about whether THIS person has a card, so it re-arms
+    // when a different user takes the device over - otherwise whoever skipped
+    // it silently silenced the prompt for the next person to sign in.
+    //
+    // Tracked separately from the PIN on purpose. The PIN check above cannot be
+    // reused: `pinnedUser != currentUser` is also true when pinnedUser is null,
+    // and reusing it deleted the flag on every login (see the comment above).
+    // `cartiq_last_user` is written on every login and survives sign-out, so
+    // `lastUser != null` really does mean "a previous user existed".
+    try {
+      final lastUser = await storage.read(key: 'cartiq_last_user');
+      if (lastUser != null && lastUser != currentUser) {
+        await storage.delete(key: 'cartiq_rfid_prompted');
+      }
+      await storage.write(key: 'cartiq_last_user', value: currentUser);
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -294,5 +312,85 @@ class AuthState extends ChangeNotifier {
     try {
       await storage.write(key: 'cartiq_pin_prompted', value: '1');
     } catch (_) {}
+  }
+
+  // -----------------------------------------------------------------------
+  // RFID card registration
+  //
+  // Staff clock in and out by tapping a card on the cart's reader, so the
+  // account has to be tied to that tag. Registration needs the server (only a
+  // real tap can complete it), so every path here bails out when offline rather
+  // than pretending a card was saved.
+  // -----------------------------------------------------------------------
+
+  /// The card bound to this account, or null. Normalized uppercase hex by the
+  /// server, safe to show directly.
+  String? get rfidUid => user?['rfidUid'] as String?;
+
+  bool get hasRfidCard => (rfidUid ?? '').isNotEmpty;
+
+  /// Post-login nudge for a user with no card. Mirrors [needsPinSetupPrompt]:
+  /// online session only, once per device, and Settings stays available for
+  /// anyone who skips it.
+  ///
+  /// STAFF only. An owner is not assigned to a cart and has to pick one, which
+  /// is a deliberate choice, not a one-tap prompt - they use Settings.
+  Future<bool> needsRfidPrompt() async {
+    if (!isLoggedIn || offlineMode) return false;
+    if ((user?['role'] as String?) != 'STAFF') return false;
+    if (hasRfidCard) return false;
+    // No cart means no reader to tap; prompting would be a dead end.
+    if (locationCode == null) return false;
+    try {
+      if (await storage.read(key: 'cartiq_rfid_prompted') == '1') {
+        return false;
+      }
+    } catch (_) {}
+    return true;
+  }
+
+  Future<void> markRfidPromptShown() async {
+    try {
+      await storage.write(key: 'cartiq_rfid_prompted', value: '1');
+    } catch (_) {}
+  }
+
+  /// Registration service bound to this session's API client, so the dialog and
+  /// Settings share one instance and one base URL.
+  RfidRegistrationService get rfidRegistration =>
+      RfidRegistrationService(apiClient: api);
+
+  /// Run one registration attempt and fold a success back into [user], so the
+  /// rest of the app immediately sees the card without a re-login.
+  Future<RfidClaimResult> registerRfid({String? locationCode}) async {
+    final result = await rfidRegistration.register(
+      token: token ?? '',
+      locationCode: locationCode ?? this.locationCode,
+    );
+    if (result is RfidBound) {
+      user = {...?user, 'rfidUid': result.rfidUid};
+      // Persisted so a cold start after this keeps the card.
+      try {
+        await storage.write(key: 'cartiq_profile', value: jsonEncode(user));
+      } catch (_) {}
+      notifyListeners();
+    }
+    return result;
+  }
+
+  /// Drop this account's card. Offline is refused by the caller: an unbound
+  /// card that silently failed to save would lock staff out of their shift.
+  Future<RfidClaimResult> unbindRfid() async {
+    try {
+      await api.unbindRfid(token ?? '');
+      user = {...?user, 'rfidUid': null};
+      try {
+        await storage.write(key: 'cartiq_profile', value: jsonEncode(user));
+      } catch (_) {}
+      notifyListeners();
+      return const RfidUnbound();
+    } on ApiException catch (e) {
+      return RfidFailed(e.message);
+    }
   }
 }

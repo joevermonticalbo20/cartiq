@@ -17,6 +17,7 @@
 #define RST_PIN         22
 
 // HX711 channels
+#define USE_LOAD_CELLS  0     // 0 = RFID only, 1 = also report LPG/bin weights
 #define LPG_DT_PIN      32
 #define LPG_SCK_PIN     33
 #define BIN_DT_PIN      25
