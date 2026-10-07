@@ -1073,6 +1073,39 @@ function orderRefName(ref) {
   return fsDocBase() + "/orderRefs/" + encodeURIComponent(ref);
 }
 
+// ---------------------------------------------------------------------------
+// LOW_STOCK dedupe is a keyed lookup, not a scan.
+//
+// Reason: dedupe used to be "scan every LOW_STOCK alert ever created, then
+// filter in code" (fsQueryEqual with limit 10000). Alerts are never deleted, so
+// that scan grew without bound and EVERY sale and EVERY IoT reading batch paid
+// for it - the single largest consumer of the 50k/day free-tier read budget.
+//
+// Firestore bills one read per document RETURNED, so a server-side equality
+// query with limit 1 costs exactly one read regardless of how many alerts exist.
+// The alert's numeric id is left alone on purpose: `alerts` is a numeric model
+// and firestore.js/fromDoc coerces the doc name with Number(), so a string doc
+// id would surface as NaN in every alert response and break ack/read.
+// ---------------------------------------------------------------------------
+function lowStockDedupeKey(locationId, inventoryItemId) {
+  return `low:${locationId}:${inventoryItemId}`;
+}
+
+/**
+ * True when an unresolved LOW_STOCK alert already exists for this item.
+ * One read. False means "safe to open a new alert".
+ */
+async function hasOpenLowStockAlert(locationId, inventoryItemId) {
+  const found = await fsQueryEqual(
+    "alerts",
+    "lowStockKey",
+    lowStockDedupeKey(locationId, inventoryItemId),
+    4,
+  ).catch(() => []);
+  // An already-resolved alert does not block: crossing again must re-warn.
+  return found.some((a) => a.isRead === false);
+}
+
 async function handleCreateOrder(req, origin, user) {
   const body = await req.json().catch(() => null);
   const { clientRef, locationCode, locationId, items, paymentMethod } = body || {};
@@ -1136,15 +1169,16 @@ async function handleCreateOrder(req, origin, user) {
       () => null
     );
     if (guard) return { dup: true };
-    const [maps, invRows, lowStock, catalogProducts, orderCounter, alertCounter] = await Promise.all([
+    // No `fsQueryEqual("alerts", "type", "LOW_STOCK", 10000)` here any more: it
+    // read every alert ever created on every sale. Dedupe is now a single fsGet
+    // per item that actually crossed its threshold - see lowStockAlertId.
+    const [maps, invRows, catalogProducts, orderCounter, alertCounter] = await Promise.all([
       fsListAll("ingredientMaps"),
       fsQueryEqual("inventoryItems", "locationId", location.id, 10000),
-      fsQueryEqual("alerts", "type", "LOW_STOCK", 10000),
       fsListAll("products"),
       fsGet("_counters", "orders"),
       fsGet("_counters", "alerts"),
     ]);
-    const unreadAlerts = lowStock.filter((a) => a.isRead === false);
     const invByName = new Map(invRows.map((r) => [r.name, r]));
     const knownProducts = new Set(catalogProducts.map((p) => p.name));
 
@@ -1184,23 +1218,20 @@ async function handleCreateOrder(req, origin, user) {
         const crossed = base > inv.threshold && newStock <= inv.threshold;
         stockWrites.set(inv.id, { inv, newStock });
         if (crossed) {
-          const dedupeKey = `low:${location.id}:${inv.id}`;
-          const dup =
-            createdNeedles.has(dedupeKey) ||
-            unreadAlerts.some((a) => {
-              try {
-                return JSON.parse(a.payload ?? "{}")?.dedupeKey === dedupeKey;
-              } catch {
-                return (a.message ?? "").includes(`${inv.name} @ ${location.code}`);
-              }
-            });
-          if (!dup) {
-            createdNeedles.add(dedupeKey);
+          const key = lowStockDedupeKey(location.id, inv.id);
+          // One indexed equality lookup instead of a scan of every alert ever
+          // created. Two lines of one order hitting the same item collapse here
+          // without spending a second lookup.
+          if (createdNeedles.has(key)) continue;
+          createdNeedles.add(key);
+          if (!(await hasOpenLowStockAlert(location.id, inv.id))) {
             newAlerts.push({
               type: "LOW_STOCK",
+              // Indexed field so the dedupe above never has to scan.
+              lowStockKey: key,
               message: `${inv.name} @ ${location.code} dropped below threshold (${newStock} ${inv.unit} left)`,
               payload: JSON.stringify({
-                dedupeKey,
+                dedupeKey: key,
                 inventoryItemId: inv.id,
                 locationId: location.id,
                 stock: newStock,
@@ -1218,6 +1249,10 @@ async function handleCreateOrder(req, origin, user) {
     const alertNext = alertCounter && alertCounter.next !== undefined ? Number(alertCounter.next) || 1 : 1;
     const orderId = orderNext;
     itemRows.forEach((row, i) => { row.id = orderNext + 1 + i; });
+    // Alerts stay counter-allocated: the `alerts` model is numeric and
+    // fromDoc coerces the doc name with Number(), so a string id would surface
+    // as NaN and break every ack/read. The read saving comes from the dedupe
+    // lookup, not from the id.
     newAlerts.forEach((a, i) => {
       a.id = alertNext + i;
       a.isRead = false;
@@ -2661,11 +2696,10 @@ async function handleIotReadings(req, origin, device) {
   const outcome = await withRetry(async () => {
     const accepted = [];
     const rejected = [];
-    const [invRows, lowStock] = await Promise.all([
-      fsQueryEqual("inventoryItems", "locationId", location.id, 10000),
-      fsQueryEqual("alerts", "type", "LOW_STOCK", 10000),
-    ]);
-    const unreadAlerts = lowStock.filter((a) => a.isRead === false);
+    // No LOW_STOCK scan here either - this batch can fire dozens of times a day
+    // per cart and each one used to read every alert ever created. Dedupe is one
+    // fsGet per channel that actually crossed. See lowStockAlertId.
+    const invRows = await fsQueryEqual("inventoryItems", "locationId", location.id, 10000);
     const invByName = new Map(invRows.map((r) => [r.name, r]));
 
     const plans = [];
@@ -2702,23 +2736,17 @@ async function handleIotReadings(req, origin, device) {
       const base = running.has(plan.inv.id) ? running.get(plan.inv.id) : plan.inv.stock;
       running.set(plan.inv.id, plan.kg);
       if (base > plan.inv.threshold && plan.kg <= plan.inv.threshold) {
-        const dedupeKey = `low:${location.id}:${plan.inv.id}`;
-        const dup =
-          createdNeedles.has(dedupeKey) ||
-          unreadAlerts.some((a) => {
-            try {
-              return JSON.parse(a.payload ?? "{}")?.dedupeKey === dedupeKey;
-            } catch {
-              return (a.message ?? "").includes(`${plan.inv.name} @ ${location.code}`);
-            }
-          });
-        if (!dup) {
-          createdNeedles.add(dedupeKey);
+        const key = lowStockDedupeKey(location.id, plan.inv.id);
+        if (createdNeedles.has(key)) continue;
+        createdNeedles.add(key);
+        if (!(await hasOpenLowStockAlert(location.id, plan.inv.id))) {
           newAlerts.push({
             type: "LOW_STOCK",
+            // Indexed field so the dedupe above never has to scan.
+            lowStockKey: key,
             message: `${plan.inv.name} @ ${location.code} dropped below threshold (${plan.kg} ${plan.inv.unit} left)`,
             payload: JSON.stringify({
-              dedupeKey,
+              dedupeKey: key,
               inventoryItemId: plan.inv.id,
               locationId: location.id,
               stock: plan.kg,

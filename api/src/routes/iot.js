@@ -3,6 +3,7 @@ import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { requireDevice } from "../middleware/device.js";
 import { manilaDayRange, manilaDayStart } from "../services/timezone.js";
+import { lowStockDedupeKey, shouldOpenLowStockAlert } from "../services/low_stock_alert.js";
 import { lookupUid, normalizeRfidUid } from "../services/rfid.js";
 import { CLAIM_BOUND, resolveClaim } from "../services/rfid_claims.js";
 import { bindClaimedTag } from "../services/rfid_bind.js";
@@ -51,10 +52,10 @@ router.post("/iot/readings", requireDevice, async (req, res, next) => {
       const accepted = [];
       const rejected = [];
       // ---- READ PHASE ----
-      const [invRows, unreadAlerts] = await Promise.all([
-        tx.inventoryItem.findMany({ where: { locationId: location.id } }),
-        tx.alert.findMany({ where: { type: "LOW_STOCK", isRead: false } }),
-      ]);
+      // No LOW_STOCK scan: this batch runs many times a day per cart and each one
+      // used to read every alert ever created. Dedupe is one point read per
+      // channel that crossed. See services/low_stock_alert.js.
+      const invRows = await tx.inventoryItem.findMany({ where: { locationId: location.id } });
       const invByName = new Map(invRows.map((r) => [r.name, r]));
 
       // ---- COMPUTE PHASE ----
@@ -99,23 +100,20 @@ router.post("/iot/readings", requireDevice, async (req, res, next) => {
         const base = running.has(plan.inv.id) ? running.get(plan.inv.id) : plan.inv.stock;
         running.set(plan.inv.id, plan.kg);
         if (base > plan.inv.threshold && plan.kg <= plan.inv.threshold) {
-          const dedupeKey = `low:${location.id}:${plan.inv.id}`;
-          const dup =
-            createdNeedles.has(dedupeKey) ||
-            unreadAlerts.some((a) => {
-              try {
-                return JSON.parse(a.payload ?? "{}")?.dedupeKey === dedupeKey;
-              } catch {
-                return (a.message ?? "").includes(`${plan.inv.name} @ ${location.code}`);
-              }
-            });
-          if (!dup) {
-            createdNeedles.add(dedupeKey);
+          // One keyed lookup instead of scanning every alert in history.
+          if (await shouldOpenLowStockAlert({
+            locationId: location.id,
+            inventoryItemId: plan.inv.id,
+            known: createdNeedles,
+            lookup: (key) => tx.alert.findMany({ where: { lowStockKey: key }, take: 4 }),
+          })) {
             newAlerts.push({
               type: "LOW_STOCK",
+              // Indexed field: the dedupe above never has to scan.
+              lowStockKey: lowStockDedupeKey(location.id, plan.inv.id),
               message: `${plan.inv.name} @ ${location.code} dropped below threshold (${plan.kg} ${plan.inv.unit} left)`,
               payload: JSON.stringify({
-                dedupeKey,
+                dedupeKey: lowStockDedupeKey(location.id, plan.inv.id),
                 inventoryItemId: plan.inv.id,
                 locationId: location.id,
                 stock: plan.kg,

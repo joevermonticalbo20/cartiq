@@ -111,8 +111,9 @@ jobs:
           done
           echo "API failed to start"; tail -n 50 /tmp/api.log; tail -n 20 /tmp/emulator.log; exit 1
 
-      - name: Run phase suites (2-8) + authz regression
+      - name: Run phase suites (2-9) + authz regression
         run: |
           for p in 2 3 4 5 6 7 8; do node scripts/phase${p}_test.mjs || exit 1; done
+          node scripts/phase9_low_stock_quota.mjs || exit 1
           node scripts/test_authz_fix.mjs || exit 1
         working-directory: api

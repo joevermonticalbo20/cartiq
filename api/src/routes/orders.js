@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole, assertOwnLocation } from "../middleware/auth.js";
 import { fmtStock, mapsForOrderLine, oversellShortage, planVoidRestores } from "../services/inventory_rules.js";
+import { lowStockDedupeKey, shouldOpenLowStockAlert } from "../services/low_stock_alert.js";
 import { manilaDayRange } from "../services/timezone.js";
 import { emit } from "./events.js";
 
@@ -81,10 +82,14 @@ router.post("/orders", requireAuth, async (req, res, next) => {
         // ---- READ PHASE ----
         const guard = await tx.getDoc("orderRefs", ref);
         if (guard) return { dup: true };
-        const [maps, invRows, unreadAlerts, catalogProducts] = await Promise.all([
+        // No `tx.alert.findMany({ type: "LOW_STOCK" })` here. It read every alert
+        // ever created on every sale, and alerts are never deleted - that scan
+        // alone was the biggest consumer of the 50k/day free-tier read budget.
+        // Dedupe is now one point read per item that crossed. See
+        // services/low_stock_alert.js.
+        const [maps, invRows, catalogProducts] = await Promise.all([
           tx.ingredientMap.findMany(),
           tx.inventoryItem.findMany({ where: { locationId: location.id } }),
-          tx.alert.findMany({ where: { type: "LOW_STOCK", isRead: false } }),
           tx.product.findMany({ select: { name: true } }),
         ]);
         const invByName = new Map(invRows.map((r) => [r.name, r]));
@@ -130,23 +135,22 @@ router.post("/orders", requireAuth, async (req, res, next) => {
             const crossed = base > inv.threshold && newStock <= inv.threshold;
             stockWrites.set(inv.id, { inv, newStock });
             if (crossed) {
-              const dedupeKey = `low:${location.id}:${inv.id}`;
-              const dup =
-                createdNeedles.has(dedupeKey) ||
-                unreadAlerts.some((a) => {
-                  try {
-                    return JSON.parse(a.payload ?? "{}")?.dedupeKey === dedupeKey;
-                  } catch {
-                    return (a.message ?? "").includes(`${inv.name} @ ${location.code}`);
-                  }
-                });
-              if (!dup) {
-                createdNeedles.add(dedupeKey);
+              // One keyed lookup instead of scanning every alert in history.
+              // Two lines of one order hitting the same item collapse on the
+              // second line without a second lookup.
+              if (await shouldOpenLowStockAlert({
+                locationId: location.id,
+                inventoryItemId: inv.id,
+                known: createdNeedles,
+                lookup: (key) => tx.alert.findMany({ where: { lowStockKey: key }, take: 4 }),
+              })) {
                 newAlerts.push({
                   type: "LOW_STOCK",
+                  // Indexed field: the dedupe above never has to scan.
+                  lowStockKey: lowStockDedupeKey(location.id, inv.id),
                   message: `${inv.name} @ ${location.code} dropped below threshold (${newStock} ${inv.unit} left)`,
                   payload: JSON.stringify({
-                    dedupeKey,
+                    dedupeKey: lowStockDedupeKey(location.id, inv.id),
                     inventoryItemId: inv.id,
                     locationId: location.id,
                     stock: newStock,
@@ -160,6 +164,10 @@ router.post("/orders", requireAuth, async (req, res, next) => {
         }
 
         // ---- ID ALLOCATION (last reads of the transaction) ----
+        // Alerts stay counter-allocated: the `alerts` model is numeric and
+        // fromDoc coerces the doc name with Number(), so a string id would
+        // surface as NaN and break ack/read by id. The read saving comes from
+        // the dedupe lookup, not from the id.
         const alloc = await tx.allocIds({
           orders: 1 + itemRows.length,
           alerts: newAlerts.length,
