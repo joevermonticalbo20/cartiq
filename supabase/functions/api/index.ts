@@ -5357,83 +5357,6 @@ async function handlePatchStaff(req, id, me) {
   };
 }
 
-// ---------- ADMIN: one-off maintenance (temporary; removed after use) ----------
-// TEMPORARY. This route exists only to purge test sales from the production
-// database. It is removed in the follow-up deploy - do not keep it.
-//
-// Three deliberate guards, because the action is irreversible:
-//   1. OWNER only.
-//   2. The literal body { confirm: "DELETE ALL SALES" } must be sent. A stray
-//      GET, a replayed request or a curious dashboard cannot trigger it.
-//   3. ?dryRun=1 reports the exact counts and deletes nothing.
-//
-// The delete target is fixed in code (orders + orderRefs). There is no way to
-// point it at another collection, so this cannot be repurposed.
-const PURGE_CONFIRM = "DELETE ALL SALES";
-const PURGE_TARGETS = ["orders", "orderRefs"];
-
-async function handlePurgeSales(req, origin, user) {
-  const ownErr = requireOwner(user);
-  if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
-
-  const body = await req.json().catch(() => null);
-  const url = new URL(req.url);
-  const dryRun = url.searchParams.get("dryRun") === "1";
-
-  if (body?.confirm !== PURGE_CONFIRM) {
-    return jsonRes(origin, {
-      error: `Refusing to purge: send {"confirm":"${PURGE_CONFIRM}"}`,
-    }, 400);
-  }
-  if (dryRun) {
-    const counts = {};
-    for (const c of PURGE_TARGETS) counts[c] = await fsCount(c);
-    return jsonRes(origin, { dryRun: true, counts, deleted: {} });
-  }
-
-  // Phase 1: collect every document name FIRST. Deleting while paging with an
-  // offset would shift the result set and silently skip rows - this is the
-  // classic off-by-one that leaves half a table behind.
-  const names = {};
-  for (const c of PURGE_TARGETS) {
-    const found = [];
-    for (let offset = 0; ; offset += 500) {
-      const rows = await fsRunQuery(c, { limit: 500, offset });
-      if (rows.length === 0) break;
-      for (const d of rows) {
-        if (d._name) found.push(String(d._name).split("/").pop());
-      }
-      if (rows.length < 500) break;
-      if (found.length > 50000) {
-        return jsonRes(origin, { error: "Refusing to purge: target exceeds 50k docs." }, 409);
-      }
-    }
-    names[c] = found;
-  }
-
-  // Phase 2: delete in batches. Firestore caps a commit at 500 mutations, and a
-  // partial commit fails the whole batch, so 400 leaves headroom.
-  const deleted = {};
-  for (const c of PURGE_TARGETS) {
-    let done = 0;
-    const list = names[c];
-    for (let i = 0; i < list.length; i += 400) {
-      const chunk = list.slice(i, i + 400);
-      const writes = chunk.map((id) => ({ delete: fsDocName(c, id) }));
-      await fsCommit(writes);
-      done += chunk.length;
-    }
-    deleted[c] = done;
-  }
-
-  // Verify rather than assume: a silent partial purge is the failure mode that
-  // would be noticed days later.
-  const remaining = {};
-  for (const c of PURGE_TARGETS) remaining[c] = await fsCount(c);
-
-  return jsonRes(origin, { purged: true, deleted, remaining });
-}
-
 // ---------- RFID self-service (mirrors api/src/routes/auth.js) ----------
 // The reader (ESP32 + MFRC522) only reports a tag UID; it does not know who is
 // holding the card. So the app, which knows the signed-in user, opens a claim on
@@ -5781,12 +5704,6 @@ Deno.serve(async (req) => {
         const ownErr = requireOwner(auth.user);
         if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
         return jsonRes(origin, await handleGmailStatus(), 200);
-      }
-      if (path === "/admin/purge-sales" && req.method === "POST") {
-        // TEMPORARY maintenance route - removed in the follow-up deploy.
-        const auth = await authUser(req);
-        if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
-        return await handlePurgeSales(req, origin, auth.user);
       }
       if (path === "/auth/change-password" || path === "/auth/staff" || path.startsWith("/auth/staff/")) {
         const auth = await authUser(req);
