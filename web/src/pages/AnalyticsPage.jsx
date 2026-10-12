@@ -8,7 +8,6 @@ import {
   DollarSign, BarChart2, PackageSearch, RefreshCw, X, Sparkles, Printer
 } from "lucide-react";
 import { useNavigate, useOutletContext } from "react-router-dom";
-
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
@@ -23,9 +22,14 @@ import { fmtMoneyAxis, fmtShortDate } from "../utils/format.js";
 
 // API risk level -> badge variant
 const RISK_CHIP = { high: "danger", medium: "warn", low: "ok", unknown: "neutral" };
-
 const HEAT_HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 const HEAT_DAYS = ["S", "M", "T", "W", "T", "F", "S"];
+
+function formatHour12(h) {
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const hour = h % 12 || 12;
+  return `${hour} ${ampm}`;
+}
 
 function HeatmapGrid({ matrix }) {
   const byKey = new Map((matrix ?? []).map((c) => [`${c.dow}:${c.hour}`, c]));
@@ -35,7 +39,7 @@ function HeatmapGrid({ matrix }) {
     <div className="heat-grid" role="img" aria-label="Heatmap of revenue by weekday and hour">
       <div className="heat-corner" />
       {HEAT_HOURS.map((h) => (
-        <span key={h} className="heat-col-label">{h}</span>
+        <span key={h} className="heat-col-label">{formatHour12(h)}</span>
       ))}
       {[0, 1, 2, 3, 4, 5, 6].map((dow) => (
         <Fragment key={`row-${dow}`}>
@@ -48,7 +52,7 @@ function HeatmapGrid({ matrix }) {
               <span
                 key={`${dow}:${h}`}
                 className="heat-cell"
-                title={`${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dow]} ${h}:00 - P${v.toLocaleString()} (${c?.orders ?? 0} orders)`}
+                title={`${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dow]} ${formatHour12(h)} - P${v.toLocaleString()} (${c?.orders ?? 0} orders)`}
                 style={{
                   backgroundColor: v > 0 ? "var(--primary)" : "var(--surface-alt)",
                   opacity: v > 0 ? 0.15 + 0.85 * t : 1,
@@ -83,6 +87,8 @@ export default function AnalyticsPage() {
   const [carts, setCarts] = useState([]);
   const [cartCode, setCartCode] = useState("");
   const [range, setRange] = useState("30");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   const [trends, setTrends] = useState(null);
   const [prevTrends, setPrevTrends] = useState(null);
@@ -90,16 +96,21 @@ export default function AnalyticsPage() {
   const [profit, setProfit] = useState(null);
   const [hourly, setHourly] = useState(null);
   const [salesFc, setSalesFc] = useState(null);
-
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
 
   const [sortCol, setSortCol] = useState("sales");
   const [sortDir, setSortDir] = useState("desc");
-
   const [lastUpdated, setLastUpdated] = useState(null);
   const [summaryLang, setSummaryLang] = useState("en");
+
+  const scrollToSection = (id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
 
   useEffect(() => {
     api.get("/catalog", { cacheTtl: 60000 }).then(({ data }) => setCarts(data.locations ?? [])).catch(() => {});
@@ -112,11 +123,16 @@ export default function AnalyticsPage() {
     let prevDateParams = "";
     const codeParam = cartCode ? `&code=${encodeURIComponent(cartCode)}` : "";
 
-    const days = Number(range) || 30;
-    dateParams = `&days=${days}`;
-    prevDateParams = `&days=${days * 2}`;
+    if (range === "custom" && startDate && endDate) {
+      dateParams = `&startDate=${startDate}&endDate=${endDate}`;
+      prevDateParams = `&startDate=${startDate}&endDate=${endDate}`; 
+    } else {
+      const days = Number(range) || 30;
+      dateParams = `&days=${days}`;
+      prevDateParams = `&days=${days * 2}`;
+    }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch trigger on filter change, mirrors other pages
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
 
     Promise.all([
@@ -136,16 +152,6 @@ export default function AnalyticsPage() {
         const prevSales = Math.max(0, extSales - curSales);
 
         setTrends(cur.data);
-        // Only TOTALS can be derived for the previous window, by subtracting
-        // the extended-window totals. `top_items` deliberately is NOT derived:
-        // you cannot subtract a list, and /analytics/trends only accepts
-        // `days=` (no from/to), so the previous window's best-sellers are not
-        // available here. Spreading `cur.data` used to supply it, which made
-        // prevTrends.top_items the SAME array as trends.top_items - so the
-        // Top Item trend compared each item against itself and rendered a
-        // permanent, fabricated 0.0%. Leaving it absent makes the KPI show
-        // "no prior data", which is true. A real trend needs from/to on the
-        // trends endpoint.
         setPrevTrends({
           total_sales: prevSales,
           orders: Math.max(0, (ext.data.orders ?? 0) - (cur.data.orders ?? 0)),
@@ -208,8 +214,6 @@ export default function AnalyticsPage() {
     for (const item of items) {
       const cat = item.name?.split(" ")[0] ?? "Other";
       if (!byCategory[cat]) byCategory[cat] = 0;
-      // Number() because += on a numeric string would concatenate
-      // ("100" + "50" = "10050") and quietly corrupt the donut.
       byCategory[cat] += Number(item.sales) || 0;
     }
     const total = Object.values(byCategory).reduce((s, v) => s + v, 0);
@@ -256,7 +260,6 @@ export default function AnalyticsPage() {
   const tableData = useMemo(() => {
     const items = trends?.top_items ?? [];
     const total = items.reduce((s, i) => s + i.sales, 0);
-
     return [...items].map((item, idx) => ({
       ...item,
       rank: idx + 1,
@@ -274,7 +277,7 @@ export default function AnalyticsPage() {
 
   function sortIcon(col) {
     if (sortCol !== col) return <span className="sort-icon"> </span>;
-    return <span className="sort-icon active">{sortDir === "desc" ? "↓" : "↑"}</span>;
+    return <span className="sort-icon active">{sortDir === "desc" ? " " : " "}</span>;
   }
 
   const locationOptions = [
@@ -286,7 +289,8 @@ export default function AnalyticsPage() {
     { value: "7", label: "Last 7 days" },
     { value: "14", label: "Last 14 days" },
     { value: "30", label: "Last 30 days" },
-    { value: "90", label: "Last 90 days" }
+    { value: "90", label: "Last 90 days" },
+    { value: "custom", label: "Custom Date Range" }
   ];
 
   const renderSmartSummary = () => {
@@ -309,13 +313,10 @@ export default function AnalyticsPage() {
     
     let peakTime = null;
     if (pHour !== undefined) {
-      const h = pHour > 12 ? pHour - 12 : pHour === 0 ? 12 : pHour;
-      const ampm = pHour >= 12 ? 'PM' : 'AM';
-      peakTime = `${h}:00 ${ampm}`;
+      peakTime = formatHour12(pHour);
     }
 
     const riskItems = forecast?.items?.filter(i => i.risk === "high" || i.risk === "medium").length || 0;
-
     const highlightStyle = { color: "var(--primary-strong)", fontWeight: "800", fontSize: "1.05em" };
 
     if (summaryLang === "en") {
@@ -402,16 +403,48 @@ export default function AnalyticsPage() {
                 value={range}
                 onChange={(val) => {
                   setRange(val);
-                  setLoading(true);
+                  if (val !== "custom") setLoading(true);
                 }}
                 options={rangeOptions}
                 placeholder="Select range..."
               />
+              {range === "custom" && (
+                <div className="flex gap-2 items-center" style={{ animation: "rise-in 0.2s ease" }}>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    style={{ height: '48px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', padding: '0 12px', background: 'var(--surface-alt)', color: 'var(--text)' }}
+                  />
+                  <span className="muted">to</span>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    style={{ height: '48px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', padding: '0 12px', background: 'var(--surface-alt)', color: 'var(--text)' }}
+                  />
+                  <button 
+                    className="small-btn"
+                    onClick={() => { setReload(n => n + 1); setLoading(true); }}
+                    disabled={!startDate || !endDate}
+                  >
+                    Apply
+                  </button>
+                </div>
+              )}
             </div>
-            {(cartCode || range !== "30") && (
-              <button 
-                className="danger-ghost small-btn" 
-                onClick={() => { setCartCode(""); setRange("30"); setLoading(true); }}
+            
+            {(cartCode || range !== "30" || startDate || endDate) && (
+              <button
+                className="danger-ghost small-btn"
+                onClick={() => { 
+                  setCartCode(""); 
+                  setRange("30"); 
+                  setStartDate(""); 
+                  setEndDate("");
+                  setReload(n => n + 1); 
+                  setLoading(true); 
+                }}
               >
                 <X size={14} /> Clear filters
               </button>
@@ -491,18 +524,33 @@ export default function AnalyticsPage() {
 
             <div className="analytics-kpis">
               {[
-                { label: "Total Revenue", value: `P${totalRevenue.toLocaleString()}`, trend: revenueTrend, icon: DollarSign },
-                { label: "Total Orders", value: totalOrders, trend: ordersTrend, icon: ShoppingBag },
-                { label: "Average Spend per Customer", value: `P${avgOrderValue.toLocaleString()}`, trend: avgTrend, icon: BarChart2 },
+                { label: "Total Income", value: `P${totalRevenue.toLocaleString()}`, trend: revenueTrend, icon: DollarSign, targetId: "section-sales" },
+                { label: "Total Orders", value: totalOrders, trend: ordersTrend, icon: ShoppingBag, targetId: "section-dow" },
+                { label: "Average Spend per Customer", value: `P${avgOrderValue.toLocaleString()}`, trend: avgTrend, icon: BarChart2, targetId: "section-category" },
                 {
                   label: "Top Item",
                   value: topItemStat.name,
                   trend: topItemStat.trend,
                   sub: topItemStat.qty != null ? `${topItemStat.qty} sold` : "No data yet",
                   icon: TrendingUp,
+                  targetId: "section-items"
                 },
               ].map((kpi) => (
-                <div key={kpi.label} className="kpi-card">
+                <div 
+                  key={kpi.label} 
+                  className="kpi-card"
+                  onClick={() => scrollToSection(kpi.targetId)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      scrollToSection(kpi.targetId);
+                    }
+                  }}
+                  style={{ cursor: "pointer" }}
+                  title={`Go to ${kpi.label} section`}
+                >
                   <div className="kpi-card-header">
                     <span className="kpi-card-label">{kpi.label}</span>
                     <div className="kpi-card-icon"><kpi.icon size={18} /></div>
@@ -671,7 +719,7 @@ export default function AnalyticsPage() {
                   <h3 className="profit-chart-title">Peak hours</h3>
                   <p className="muted small" style={{ marginBottom: "var(--space-2)" }}>
                     {hourly.peak?.total_sales > 0 ? (
-                      <>Busiest: <strong>{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hourly.peak.dow]} {hourly.peak.hour}:00</strong> - staff the rush, prep before it.</>
+                      <>Busiest: <strong>{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hourly.peak.dow]} {formatHour12(hourly.peak.hour)}</strong> - staff the rush, prep before it.</>
                     ) : (
                       <>No hourly pattern yet - it appears once sales accumulate.</>
                     )}
@@ -687,7 +735,7 @@ export default function AnalyticsPage() {
                           <tr>
                             <th scope="col">Day</th>
                             {HEAT_HOURS.map((h) => (
-                              <th key={h} scope="col">{h}</th>
+                              <th key={h} scope="col">{formatHour12(h)}</th>
                             ))}
                           </tr>
                         </thead>
@@ -1035,6 +1083,7 @@ export default function AnalyticsPage() {
             </div>
 
             {isOwner && profit && <ProfitSection profit={profit} />}
+
           </div>
         )}
 
@@ -1052,7 +1101,7 @@ export default function AnalyticsPage() {
             <div style={{ 
               display: "grid", 
               gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))", 
-              gap: "var(--space-4)", 
+              gap: "var(--space-4)",
               marginTop: "var(--space-4)" 
             }}>
               <SkeletonChart />

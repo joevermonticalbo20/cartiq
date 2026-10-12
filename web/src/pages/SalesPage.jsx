@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useOutletContext, useSearchParams } from "react-router-dom";
 import { ReceiptText, RefreshCw, X, Download, Edit2 } from "lucide-react";
 
@@ -40,6 +40,9 @@ export default function SalesPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editError, setEditError] = useState("");
 
+  // --- NEW STATE FOR TOTAL INCOME ---
+  const [totalIncome, setTotalIncome] = useState(null);
+
   useEffect(() => {
       api.get("/catalog", { cacheTtl: 60000 }).then(({ data }) => setLocations(data?.locations ?? [])).catch(() => {});
   }, []);
@@ -52,6 +55,31 @@ export default function SalesPage() {
       (date ? `&date=${date}` : ""),
     [loc, date]
   );
+
+  // --- FETCH TOTAL INCOME SUMMARY ---
+  const loadSummary = useCallback(async () => {
+    try {
+      const queryParams = [];
+      if (date) queryParams.push(`date=${date}`);
+      if (loc) queryParams.push(`code=${encodeURIComponent(loc)}`);
+      const qs = queryParams.length ? `?${queryParams.join("&")}` : "";
+      
+      const res = await api.get(`/reports/daily${qs}`);
+      setTotalIncome(res.data?.total_sales ?? 0);
+    } catch (err) {
+      setTotalIncome(null);
+    }
+  }, [loc, date]);
+
+  useEffect(() => {
+    const timer = setTimeout(loadSummary, 0);
+    return () => clearTimeout(timer);
+  }, [loadSummary]);
+
+  function handleRefresh() {
+    refresh();
+    loadSummary();
+  }
 
   useEffect(() => {
     if (!loading) {
@@ -75,8 +103,6 @@ export default function SalesPage() {
   }
 
   // --- EXPORT HANDLER ---
-  // Failures arrive as a Blob (responseType) hiding the server's JSON
-  // {error} — parse it back out so users see the real reason.
   async function blobErrorMessage(err, fallback) {
     try {
       const blob = err?.response?.data;
@@ -132,7 +158,7 @@ export default function SalesPage() {
       });
       toast(`Order #${editing.id} updated`, "success");
       closeEditModal();
-      refresh();
+      handleRefresh();
     } catch (err) {
       setEditError(getFriendlyError(err, "Failed to update order."));
     } finally {
@@ -152,7 +178,7 @@ export default function SalesPage() {
     try {
       await api.patch(`/orders/${confirming.id}`, { status: "VOID" });
       toast(`Voided order #${confirming.id}`, "success");
-      refresh();
+      handleRefresh();
     } catch (err) {
       toast(getFriendlyError(err, "Void failed"), "error");
     } finally {
@@ -175,7 +201,7 @@ export default function SalesPage() {
               </span>
               <button
                 className="ghost small-btn"
-                onClick={refresh}
+                onClick={handleRefresh}
                 disabled={loading}
                 title="Refresh sales"
               >
@@ -196,7 +222,7 @@ export default function SalesPage() {
         />
         
         <section className="panel sales-panel">
-          <div className="sales-filters-row">
+          <div className="sales-filters-row" style={{ alignItems: "center" }}>
             <div className="sales-filters-left">
               <Select
                 value={loc}
@@ -206,21 +232,29 @@ export default function SalesPage() {
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
             </div>
             
-            {(loc || date) && (
-              <button
-                className="danger-ghost small-btn"
-                onClick={() => {
-                  setLoc("");
-                  setDate("");
-                }}
-              >
-                <X size={14} /> Clear filters
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {totalIncome !== null && (
+                <Badge variant="brand" style={{ fontSize: "14px", padding: "6px 14px" }}>
+                  {loc ? `${loc} TOTAL INCOME: ` : "TOTAL INCOME: "} P{Number(totalIncome).toLocaleString()}
+                </Badge>
+              )}
+              
+              {(loc || date) && (
+                <button
+                  className="danger-ghost small-btn"
+                  onClick={() => {
+                    setLoc("");
+                    setDate("");
+                  }}
+                >
+                  <X size={14} /> Clear filters
+                </button>
+              )}
+            </div>
           </div>
 
           {error ? (
-            <ErrorBox message={error} onRetry={refresh} />
+            <ErrorBox message={error} onRetry={handleRefresh} />
           ) : !loading && (!rows || rows.length === 0) ? (
             <EmptyState
               icon={ReceiptText}

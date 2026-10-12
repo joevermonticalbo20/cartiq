@@ -19,6 +19,11 @@ import { sanitizeTextInput, validateItemName } from "../utils/text.js";
 
 const STATUS_LABEL = { ok: "OK", low: "LOW", critical: "CRITICAL" };
 
+// HELPER: Para malinis ang decimal (max 2 places)
+function formatStock(val) {
+  return Number(val).toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
 export default function InventoryPage() {
   const toast = useToast();
   const { user } = useOutletContext();
@@ -27,6 +32,7 @@ export default function InventoryPage() {
   const [locations, setLocations] = useState([]);
   const [selected, setSelected] = useState("");
   const [loading, setLoading] = useState(true);
+
   const [adjusting, setAdjusting] = useState(null);
   const [adjustClosing, setAdjustClosing] = useState(false);
   const [newStock, setNewStock] = useState("");
@@ -50,7 +56,7 @@ export default function InventoryPage() {
   const [editClosing, setEditClosing] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editError, setEditError] = useState("");
-  
+
   const [deleting, setDeleting] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -59,11 +65,14 @@ export default function InventoryPage() {
 
   // Stock item name -> ["Product (Flavor)", ...] (from /products recipes).
   const [usageByItem, setUsageByItem] = useState(new Map());
+  
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkValue, setBulkValue] = useState("");
   const [bulkConfirm, setBulkConfirm] = useState(false);
+
   const [prep, setPrep] = useState(null);
   const [applyingId, setApplyingId] = useState(null);
+
   const [lastUpdated, setLastUpdated] = useState(null);
 
   function closeAddModal() {
@@ -81,8 +90,9 @@ export default function InventoryPage() {
     setTimeout(() => { setEditing(null); setEditClosing(false); }, 150);
   }
 
-  // UX Fix: Added editing, editClosing, and deleting to global scroll lock
+  // UX Fix: Global scroll lock
   const isAnyModalOpen = addOpen || addClosing || adjusting || adjustClosing || bulkConfirm || editing || editClosing || Boolean(deleting);
+
   useEffect(() => {
     if (isAnyModalOpen) document.body.style.overflow = "hidden";
     else document.body.style.overflow = "";
@@ -92,6 +102,7 @@ export default function InventoryPage() {
   const refresh = useCallback(() => {
     const targetCode = selected || "CART-01";
     setLoading(true);
+
     Promise.all([
       api.get("/inventory"),
       api.get(`/analytics/forecast?code=${targetCode}`).catch(() => ({ data: { items: [] } })),
@@ -104,8 +115,7 @@ export default function InventoryPage() {
         setForecast(fc.data?.items ?? []);
         setPrep(pr.data);
 
-        // Reverse map: stock item name -> ["Product (Flavor)", ...] so each
-        // row shows what consumes it (same recipe rows the POS deducts).
+        // Reverse map: stock item name -> ["Product (Flavor)", ...]
         const usage = new Map();
         for (const p of prod.data?.data ?? []) {
           for (const f of p.flavors ?? []) {
@@ -119,6 +129,7 @@ export default function InventoryPage() {
           }
         }
         setUsageByItem(usage);
+
         setLoadError("");
         if (!locs.some((l) => l.code === selected) && locs[0]) {
           setSelected(locs[0].code);
@@ -147,6 +158,7 @@ export default function InventoryPage() {
       closeAdjustModal();
       return;
     }
+
     setAdjustError("");
     setSaving(true);
     try {
@@ -207,9 +219,6 @@ export default function InventoryPage() {
     }
   }
 
-  // --- NEW HANDLERS FOR EDIT & DELETE ---
-  // Note: the API applies threshold only (name/category/unit have no backing
-  // fields), so the edit form is threshold-only and no-change is measured on it.
   async function handleEditItem(e) {
     e.preventDefault();
     setEditError("");
@@ -278,6 +287,7 @@ export default function InventoryPage() {
 
   async function commitBulk() {
     if (saving) return;
+
     const value = parseQty(bulkValue);
     if (value === null) {
       toast("Enter a stock count from 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).", "error");
@@ -326,13 +336,13 @@ export default function InventoryPage() {
 
   const safeLocations = Array.isArray(locations) ? locations : [];
   const safeForecast = Array.isArray(forecast) ? forecast : [];
+
   const current = safeLocations.find((l) => l.code === selected);
   const currentItems = current?.items ?? [];
   const allSelected = current && selectedIds.size === currentItems.length && currentItems.length > 0;
 
   const locationOptions = safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
-  
-  // Options para sa Custom Select
+
   const categoryOptions = [
     { value: "Ingredients", label: "Ingredients" },
     { value: "Packaging", label: "Packaging" },
@@ -461,7 +471,6 @@ export default function InventoryPage() {
                     const fcItem = safeForecast.find((f) => f.name === item.name);
                     const isSelected = selectedIds.has(item.id);
                     const usedBy = usageByItem.get(item.name) ?? [];
-
                     return (
                       <tr key={item.id} className={isSelected ? "row-selected" : undefined}>
                         <td style={{ paddingLeft: 12 }}>
@@ -488,10 +497,13 @@ export default function InventoryPage() {
                             </span>
                           )}
                         </td>
+                        
+                        {/* INO-MODIFIED: Formatted Stocks */}
                         <td className={item.status === "ok" ? "" : "stock-warn"}>
-                          {item.stock} {item.unit}
+                          {formatStock(item.stock)} {item.unit}
                         </td>
-                        <td className="muted">{item.threshold} {item.unit}</td>
+                        <td className="muted">{formatStock(item.threshold)} {item.unit}</td>
+                        
                         <td>
                           <Badge variant={item.source === "SENSOR" ? "info" : "neutral"}>
                             {item.source}
@@ -502,7 +514,7 @@ export default function InventoryPage() {
                           {fcItem?.data_sufficient && fcItem.depletion_date ? (
                             <Badge
                               variant={fcItem.risk === "high" ? "danger" : fcItem.risk === "medium" ? "warn" : "ok"}
-                              title={`Avg ${fcItem.avg_daily_use} ${item.unit}/day - MAPE ${fcItem.mape_pct}%`}
+                              title={`Avg ${formatStock(fcItem.avg_daily_use)} ${item.unit}/day - MAPE ${fcItem.mape_pct}%`}
                             >
                               {fcItem.depletion_date}
                             </Badge>
@@ -515,7 +527,6 @@ export default function InventoryPage() {
                           )}
                         </td>
                         
-                        {/* UPDATE: Added Edit & Delete actions */}
                         <td className="t-center nowrap">
                           <div className="flex items-center justify-center gap-1">
                             <button
@@ -612,12 +623,15 @@ export default function InventoryPage() {
                   {(prep.prep ?? []).map((p) => (
                     <tr key={p.item}>
                       <td><strong>{p.item}</strong> <span className="muted small">{p.unit}</span></td>
-                      <td className="t-center">{p.current_stock}</td>
-                      <td className="t-center">{p.data_sufficient ? p.expected_use : <span className="muted">-</span>}</td>
+                      
+                      {/* INO-MODIFIED: Formatted Prep Table */}
+                      <td className="t-center">{formatStock(p.current_stock)}</td>
+                      <td className="t-center">{p.data_sufficient ? formatStock(p.expected_use) : <span className="muted">-</span>}</td>
+                      
                       <td className="t-center">
                         {p.data_sufficient ? (
                           p.shortfall > 0
-                            ? <Badge variant="danger">PREP {p.shortfall}</Badge>
+                            ? <Badge variant="danger">PREP {formatStock(p.shortfall)}</Badge>
                             : <Badge variant="ok">COVERED</Badge>
                         ) : (
                           <span className="muted small">{p.reason}</span>
@@ -648,7 +662,7 @@ export default function InventoryPage() {
                       <div className="alert-item-detail">{c.reason}</div>
                     </span>
                     <span className="muted small">
-                      {c.current_threshold} &rarr; <strong>{c.suggested_threshold}</strong>
+                      {formatStock(c.current_threshold)} &rarr; <strong>{formatStock(c.suggested_threshold)}</strong>
                     </span>
                     <button
                       className="ghost small-btn"
@@ -767,7 +781,6 @@ export default function InventoryPage() {
                     {isAdding ? "Adding..." : "Add Item"}
                   </button>
                 </div>
-
                 {addError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{addError}</p>}
               </form>
             </div>
@@ -805,7 +818,6 @@ export default function InventoryPage() {
                     {isEditing ? "Saving..." : "Save Changes"}
                   </button>
                 </div>
-
                 {editError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{editError}</p>}
               </form>
             </div>
@@ -818,7 +830,7 @@ export default function InventoryPage() {
             <div className={`modal ${adjustClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
               <h3><SlidersHorizontal size={22} className="muted"/> Adjust stock</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                Manual recount after a physical check for <strong>{adjusting?.name}</strong>. Current: {adjusting?.stock}{" "}
+                Manual recount after a physical check for <strong>{adjusting?.name}</strong>. Current: {formatStock(adjusting?.stock)}{" "}
                 {adjusting?.unit}. 
               </p>
               <label className="field">
@@ -834,7 +846,6 @@ export default function InventoryPage() {
                   autoFocus
                 />
               </label>
-
               <div className="modal-actions">
                 <button className="ghost" onClick={closeAdjustModal} disabled={saving || adjustClosing}>Cancel</button>
                 <button disabled={saving || adjustClosing} onClick={saveAdjustment}>

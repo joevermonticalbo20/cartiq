@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { Plus, Edit2, Trash2, RefreshCw, Tag, AlertTriangle, Archive, ArchiveRestore } from "lucide-react";
-
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
@@ -33,15 +32,11 @@ function newRecipeRowState(overrides = {}) {
     key: `rr-${Date.now()}-${flavorRowSeq++}`,
     itemName: "",
     amount: "",
-    // Display unit picked by the user; "" = smart default (g for kg items,
-    // otherwise the stock unit). Converted to the stock unit on submit.
     unit: "",
     ...overrides,
   };
 }
 
-// Mass units convertible between each other (factor to kg). Countable
-// units (pcs, packs, ...) only convert to themselves.
 const MASS_TO_KG = { g: 0.001, kg: 1 };
 
 function unitOptionsFor(stockUnit) {
@@ -57,8 +52,6 @@ function defaultUnitFor(stockUnit) {
   return u || "pcs";
 }
 
-// Convert a display amount+unit to the stock unit. Returns { ok, value? }.
-// Mass <-> countable mixing is rejected (proper validation, not a guess).
 function toStockUnit(displayAmount, displayUnit, stockUnit) {
   const from = String(displayUnit ?? "").trim().toLowerCase();
   const to = String(stockUnit ?? "").trim().toLowerCase();
@@ -77,9 +70,8 @@ export default function ProductsPage() {
 
   const [products, setProducts] = useState([]);
   const [flavors, setFlavors] = useState([]);
-  // Known stock item names (any cart) for the recipe picker. Deduction
-  // matches recipe itemName to inventory rows by exact name.
   const [itemNames, setItemNames] = useState([]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -87,12 +79,11 @@ export default function ProductsPage() {
   const [addClosing, setAddClosing] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState("");
-  const [newProduct, setNewProduct] = useState({ name: "", category: "Fries", basePrice: "" });
-  // Per-flavor rows: [{ key, flavorId, unitPrice, recipes: [{ key, itemName, amount }] }].
-  // unitPrice blank = use the product base price.
+  const [newProduct, setNewProduct] = useState({ name: "", category: "Fries", basePrice: "", markupPrice: "", sellingPrice: "" });
+  
   const [addFlavorRows, setAddFlavorRows] = useState([]);
   const [addRowErrors, setAddRowErrors] = useState({});
-  // Row edits clear row-level errors so fixed rows stop showing red.
+
   const setAddRows = (updater) => {
     setAddFlavorRows(updater);
     setAddRowErrors({});
@@ -112,8 +103,6 @@ export default function ProductsPage() {
   const [deleting, setDeleting] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Archive target: { product, toActive } — hide from POS (active=false) or
-  // bring back (active=true). History/reports keep working either way.
   const [archiving, setArchiving] = useState(null);
   const [isArchiving, setIsArchiving] = useState(false);
 
@@ -162,6 +151,39 @@ export default function ProductsPage() {
     setTimeout(() => { setRenaming(null); setRenameClosing(false); setRenameName(""); }, 150);
   }
 
+  // --- AUTO-COMPUTE HANDLERS FOR PRICING ---
+  const handleAddPriceChange = (field, val) => {
+    setNewProduct(prev => {
+      const next = { ...prev, [field]: val };
+      const bp = parseFloat(next.basePrice || 0);
+      
+      if (field === 'basePrice' || field === 'markupPrice') {
+        const mp = parseFloat(next.markupPrice || 0);
+        next.sellingPrice = (bp + mp) > 0 ? (bp + mp).toFixed(2) : "";
+      } else if (field === 'sellingPrice') {
+        const sp = parseFloat(next.sellingPrice || 0);
+        next.markupPrice = sp - bp >= 0 ? (sp - bp).toFixed(2) : "";
+      }
+      return next;
+    });
+  };
+
+  const handleEditPriceChange = (field, val) => {
+    setEditing(prev => {
+      const next = { ...prev, [field]: val };
+      const bp = parseFloat(next.basePrice || 0);
+      
+      if (field === 'basePrice' || field === 'markupPrice') {
+        const mp = parseFloat(next.markupPrice || 0);
+        next.sellingPrice = (bp + mp) > 0 ? (bp + mp).toFixed(2) : "";
+      } else if (field === 'sellingPrice') {
+        const sp = parseFloat(next.sellingPrice || 0);
+        next.markupPrice = sp - bp >= 0 ? (sp - bp).toFixed(2) : "";
+      }
+      return next;
+    });
+  };
+
   async function createFlavorInlineForRows(setRows) {
     const name = sanitizeTextInput(flavorDraft, 60).trim();
     if (!name) {
@@ -205,14 +227,12 @@ export default function ProductsPage() {
     );
   }
 
-  // Per-flavor row editor shared by the Add and Edit modals. Recipes are
-  // optional: rows without recipes still submit.
-  // rowErrors maps row.key -> inline message; any row edit clears them.
-  function flavorRowsEditor(rows, setRows, basePriceText, rowErrors = {}) {
-    const basePrice = parseMoney(basePriceText);
+  function flavorRowsEditor(rows, setRows, sellingPriceText, rowErrors = {}) {
+    const sellingPrice = parseMoney(sellingPriceText);
     const knownItems = new Set(itemNames.map((n) => n.name.toLowerCase()));
     const knownUnitOf = (name) =>
       itemNames.find((n) => n.name.toLowerCase() === String(name ?? "").trim().toLowerCase())?.unit ?? "";
+
     const optionsFor = (currentId) =>
       flavors
         .filter((f) => f.id === currentId || !rows.some((r) => r.flavorId === f.id))
@@ -228,13 +248,16 @@ export default function ProductsPage() {
         {rows.map((row) => {
           const picked = flavors.find((f) => f.id === row.flavorId);
           const newLines = (row.recipes ?? []).filter((l) => String(l.itemName ?? "").trim()).length;
+          
           const priceLabel = String(row.unitPrice ?? "").trim()
             ? `P${Number(row.unitPrice).toLocaleString()}`
-            : `Base${basePrice !== null ? ` (P${basePrice.toLocaleString()})` : ""}`;
+            : `Selling Price${sellingPrice !== null ? ` (P${sellingPrice.toLocaleString()})` : ""}`;
+            
           const recipeLabel = row.existingRecipeCount > 0
             ? `${row.existingRecipeCount} saved${newLines > 0 ? ` + ${newLines} new` : ""}`
             : newLines > 0 ? `${newLines} new` : "no recipes";
           const hasRecipes = row.existingRecipeCount > 0 || newLines > 0;
+
           if (row.collapsed) {
             return (
               <div key={row.key} className="flavor-card">
@@ -250,8 +273,8 @@ export default function ProductsPage() {
                     aria-hidden="true"
                   />
                   <span className="flavor-card-name">{picked?.name ?? "Pick a flavor"}</span>
-                  <span className="flavor-card-meta">{priceLabel} · {recipeLabel}</span>
-                  <span className="flavor-card-chevron" aria-hidden="true">▾</span>
+                  <span className="flavor-card-meta">{priceLabel} • {recipeLabel}</span>
+                  <span className="flavor-card-chevron" aria-hidden="true">▼</span>
                 </button>
               </div>
             );
@@ -270,8 +293,8 @@ export default function ProductsPage() {
                   aria-hidden="true"
                 />
                 <span className="flavor-card-name">{picked?.name ?? "New flavor"}</span>
-                <span className="flavor-card-meta">{priceLabel} · {recipeLabel}</span>
-                <span className="flavor-card-chevron" aria-hidden="true">▴</span>
+                <span className="flavor-card-meta">{priceLabel} • {recipeLabel}</span>
+                <span className="flavor-card-chevron" aria-hidden="true">▲</span>
               </button>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <label className="field">
@@ -284,14 +307,14 @@ export default function ProductsPage() {
                   />
                 </label>
                 <label className="field">
-                  Price (PHP, blank = base)
+                  Custom Price (PHP, blank = selling price)
                   <input
                     type="number"
                     min="0"
                     max="9999999.99"
                     step="0.01"
-                    placeholder={basePrice !== null ? String(basePrice) : "Base price"}
-                    title="Leave blank to use the base price"
+                    placeholder={sellingPrice !== null ? String(sellingPrice) : "Selling price"}
+                    title="Leave blank to use the main selling price"
                     value={row.unitPrice}
                     onChange={(e) => updateFlavorRow(setRows, row.key, { unitPrice: sanitizeMoneyInput(e.target.value) })}
                   />
@@ -341,19 +364,18 @@ export default function ProductsPage() {
                         title="Remove recipe line"
                         onClick={() => updateFlavorRow(setRows, row.key, { recipes: (row.recipes ?? []).filter((l) => l.key !== line.key) })}
                       >
-                        ×
+                        ✕
                       </button>
                     </div>
                     {unknownItem && (
                       <p className="muted small" style={{ margin: "4px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
                         <AlertTriangle size={12} aria-hidden="true" />
-                        No stock item named “{typedName}” — sales will warn instead of deducting.
+                        No stock item named '{typedName}' — sales will warn instead of deducting.
                       </p>
                     )}
                   </div>
                 );
               })}
-
               <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
                 <button
                   type="button"
@@ -389,7 +411,6 @@ export default function ProductsPage() {
             </div>
           );
         })}
-
         <div style={{ display: "flex", gap: "8px" }}>
           <button
             type="button"
@@ -399,7 +420,6 @@ export default function ProductsPage() {
             + Add flavor
           </button>
         </div>
-
         <div className="field">
           <span>Create flavor</span>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -425,69 +445,14 @@ export default function ProductsPage() {
     );
   }
 
-  async function handleAddProduct(e) {
-    e.preventDefault();
-    setAddError("");
-
-    const name = validateItemName(newProduct.name);
-    if (!name.ok) {
-      setAddError(name.error);
-      return;
-    }
-
-    const price = parseMoney(newProduct.basePrice);
-    if (price === null || price <= 0) {
-      setAddError("Enter a base price from P0.01 to P9,999,999.99.");
-      return;
-    }
-
-    const checked = checkFlavorRows(addFlavorRows, price);
-    if (!checked.ok) {
-      setAddError(checked.error);
-      setAddRowErrors(checked.rowErrors);
-      if (checked.badKey) {
-        setAddFlavorRows((prev) => prev.map((r) => (r.key === checked.badKey ? { ...r, collapsed: false } : r)));
-      }
-      return;
-    }
-
-    setIsAdding(true);
-    try {
-      const { data } = await api.post("/products", {
-        name: name.value,
-        category: newProduct.category.trim() || "Fries",
-        basePrice: price,
-        flavors: checked.payload,
-      });
-      toast(
-        `Product "${name.value}" created${checked.payload.length ? ` with ${checked.payload.length} flavor(s)` : ""}${data?.recipesCreated ? `, ${data.recipesCreated} recipe row(s)` : ""}`,
-        "success"
-      );
-      closeAddModal();
-      setNewProduct({ name: "", category: "Fries", basePrice: "" });
-      setAddFlavorRows([]);
-      setAddRowErrors({});
-      setFlavorDraft("");
-      load();
-    } catch (err) {
-      setAddError(getFriendlyError(err, "Failed to create product."));
-    } finally {
-      setIsAdding(false);
-    }
-  }
-
-  // Validate per-flavor rows shared by Add and Edit. Returns
-  // { ok, error?, payload?, rowErrors?, badKey? } where payload matches
-  // POST /products flavors[]. Recipes are optional. Failures carry a
-  // per-row message (shown inline under the row) plus badKey
-  // (auto-expanded on submit).
-  function checkFlavorRows(rows, basePrice) {
+  function checkFlavorRows(rows, sellingPrice) {
     const payload = [];
     const seen = new Set();
     const fail = (row, error) => ({
       ok: false, error, payload: [],
       rowErrors: { [row.key]: error }, badKey: row.key,
     });
+
     for (const row of rows) {
       if (!row.flavorId) {
         return fail(row, "Pick a flavor for this row (or remove the row).");
@@ -496,23 +461,27 @@ export default function ProductsPage() {
         return fail(row, "This flavor is already added below — each flavor can only appear once.");
       }
       seen.add(row.flavorId);
+
       const flavor = flavors.find((f) => f.id === row.flavorId);
       const entry = { flavorId: row.flavorId };
+
       const unitText = String(row.unitPrice ?? "").trim();
       if (unitText) {
         const unit = parseMoney(unitText);
         if (unit === null || unit <= 0) {
-          return fail(row, `Enter a valid price for "${flavor?.name ?? "this flavor"}" (P0.01 to P9,999,999.99) or leave it blank to use the base price.`);
+          return fail(row, `Enter a valid price for "${flavor?.name ?? "this flavor"}" (P0.01 to P9,999,999.99) or leave it blank to use the selling price.`);
         }
-        if (unit !== basePrice) entry.unitPrice = unit;
+        if (unit !== sellingPrice) entry.unitPrice = unit;
       }
+
       const recipes = [];
       const stockUnitOf = (name) =>
         itemNames.find((n) => n.name.toLowerCase() === String(name ?? "").trim().toLowerCase())?.unit ?? "";
+
       for (const r of row.recipes ?? []) {
         const itemName = String(r.itemName ?? "").trim();
         const rawAmount = parseQty(String(r.amount ?? ""));
-        if (!itemName && (rawAmount === null)) continue; // skip untouched blank lines
+        if (!itemName && (rawAmount === null)) continue;
         if (!itemName || itemName.length > 120) {
           return fail(row, `Recipe rows for "${flavor?.name ?? "this flavor"}" need an item name (max 120 characters).`);
         }
@@ -530,24 +499,85 @@ export default function ProductsPage() {
         }
         recipes.push({ itemName, amountPerUnit: conv.value });
       }
+
       if (recipes.length > 0) entry.recipes = recipes;
       payload.push(entry);
     }
     return { ok: true, payload, rowErrors: {}, badKey: null };
   }
 
+  async function handleAddProduct(e) {
+    e.preventDefault();
+    setAddError("");
+
+    const name = validateItemName(newProduct.name);
+    if (!name.ok) {
+      setAddError(name.error);
+      return;
+    }
+
+    const bp = parseMoney(newProduct.basePrice);
+    const mp = parseMoney(newProduct.markupPrice);
+    const sp = parseMoney(newProduct.sellingPrice);
+
+    if (sp === null || sp <= 0) {
+      setAddError("Selling price must be valid and greater than zero.");
+      return;
+    }
+
+    const checked = checkFlavorRows(addFlavorRows, sp);
+    if (!checked.ok) {
+      setAddError(checked.error);
+      setAddRowErrors(checked.rowErrors);
+      if (checked.badKey) {
+        setAddFlavorRows((prev) => prev.map((r) => (r.key === checked.badKey ? { ...r, collapsed: false } : r)));
+      }
+      return;
+    }
+
+    setIsAdding(true);
+    try {
+      const { data } = await api.post("/products", {
+        name: name.value,
+        category: newProduct.category.trim() || "Fries",
+        basePrice: bp,
+        markupPrice: mp,
+        sellingPrice: sp,
+        flavors: checked.payload,
+      });
+      toast(
+        `Product "${name.value}" created${checked.payload.length ? ` with ${checked.payload.length} flavor(s)` : ""}${data?.recipesCreated ? `, ${data.recipesCreated} recipe row(s)` : ""}`,
+        "success"
+      );
+      closeAddModal();
+      setNewProduct({ name: "", category: "Fries", basePrice: "", markupPrice: "", sellingPrice: "" });
+      setAddFlavorRows([]);
+      setAddRowErrors({});
+      setFlavorDraft("");
+      load();
+    } catch (err) {
+      setAddError(getFriendlyError(err, "Failed to create product."));
+    } finally {
+      setIsAdding(false);
+    }
+  }
+
   async function handleEditProduct(e) {
     e.preventDefault();
     setEditError("");
 
-    const price = parseMoney(editing.basePrice);
-    if (price === null || price <= 0) {
-      setEditError("Enter a base price from P0.01 to P9,999,999.99.");
+    const bp = parseMoney(editing.basePrice);
+    const mp = parseMoney(editing.markupPrice);
+    const sp = parseMoney(editing.sellingPrice);
+
+    if (sp === null || sp <= 0) {
+      setEditError("Selling price must be valid and greater than zero.");
       return;
     }
 
     const rows = editing.flavorRows ?? [];
-    const checked = checkFlavorRows(rows, price);
+    const checked = checkFlavorRows(rows, sp);
+    
     if (!checked.ok) {
       setEditError(checked.error);
       setEditing((prev) => {
@@ -565,24 +595,25 @@ export default function ProductsPage() {
     const sameLinks = origIds.length === nextIds.length &&
       origIds.every((id, i) => id === nextIds[i]);
 
-    // Per-flavor price overrides that changed vs the snapshot, with labels
-    // for the success message (effective old price -> effective new price).
     const flavorPrices = {};
     const priceChanges = [];
     let pricesChanged = false;
-    const baseSnapshot = Number(editing._basePrice);
+    const baseSnapshot = Number(editing._sellingPrice);
+
     for (const row of rows) {
       const flavor = flavors.find((f) => f.id === row.flavorId);
       if (!flavor) continue;
       const snap = editing._flavorPrices?.[flavor.name];
       const unitText = String(row.unitPrice ?? "").trim();
+      
       const next = unitText ? parseMoney(unitText) : null;
-      const normNext = next !== null && next !== price ? next : null;
+      const normNext = next !== null && next !== sp ? next : null;
       const normSnap = snap !== undefined && snap !== baseSnapshot ? snap : null;
+      
       if (normNext !== normSnap) {
         pricesChanged = true;
         flavorPrices[flavor.name] = normNext;
-        priceChanges.push(`${flavor.name} P${normSnap ?? baseSnapshot}→P${normNext ?? price}`);
+        priceChanges.push(`${flavor.name} P${normSnap ?? baseSnapshot} ➔ P${normNext ?? sp}`);
       }
     }
 
@@ -596,7 +627,9 @@ export default function ProductsPage() {
 
     if (
       (editing.category || "Fries") === (editing._category || "Fries") &&
-      price === Number(editing._basePrice) &&
+      bp === Number(editing._basePrice) &&
+      mp === Number(editing._markupPrice) &&
+      sp === Number(editing._sellingPrice) &&
       sameLinks &&
       !pricesChanged &&
       addRecipes.length === 0
@@ -610,29 +643,35 @@ export default function ProductsPage() {
     try {
       const body = {
         category: editing.category.trim() || "Fries",
-        basePrice: price,
+        basePrice: bp,
+        markupPrice: mp,
+        sellingPrice: sp,
       };
+      
       const adds = nextIds.filter((id) => !origIds.includes(id));
       const removes = origIds.filter((id) => !nextIds.includes(id));
       if (adds.length > 0) body.addFlavorIds = adds;
       if (removes.length > 0) body.removeFlavorIds = removes;
       if (pricesChanged) body.flavorPrices = flavorPrices;
       if (addRecipes.length > 0) body.addRecipes = addRecipes;
+
       const { data } = await api.patch(`/products/${editing.id}`, body);
-      // Say exactly what changed: added/removed flavors, price moves,
-      // new recipe rows — or category/base when those moved alone.
+
       const details = [];
       const nameOf = (id) => flavors.find((f) => f.id === id)?.name ?? "a flavor";
       for (const id of adds) details.push(`+${nameOf(id)}`);
-      for (const id of removes) details.push(`−${nameOf(id)}`);
+      for (const id of removes) details.push(`-${nameOf(id)}`);
       details.push(...priceChanges);
+      
       if ((data?.recipesChanged ?? 0) > 0) {
         details.push(`${data.recipesChanged} new recipe row(s)`);
       } else if (addRecipes.length > 0) {
         details.push(`${addRecipes.length} recipe row(s) saved`);
       }
+      
       if ((editing.category || "Fries") !== (editing._category || "Fries")) details.push("category updated");
-      if (price !== Number(editing._basePrice)) details.push(`base price P${Number(editing._basePrice)}→P${price}`);
+      if (sp !== Number(editing._sellingPrice)) details.push(`selling price P${Number(editing._sellingPrice)} ➔ P${sp}`);
+
       toast(
         `Product "${editing.name}" updated${details.length ? ` (${details.join("; ")})` : ""}`,
         "success"
@@ -659,7 +698,6 @@ export default function ProductsPage() {
       closeRenameModal();
       return;
     }
-
     setIsRenaming(true);
     try {
       const { data } = await api.patch(`/products/${renaming.id}/rename`, { name: name.value });
@@ -715,17 +753,20 @@ export default function ProductsPage() {
       ...p,
       category: p.category || "Fries",
       basePrice: String(p.basePrice ?? ""),
+      markupPrice: String(p.markupPrice ?? ""),
+      sellingPrice: String(p.sellingPrice ?? p.basePrice ?? ""),
       flavorRows: (p.flavors ?? []).map((f) => newFlavorRowState({
         flavorId: f.id,
         unitPrice: f.hasCustomPrice ? String(prices[f.name] ?? f.unitPrice ?? "") : "",
         recipes: [],
         existingRecipeCount: f.recipeCount ?? 0,
         existingMissing: f.missingItems ?? [],
-        // Saved rows start collapsed so long flavor lists stay scannable.
         collapsed: (f.recipeCount ?? 0) > 0,
       })),
       _category: p.category || "Fries",
       _basePrice: p.basePrice,
+      _markupPrice: p.markupPrice,
+      _sellingPrice: p.sellingPrice ?? p.basePrice,
       _flavorIds: (p.flavors ?? []).map((f) => f.id),
       _flavorPrices: prices,
       rowErrors: {},
@@ -735,7 +776,6 @@ export default function ProductsPage() {
     setFlavorError("");
   }
 
-  // Edit-modal row setter: supports updater fn or value, clears row errors.
   function setEditRows(updater) {
     setEditing((prev) => {
       if (!prev) return prev;
@@ -804,120 +844,134 @@ export default function ProductsPage() {
             <>
               {loading && (
                 <p role="status" className="muted small" style={{ margin: "0 0 var(--space-2)" }}>
-                  Loading products…
+                  Loading products
                 </p>
               )}
               <DataTable
                 loading={loading}
-              fixedLayout={true}
-              columns={[
-                {
-                  key: "name",
-                  label: "Name",
-                  render: (p) => (
-                    <span className="flex flex-wrap items-center gap-1">
-                      <strong>{p.name}</strong>
-                      {p.active === false && <Badge variant="neutral">Archived</Badge>}
-                    </span>
-                  ),
-                },
-                {
-                  key: "category",
-                  label: "Category",
-                  width: 120,
-                  render: (p) => <span className="muted">{p.category}</span>,
-                },
-                {
-                  key: "basePrice",
-                  label: "Price",
-                  width: 100,
-                  align: "right",
-                  render: (p) => <strong>P{Number(p.basePrice).toLocaleString()}</strong>,
-                },
-                {
-                  key: "flavors",
-                  label: "Flavors",
-                  render: (p) => (
-                    <span className="flex flex-wrap gap-1">
-                      {(p.flavors ?? []).map((f) => (
-                        <Badge
-                          key={f.id}
-                          variant={(f.recipeCount ?? 0) === 0 || (f.missingItems ?? []).length > 0 ? "warn" : "info"}
-                          title={[
-                            f.hasCustomPrice ? `P${Number(f.unitPrice).toLocaleString()} — custom price` : `P${Number(f.unitPrice ?? p.basePrice).toLocaleString()}`,
-                            ...((f.missingItems ?? []).map((m) => `No stock row for "${m}"`)),
-                          ].join(" · ")}
+                fixedLayout={true}
+                columns={[
+                  {
+                    key: "name",
+                    label: "Name",
+                    render: (p) => (
+                      <span className="flex flex-wrap items-center gap-1">
+                        <strong>{p.name}</strong>
+                        {p.active === false && <Badge variant="neutral">Archived</Badge>}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "category",
+                    label: "Category",
+                    width: 120,
+                    render: (p) => <span className="muted">{p.category}</span>,
+                  },
+                  {
+                    key: "basePrice",
+                    label: "Base Price",
+                    width: 100,
+                    align: "right",
+                    render: (p) => <span className="muted">P{Number(p.basePrice ?? 0).toLocaleString()}</span>,
+                  },
+                  {
+                    key: "markupPrice",
+                    label: "Markup",
+                    width: 100,
+                    align: "right",
+                    render: (p) => <span className="muted">P{Number(p.markupPrice ?? 0).toLocaleString()}</span>,
+                  },
+                  {
+                    key: "sellingPrice",
+                    label: "Selling Price",
+                    width: 110,
+                    align: "right",
+                    render: (p) => <strong>P{Number(p.sellingPrice ?? p.basePrice ?? 0).toLocaleString()}</strong>,
+                  },
+                  {
+                    key: "flavors",
+                    label: "Flavors",
+                    render: (p) => (
+                      <span className="flex flex-wrap gap-1">
+                        {(p.flavors ?? []).map((f) => (
+                          <Badge
+                            key={f.id}
+                            variant={(f.recipeCount ?? 0) === 0 || (f.missingItems ?? []).length > 0 ? "warn" : "info"}
+                            title={[
+                              f.hasCustomPrice ? `P${Number(f.unitPrice).toLocaleString()} — custom price` : `P${Number(f.unitPrice ?? p.sellingPrice ?? p.basePrice).toLocaleString()}`,
+                              ...((f.missingItems ?? []).map((m) => `No stock row for "${m}"`)),
+                            ].join(" • ")}
+                          >
+                            {f.name}
+                            {f.hasCustomPrice ? ` - P${Number(f.unitPrice).toLocaleString()}` : ""}
+                            {((f.recipeCount ?? 0) === 0 || (f.missingItems ?? []).length > 0) && (
+                              <AlertTriangle
+                                size={11}
+                                aria-label={(f.missingItems ?? []).length > 0 ? `Missing stock: ${(f.missingItems ?? []).join(", ")}` : "No recipe"}
+                                style={{ marginLeft: 4, verticalAlign: "-1px" }}
+                              />
+                            )}
+                          </Badge>
+                        ))}
+                        {(p.flavors ?? []).length === 0 && <span className="muted small">—</span>}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "usage",
+                    label: "Used in",
+                    width: 130,
+                    render: (p) => (
+                      <span className="muted small">
+                        {p.recipeCount} recipe(s) • {p.orderLines} order line(s)
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "actions",
+                    label: "",
+                    width: 168,
+                    align: "right",
+                    render: (p) => (
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          className="ghost small-btn"
+                          onClick={() => openEdit(p)}
+                          title="Edit price, flavors, recipes"
                         >
-                          {f.name}
-                          {f.hasCustomPrice ? ` · P${Number(f.unitPrice).toLocaleString()}` : ""}
-                          {((f.recipeCount ?? 0) === 0 || (f.missingItems ?? []).length > 0) && (
-                            <AlertTriangle
-                              size={11}
-                              aria-label={(f.missingItems ?? []).length > 0 ? `Missing stock: ${(f.missingItems ?? []).join(", ")}` : "No recipe"}
-                              style={{ marginLeft: 4, verticalAlign: "-1px" }}
-                            />
-                          )}
-                        </Badge>
-                      ))}
-                      {(p.flavors ?? []).length === 0 && <span className="muted small">—</span>}
-                    </span>
-                  ),
-                },
-                {
-                  key: "usage",
-                  label: "Used in",
-                  width: 130,
-                  render: (p) => (
-                    <span className="muted small">
-                      {p.recipeCount} recipe(s) · {p.orderLines} order line(s)
-                    </span>
-                  ),
-                },
-                {
-                  key: "actions",
-                  label: "",
-                  width: 168,
-                  align: "right",
-                  render: (p) => (
-                    <div className="flex items-center justify-end gap-1">
-                      <button
-                        className="ghost small-btn"
-                        onClick={() => openEdit(p)}
-                        title="Edit price, flavors, recipes"
-                      >
-                        <Edit2 size={13} />
-                      </button>
-                      <button
-                        className="ghost small-btn"
-                        onClick={() => {
-                          setRenaming(p);
-                          setRenameName(p.name);
-                          setRenameError("");
-                        }}
-                        title="Rename product"
-                      >
-                        <Tag size={13} />
-                      </button>
-                      <button
-                        className="ghost small-btn"
-                        onClick={() => setArchiving({ product: p, toActive: p.active === false })}
-                        title={p.active === false ? "Restore product to POS catalog" : "Archive product (hide from POS)"}
-                      >
-                        {p.active === false ? <ArchiveRestore size={13} /> : <Archive size={13} />}
-                      </button>
-                      <button
-                        className="danger-ghost small-btn"
-                        onClick={() => setDeleting(p)}
-                        title="Delete product"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  ),
-                },
-              ]}
-              data={products}
-            />
+                          <Edit2 size={13} />
+                        </button>
+                        <button
+                          className="ghost small-btn"
+                          onClick={() => {
+                            setRenaming(p);
+                            setRenameName(p.name);
+                            setRenameError("");
+                          }}
+                          title="Rename product"
+                        >
+                          <Tag size={13} />
+                        </button>
+                        <button
+                          className="ghost small-btn"
+                          onClick={() => setArchiving({ product: p, toActive: p.active === false })}
+                          title={p.active === false ? "Restore product to POS catalog" : "Archive product (hide from POS)"}
+                        >
+                          {p.active === false ? <ArchiveRestore size={13} /> : <Archive size={13} />}
+                        </button>
+                        <button
+                          className="danger-ghost small-btn"
+                          onClick={() => setDeleting(p)}
+                          title="Delete product"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    ),
+                  },
+                ]}
+                data={products}
+              />
             </>
           )}
         </section>
@@ -934,25 +988,25 @@ export default function ProductsPage() {
             >
               <h3 id="add-product-title"><Plus size={22} className="muted"/> Add Product</h3>
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                New catalog item for the POS. Add each flavor below with its own price and recipe rows.
+                New catalog item for the POS. Base + Markup automatically computes Selling Price.
               </p>
 
               <form onSubmit={handleAddProduct} className="flex flex-col gap-4">
-                <label className="field">
-                  Product Name
-                  <input
-                    type="text"
-                    required
-                    minLength={2}
-                    maxLength={30}
-                    placeholder="e.g. Nachos"
-                    title="Min 2 letters, max 30 characters"
-                    value={newProduct.name}
-                    onChange={(e) => setNewProduct({ ...newProduct, name: sanitizeTextInput(e.target.value, 30) })}
-                    autoFocus
-                  />
-                </label>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+                  <label className="field">
+                    Product Name
+                    <input
+                      type="text"
+                      required
+                      minLength={2}
+                      maxLength={30}
+                      placeholder="e.g. Nachos"
+                      title="Min 2 letters, max 30 characters"
+                      value={newProduct.name}
+                      onChange={(e) => setNewProduct({ ...newProduct, name: sanitizeTextInput(e.target.value, 30) })}
+                      autoFocus
+                    />
+                  </label>
                   <label className="field">
                     Category
                     <input
@@ -962,8 +1016,37 @@ export default function ProductsPage() {
                       onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })}
                     />
                   </label>
+                </div>
+
+                {/* PRICING GRID */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "20px" }}>
                   <label className="field">
-                    Base Price (PHP)
+                    Base Price (Cost)
+                    <input
+                      type="number"
+                      min="0"
+                      max="9999999.99"
+                      step="0.01"
+                      placeholder="0.00"
+                      title="Whole pesos max 7 digits, up to 2 decimals"
+                      value={newProduct.basePrice}
+                      onChange={(e) => handleAddPriceChange("basePrice", sanitizeMoneyInput(e.target.value))}
+                    />
+                  </label>
+                  <label className="field">
+                    Markup (Tubo)
+                    <input
+                      type="number"
+                      min="0"
+                      max="9999999.99"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={newProduct.markupPrice}
+                      onChange={(e) => handleAddPriceChange("markupPrice", sanitizeMoneyInput(e.target.value))}
+                    />
+                  </label>
+                  <label className="field">
+                    Selling Price
                     <input
                       type="number"
                       min="0"
@@ -971,16 +1054,15 @@ export default function ProductsPage() {
                       step="0.01"
                       required
                       placeholder="0.00"
-                      title="Whole pesos max 7 digits, up to 2 decimals"
-                      value={newProduct.basePrice}
-                      onChange={(e) => setNewProduct({ ...newProduct, basePrice: sanitizeMoneyInput(e.target.value) })}
+                      value={newProduct.sellingPrice}
+                      onChange={(e) => handleAddPriceChange("sellingPrice", sanitizeMoneyInput(e.target.value))}
                     />
                   </label>
                 </div>
                 
                 <div className="field">
                   <span>Flavors — price &amp; recipes per flavor</span>
-                  {flavorRowsEditor(addFlavorRows, setAddRows, newProduct.basePrice, addRowErrors)}
+                  {flavorRowsEditor(addFlavorRows, setAddRows, newProduct.sellingPrice, addRowErrors)}
                 </div>
                 
                 <div className="modal-actions">
@@ -1009,42 +1091,61 @@ export default function ProductsPage() {
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
                 Price changes affect future sales only — recorded orders keep their totals.
               </p>
-
+              
               <form onSubmit={handleEditProduct} className="flex flex-col gap-4">
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+                <label className="field">
+                  Category
+                  <input
+                    type="text"
+                    maxLength={60}
+                    value={editing?.category || ""}
+                    onChange={(e) => setEditing({ ...editing, category: e.target.value })}
+                  />
+                </label>
+
+                {/* PRICING GRID */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "20px" }}>
                   <label className="field">
-                    Category
+                    Base Price (Cost)
                     <input
-                      type="text"
-                      maxLength={60}
-                      value={editing?.category || ""}
-                      onChange={(e) => setEditing({ ...editing, category: e.target.value })}
+                      type="number"
+                      min="0"
+                      max="9999999.99"
+                      step="0.01"
+                      title="Whole pesos max 7 digits, up to 2 decimals"
+                      value={editing?.basePrice ?? ""}
+                      onChange={(e) => handleEditPriceChange("basePrice", sanitizeMoneyInput(e.target.value))}
+                      autoFocus
                     />
                   </label>
                   <label className="field">
-                    Base Price (PHP)
+                    Markup (Tubo)
+                    <input
+                      type="number"
+                      min="0"
+                      max="9999999.99"
+                      step="0.01"
+                      value={editing?.markupPrice ?? ""}
+                      onChange={(e) => handleEditPriceChange("markupPrice", sanitizeMoneyInput(e.target.value))}
+                    />
+                  </label>
+                  <label className="field">
+                    Selling Price
                     <input
                       type="number"
                       min="0"
                       max="9999999.99"
                       step="0.01"
                       required
-                      title="Whole pesos max 7 digits, up to 2 decimals"
-                      value={editing?.basePrice ?? ""}
-                      onChange={(e) => setEditing({ ...editing, basePrice: sanitizeMoneyInput(e.target.value) })}
-                      autoFocus
+                      value={editing?.sellingPrice ?? ""}
+                      onChange={(e) => handleEditPriceChange("sellingPrice", sanitizeMoneyInput(e.target.value))}
                     />
                   </label>
                 </div>
                 
                 <div className="field">
                   <span>Flavors — price &amp; recipes per flavor</span>
-                  {editing && flavorRowsEditor(
-                    editing.flavorRows ?? [],
-                    setEditRows,
-                    editing.basePrice,
-                    editing.rowErrors ?? {}
-                  )}
+                  {flavorRowsEditor(editing?.flavorRows ?? [], setEditRows, editing?.sellingPrice, editing?.rowErrors ?? {})}
                 </div>
                 
                 <div className="modal-actions">
@@ -1064,13 +1165,9 @@ export default function ProductsPage() {
           <div className={`modal-backdrop ${renameClosing ? "is-closing" : ""}`}>
             <div className={`modal ${renameClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
               <h3><Tag size={22} className="muted"/> Rename {renaming?.name}</h3>
-              <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                Recipe rows follow the new name automatically. Past orders keep the old name.
-              </p>
-
               <form onSubmit={handleRename} className="flex flex-col gap-4">
                 <label className="field">
-                  New Name
+                  Product Name
                   <input
                     type="text"
                     required
@@ -1085,7 +1182,7 @@ export default function ProductsPage() {
                 <div className="modal-actions">
                   <button type="button" className="ghost" onClick={closeRenameModal} disabled={isRenaming || renameClosing}>Cancel</button>
                   <button type="submit" disabled={isRenaming || renameClosing}>
-                    {isRenaming ? "Renaming..." : "Rename"}
+                    {isRenaming ? "Saving..." : "Rename"}
                   </button>
                 </div>
                 {renameError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{renameError}</p>}
@@ -1098,32 +1195,17 @@ export default function ProductsPage() {
         <ConfirmDialog
           open={Boolean(deleting)}
           title="Delete product?"
-          message={deleting
-            ? `"${deleting.name}" is used in ${deleting.recipeCount} recipe(s) and ${deleting.orderLines} order line(s). Delete is blocked while any reference exists. Archive it instead to hide it from the POS.`
-            : ""}
+          message={
+            deleting
+              ? `"${deleting.name}" will be completely removed from the catalog. Historical sales data remains unaffected. This action cannot be undone.`
+              : ""
+          }
           confirmLabel="Delete Product"
           danger
           pending={isDeleting}
           pendingLabel="Deleting..."
           onConfirm={handleDelete}
           onCancel={() => setDeleting(null)}
-        />
-
-        {/* ARCHIVE / RESTORE CONFIRMATION */}
-        <ConfirmDialog
-          open={Boolean(archiving)}
-          title={archiving?.toActive ? "Restore product?" : "Archive product?"}
-          message={archiving
-            ? archiving.toActive
-              ? `"${archiving.product.name}" will show in the POS catalog again.`
-              : `"${archiving.product.name}" will be hidden from the POS catalog. Sales history and reports are kept.`
-            : ""}
-          confirmLabel={archiving?.toActive ? "Restore Product" : "Archive Product"}
-          danger={!archiving?.toActive}
-          pending={isArchiving}
-          pendingLabel={archiving?.toActive ? "Restoring..." : "Archiving..."}
-          onConfirm={handleArchiveToggle}
-          onCancel={() => setArchiving(null)}
         />
       </div>
     </PageErrorBoundary>
