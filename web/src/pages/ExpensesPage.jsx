@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { Trash2, ReceiptText, RefreshCw, X, Plus, Edit2, Wallet } from "lucide-react";
-
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
@@ -37,7 +36,6 @@ export default function ExpensesPage() {
 
   const [confirming, setConfirming] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
-
   const [summary, setSummary] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
 
@@ -159,6 +157,7 @@ export default function ExpensesPage() {
         note: note.value || null,
         source: "MANUAL"
       });
+      
       toast(`Expense for ${newExpense.vendor} added`, "success");
       closeAddModal();
       setNewExpense({
@@ -178,8 +177,6 @@ export default function ExpensesPage() {
   }
 
   // --- EDIT EXPENSE HANDLER ---
-  // Only vendor/amount/date/category/note reach the API (location is not
-  // editable server-side), so no-change is measured on those fields.
   async function handleEditExpense(e) {
     e.preventDefault();
     setEditError("");
@@ -253,14 +250,12 @@ export default function ExpensesPage() {
     }
   }
 
-  // Options para sa ating custom Select dropdowns (guards para hindi mag-crash)
   const safeLocations = Array.isArray(locations) ? locations : [];
   const locationOptions = [
     { value: "", label: "All carts" },
     ...safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }))
   ];
-  
-  // Para sa forms, ayaw natin ng "All carts" o "All categories" blank options
+
   const formLocationOptions = [
     { value: "", label: "General / No Cart Assigned" },
     ...locations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }))
@@ -270,7 +265,6 @@ export default function ExpensesPage() {
     { value: "", label: "All categories" },
     ...(summary?.categories ?? ["Supplies", "LPG/Gas", "Maintenance", "Fees/Rent", "Other"]).map((c) => ({ value: c, label: c }))
   ];
-
   const formCategoryOptions = (summary?.categories ?? ["Supplies", "LPG/Gas", "Maintenance", "Fees/Rent", "Other"]).map((c) => ({ value: c, label: c }));
 
   return (
@@ -298,7 +292,6 @@ export default function ExpensesPage() {
               >
                 <RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh
               </button>
-              {/* NEW: Add Expense Button */}
               {isOwner && (
                 <button
                   className="small-btn"
@@ -311,7 +304,7 @@ export default function ExpensesPage() {
             </div>
           }
         />
-
+        
         <section className="panel sales-panel">
           <div className="sales-filters-row">
             <div className="sales-filters-left">
@@ -373,16 +366,43 @@ export default function ExpensesPage() {
           {error ? (
             <div className="error-box" role="alert">{error}</div>
           ) : !loading && (!rows || rows.length === 0) ? (
-            <EmptyState
-              icon={ReceiptText}
-              title="No expenses in this period"
-              subtitle="Add an expense manually or scan vendor receipts from the POS app."
-            />
+            // EXPANDED MANUAL EMPTY TABLE SHELL
+            <div className="table-wrap" style={{ height: "500px", display: "flex", flexDirection: "column" }}>
+              <style>{`
+                .expenses-empty-wrapper .empty-state-card {
+                  flex: 1;
+                  width: 100%;
+                  justify-content: center;
+                  margin: 0;
+                }
+              `}</style>
+              <table className="data table-fixed" style={{ flex: "none", width: "100%", margin: 0 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 110 }}>Date</th>
+                    <th style={{ width: 220 }}>Vendor</th>
+                    <th style={{ width: 120 }}>Cart</th>
+                    <th style={{ width: 140 }}>Category</th>
+                    <th style={{ width: 100 }}>Source</th>
+                    <th style={{ width: 200 }}>Note</th>
+                    <th style={{ width: 120, textAlign: "right" }}>Amount</th>
+                    {isOwner && <th style={{ width: 90 }}></th>}
+                  </tr>
+                </thead>
+              </table>
+              <div className="expenses-empty-wrapper" style={{ flex: 1, display: "flex", padding: "24px" }}>
+                <EmptyState
+                  icon={ReceiptText}
+                  title="No expenses in this period"
+                  subtitle="Add an expense manually or scan vendor receipts from the POS app."
+                  compact
+                />
+              </div>
+            </div>
           ) : (
             <DataTable
               loading={loading}
               fixedLayout={true}
-              emptyMessage="No expenses this period."
               columns={[
                 {
                   key: "date",
@@ -486,7 +506,7 @@ export default function ExpensesPage() {
                     ]
                   : []),
               ]}
-              data={rows}
+              data={rows || []}
               pagination={meta ? { ...meta, onPageChange: gotoPage } : null}
             />
           )}
@@ -580,6 +600,7 @@ export default function ExpensesPage() {
                     {isAdding ? "Adding..." : "Save Expense"}
                   </button>
                 </div>
+
                 {addError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{addError}</p>}
               </form>
             </div>
@@ -671,6 +692,7 @@ export default function ExpensesPage() {
                     {isEditing ? "Saving..." : "Save Changes"}
                   </button>
                 </div>
+
                 {editError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{editError}</p>}
               </form>
             </div>

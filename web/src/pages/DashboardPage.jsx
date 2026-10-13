@@ -19,7 +19,6 @@ import {
   Users,
   X,
 } from "lucide-react";
-
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
@@ -34,11 +33,9 @@ function statusClass(s) {
   if (s === "low") return "low";
   return "ok";
 }
-
 function formatTime(d) {
   return new Date(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
-
 function initials(name) {
   if (!name) return "?";
   return name
@@ -47,16 +44,18 @@ function initials(name) {
     .map((p) => p[0]?.toUpperCase() ?? "")
     .join("");
 }
-
 function TrendArrow({ dir }) {
   if (dir === "up") return <ArrowUp size={12} />;
   if (dir === "down") return <ArrowDown size={12} />;
   return <Minus size={12} />;
 }
-
 function getLocalToday() {
   const tzOffset = new Date().getTimezoneOffset() * 60000;
   return new Date(Date.now() - tzOffset).toISOString().slice(0, 10);
+}
+// HELPER: Para malinis ang decimal (max 2 places) tulad ng sa Inventory
+function formatStock(val) {
+  return Number(val).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
 export default function DashboardPage() {
@@ -100,7 +99,6 @@ export default function DashboardPage() {
   const refresh = useCallback(async () => {
     setRefreshing(true);
     const errs = {};
-
     const settle = async (key, promise, apply) => {
       try {
         apply(await promise);
@@ -112,7 +110,6 @@ export default function DashboardPage() {
     const dQ = dateFilter ? `date=${dateFilter}` : "";
     const lQ = cartFilter ? `location_code=${cartFilter}` : "";
     const cQ = cartFilter ? `code=${cartFilter}` : "";
-
     const buildQ = (base, params) => {
       const query = params.filter(Boolean).join("&");
       if (!query) return base;
@@ -143,11 +140,7 @@ export default function DashboardPage() {
 
   useLiveStatus(setSseStatus);
 
-  // Live events come from the app-wide connection in Layout, so this page
-  // only reacts to the ones it renders. Toasts live in the shell (see
-  // useOrderNotifications) so a sale is announced from every screen.
   useLiveEvent("order:new", (data) => {
-    // KPI counters only make sense for the live period.
     if (dateFilter && dateFilter !== getLocalToday()) return;
     if (cartFilter && data?.locationCode && data.locationCode !== cartFilter) return;
     setReport((r) =>
@@ -186,7 +179,6 @@ export default function DashboardPage() {
   const todaySales = report?.total_sales ?? 0;
   const todayOrders = report?.orders ?? 0;
   const avgTicket = todayOrders > 0 ? todaySales / todayOrders : 0;
-
   const topItem = (() => {
     const all = trends?.top_items ?? [];
     if (all.length === 0) return null;
@@ -271,17 +263,13 @@ export default function DashboardPage() {
       {loading ? (
         <>
           {/* TOP SECTION SKELETON */}
-          <div className="dashboard-top-row">
-            <div className="dashboard-kpi-stack">
-              <div className="kpi-card large"><Skeleton rows={3} height={20} /></div>
-              <div className="kpi-card large"><Skeleton rows={3} height={20} /></div>
-            </div>
-            <div className="dashboard-kpi-grid-2x2">
-              <div className="kpi-card"><Skeleton rows={2} /></div>
-              <div className="kpi-card"><Skeleton rows={2} /></div>
-              <div className="kpi-card"><Skeleton rows={2} /></div>
-              <div className="kpi-card"><Skeleton rows={2} /></div>
-            </div>
+          <div className="dashboard-kpi-strip">
+            <div className="kpi-card"><Skeleton rows={2} height={40} /></div>
+            <div className="kpi-card"><Skeleton rows={2} height={40} /></div>
+            <div className="kpi-card"><Skeleton rows={2} height={40} /></div>
+            <div className="kpi-card"><Skeleton rows={2} height={40} /></div>
+          </div>
+          <div className="dashboard-middle-row">
             <div className="panel dashboard-trend-panel" style={{ display: "flex", flexDirection: "column" }}>
               <div className="panel-head" style={{ marginBottom: "16px" }}>
                  <Skeleton rows={1} height={24} />
@@ -290,32 +278,13 @@ export default function DashboardPage() {
                 <Skeleton rows={1} height={140} />
               </div>
             </div>
+            <div className="panel">
+              <Skeleton rows={4} height={36} />
+            </div>
           </div>
-
+          
           {/* BOTTOM SECTION SKELETON */}
-          <div className="dashboard-body">
-            
-            <section className="panel widget-orders" style={{ display: "flex", flexDirection: "column", minHeight: "320px" }}>
-              <div className="panel-head" style={{ marginBottom: "16px" }}>
-                <div style={{ width: "140px" }}><Skeleton rows={1} height={24} /></div>
-                <div style={{ width: "80px" }}><Skeleton rows={1} height={28} /></div>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "16px", flex: 1 }}>
-                <Skeleton rows={5} height={36} />
-              </div>
-            </section>
-            
-            <section className="panel" style={{ display: "flex", flexDirection: "column", minHeight: "320px" }}>
-              <div style={{ width: "120px", marginBottom: "20px" }}><Skeleton rows={1} height={24} /></div>
-              <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "12px", marginBottom: "16px" }}>
-                <Skeleton rows={1} height={80} />
-                <Skeleton rows={1} height={80} />
-              </div>
-              <div style={{ flex: 1, marginTop: "16px" }}>
-                <Skeleton rows={1} height={140} />
-              </div>
-            </section>
-
+          <div className="dashboard-ops-row">
             <section className="panel" style={{ display: "flex", flexDirection: "column", minHeight: "280px" }}>
               <div className="panel-head" style={{ marginBottom: "16px" }}>
                 <div style={{ width: "120px" }}><Skeleton rows={1} height={24} /></div>
@@ -325,7 +294,7 @@ export default function DashboardPage() {
                 <Skeleton rows={4} height={44} />
               </div>
             </section>
-
+            
             <section className="panel" style={{ display: "flex", flexDirection: "column", minHeight: "280px" }}>
               <div className="panel-head" style={{ marginBottom: "16px" }}>
                 <div style={{ width: "110px" }}><Skeleton rows={1} height={24} /></div>
@@ -335,7 +304,7 @@ export default function DashboardPage() {
                 <Skeleton rows={4} height={44} />
               </div>
             </section>
-
+            
             <section className="panel" style={{ display: "flex", flexDirection: "column", minHeight: "280px" }}>
               <div className="panel-head" style={{ marginBottom: "16px" }}>
                 <div style={{ width: "130px" }}><Skeleton rows={1} height={24} /></div>
@@ -345,87 +314,75 @@ export default function DashboardPage() {
                 <Skeleton rows={4} height={44} />
               </div>
             </section>
-
+          </div>
+          
+          <div className="dashboard-bottom-row">
+            <section className="panel widget-orders" style={{ display: "flex", flexDirection: "column", minHeight: "320px" }}>
+              <div className="panel-head" style={{ marginBottom: "16px" }}>
+                <div style={{ width: "140px" }}><Skeleton rows={1} height={24} /></div>
+                <div style={{ width: "80px" }}><Skeleton rows={1} height={28} /></div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px", flex: 1 }}>
+                <Skeleton rows={5} height={36} />
+              </div>
+            </section>
           </div>
         </>
       ) : (
         <>
-          {/* TOP SECTION DATA */}
-          <div className="dashboard-top-row">
-            <div className="dashboard-kpi-stack">
-              <div className="kpi-card large solid-brand" onClick={() => navigate("/sales")} role="button" tabIndex={0}>
-                <div className="kpi-card-header">
-                  <span className="kpi-card-label">{dateFilter ? "Sales (Filtered)" : "Sales today"}</span>
-                  <span className="kpi-card-icon"><DollarSign size={22} /></span>
-                </div>
-                <div className="kpi-card-body">
-                  <div>
-                    <div className="kpi-card-value">{report ? <>P{Number(todaySales).toLocaleString()}</> : "—"}</div>
-                    <div className="kpi-card-sub">{report ? `${todayOrders} orders - avg P${avgTicket.toFixed(0)} ticket` : "Sales unavailable"}</div>
-                  </div>
-                  <span className="kpi-card-trend"><TrendArrow dir={salesDir} /> {labelOf(salesDelta)}</span>
-                </div>
+          {/* ROW 1: CORE KPIs */}
+          <div className="dashboard-kpi-strip">
+            <div className="kpi-card solid-brand" onClick={() => navigate("/sales")} role="button" tabIndex={0}>
+              <div className="kpi-card-header">
+                <span className="kpi-card-label">{dateFilter ? "Sales (Filtered)" : "Sales today"}</span>
+                <span className="kpi-card-icon"><DollarSign size={22} /></span>
               </div>
-
-              <div className="kpi-card large" onClick={() => navigate("/sales")} role="button" tabIndex={0}>
-                <div className="kpi-card-header">
-                  <span className="kpi-card-label">{dateFilter ? "Orders (Filtered)" : "Orders today"}</span>
-                  <span className="kpi-card-icon"><ShoppingBag size={22} /></span>
+              <div className="kpi-card-body">
+                <div>
+                  <div className="kpi-card-value">{report ? <>P{Number(todaySales).toLocaleString()}</> : " "}</div>
+                  <div className="kpi-card-sub">{report ? `${todayOrders} orders - avg P${avgTicket.toFixed(0)} ticket` : "Sales unavailable"}</div>
                 </div>
-                <div className="kpi-card-body">
-                  <div>
-                    <div className="kpi-card-value">{report ? todayOrders : "—"}</div>
-                    <div className="kpi-card-sub">Across {activeInventory.length} active carts</div>
-                  </div>
-                  <span className={`kpi-card-trend ${ordersDir}`}><TrendArrow dir={ordersDir} /> {labelOf(ordersDelta)}</span>
+                <span className="kpi-card-trend"><TrendArrow dir={salesDir} /> {labelOf(salesDelta)}</span>
+              </div>
+            </div>
+            
+            <div className="kpi-card" onClick={() => navigate("/sales")} role="button" tabIndex={0}>
+              <div className="kpi-card-header">
+                <span className="kpi-card-label">{dateFilter ? "Orders (Filtered)" : "Orders today"}</span>
+                <span className="kpi-card-icon"><ShoppingBag size={22} /></span>
+              </div>
+              <div className="kpi-card-body">
+                <div>
+                  <div className="kpi-card-value">{report ? todayOrders : " "}</div>
+                  <div className="kpi-card-sub">Across {activeInventory.length} active carts</div>
                 </div>
+                <span className={`kpi-card-trend ${ordersDir}`}><TrendArrow dir={ordersDir} /> {labelOf(ordersDelta)}</span>
               </div>
             </div>
 
-            <div className="dashboard-kpi-grid-2x2">
-              <div className="kpi-card" onClick={() => navigate("/sales")} role="button" tabIndex={0}>
-                <div className="kpi-card-header">
-                  <span className="kpi-card-label">Avg ticket</span>
-                  <span className="kpi-card-icon"><ReceiptText size={20} /></span>
-                </div>
-                <div className="kpi-card-value">P{avgTicket.toFixed(0)}</div>
-                <div className="kpi-card-sub">Per order {dateFilter ? "selected" : "today"}</div>
+            <div className="kpi-card" onClick={() => navigate("/sales")} role="button" tabIndex={0}>
+              <div className="kpi-card-header">
+                <span className="kpi-card-label">Avg ticket</span>
+                <span className="kpi-card-icon"><ReceiptText size={20} /></span>
               </div>
-
-              <div className="kpi-card" onClick={() => navigate("/analytics")} role="button" tabIndex={0}>
-                <div className="kpi-card-header">
-                  <span className="kpi-card-label">Top item</span>
-                  <span className="kpi-card-icon"><BarChart2 size={20} /></span>
-                </div>
-                <div className="kpi-card-value" style={{ fontSize: "var(--fs-lg)", fontWeight: "var(--fw-extrabold)" }}>
-                  {topItem ? (topItem.flavor ?? topItem.name) : "-"}
-                </div>
-                <div className="kpi-card-sub">{topItem ? `${topItem.qty ?? 0} sold (7d)` : "No data yet"}</div>
-              </div>
-
-              <div className="kpi-card" onClick={() => navigate("/inventory")} role="button" tabIndex={0}>
-                <div className="kpi-card-header">
-                  <span className="kpi-card-label">Low stock</span>
-                  <span className="kpi-card-icon" style={lowCount > 0 ? { background: "var(--danger-bg)", color: "var(--danger)" } : undefined}>
-                    <AlertTriangle size={20} />
-                  </span>
-                </div>
-                <div className="kpi-card-value" style={lowCount > 0 ? { color: "var(--danger)" } : undefined}>{lowCount}</div>
-                <div className="kpi-card-sub">{criticalCount} critical - {lowStockAlerts.length} alerts</div>
-              </div>
-
-              <div className="kpi-card" onClick={() => navigate("/staff")} role="button" tabIndex={0}>
-                <div className="kpi-card-header">
-                  <span className="kpi-card-label">On shift</span>
-                  <span className="kpi-card-icon"><Users size={20} /></span>
-                </div>
-                <div className="kpi-card-value">{activeOnShift.length}</div>
-                <div className="kpi-card-sub">
-                  {activeOnShift.length > 0 ? activeOnShift.map((s) => s.location_code).join(", ") : "No staff tapped in"}
-                </div>
-              </div>
+              <div className="kpi-card-value">P{avgTicket.toFixed(0)}</div>
+              <div className="kpi-card-sub">Per order {dateFilter ? "selected" : "today"}</div>
             </div>
 
+            <div className="kpi-card" onClick={() => navigate("/analytics")} role="button" tabIndex={0}>
+              <div className="kpi-card-header">
+                <span className="kpi-card-label">Top item</span>
+                <span className="kpi-card-icon"><BarChart2 size={20} /></span>
+              </div>
+              <div className="kpi-card-value" style={{ fontSize: "var(--fs-lg)", fontWeight: "var(--fw-extrabold)" }}>
+                {topItem ? (topItem.flavor ?? topItem.name) : "-"}
+              </div>
+              <div className="kpi-card-sub">{topItem ? `${topItem.qty ?? 0} sold (7d)` : "No data yet"}</div>
+            </div>
+          </div>
+
+          {/* ROW 2: TRENDS & LIVE */}
+          <div className="dashboard-middle-row">
             {trends && trends.by_weekday ? (
               <section className="panel dashboard-trend-panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
                 <div className="panel-head">
@@ -451,11 +408,136 @@ export default function DashboardPage() {
                 <EmptyState icon={TrendingUp} title="No trend data" compact />
               </div>
             )}
+            
+            <div style={{ height: "100%" }}>
+              <SensorPanel code={cartFilter || "CART-01"} />
+            </div>
           </div>
 
-          {/* BOTTOM SECTION DATA */}
-          <div className="dashboard-body">
+          {/* ROW 3: OPS SUMMARY */}
+          <div className="dashboard-ops-row">
+            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+              <div className="panel-head" style={{ marginBottom: "12px" }}>
+                <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
+                  Stock alerts
+                </h3>
+                <div className="flex items-center gap-2">
+                  {activeInventory.length > 0 && (
+                    <Badge variant={criticalCount > 0 ? "danger" : lowCount > 0 ? "warn" : "ok"}>
+                      {criticalCount > 0 ? `${criticalCount} critical` : lowCount > 0 ? `${lowCount} low` : "All OK"}
+                    </Badge>
+                  )}
+                  <button className="ghost small-btn" onClick={() => navigate("/inventory")}>View</button>
+                </div>
+              </div>
+              
+              {activeInventory.length === 0 ? (
+                <EmptyState icon={Boxes} title="No carts configured" subtitle="Stock alerts appear as soon as a cart reports readings." compact />
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+                  {activeInventory.every((loc) => (loc.items ?? []).every((i) => i.status === "ok")) ? (
+                    <EmptyState icon={CheckCircle} title="All stock healthy" subtitle="Nothing below threshold right now." compact />
+                  ) : (
+                    <>
+                      {activeInventory
+                        .flatMap((loc) => (loc.items ?? []).filter((i) => i.status !== "ok").map((i) => ({ ...i, locationCode: loc.code })))
+                        .slice(0, 5)
+                        .map((it) => {
+                          const Icon = it.status === "critical" ? AlertTriangle : Info;
+                          return (
+                            <div className="alert-item" key={`${it.id}`}>
+                              <span className="alert-item-icon">
+                                <Icon size={16} style={{ color: it.status === "critical" ? "var(--danger)" : "var(--warn)" }} />
+                              </span>
+                              <span className="alert-item-text">
+                                <div className="alert-item-name">{it.name} <span className="text-xs muted">@ {it.locationCode}</span></div>
+                                <div className="alert-item-detail">{formatStock(it.stock)} {it.unit} remaining - threshold {formatStock(it.threshold)}</div>
+                              </span>
+                              <Badge variant={statusClass(it.status)}>{it.status.toUpperCase()}</Badge>
+                            </div>
+                          );
+                        })}
+                      <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
+                        Showing up to 5 alerts. Check the Inventory page to manage all stocks.
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </section>
             
+            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+              <div className="panel-head" style={{ marginBottom: "12px" }}>
+                <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
+                  Cart status
+                </h3>
+                <Badge variant="neutral">{activeInventory.length} carts</Badge>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+                {activeInventory.length === 0 ? (
+                   <EmptyState icon={Boxes} title="No carts configured" subtitle="Carts will appear here once added." compact />
+                ) : (
+                  <>
+                    {activeInventory.slice(0, 5).map((loc) => {
+                      const locItems = loc.items ?? [];
+                      const low = locItems.filter((i) => i.status !== "ok").length;
+                      const critical = locItems.filter((i) => i.status === "critical").length;
+                      const dotClass = critical > 0 ? "critical" : low > 0 ? "warn" : "ok";
+                      return (
+                        <div key={loc.id} className="cart-status-item" onClick={() => navigate("/inventory", { state: { cartCode: loc.code } })} role="button" tabIndex={0}>
+                          <span className={`status-dot ${dotClass}`} />
+                          <span className="alert-item-text">
+                            <div className="alert-item-name">{loc.code}</div>
+                            <div className="alert-item-detail">{loc.name} - {locItems.length} items</div>
+                          </span>
+                          <Badge variant={critical > 0 ? "danger" : low > 0 ? "warn" : "ok"}>
+                            {critical > 0 ? `${critical} critical` : low > 0 ? `${low} low` : "OK"}
+                          </Badge>
+                        </div>
+                      );
+                    })}
+                    <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
+                      Showing up to 5 carts. Click on a cart to see complete inventory information.
+                    </div>
+                  </>
+                )}
+              </div>
+            </section>
+            
+            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+              <div className="panel-head" style={{ marginBottom: "12px" }}>
+                <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
+                  On-shift staff
+                </h3>
+                <Badge variant={activeOnShift.length > 0 ? "ok" : "neutral"}>{activeOnShift.length} on duty</Badge>
+              </div>
+              
+              {activeOnShift.length === 0 ? (
+                <EmptyState icon={Clock} title="No one on shift" subtitle="Staff will appear here when they tap in." compact />
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+                  <div className="flex flex-col gap-2">
+                    {activeOnShift.slice(0, 5).map((s) => (
+                      <div key={`${s.name}-${s.location_code}`} className="cart-status-item" style={{ borderBottom: "none" }}>
+                        <span className="staff-avatar">{initials(s.name)}</span>
+                        <span className="alert-item-text">
+                          <div className="alert-item-name">{s.name}</div>
+                          <div className="alert-item-detail">{s.location_name} - since {formatTime(s.since)}</div>
+                        </span>
+                        <Badge variant={s.registered ? "ok" : "danger"}>{s.registered ? "ON" : "UNREG"}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
+                    Showing up to 5 recent shifts. Go to the Staff page for complete information.
+                  </div>
+                </div>
+              )}
+            </section>
+          </div>
+
+          {/* ROW 4: RECENT ORDERS */}
+          <div className="dashboard-bottom-row">
             <section className="panel widget-orders" aria-live="polite">
               <div className="panel-head">
                 <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
@@ -499,126 +581,6 @@ export default function DashboardPage() {
                 </div>
               )}
             </section>
-            
-            <div style={{ height: "100%" }}>
-              <SensorPanel code={cartFilter || "CART-01"} />
-            </div>
-
-            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-              <div className="panel-head" style={{ marginBottom: "12px" }}>
-                <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
-                  Stock alerts
-                </h3>
-                <div className="flex items-center gap-2">
-                  <button className="ghost small-btn" onClick={() => navigate("/inventory")}>View inventory</button>
-                </div>
-              </div>
-              
-              {activeInventory.length === 0 ? (
-                <EmptyState icon={Boxes} title="No carts configured" subtitle="Stock alerts appear as soon as a cart reports readings." compact />
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-                  {activeInventory.every((loc) => (loc.items ?? []).every((i) => i.status === "ok")) ? (
-                    <EmptyState icon={CheckCircle} title="All stock healthy" subtitle="Nothing below threshold right now." compact />
-                  ) : (
-                    <>
-                      {activeInventory
-                        .flatMap((loc) => (loc.items ?? []).filter((i) => i.status !== "ok").map((i) => ({ ...i, locationCode: loc.code })))
-                        .slice(0, 5) // MAXIMUM 5 ITEMS
-                        .map((it) => {
-                          const Icon = it.status === "critical" ? AlertTriangle : Info;
-                          return (
-                            <div className="alert-item" key={`${it.id}`}>
-                              <span className="alert-item-icon">
-                                <Icon size={16} style={{ color: it.status === "critical" ? "var(--danger)" : "var(--warn)" }} />
-                              </span>
-                              <span className="alert-item-text">
-                                <div className="alert-item-name">{it.name} <span className="text-xs muted">@ {it.locationCode}</span></div>
-                                <div className="alert-item-detail">{it.stock} {it.unit} remaining - threshold {it.threshold}</div>
-                              </span>
-                              <Badge variant={statusClass(it.status)}>{it.status.toUpperCase()}</Badge>
-                            </div>
-                          );
-                        })}
-                      <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
-                        Showing up to 5 alerts. Check the Inventory page to manage all stocks.
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-            </section>
-
-            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-              <div className="panel-head" style={{ marginBottom: "12px" }}>
-                <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
-                  Cart status
-                </h3>
-                <Badge variant="neutral">{activeInventory.length} carts</Badge>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-                {activeInventory.length === 0 ? (
-                   <EmptyState icon={Boxes} title="No carts configured" subtitle="Carts will appear here once added." compact />
-                ) : (
-                  <>
-                    {activeInventory.slice(0, 5).map((loc) => { // MAXIMUM 5 ITEMS
-                      const locItems = loc.items ?? [];
-                      const low = locItems.filter((i) => i.status !== "ok").length;
-                      const critical = locItems.filter((i) => i.status === "critical").length;
-                      const dotClass = critical > 0 ? "critical" : low > 0 ? "warn" : "ok";
-
-                      return (
-                        <div key={loc.id} className="cart-status-item" onClick={() => navigate("/inventory")} role="button" tabIndex={0}>
-                          <span className={`status-dot ${dotClass}`} />
-                          <span className="alert-item-text">
-                            <div className="alert-item-name">{loc.code}</div>
-                            <div className="alert-item-detail">{loc.name} - {locItems.length} items</div>
-                          </span>
-                          <Badge variant={critical > 0 ? "danger" : low > 0 ? "warn" : "ok"}>
-                            {critical > 0 ? `${critical} critical` : low > 0 ? `${low} low` : "OK"}
-                          </Badge>
-                        </div>
-                      );
-                    })}
-                    <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
-                      Showing up to 5 carts. Click on a cart to see complete inventory information.
-                    </div>
-                  </>
-                )}
-              </div>
-            </section>
-
-            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-              <div className="panel-head" style={{ marginBottom: "12px" }}>
-                <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
-                  On-shift staff
-                </h3>
-                <Badge variant={activeOnShift.length > 0 ? "ok" : "neutral"}>{activeOnShift.length} on duty</Badge>
-              </div>
-              
-              {activeOnShift.length === 0 ? (
-                <EmptyState icon={Clock} title="No one on shift" subtitle="Staff will appear here when they tap in." compact />
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-                  <div className="flex flex-col gap-2">
-                    {activeOnShift.slice(0, 5).map((s) => ( // MAXIMUM 5 ITEMS
-                      <div key={`${s.name}-${s.location_code}`} className="cart-status-item" style={{ borderBottom: "none" }}>
-                        <span className="staff-avatar">{initials(s.name)}</span>
-                        <span className="alert-item-text">
-                          <div className="alert-item-name">{s.name}</div>
-                          <div className="alert-item-detail">{s.location_name} - since {formatTime(s.since)}</div>
-                        </span>
-                        <Badge variant={s.registered ? "ok" : "danger"}>{s.registered ? "ON" : "UNREG"}</Badge>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
-                    Showing up to 5 recent shifts. Go to the Staff page for complete information.
-                  </div>
-                </div>
-              )}
-            </section>
-
           </div>
         </>
       )}

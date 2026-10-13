@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useOutletContext, useLocation } from "react-router-dom";
 import { CheckSquare, SlidersHorizontal, Square, Boxes, RefreshCw, Plus, PackagePlus, Edit2, Trash2 } from "lucide-react";
-
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
@@ -27,12 +26,13 @@ function formatStock(val) {
 export default function InventoryPage() {
   const toast = useToast();
   const { user } = useOutletContext();
+  const location = useLocation();
   const isOwner = user?.role === "OWNER";
 
   const [locations, setLocations] = useState([]);
-  const [selected, setSelected] = useState("");
+  const [selected, setSelected] = useState(location.state?.cartCode || ""); // Kukunin ang pinasang cartCode
+  
   const [loading, setLoading] = useState(true);
-
   const [adjusting, setAdjusting] = useState(null);
   const [adjustClosing, setAdjustClosing] = useState(false);
   const [newStock, setNewStock] = useState("");
@@ -65,7 +65,7 @@ export default function InventoryPage() {
 
   // Stock item name -> ["Product (Flavor)", ...] (from /products recipes).
   const [usageByItem, setUsageByItem] = useState(new Map());
-  
+
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkValue, setBulkValue] = useState("");
   const [bulkConfirm, setBulkConfirm] = useState(false);
@@ -92,7 +92,6 @@ export default function InventoryPage() {
 
   // UX Fix: Global scroll lock
   const isAnyModalOpen = addOpen || addClosing || adjusting || adjustClosing || bulkConfirm || editing || editClosing || Boolean(deleting);
-
   useEffect(() => {
     if (isAnyModalOpen) document.body.style.overflow = "hidden";
     else document.body.style.overflow = "";
@@ -129,8 +128,8 @@ export default function InventoryPage() {
           }
         }
         setUsageByItem(usage);
-
         setLoadError("");
+
         if (!locs.some((l) => l.code === selected) && locs[0]) {
           setSelected(locs[0].code);
         }
@@ -189,7 +188,6 @@ export default function InventoryPage() {
 
     const stock = parseQty(newItem.stock);
     const threshold = parseQty(newItem.threshold);
-
     if (stock === null || threshold === null) {
       setAddError("Stock and threshold must be 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).");
       return;
@@ -287,7 +285,6 @@ export default function InventoryPage() {
 
   async function commitBulk() {
     if (saving) return;
-
     const value = parseQty(bulkValue);
     if (value === null) {
       toast("Enter a stock count from 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).", "error");
@@ -342,14 +339,12 @@ export default function InventoryPage() {
   const allSelected = current && selectedIds.size === currentItems.length && currentItems.length > 0;
 
   const locationOptions = safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
-
   const categoryOptions = [
     { value: "Ingredients", label: "Ingredients" },
     { value: "Packaging", label: "Packaging" },
     { value: "Cleaning", label: "Cleaning" },
     { value: "Others", label: "Others" },
   ];
-
   const unitOptions = [
     { value: "pcs", label: "Pieces (pcs)" },
     { value: "kg", label: "Kilograms (kg)" },
@@ -471,6 +466,7 @@ export default function InventoryPage() {
                     const fcItem = safeForecast.find((f) => f.name === item.name);
                     const isSelected = selectedIds.has(item.id);
                     const usedBy = usageByItem.get(item.name) ?? [];
+
                     return (
                       <tr key={item.id} className={isSelected ? "row-selected" : undefined}>
                         <td style={{ paddingLeft: 12 }}>
@@ -781,6 +777,7 @@ export default function InventoryPage() {
                     {isAdding ? "Adding..." : "Add Item"}
                   </button>
                 </div>
+
                 {addError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{addError}</p>}
               </form>
             </div>
@@ -818,6 +815,7 @@ export default function InventoryPage() {
                     {isEditing ? "Saving..." : "Save Changes"}
                   </button>
                 </div>
+
                 {editError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{editError}</p>}
               </form>
             </div>
@@ -833,6 +831,7 @@ export default function InventoryPage() {
                 Manual recount after a physical check for <strong>{adjusting?.name}</strong>. Current: {formatStock(adjusting?.stock)}{" "}
                 {adjusting?.unit}. 
               </p>
+
               <label className="field">
                 New stock count ({adjusting?.unit})
                 <input
@@ -846,12 +845,14 @@ export default function InventoryPage() {
                   autoFocus
                 />
               </label>
+
               <div className="modal-actions">
                 <button className="ghost" onClick={closeAdjustModal} disabled={saving || adjustClosing}>Cancel</button>
                 <button disabled={saving || adjustClosing} onClick={saveAdjustment}>
                   {saving ? "Saving..." : "Save adjustment"}
                 </button>
               </div>
+
               {adjustError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{adjustError}</p>}
             </div>
           </div>

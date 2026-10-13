@@ -9,7 +9,6 @@
   align-items: center;
   position: relative;
 }
-
 .header-actions .small-btn {
   display: inline-flex;
   align-items: center;
@@ -19,14 +18,12 @@
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 99px; /* UPDATED: Match global pill shape */
+  border-radius: 99px;
   cursor: pointer;
 }
-
 .header-actions .small-btn:hover {
   background: var(--primary-soft);
 }
-
 .date-picker-overlay {
   position: absolute;
   top: calc(100% + 4px);
@@ -42,12 +39,10 @@
   box-shadow: var(--shadow);
   white-space: nowrap;
 }
-
 .date-picker-overlay .small-btn {
   padding: 4px 10px;
   font-size: var(--fs-xs);
 }
-
 .date-picker-overlay .small-btn.cancel {
   background: transparent;
   color: var(--text-muted);
@@ -99,7 +94,6 @@
   height: 100%;
   justify-content: flex-end;
 }
-/* INO-MODIFIED: Pill-shaped top para sa chart bars */
 .trend-bar {
   width: 100%;
   max-width: 36px;
@@ -179,122 +173,8 @@
 }
 
 /* ============================================================
- * NEW LAYOUT: Dashboard Modern Grid
+ * COMPONENT STYLES: Pills, Alerts, Status Dots
  * ============================================================ */
-/* Top row 3-column masonry-like grid */
-.dashboard-top-row {
-  display: grid;
-  grid-template-columns: 1fr 1.2fr 1.5fr;
-  gap: var(--space-4);
-  margin-bottom: var(--space-5);
-  align-items: stretch;
-}
-/* Left col: Stacked large KPIs */
-.dashboard-kpi-stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-/* Middle col: 2x2 small KPIs */
-.dashboard-kpi-grid-2x2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-4);
-}
-/* Make kpi cards flex grow to fill height evenly */
-.dashboard-kpi-stack .kpi-card,
-.dashboard-kpi-grid-2x2 .kpi-card {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-
-/* INO-MODIFIED: Premium Solid Brand Card Setup */
-.kpi-card.solid-brand {
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-strong) 100%);
-  color: white;
-  position: relative;
-  overflow: hidden;
-  box-shadow: 0 16px 32px rgba(231, 54, 49, 0.35); /* Glowing brand shadow */
-}
-
-/* Floating glowing orb sa itaas */
-.kpi-card.solid-brand::before {
-  content: "";
-  position: absolute;
-  top: -40px;
-  right: -40px;
-  width: 200px;
-  height: 200px;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.2) 0%, transparent 70%);
-  border-radius: 50%;
-  pointer-events: none;
-}
-/* Floating glowing orb sa ibaba */
-.kpi-card.solid-brand::after {
-  content: "";
-  position: absolute;
-  bottom: -30px;
-  left: -20px;
-  width: 140px;
-  height: 140px;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.12) 0%, transparent 70%);
-  border-radius: 50%;
-  pointer-events: none;
-}
-
-.kpi-card.solid-brand .kpi-card-label,
-.kpi-card.solid-brand .kpi-card-value {
-  color: white;
-  position: relative;
-  z-index: 2;
-}
-.kpi-card.solid-brand .kpi-card-sub {
-  color: rgba(255, 255, 255, 0.85);
-  position: relative;
-  z-index: 2;
-}
-.kpi-card.solid-brand .kpi-card-icon {
-  background: rgba(255, 255, 255, 0.25);
-  color: white;
-  position: relative;
-  z-index: 2;
-}
-.kpi-card.solid-brand .kpi-card-trend {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  position: relative;
-  z-index: 2;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-}
-
-/* Right col: Trend Chart acting as the wide widget */
-.dashboard-trend-panel {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  height: 100%;
-}
-.dashboard-trend-panel .trend-bars {
-  flex: 1;
-  padding-bottom: 0;
-  min-height: 140px;
-}
-
-/* Bottom layout - 3 Column Grid */
-.dashboard-body {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-4);
-  align-items: start;
-}
-/* Papalaparin natin ang table para hindi squished */
-.widget-orders {
-  grid-column: span 2;
-}
-
 .sse-pill {
   display: inline-flex;
   align-items: center;
@@ -362,7 +242,6 @@
 .alert-row.read {
   opacity: 0.6;
 }
-
 .cart-status-item {
   display: flex;
   align-items: center;
@@ -399,33 +278,132 @@
   animation: pulse-critical 2s infinite;
 }
 
+/* ============================================================
+ * NEW LAYOUT: Dashboard Banded Layout (Clean & Spacious)
+ * ============================================================ */
+.dashboard-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.dashboard-middle-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+  align-items: stretch;
+}
+
+.dashboard-ops-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+  align-items: stretch;
+}
+
+.dashboard-bottom-row {
+  margin-bottom: var(--space-5);
+}
+
+/* INO-MODIFIED: Premium Solid Brand Card Setup */
+.kpi-card.solid-brand {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-strong) 100%);
+  color: white;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 16px 32px rgba(231, 54, 49, 0.35); /* Glowing brand shadow */
+}
+
+/* Floating glowing orb sa itaas */
+.kpi-card.solid-brand::before {
+  content: "";
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.2) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+/* Floating glowing orb sa ibaba */
+.kpi-card.solid-brand::after {
+  content: "";
+  position: absolute;
+  bottom: -30px;
+  left: -20px;
+  width: 140px;
+  height: 140px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.12) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.kpi-card.solid-brand .kpi-card-label,
+.kpi-card.solid-brand .kpi-card-value {
+  color: white;
+  position: relative;
+  z-index: 2;
+}
+
+.kpi-card.solid-brand .kpi-card-sub {
+  color: rgba(255, 255, 255, 0.85);
+  position: relative;
+  z-index: 2;
+}
+
+.kpi-card.solid-brand .kpi-card-icon {
+  background: rgba(255, 255, 255, 0.25);
+  color: white;
+  position: relative;
+  z-index: 2;
+}
+
+.kpi-card.solid-brand .kpi-card-trend {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  position: relative;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.dashboard-trend-panel {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
+}
+
+.dashboard-trend-panel .trend-bars {
+  flex: 1;
+  padding-bottom: 0;
+  min-height: 140px;
+}
+
 /* Responsive Adjustments for new layout */
 @media (max-width: 1200px) {
-  .dashboard-top-row {
-    grid-template-columns: 1fr 1fr;
-  }
-  .dashboard-trend-panel {
-    grid-column: span 2;
-  }
-  .dashboard-body {
+  .dashboard-kpi-strip {
     grid-template-columns: repeat(2, 1fr);
   }
-  .widget-orders {
-    grid-column: span 2;
+  .dashboard-middle-row {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-ops-row {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
+
 @media (max-width: 900px) {
-  .dashboard-top-row {
+  .dashboard-kpi-strip {
     grid-template-columns: 1fr;
   }
-  .dashboard-trend-panel {
-    grid-column: span 1;
-  }
-  .dashboard-body {
+  .dashboard-ops-row {
     grid-template-columns: 1fr;
-  }
-  .widget-orders {
-    grid-column: span 1;
   }
 }
 
@@ -433,8 +411,9 @@
   border: 1px solid color-mix(in srgb, #fff 24%, var(--primary));
 }
 
-/* Empty state layout fixes originally coupled with skeletons */
-.dashboard-body .panel .empty-state-card,
+/* Empty state layout fixes */
+.dashboard-ops-row .panel .empty-state-card,
+.dashboard-bottom-row .panel .empty-state-card,
 .dashboard-trend-panel .empty-state-card {
   flex: 1;
   justify-content: center;
