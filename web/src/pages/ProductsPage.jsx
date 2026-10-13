@@ -370,7 +370,7 @@ export default function ProductsPage() {
                     {unknownItem && (
                       <p className="muted small" style={{ margin: "4px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
                         <AlertTriangle size={12} aria-hidden="true" />
-                        No stock item named '{typedName}' — sales will warn instead of deducting.
+                        No stock item named &rsquo;{typedName}&rsquo; — sales will warn instead of deducting.
                       </p>
                     )}
                   </div>
@@ -749,12 +749,14 @@ export default function ProductsPage() {
 
   function openEdit(p) {
     const prices = p.flavorPrices ?? {};
+    const basePriceSnapshot = Number(p.basePrice) || 0;
+    const sellingPriceSnapshot = Number(p.sellingPrice ?? p.basePrice) || 0;
     setEditing({
       ...p,
       category: p.category || "Fries",
       basePrice: String(p.basePrice ?? ""),
-      markupPrice: String(p.markupPrice ?? ""),
-      sellingPrice: String(p.sellingPrice ?? p.basePrice ?? ""),
+      markupPrice: String(Math.max(0, sellingPriceSnapshot - basePriceSnapshot)),
+      sellingPrice: String(sellingPriceSnapshot),
       flavorRows: (p.flavors ?? []).map((f) => newFlavorRowState({
         flavorId: f.id,
         unitPrice: f.hasCustomPrice ? String(prices[f.name] ?? f.unitPrice ?? "") : "",
@@ -764,9 +766,17 @@ export default function ProductsPage() {
         collapsed: (f.recipeCount ?? 0) > 0,
       })),
       _category: p.category || "Fries",
-      _basePrice: p.basePrice,
-      _markupPrice: p.markupPrice,
-      _sellingPrice: p.sellingPrice ?? p.basePrice,
+      // The API stores one canonical `basePrice` per product (products.js
+      // accepts basePrice/flavorPrices/unitPrice — there is no markupPrice
+      // or sellingPrice field). Derive the two form values the pricing grid
+      // implies instead of reading fields that never come back. Reading
+      // `p.markupPrice` left _markupPrice permanently undefined, so
+      // `mp === Number(editing._markupPrice)` below compared against NaN,
+      // the no-change guard could never fire, and every "Save Changes"
+      // sent a pointless PATCH.
+      _basePrice: basePriceSnapshot,
+      _markupPrice: Math.max(0, sellingPriceSnapshot - basePriceSnapshot),
+      _sellingPrice: sellingPriceSnapshot,
       _flavorIds: (p.flavors ?? []).map((f) => f.id),
       _flavorPrices: prices,
       rowErrors: {},

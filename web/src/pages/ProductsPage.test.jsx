@@ -134,12 +134,12 @@ describe("ProductsPage edit change feedback", () => {
     const modal = screen.getByText("Edit Flavored Fries").closest(".modal");
     // Saved rows start collapsed — expand first.
     fireEvent.click(within(modal).getByLabelText("Expand Cheese"));
-    fireEvent.change(within(modal).getByTitle("Leave blank to use the base price"), {
+    fireEvent.change(within(modal).getByTitle("Leave blank to use the main selling price"), {
       target: { value: "45" },
     });
     fireEvent.click(within(modal).getByText("Save Changes"));
 
-    await screen.findByText(/Cheese P40→P45/);
+    await screen.findByText(/Cheese P40 ➔ P45/);
     const [url, body] = api.patch.mock.calls[0];
     expect(url).toBe("/products/5");
     expect(body.flavorPrices).toEqual({ Cheese: 45 });
@@ -163,9 +163,23 @@ describe("ProductsPage by-flavor add", () => {
     expect(await screen.findByText(/price & recipes per flavor/)).toBeInTheDocument();
   }
 
+  function addModal() {
+    return screen.getByText("Add Product").closest(".modal");
+  }
+
+  // The pricing grid has three inputs that all carry placeholder="0.00"
+  // ("Base Price (Cost)", "Markup (Tubo)", "Selling Price"), so a bare
+  // getByPlaceholderText throws on multiple matches. Scope by field label.
+  function moneyInput(labelText) {
+    return within(addModal())
+      .getByText(labelText)
+      .closest("label")
+      .querySelector('input[placeholder="0.00"]');
+  }
+
   function fillNameAndPrice(name = "Wasabi Fries", price = "60") {
     fireEvent.change(screen.getByPlaceholderText("e.g. Nachos"), { target: { value: name } });
-    fireEvent.change(screen.getByPlaceholderText("0.00"), { target: { value: price } });
+    fireEvent.change(moneyInput("Selling Price"), { target: { value: price } });
   }
 
   it("blocks submit when a flavor row has no picked flavor", async () => {
@@ -186,11 +200,11 @@ describe("ProductsPage by-flavor add", () => {
     const modal = screen.getByText("Add Product").closest(".modal");
     // Collapse the empty row: submit must expand it again with the error.
     fireEvent.click(within(modal).getByLabelText("Collapse flavor row"));
-    expect(within(modal).queryByTitle("Leave blank to use the base price")).toBeNull();
+    expect(within(modal).queryByTitle("Leave blank to use the main selling price")).toBeNull();
     fireEvent.click(within(modal).getByText("Create Product"));
     const alerts = await within(modal).findAllByRole("alert");
     expect(alerts.length).toBeGreaterThanOrEqual(2);
-    expect(within(modal).getByTitle("Leave blank to use the base price")).toBeInTheDocument();
+    expect(within(modal).getByTitle("Leave blank to use the main selling price")).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
   });
 
