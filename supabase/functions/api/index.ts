@@ -2044,20 +2044,33 @@ async function handleListRestockRequests(url, user) {
     }
     locationId = Number(user.locationId);
   }
-  const requests = activeOnly
-    ? (await Promise.all(["pending", "acknowledged"].map((status) =>
-        fsQueryEqual("alerts", "status", status, 10000),
-      ))).flat()
-    : await fsQueryEqual("alerts", "type", "RESTOCK_REQUEST", 10000);
+  // ONE server-side equality filter (on `type`), newest first, bounded.
+  //
+  // The previous version filtered by `status` with limit 10000, which read
+  // every alert in the database that happened to be pending or acknowledged -
+  // LOW_STOCK, UNKNOWN_CARD and everything else - and only then filtered by
+  // type in code. Alerts are never deleted, so that grew without bound, and
+  // the POS app calls this on every sale while the Live Stock screen is open:
+  // one call could cost 20k reads, which is a third of the daily free-tier
+  // budget in a single request.
+  //
+  // The Express route (api/src/routes/inventory.js) does the same lookup with
+  // `where: { type: "RESTOCK_REQUEST", status }` and `take: 200`. Keep both in
+  // step: the REST layer only supports one server-side equality, so the rest
+  // of the filter is applied in code here.
+  const restockRows = await fsRunQuery("alerts", {
+    filters: [{ field: "type", op: "EQUAL", value: "RESTOCK_REQUEST" }],
+    orderBy: [{ field: "createdAt", dir: "DESCENDING" }],
+    limit: 400,
+  });
+  const requests = restockRows.filter((request) =>
+    (locationId == null || Number(request.locationId) === locationId) &&
+    (!activeOnly || request.status === "pending" || request.status === "acknowledged"),
+  );
   return {
     status: 200,
     body: {
-      data: requests.filter((request) =>
-        request.type === "RESTOCK_REQUEST" &&
-        (locationId == null || Number(request.locationId) === locationId) &&
-        (!activeOnly || request.status === "pending" || request.status === "acknowledged"),
-      ).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 200)
-        .map(cleanDoc),
+      data: requests.slice(0, 200).map(cleanDoc),
     },
   };
 }
