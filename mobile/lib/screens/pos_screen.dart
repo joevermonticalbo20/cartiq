@@ -47,40 +47,6 @@ extension PaymentMethodX on PaymentMethod {
   };
 }
 
-class PosCatalogUnavailableState extends StatelessWidget {
-  const PosCatalogUnavailableState({
-    super.key,
-    required this.message,
-    required this.onRetry,
-  });
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.space6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.cloud_off_outlined, size: 48),
-            const SizedBox(height: AppSpacing.space3),
-            Text('Catalog unavailable:\n$message', textAlign: TextAlign.center),
-            const SizedBox(height: AppSpacing.space4),
-            FilledButton.icon(
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Retry'),
-              onPressed: onRetry,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 Future<Map<String, dynamic>> persistCheckout({
   required CartState cart,
   required OfflineQueue queue,
@@ -327,9 +293,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       );
     } else {
       for (final entry in selection.entries) {
-        final flavor = flavors.firstWhere(
-          (item) => item['name'] == entry.key,
-        );
+        final flavor = flavors.firstWhere((item) => item['name'] == entry.key);
         final stock = flavor['availableServings'];
         cart.add(
           product['name'] as String,
@@ -454,20 +418,19 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                               selection[name] = 1;
                             }
                           }),
-                          onQuantityChanged: (name, value) =>
-                              setSheetState(() {
-                                if (value <= 0) {
-                                  selection.remove(name);
-                                } else {
-                                  final flavor = flavors.firstWhere(
-                                    (item) => item['name'] == name,
-                                  );
-                                  final stock = flavor['availableServings'];
-                                  selection[name] = stock is num
-                                      ? value.clamp(1, stock.toInt()).toInt()
-                                      : value;
-                                }
-                              }),
+                          onQuantityChanged: (name, value) => setSheetState(() {
+                            if (value <= 0) {
+                              selection.remove(name);
+                            } else {
+                              final flavor = flavors.firstWhere(
+                                (item) => item['name'] == name,
+                              );
+                              final stock = flavor['availableServings'];
+                              selection[name] = stock is num
+                                  ? value.clamp(1, stock.toInt()).toInt()
+                                  : value;
+                            }
+                          }),
                           onQuickAdd: (name, amount) => setSheetState(() {
                             final flavor = flavors.firstWhere(
                               (item) => item['name'] == name,
@@ -689,9 +652,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                         physics: const AlwaysScrollableScrollPhysics(),
                         slivers: [
                           SliverToBoxAdapter(
-                            child: SizedBox(
-                              height: snap.hasError ? 0 : topPadding + 54,
-                            ),
+                            child: SizedBox(height: topPadding + 54),
                           ),
                           const SliverToBoxAdapter(child: PosOfflineStrip()),
 
@@ -707,7 +668,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                           else if (snap.hasError)
                             SliverFillRemaining(
                               hasScrollBody: false,
-                              child: PosCatalogUnavailableState(
+                              child: AppUnavailableState(
                                 message: AppMessenger.messageFor(snap.error!),
                                 onRetry: _refreshCatalog,
                               ),

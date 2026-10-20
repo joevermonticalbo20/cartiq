@@ -221,17 +221,23 @@ class _HistoryScreenState extends State<HistoryScreen> {
     // restored, so say so instead of claiming a clean void.
     final restored = (res['restored'] as List?) ?? [];
     final warnings =
-        (res['warnings'] as List?)?.map((w) => '$w').where((w) => w.isNotEmpty).toList() ??
-            const <String>[];
+        (res['warnings'] as List?)
+            ?.map((w) => '$w')
+            .where((w) => w.isNotEmpty)
+            .toList() ??
+        const <String>[];
     final unrestored = warnings
-        .where((w) => w.contains('no recipe matched') || w.contains('generic recipe'))
+        .where(
+          (w) =>
+              w.contains('no recipe matched') || w.contains('generic recipe'),
+        )
         .toList();
 
     final msg = unrestored.isNotEmpty
         ? 'Voided · ${restored.length} restored · ${unrestored.length} NOT restored'
         : (restored.isEmpty
-            ? 'Voided · no stock needed restoring'
-            : 'Voided · ${restored.length} ingredient${restored.length == 1 ? '' : 's'} restored');
+              ? 'Voided · no stock needed restoring'
+              : 'Voided · ${restored.length} ingredient${restored.length == 1 ? '' : 's'} restored');
 
     AppMessenger.showGlassToast(
       context: context,
@@ -245,7 +251,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          icon: const Icon(Icons.warning_amber_rounded, color: AppColors.danger),
+          icon: const Icon(
+            Icons.warning_amber_rounded,
+            color: AppColors.danger,
+          ),
           title: const Text('Stock not fully restored'),
           content: SingleChildScrollView(
             child: Text(
@@ -471,40 +480,40 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   )
                 else
                   GestureDetector(
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    _editPaymentMethod(order);
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          paymentMethod,
-                          style: const TextStyle(
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 12,
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _editPaymentMethod(order);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(AppRadius.pill),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            paymentMethod,
+                            style: const TextStyle(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 4),
-                        const Icon(
-                          Icons.edit,
-                          size: 12,
-                          color: AppColors.primary,
-                        ),
-                      ],
+                          const SizedBox(width: 4),
+                          const Icon(
+                            Icons.edit,
+                            size: 12,
+                            color: AppColors.primary,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
               ],
             ),
             const SizedBox(height: AppSpacing.space2),
@@ -725,51 +734,59 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     children: const [AppSkeleton(rows: 6)],
                   )
                 : !hasResults && !_loading
-                ? ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: EdgeInsets.fromLTRB(0, topPadding, 0, 120),
-                    children: [
-                      AppEmptyState(
-                        isError: _error != null,
-                        icon: _error != null
-                            ? Icons.error_outline_rounded
-                            : _search.isNotEmpty
-                            ? Icons.search_off_rounded
-                            : Icons.receipt_long_rounded,
-                        title: _error != null
-                            ? _error!
-                            : _search.isNotEmpty
-                            ? 'No sales match "$_search"'
-                            : 'No sales recorded yet',
-                        subtitle: _error != null
-                            ? 'Please check your internet connection and try again.'
-                            : _search.isNotEmpty
-                            ? 'Try a different product, flavor, or amount.'
-                            : (widget.onNewSale != null
-                                  ? 'Record a sale on the POS tab to see it appear here.'
-                                  : null),
-                        actionLabel: _error != null
-                            ? 'Tap to retry'
-                            : _search.isNotEmpty
-                            ? 'Clear search'
-                            : (widget.onNewSale != null ? 'Open POS' : null),
-                        actionIcon: _error != null
-                            ? Icons.refresh_rounded
-                            : _search.isNotEmpty
-                            ? Icons.close
-                            : Icons.point_of_sale_rounded,
-                        onAction: _error != null
-                            ? () => _loadMore(reset: true)
-                            : _search.isNotEmpty
-                            ? () => setState(() {
-                                _search = '';
-                                _searchCtrl.clear();
-                                _searching = false;
-                              })
-                            : widget.onNewSale,
-                      ),
-                    ],
-                  )
+                ? _error != null
+                      ? LayoutBuilder(
+                          builder: (context, constraints) => ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: EdgeInsets.fromLTRB(0, topPadding, 0, 120),
+                            children: [
+                              SizedBox(
+                                height:
+                                    (constraints.maxHeight - topPadding - 120)
+                                        .clamp(0.0, double.infinity)
+                                        .toDouble(),
+                                child: AppUnavailableState(
+                                  message: _error!,
+                                  onRetry: () => _loadMore(reset: true),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: EdgeInsets.fromLTRB(0, topPadding, 0, 120),
+                          children: [
+                            AppEmptyState(
+                              icon: _search.isNotEmpty
+                                  ? Icons.search_off_rounded
+                                  : Icons.receipt_long_rounded,
+                              title: _search.isNotEmpty
+                                  ? 'No sales match "$_search"'
+                                  : 'No sales recorded yet',
+                              subtitle: _search.isNotEmpty
+                                  ? 'Try a different product, flavor, or amount.'
+                                  : (widget.onNewSale != null
+                                        ? 'Record a sale on the POS tab to see it appear here.'
+                                        : null),
+                              actionLabel: _search.isNotEmpty
+                                  ? 'Clear search'
+                                  : (widget.onNewSale != null
+                                        ? 'Open POS'
+                                        : null),
+                              actionIcon: _search.isNotEmpty
+                                  ? Icons.close
+                                  : Icons.point_of_sale_rounded,
+                              onAction: _search.isNotEmpty
+                                  ? () => setState(() {
+                                      _search = '';
+                                      _searchCtrl.clear();
+                                      _searching = false;
+                                    })
+                                  : widget.onNewSale,
+                            ),
+                          ],
+                        )
                 : NotificationListener<ScrollNotification>(
                     onNotification: (n) {
                       if (n.metrics.pixels > n.metrics.maxScrollExtent - 200) {
@@ -839,12 +856,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                 ? AppColors.danger.withValues(alpha: 0.06)
                                 : surfaceColor,
                             borderRadius: BorderRadius.circular(AppRadius.l),
-                            boxShadow: isVoided
-                                ? null
-                                : AppShadow.sm(),
+                            boxShadow: isVoided ? null : AppShadow.sm(),
                             border: isVoided
                                 ? Border.all(
-                                    color: AppColors.danger.withValues(alpha: 0.35),
+                                    color: AppColors.danger.withValues(
+                                      alpha: 0.35,
+                                    ),
                                   )
                                 : null,
                           ),
@@ -863,10 +880,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                       width: 44,
                                       height: 44,
                                       decoration: BoxDecoration(
-                                        color: (isVoided
-                                                ? AppColors.danger
-                                                : AppColors.ok)
-                                            .withValues(alpha: 0.1),
+                                        color:
+                                            (isVoided
+                                                    ? AppColors.danger
+                                                    : AppColors.ok)
+                                                .withValues(alpha: 0.1),
                                         borderRadius: BorderRadius.circular(
                                           AppRadius.s,
                                         ),
@@ -901,7 +919,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                                           ? AppColors.danger
                                                           : null,
                                                       decoration: isVoided
-                                                          ? TextDecoration.lineThrough
+                                                          ? TextDecoration
+                                                                .lineThrough
                                                           : null,
                                                       decorationColor:
                                                           AppColors.danger,
@@ -918,7 +937,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                                 const SizedBox(width: 8),
                                                 const AppBadge(
                                                   label: 'VOIDED',
-                                                  variant: AppBadgeVariant.danger,
+                                                  variant:
+                                                      AppBadgeVariant.danger,
                                                   icon: Icons.block_rounded,
                                                 ),
                                               ],

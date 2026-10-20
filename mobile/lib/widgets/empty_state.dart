@@ -1,6 +1,30 @@
 import 'package:flutter/material.dart';
 import '../theme.dart';
 
+class AppUnavailableState extends StatelessWidget {
+  const AppUnavailableState({
+    super.key,
+    required this.message,
+    required this.onRetry,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppEmptyState(
+      icon: Icons.cloud_off_outlined,
+      title: 'Data unavailable',
+      subtitle: message,
+      actionLabel: 'Retry',
+      actionIcon: Icons.refresh_rounded,
+      onAction: onRetry,
+      isError: true,
+    );
+  }
+}
+
 /// Reusable empty state placeholder.
 /// INAYOS NA: Tinanggal ang "grid" (dashed border) para malinis at centered.
 class AppEmptyState extends StatelessWidget {

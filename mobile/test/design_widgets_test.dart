@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:cartiq_mobile/screens/pos_screen.dart';
 import 'package:cartiq_mobile/services/api_client.dart';
 import 'package:cartiq_mobile/utils/app_messenger.dart';
 import 'package:cartiq_mobile/widgets/app_badge.dart';
 import 'package:cartiq_mobile/widgets/app_dialog.dart';
 import 'package:cartiq_mobile/widgets/section_header.dart';
 import 'package:cartiq_mobile/widgets/app_skeleton.dart';
+import 'package:cartiq_mobile/widgets/empty_state.dart';
 
 Widget _wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
 
 void main() {
-  group('PosCatalogUnavailableState', () {
+  group('AppUnavailableState', () {
     testWidgets('centers the message and retry action on screen', (
       tester,
     ) async {
@@ -25,7 +25,7 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           SizedBox.expand(
-            child: PosCatalogUnavailableState(
+            child: AppUnavailableState(
               message:
                   'No internet connection. Your orders are safely saved offline and will sync automatically when you reconnect.',
               onRetry: () => retried = true,
@@ -38,7 +38,7 @@ void main() {
         tester
             .getCenter(
               find.descendant(
-                of: find.byType(PosCatalogUnavailableState),
+                of: find.byType(AppUnavailableState),
                 matching: find.byType(Column),
               ),
             )
@@ -158,7 +158,7 @@ void main() {
       expect(find.text('Retry'), findsNothing);
     });
 
-    testWidgets('replaces the active toast and dismisses after four seconds', (
+    testWidgets('shows the toast at the top and dismisses after four seconds', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(360, 640);
@@ -206,7 +206,7 @@ void main() {
       expect(toastText.overflow, TextOverflow.visible);
       expect(tester.getSize(find.text(longMessage)).height, greaterThan(20));
       final toastCenter = tester.getCenter(find.text(longMessage));
-      expect(toastCenter.dy, closeTo(320, 40));
+      expect(toastCenter.dy, lessThan(160));
 
       await tester.tap(find.text('show second'));
       await tester.pumpAndSettle();

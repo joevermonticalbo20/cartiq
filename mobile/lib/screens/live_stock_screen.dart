@@ -316,6 +316,35 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
     }
   }
 
+  Widget _locationSelector() {
+    if (_locations.length <= 1) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.space2),
+      child: DropdownButtonFormField<String>(
+        initialValue: _selectedCode,
+        decoration: const InputDecoration(labelText: 'Cart', isDense: true),
+        items: _locations
+            .map(
+              (location) => DropdownMenuItem(
+                value: location['code'] as String,
+                child: Text(
+                  '${location['code']} · ${location['name']}',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            )
+            .toList(),
+        onChanged: (code) {
+          if (code != null) {
+            _selectedCode = code;
+            _loadInventory(locationCode: code);
+          }
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final visibleItems = _items.where((item) {
@@ -343,180 +372,188 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
         children: [
           RefreshIndicator(
             onRefresh: () => _loadInventory(notifyPos: true),
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: EdgeInsets.fromLTRB(
-                AppSpacing.space4,
-                topPadding,
-                AppSpacing.space4,
-                120,
-              ),
-              children: [
-                Text(
-                  'Last synced: $syncedAt',
-                  style: Theme.of(context).textTheme.bodySmall,
+            child: LayoutBuilder(
+              builder: (context, constraints) => ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(
+                  AppSpacing.space4,
+                  topPadding,
+                  AppSpacing.space4,
+                  120,
                 ),
-                if (_locations.length > 1) ...[
-                  const SizedBox(height: AppSpacing.space2),
-                  DropdownButtonFormField<String>(
-                    initialValue: _selectedCode,
-                    decoration: const InputDecoration(
-                      labelText: 'Cart',
-                      isDense: true,
-                    ),
-                    items: _locations
-                        .map(
-                          (location) => DropdownMenuItem(
-                            value: location['code'] as String,
-                            child: Text(
-                              '${location['code']} · ${location['name']}',
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (code) {
-                      if (code != null) {
-                        _selectedCode = code;
-                        _loadInventory(locationCode: code);
-                      }
-                    },
-                  ),
-                ],
-                const SizedBox(height: AppSpacing.space3),
-                if (_loading)
-                  const AppSkeleton(rows: 5)
-                else if (_error != null)
-                  AppEmptyState(
-                    icon: Icons.cloud_off_outlined,
-                    title: 'Stock unavailable',
-                    subtitle: _error,
-                    actionLabel: 'Retry',
-                    actionIcon: Icons.refresh_rounded,
-                    onAction: _loadInventory,
-                    isError: true,
-                  )
-                else ...[
-                  if (_restockError != null) ...[
-                    Container(
-                      margin: const EdgeInsets.only(bottom: AppSpacing.space3),
-                      padding: const EdgeInsets.all(AppSpacing.space3),
-                      decoration: BoxDecoration(
-                        color: AppColors.warnBg,
-                        borderRadius: BorderRadius.circular(AppRadius.m),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_error != null && !_loading)
+                    SizedBox(
+                      height: (constraints.maxHeight - topPadding - 120)
+                          .clamp(0.0, double.infinity)
+                          .toDouble(),
+                      child: Column(
                         children: [
-                          const Icon(
-                            Icons.info_outline_rounded,
-                            color: AppColors.warn,
+                          Text(
+                            'Last synced: $syncedAt',
+                            style: Theme.of(context).textTheme.bodySmall,
                           ),
-                          const SizedBox(width: AppSpacing.space2),
+                          _locationSelector(),
+                          const SizedBox(height: AppSpacing.space3),
                           Expanded(
-                            child: Text(
-                              _restockError!,
-                              style: const TextStyle(color: AppColors.warn),
+                            child: AppUnavailableState(
+                              message: _error!,
+                              onRetry: _loadInventory,
                             ),
                           ),
                         ],
                       ),
+                    )
+                  else ...[
+                    Text(
+                      'Last synced: $syncedAt',
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
-                  ],
-                  if (_locations.isEmpty)
-                    const AppEmptyState(
-                      icon: Icons.inventory_2_outlined,
-                      title: 'No stock locations',
-                      subtitle: 'No active carts have inventory to display.',
-                    )
-                  else if (visibleItems.isEmpty)
-                    AppEmptyState(
-                      icon: Icons.search_off_rounded,
-                      title: 'No ingredients match',
-                      subtitle: _search.isEmpty
-                          ? 'No ingredients are recorded for this cart.'
-                          : 'Try a different ingredient name.',
-                      compact: true,
-                    )
-                  else
-                    ...visibleItems.map((item) {
-                      final status = _status(item);
-                      final request = item['id'] is num
-                          ? _requestsByItem[(item['id'] as num).toInt()]
-                          : null;
-                      final pending = request != null;
-                      final needsRestock = status.label != 'In Stock';
-                      return Card(
-                        margin: const EdgeInsets.only(
-                          bottom: AppSpacing.space2,
+                    _locationSelector(),
+                    const SizedBox(height: AppSpacing.space3),
+                    if (!_loading && hasUnrequestedLowStock)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: OutlinedButton.icon(
+                          onPressed: _submittingRequest
+                              ? null
+                              : () => _requestRestock(allLowStock: true),
+                          icon: const Icon(
+                            Icons.playlist_add_check_rounded,
+                            size: 18,
+                          ),
+                          label: const Text('Request all low-stock items'),
                         ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(AppSpacing.space2),
-                          child: Column(
+                      ),
+                    if (_loading)
+                      const AppSkeleton(rows: 5)
+                    else ...[
+                      if (_restockError != null) ...[
+                        Container(
+                          margin: const EdgeInsets.only(
+                            bottom: AppSpacing.space3,
+                          ),
+                          padding: const EdgeInsets.all(AppSpacing.space3),
+                          decoration: BoxDecoration(
+                            color: AppColors.warnBg,
+                            borderRadius: BorderRadius.circular(AppRadius.m),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: const CircleAvatar(
-                                  child: Icon(Icons.inventory_2_outlined),
-                                ),
-                                title: Text(
-                                  item['name'] as String? ??
-                                      'Unnamed ingredient',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  '${_formatStock(item['stock'])} ${item['unit'] ?? ''}'
-                                      .trim(),
-                                ),
-                                trailing: AppBadge(
-                                  label: status.label,
-                                  variant: status.variant,
-                                ),
+                              const Icon(
+                                Icons.info_outline_rounded,
+                                color: AppColors.warn,
                               ),
-                              Row(
-                                children: [
-                                  if (pending)
-                                    AppBadge(
-                                      label: 'Request Pending',
-                                      variant: AppBadgeVariant.info,
-                                    ),
-                                  const Spacer(),
-                                  OutlinedButton.icon(
-                                    onPressed: pending || _submittingRequest
-                                        ? null
-                                        : () => _requestRestock(item: item),
-                                    icon: Icon(
-                                      Icons.add_shopping_cart_rounded,
-                                      size: 16,
-                                      color: needsRestock
-                                          ? AppColors.danger
-                                          : null,
-                                    ),
-                                    label: Text(
-                                      pending
-                                          ? 'Request Pending'
-                                          : 'Request Restock',
-                                    ),
-                                    style: needsRestock && !pending
-                                        ? OutlinedButton.styleFrom(
-                                            foregroundColor: AppColors.danger,
-                                            side: const BorderSide(
-                                              color: AppColors.danger,
-                                            ),
-                                          )
-                                        : null,
-                                  ),
-                                ],
+                              const SizedBox(width: AppSpacing.space2),
+                              Expanded(
+                                child: Text(
+                                  _restockError!,
+                                  style: const TextStyle(color: AppColors.warn),
+                                ),
                               ),
                             ],
                           ),
                         ),
-                      );
-                    }),
+                      ],
+                      if (_locations.isEmpty)
+                        const AppEmptyState(
+                          icon: Icons.inventory_2_outlined,
+                          title: 'No stock locations',
+                          subtitle:
+                              'No active carts have inventory to display.',
+                        )
+                      else if (visibleItems.isEmpty)
+                        AppEmptyState(
+                          icon: Icons.search_off_rounded,
+                          title: 'No ingredients match',
+                          subtitle: _search.isEmpty
+                              ? 'No ingredients are recorded for this cart.'
+                              : 'Try a different ingredient name.',
+                          compact: true,
+                        )
+                      else
+                        ...visibleItems.map((item) {
+                          final status = _status(item);
+                          final request = item['id'] is num
+                              ? _requestsByItem[(item['id'] as num).toInt()]
+                              : null;
+                          final pending = request != null;
+                          final needsRestock = status.label != 'In Stock';
+                          return Card(
+                            margin: const EdgeInsets.only(
+                              bottom: AppSpacing.space2,
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(AppSpacing.space2),
+                              child: Column(
+                                children: [
+                                  ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: const CircleAvatar(
+                                      child: Icon(Icons.inventory_2_outlined),
+                                    ),
+                                    title: Text(
+                                      item['name'] as String? ??
+                                          'Unnamed ingredient',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      '${_formatStock(item['stock'])} ${item['unit'] ?? ''}'
+                                          .trim(),
+                                    ),
+                                    trailing: AppBadge(
+                                      label: status.label,
+                                      variant: status.variant,
+                                    ),
+                                  ),
+                                  Row(
+                                    children: [
+                                      if (pending)
+                                        AppBadge(
+                                          label: 'Request Pending',
+                                          variant: AppBadgeVariant.info,
+                                        ),
+                                      const Spacer(),
+                                      OutlinedButton.icon(
+                                        onPressed: pending || _submittingRequest
+                                            ? null
+                                            : () => _requestRestock(item: item),
+                                        icon: Icon(
+                                          Icons.add_shopping_cart_rounded,
+                                          size: 16,
+                                          color: needsRestock
+                                              ? AppColors.danger
+                                              : null,
+                                        ),
+                                        label: Text(
+                                          pending
+                                              ? 'Request Pending'
+                                              : 'Request Restock',
+                                        ),
+                                        style: needsRestock && !pending
+                                            ? OutlinedButton.styleFrom(
+                                                foregroundColor:
+                                                    AppColors.danger,
+                                                side: const BorderSide(
+                                                  color: AppColors.danger,
+                                                ),
+                                              )
+                                            : null,
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }),
+                    ],
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
           Positioned(
@@ -610,20 +647,6 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
                                   ),
                                 ]
                               : [
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.playlist_add_check_rounded,
-                                    ),
-                                    tooltip: 'Request all low-stock items',
-                                    onPressed:
-                                        !hasUnrequestedLowStock ||
-                                            _loading ||
-                                            _submittingRequest
-                                        ? null
-                                        : () => _requestRestock(
-                                            allLowStock: true,
-                                          ),
-                                  ),
                                   IconButton(
                                     icon: const Icon(Icons.sync_rounded),
                                     tooltip: 'Refresh stock',

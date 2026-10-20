@@ -199,43 +199,35 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
                 // INAYOS NA: Binalik sa Padding wrapper ang AppEmptyState para hindi siya mag-crash/mawala
                 ? Padding(
                     padding: EdgeInsets.only(top: topPadding, bottom: 120),
-                    child: AppEmptyState(
-                      isError: _error != null,
-                      icon: _error != null
-                          ? Icons.error_outline_rounded
-                          : _search.isNotEmpty
-                          ? Icons.search_off_rounded
-                          : Icons.receipt_long,
-                      title: _error != null
-                          ? _error!
-                          : _search.isNotEmpty
-                          ? 'No expenses match "$_search"'
-                          : 'No expenses yet',
-                      subtitle: _error != null
-                          ? 'Please check your internet connection and try again.'
-                          : _search.isNotEmpty
-                          ? 'Try a different vendor, category, or amount.'
-                          : 'Snap a receipt and CartIQ will fill in the details.',
-                      actionLabel: _error != null
-                          ? 'Tap to retry'
-                          : _search.isNotEmpty
-                          ? 'Clear search'
-                          : 'Scan a receipt',
-                      actionIcon: _error != null
-                          ? Icons.refresh_rounded
-                          : _search.isNotEmpty
-                          ? Icons.close
-                          : Icons.camera_alt_rounded,
-                      onAction: _error != null
-                          ? () => _loadMore(reset: true)
-                          : _search.isNotEmpty
-                          ? () => setState(() {
-                              _search = '';
-                              _searchCtrl.clear();
-                              _searching = false;
-                            })
-                          : () => _scanAndReload(),
-                    ),
+                    child: _error != null
+                        ? AppUnavailableState(
+                            message: _error!,
+                            onRetry: () => _loadMore(reset: true),
+                          )
+                        : AppEmptyState(
+                            icon: _search.isNotEmpty
+                                ? Icons.search_off_rounded
+                                : Icons.receipt_long,
+                            title: _search.isNotEmpty
+                                ? 'No expenses match "$_search"'
+                                : 'No expenses yet',
+                            subtitle: _search.isNotEmpty
+                                ? 'Try a different vendor, category, or amount.'
+                                : 'Snap a receipt and CartIQ will fill in the details.',
+                            actionLabel: _search.isNotEmpty
+                                ? 'Clear search'
+                                : 'Scan a receipt',
+                            actionIcon: _search.isNotEmpty
+                                ? Icons.close
+                                : Icons.camera_alt_rounded,
+                            onAction: _search.isNotEmpty
+                                ? () => setState(() {
+                                    _search = '';
+                                    _searchCtrl.clear();
+                                    _searching = false;
+                                  })
+                                : () => _scanAndReload(),
+                          ),
                   )
                 : NotificationListener<ScrollNotification>(
                     onNotification: (n) {

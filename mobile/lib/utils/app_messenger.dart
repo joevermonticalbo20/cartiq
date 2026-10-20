@@ -250,68 +250,82 @@ class _GlassToastState extends State<_GlassToast>
         : const Color(0xFF7F1D1D);
 
     return Positioned.fill(
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.sizeOf(context).width - 32,
-            ),
-            child: FadeTransition(
-              opacity: _fade,
-              child: SlideTransition(
-                position: _slide,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(28),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Color.lerp(
-                          Colors.white.withValues(alpha: 0.76),
-                          tint.withValues(alpha: 0.78),
-                          0.24,
-                        ),
-                        borderRadius: BorderRadius.circular(28),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.72),
-                          width: 1,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.12),
-                            blurRadius: 24,
-                            offset: const Offset(0, 10),
-                          ),
-                        ],
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 14,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Icon(icon, color: textColor, size: 22),
-                            const SizedBox(width: 12),
-                            Flexible(
-                              child: Text(
-                                widget.message,
-                                textAlign: TextAlign.center,
-                                softWrap: true,
-                                overflow: TextOverflow.visible,
-                                style: TextStyle(
-                                  color: textColor,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  height: 1.3,
-                                  decoration: TextDecoration.none,
+      child: IgnorePointer(
+        child: Stack(
+          children: [
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 8,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: MediaQuery.sizeOf(context).width - 32,
+                    ),
+                    child: FadeTransition(
+                      opacity: _fade,
+                      child: SlideTransition(
+                        position: _slide,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(28),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(
+                              sigmaX: 18,
+                              sigmaY: 18,
+                            ),
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: Color.lerp(
+                                  Colors.white.withValues(alpha: 0.76),
+                                  tint.withValues(alpha: 0.78),
+                                  0.24,
+                                ),
+                                borderRadius: BorderRadius.circular(28),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.72),
+                                  width: 1,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.12),
+                                    blurRadius: 24,
+                                    offset: const Offset(0, 10),
+                                  ),
+                                ],
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 18,
+                                  vertical: 14,
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Icon(icon, color: textColor, size: 22),
+                                    const SizedBox(width: 12),
+                                    Flexible(
+                                      child: Text(
+                                        widget.message,
+                                        textAlign: TextAlign.center,
+                                        softWrap: true,
+                                        overflow: TextOverflow.visible,
+                                        style: TextStyle(
+                                          color: textColor,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                          height: 1.3,
+                                          decoration: TextDecoration.none,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
@@ -319,7 +333,7 @@ class _GlassToastState extends State<_GlassToast>
                 ),
               ),
             ),
-          ),
+          ],
         ),
       ),
     );
