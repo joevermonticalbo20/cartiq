@@ -609,6 +609,12 @@ function mapsForOrderLine(maps, productName, flavorKey) {
   return [...byItem.values()];
 }
 
+function flavorSharesForOrderLine(row) {
+  return Array.isArray(row.flavorShares) && row.flavorShares.length
+    ? row.flavorShares
+    : [{ flavor: row.flavor ?? "", share: 1 }];
+}
+
 /**
  * Mirror of planVoidRestores in api/src/services/inventory_rules.js - keep the
  * two bodies identical. Pure so the arithmetic is testable without a database.
@@ -625,42 +631,37 @@ function planVoidRestores(orderItems, maps, invRows) {
   const warnings = [];
   const restores = new Map();
   for (const row of orderItems ?? []) {
-    const flavorKey = row.flavor ?? "";
-    const label = [row.productName, row.flavor].filter(Boolean).join(" / ");
-    const matched = mapsForOrderLine(maps, row.productName, flavorKey);
-    if (matched.length === 0) {
-      warnings.push(
-        `no recipe matched "${label}" at void — stock NOT restored ` +
-        `(product or flavor was renamed after this sale)`,
-      );
-      continue;
-    }
-    // Flavour-drift guard (mirror of the Express version): a FLAVOURED line
-    // resolving only to generic ("") recipes, on a product that does carry
-    // flavour-specific recipes, means that flavour's override was renamed
-    // after the sale - the deduction used the flavour amount but the restore
-    // would use the generic one. Genuinely flavourless products have no
-    // flavour-specific maps, so this stays quiet for them.
-    if (
-      flavorKey &&
-      matched.every((m) => m.flavor === "") &&
-      maps.some((m) => m.productName === row.productName && m.flavor !== "")
-    ) {
-      warnings.push(
-        `only the generic recipe matched "${label}" at void — stock restored at ` +
-        `the generic amount, not the flavour amount ` +
-        `(that flavour's recipe was likely renamed after this sale)`,
-      );
-    }
-    for (const map of matched) {
-      const inv = invByName.get(map.itemName);
-      if (!inv) {
-        warnings.push(`no inventory row "${map.itemName}" at void — restore skipped`);
+    for (const { flavor, share } of flavorSharesForOrderLine(row)) {
+      const label = [row.productName, flavor].filter(Boolean).join(" / ");
+      const matched = mapsForOrderLine(maps, row.productName, flavor ?? "");
+      if (matched.length === 0) {
+        warnings.push(
+          `no recipe matched "${label}" at void — stock NOT restored ` +
+          `(product or flavor was renamed after this sale)`,
+        );
         continue;
       }
-      const add = map.amountPerUnit * row.qty;
-      const prev = restores.has(inv.id) ? restores.get(inv.id).newStock : inv.stock;
-      restores.set(inv.id, { inv, newStock: prev + add, added: (restores.get(inv.id)?.added ?? 0) + add, });
+      if (
+        flavor &&
+        matched.every((m) => m.flavor === "") &&
+        maps.some((m) => m.productName === row.productName && m.flavor !== "")
+      ) {
+        warnings.push(
+          `only the generic recipe matched "${label}" at void — stock restored at ` +
+          `the generic amount, not the flavour amount ` +
+          `(that flavour's recipe was likely renamed after this sale)`,
+        );
+      }
+      for (const map of matched) {
+        const inv = invByName.get(map.itemName);
+        if (!inv) {
+          warnings.push(`no inventory row "${map.itemName}" at void — restore skipped`);
+          continue;
+        }
+        const add = map.amountPerUnit * row.qty * share;
+        const prev = restores.has(inv.id) ? restores.get(inv.id).newStock : inv.stock;
+        restores.set(inv.id, { inv, newStock: prev + add, added: (restores.get(inv.id)?.added ?? 0) + add, });
+      }
     }
   }
   return { restores, warnings };
@@ -1021,13 +1022,66 @@ async function handleLogout(req, origin) {
 async function handleCatalog(req, origin) {
   const auth = await authUser(req);
   if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
-  const [products, locations, flavors] = await Promise.all([
+  const [products, locations, flavors, maps, inventory] = await Promise.all([
     fsListAll("products"),
     fsListAll("locations"),
     fsListAll("flavors"),
+    fsListAll("ingredientMaps"),
+    fsListAll("inventoryItems"),
   ]);
   const byName = (a, b) => String(a.name || "").localeCompare(String(b.name || ""));
   const cleanFlavors = flavors.map(cleanDoc);
+  const activeLocations = locations
+    .filter((l) => l.status === "ACTIVE")
+    .sort((a, b) => String(a.code || "").localeCompare(String(b.code || "")));
+  const locationId = auth.user.locationId ?? activeLocations[0]?.id;
+  const inventoryByName = new Map(
+    inventory
+      .filter((item) => Number(item.locationId) === Number(locationId))
+      .map((item) => [item.name, item]),
+  );
+  const defaultPowderByFlavor = new Map([
+    ["cheese", "Cheese Powder"],
+    ["sour cream", "Sour Cream Powder"],
+    ["bbq", "BBQ Powder"],
+    ["sinigang", "Sinigang Powder"],
+  ]);
+  const availability = (productName, flavorName) => {
+    const matched = mapsForOrderLine(maps, productName, flavorName || "");
+    const recipe = matched.length
+      ? matched
+      : [
+          { itemName: "Pouches", amountPerUnit: 1 },
+          { itemName: "Fries (frozen packs)", amountPerUnit: 0.05 },
+          ...(defaultPowderByFlavor.has(String(flavorName || "").trim().toLowerCase())
+            ? [{
+                itemName: defaultPowderByFlavor.get(String(flavorName).trim().toLowerCase()),
+                amountPerUnit: 0.015,
+              }]
+            : []),
+        ];
+    let availableServings = Number.POSITIVE_INFINITY;
+    let limitingIngredient = "";
+    for (const row of recipe) {
+      const amount = Number(row.amountPerUnit);
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      const item = inventoryByName.get(row.itemName);
+      const stock = Number(item?.stock);
+      const servings = item && Number.isFinite(stock)
+        ? Math.floor((stock + 1e-9) / amount)
+        : 0;
+      if (servings < availableServings) {
+        availableServings = servings;
+        limitingIngredient = row.itemName;
+      }
+    }
+    const servings = Number.isFinite(availableServings) ? availableServings : 0;
+    return {
+      isAvailable: servings > 0,
+      availableServings: servings,
+      limitingIngredient,
+    };
+  };
   // Archived products (active === false) stay out of the POS catalog but keep
   // their history. Pre-archive docs have no field and count as active.
   const out = products
@@ -1035,16 +1089,25 @@ async function handleCatalog(req, origin) {
     .sort(byName)
     .map((p) => {
       const ids = new Set(p.flavorIds || []);
-      const fl = cleanFlavors.filter((f) => ids.has(f.id)).sort(byName);
+      const fl = cleanFlavors
+        .filter((f) => ids.has(f.id))
+        .sort(byName)
+        .map((f) => ({ ...f, ...availability(p.name, f.name) }));
       const c = cleanDoc(p);
       delete c.flavorIds;
       c.flavors = fl;
-      return c;
+      const options = fl.length ? fl : [availability(p.name, "")];
+      const bestOption = options.reduce((best, option) =>
+        option.availableServings > best.availableServings ? option : best,
+      );
+      return {
+        ...c,
+        isAvailable: options.some((option) => option.isAvailable),
+        availableServings: bestOption.availableServings,
+        limitingIngredient: bestOption.limitingIngredient,
+      };
     });
-  const locs = locations
-    .filter((l) => l.status === "ACTIVE")
-    .sort((a, b) => String(a.code || "").localeCompare(String(b.code || "")))
-    .map((l) => ({ id: l.id, code: l.code, name: l.name }));
+  const locs = activeLocations.map((l) => ({ id: l.id, code: l.code, name: l.name }));
   return jsonRes(origin, { products: out, locations: locs }, 200);
 }
 
@@ -1125,6 +1188,23 @@ async function handleCreateOrder(req, origin, user) {
         error: "each item needs a productName, an integer qty 1-100 and a unitPrice 0-10000",
       }, 400);
     }
+    if (it.flavorShares !== undefined) {
+      const shares = it.flavorShares;
+      const valid = Array.isArray(shares) &&
+        shares.length >= 2 && shares.length <= 3 &&
+        shares.every((entry) =>
+          entry && typeof entry.flavor === "string" && entry.flavor.trim() &&
+          entry.flavor.length <= 80 && Number.isFinite(+entry.share) &&
+          +entry.share > 0 && +entry.share <= 1
+        ) &&
+        new Set(shares.map((entry) => entry.flavor.trim())).size === shares.length &&
+        Math.abs(shares.reduce((sum, entry) => sum + +entry.share, 0) - 1) < 0.0001;
+      if (!valid) {
+        return jsonRes(origin, {
+          error: "flavorShares must contain 2-3 unique flavors with positive shares totaling 1",
+        }, 400);
+      }
+    }
   }
   if (locationId === undefined && (locationCode === undefined || locationCode === "")) {
     return jsonRes(origin, { error: "locationCode or locationId is required" }, 400);
@@ -1189,6 +1269,12 @@ async function handleCreateOrder(req, origin, user) {
       flavor: it.flavor == null ? null : String(it.flavor).slice(0, 80),
       qty: Math.trunc(+it.qty),
       unitPrice: +it.unitPrice,
+      ...(it.flavorShares !== undefined
+        ? { flavorShares: flavorSharesForOrderLine(it).map((entry) => ({
+            flavor: entry.flavor.trim().slice(0, 80),
+            share: +entry.share,
+          })) }
+        : {}),
     }));
     const warnings = [];
     const stockWrites = new Map();
@@ -1199,46 +1285,44 @@ async function handleCreateOrder(req, origin, user) {
         warnings.push(`unknown product "${row.productName}" — recorded without deduction`);
         continue;
       }
-      const flavorKey = row.flavor ?? "";
-      for (const map of mapsForOrderLine(maps, row.productName, flavorKey)) {
-        const inv = invByName.get(map.itemName);
-        if (!inv) {
-          warnings.push(`no inventory row "${map.itemName}" at ${location.code}`);
-          continue;
-        }
-        const base = stockWrites.has(inv.id) ? stockWrites.get(inv.id).newStock : inv.stock;
-        const deduction = map.amountPerUnit * row.qty;
-        const newStock = Math.max(0, base - deduction);
-        const shortage = oversellShortage(base, map.amountPerUnit, row.qty);
-        if (shortage > 0) {
-          warnings.push(
-            `OVERSOLD "${map.itemName}" at ${location.code}: requested ${fmtStock(deduction)} ${inv.unit}, had ${fmtStock(base)}, short ${fmtStock(shortage)}`
-          );
-        }
-        const crossed = base > inv.threshold && newStock <= inv.threshold;
-        stockWrites.set(inv.id, { inv, newStock });
-        if (crossed) {
-          const key = lowStockDedupeKey(location.id, inv.id);
-          // One indexed equality lookup instead of a scan of every alert ever
-          // created. Two lines of one order hitting the same item collapse here
-          // without spending a second lookup.
-          if (createdNeedles.has(key)) continue;
-          createdNeedles.add(key);
-          if (!(await hasOpenLowStockAlert(location.id, inv.id))) {
-            newAlerts.push({
-              type: "LOW_STOCK",
-              // Indexed field so the dedupe above never has to scan.
-              lowStockKey: key,
-              message: `${inv.name} @ ${location.code} dropped below threshold (${newStock} ${inv.unit} left)`,
-              payload: JSON.stringify({
-                dedupeKey: key,
-                inventoryItemId: inv.id,
-                locationId: location.id,
-                stock: newStock,
-                threshold: inv.threshold,
-                unit: inv.unit,
-              }),
-            });
+      for (const { flavor, share } of flavorSharesForOrderLine(row)) {
+        for (const map of mapsForOrderLine(maps, row.productName, flavor ?? "")) {
+          const inv = invByName.get(map.itemName);
+          if (!inv) {
+            warnings.push(`no inventory row "${map.itemName}" at ${location.code}`);
+            continue;
+          }
+          const base = stockWrites.has(inv.id) ? stockWrites.get(inv.id).newStock : inv.stock;
+          const amountPerUnit = map.amountPerUnit * share;
+          const deduction = amountPerUnit * row.qty;
+          const newStock = Math.max(0, base - deduction);
+          const shortage = oversellShortage(base, amountPerUnit, row.qty);
+          if (shortage > 0) {
+            warnings.push(
+              `OVERSOLD "${map.itemName}" at ${location.code}: requested ${fmtStock(deduction)} ${inv.unit}, had ${fmtStock(base)}, short ${fmtStock(shortage)}`
+            );
+          }
+          const crossed = base > inv.threshold && newStock <= inv.threshold;
+          stockWrites.set(inv.id, { inv, newStock });
+          if (crossed) {
+            const key = lowStockDedupeKey(location.id, inv.id);
+            if (createdNeedles.has(key)) continue;
+            createdNeedles.add(key);
+            if (!(await hasOpenLowStockAlert(location.id, inv.id))) {
+              newAlerts.push({
+                type: "LOW_STOCK",
+                lowStockKey: key,
+                message: `${inv.name} @ ${location.code} dropped below threshold (${newStock} ${inv.unit} left)`,
+                payload: JSON.stringify({
+                  dedupeKey: key,
+                  inventoryItemId: inv.id,
+                  locationId: location.id,
+                  stock: newStock,
+                  threshold: inv.threshold,
+                  unit: inv.unit,
+                }),
+              });
+            }
           }
         }
       }
@@ -1738,6 +1822,7 @@ function decorateItems(items) {
   return items.map((it) => {
     const c = cleanDoc(it);
     c.status = stockStatus(it.stock, it.threshold);
+    c.isOutOfStock = Number(it.stock) <= 0;
     return c;
   });
 }
@@ -1939,6 +2024,204 @@ async function handleInventoryAdjustment(req, user) {
       },
     },
   };
+}
+
+async function handleListRestockRequests(url, user) {
+  const code = url.searchParams.get("code");
+  const activeOnly = url.searchParams.get("active") !== "false";
+  let locationId = null;
+  if (code) {
+    const locations = await fsQueryEqual("locations", "code", String(code), 1);
+    const location = locations[0];
+    if (!location) return { status: 404, body: { error: "Location not found" } };
+    if (user.role !== "OWNER" && Number(user.locationId) !== Number(location.id)) {
+      return { status: 403, body: { error: "Forbidden: outside your assigned cart" } };
+    }
+    locationId = Number(location.id);
+  } else if (user.role !== "OWNER") {
+    if (user.locationId == null) {
+      return { status: 403, body: { error: "Forbidden: no cart assigned to this account" } };
+    }
+    locationId = Number(user.locationId);
+  }
+  const requests = activeOnly
+    ? (await Promise.all(["pending", "acknowledged"].map((status) =>
+        fsQueryEqual("alerts", "status", status, 10000),
+      ))).flat()
+    : await fsQueryEqual("alerts", "type", "RESTOCK_REQUEST", 10000);
+  return {
+    status: 200,
+    body: {
+      data: requests.filter((request) =>
+        request.type === "RESTOCK_REQUEST" &&
+        (locationId == null || Number(request.locationId) === locationId) &&
+        (!activeOnly || request.status === "pending" || request.status === "acknowledged"),
+      ).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 200)
+        .map(cleanDoc),
+    },
+  };
+}
+
+async function handleCreateRestockRequest(req, user) {
+  const body = await req.json().catch(() => null);
+  const {
+    ingredientId,
+    allLowStock = false,
+    locationCode,
+    urgency = "normal",
+    notes,
+  } = body || {};
+  if (!["normal", "urgent", "critical"].includes(urgency)) {
+    return { status: 400, body: { error: "urgency must be normal, urgent, or critical" } };
+  }
+  if (notes !== undefined && (typeof notes !== "string" || notes.length > 500)) {
+    return { status: 400, body: { error: "notes must be a string of at most 500 characters" } };
+  }
+  if (typeof allLowStock !== "boolean" ||
+      (allLowStock
+        ? ingredientId !== undefined
+        : ingredientId === undefined || ingredientId === null ||
+          ingredientId === "" || !Number.isInteger(Number(ingredientId)))) {
+    return {
+      status: 400,
+      body: { error: "provide ingredientId for one request or allLowStock: true for a batch" },
+    };
+  }
+
+  let location;
+  if (user.role === "OWNER" && locationCode != null) {
+    const found = await fsQueryEqual("locations", "code", String(locationCode), 1);
+    location = found[0] || null;
+  } else if (user.locationId != null) {
+    location = await fsGet("locations", user.locationId);
+  } else if (user.role === "OWNER" && allLowStock) {
+    location = (await fsListAll("locations"))
+      .filter((item) => item.status === "ACTIVE")
+      .sort((a, b) => String(a.code || "").localeCompare(String(b.code || "")))[0] || null;
+  }
+  if (!location) return { status: 404, body: { error: "Location not found" } };
+  if (user.role !== "OWNER" && Number(user.locationId) !== Number(location.id)) {
+    return { status: 403, body: { error: "Forbidden: outside your assigned cart" } };
+  }
+
+  const inventory = allLowStock
+    ? await fsQueryEqual("inventoryItems", "locationId", Number(location.id), 10000)
+    : [await fsGet("inventoryItems", Number(ingredientId))];
+  if (!allLowStock && !inventory[0]) {
+    return { status: 404, body: { error: "Inventory item not found" } };
+  }
+  const candidates = inventory.filter((item) =>
+    item && Number(item.locationId) === Number(location.id) &&
+    (!allLowStock || Number(item.stock) <= Number(item.threshold)),
+  );
+  if (!allLowStock && candidates.length === 0) {
+    return { status: 404, body: { error: "Inventory item not found at this cart" } };
+  }
+  if (allLowStock && candidates.length === 0) {
+    return { status: 400, body: { error: "No low-stock ingredients to request" } };
+  }
+
+  const created = [];
+  const active = [];
+  for (const item of candidates) {
+    const key = `restock:${location.id}:${item.id}`;
+    const existing = await fsQueryEqual("alerts", "restockKey", key, 10);
+    const pending = existing.find((request) =>
+      request.status === "pending" || request.status === "acknowledged",
+    );
+    if (pending) {
+      active.push(cleanDoc(pending));
+      continue;
+    }
+    const message = `Restock requested: ${item.name} @ ${location.code}`;
+    const request = await withRetry(async () => {
+      const counters = await readCounters(["alerts"]);
+      const { ids, writes } = counterWritesFor(counters, { alerts: 1 });
+      const doc = {
+        id: ids.alerts[0],
+        type: "RESTOCK_REQUEST",
+        message,
+        restockKey: key,
+        ingredientId: Number(item.id),
+        ingredientName: item.name,
+        locationId: Number(location.id),
+        locationCode: location.code,
+        urgency,
+        notes: String(notes ?? "").trim() || null,
+        requestedBy: user.id,
+        requestedByName: user.name ?? user.username ?? "Staff",
+        status: "pending",
+        isRead: false,
+        payload: JSON.stringify({
+          ingredientId: Number(item.id),
+          ingredientName: item.name,
+          locationId: Number(location.id),
+          locationCode: location.code,
+          urgency,
+          notes: String(notes ?? "").trim() || null,
+          requestedBy: user.id,
+          requestedByName: user.name ?? user.username ?? "Staff",
+          status: "pending",
+        }),
+        createdAt: new Date(),
+      };
+      writes.push(createWrite("alerts", doc.id, doc));
+      await fsCommit(writes);
+      return doc;
+    }, 4);
+    created.push(request);
+  }
+  if (created.length > 0) {
+    await broadcastEvent("restock-request:new", { requests: created });
+  }
+  return {
+    status: created.length > 0 ? 201 : 200,
+    body: {
+      data: created,
+      activeRequests: [...active, ...created],
+      skipped: candidates.length - created.length - active.length,
+    },
+  };
+}
+
+async function handleRestockRequestStatus(req, id, user) {
+  const ownErr = requireOwner(user);
+  if (ownErr) return { status: ownErr.status, body: ownErr.body };
+  const body = await req.json().catch(() => null);
+  const { status, resolution } = body || {};
+  if (!["acknowledged", "fulfilled"].includes(status)) {
+    return { status: 400, body: { error: "status must be acknowledged or fulfilled" } };
+  }
+  if (resolution !== undefined && !["restocked", "dismissed"].includes(resolution)) {
+    return { status: 400, body: { error: "resolution must be restocked or dismissed" } };
+  }
+  if (status !== "fulfilled" && resolution !== undefined) {
+    return { status: 400, body: { error: "resolution is only valid when status is fulfilled" } };
+  }
+  const existing = await fsGet("alerts", id);
+  if (!existing || existing.type !== "RESTOCK_REQUEST") {
+    return { status: 404, body: { error: "Restock request not found" } };
+  }
+  if (!["pending", "acknowledged"].includes(existing.status)) {
+    return { status: 409, body: { error: "Restock request is already resolved" } };
+  }
+  await fsPatch("alerts", id, {
+    status,
+    ...(status === "fulfilled"
+      ? {
+          resolution: resolution ?? "restocked",
+          resolvedBy: user.id,
+          resolvedAt: new Date(),
+        }
+      : {
+          ackedBy: user.id,
+          ackedAt: new Date(),
+          ackedByName: user.name ?? user.username,
+        }),
+  });
+  const alert = cleanDoc(await fsGet("alerts", id));
+  await broadcastEvent("restock-request:updated", alert);
+  return { status: 200, body: { alert } };
 }
 
 // ---------- alerts + reports (mirror api/src/routes/alerts.js, reports.js) ----------
@@ -3530,8 +3813,10 @@ async function buildDailyUsage(locationId, windowDays) {
     if (!(order.createdAt instanceof Date) || order.createdAt < since) continue;
     const key = manilaDayKey(order.createdAt);
     for (const item of order.items || []) {
-      for (const map of mapsForOrderLine(maps, item.productName, item.flavor ?? "")) {
-        bump(map.itemName, key, map.amountPerUnit * item.qty);
+      for (const { flavor, share } of flavorSharesForOrderLine(item)) {
+        for (const map of mapsForOrderLine(maps, item.productName, flavor ?? "")) {
+          bump(map.itemName, key, map.amountPerUnit * item.qty * share);
+        }
       }
     }
   }
@@ -5579,6 +5864,13 @@ async function handleEventStream(req, origin, inUrl) {
           for (const a of freshAlerts) {
             lastAlertId = Math.max(lastAlertId, Number(a.id));
             send(sseEncode("alert:new", { id: a.id, type: a.type, message: a.message }));
+            if (a.type === "RESTOCK_REQUEST") {
+              const loc = locById.get(Number(a.locationId));
+              send(sseEncode("restock-request:new", {
+                ...cleanDoc(a),
+                locationCode: a.locationCode ?? loc?.code ?? null,
+              }));
+            }
           }
           // RFID bindings are published to liveEvents (the Edge function has no
           // in-process broadcaster) and re-emitted here so the dashboard shows
@@ -5776,6 +6068,7 @@ Deno.serve(async (req) => {
       }
       // Inventory.
       if (path === "/inventory" || path === "/inventory/names" ||
+          path === "/inventory/restock-requests" || path === "/inventory/restock-request" ||
           path === "/inventory/items" || path.startsWith("/inventory/items/") ||
           path === "/inventory/adjustments") {
         const auth = await authUser(req);
@@ -5783,6 +6076,12 @@ Deno.serve(async (req) => {
         let out;
         if (req.method === "GET" && path === "/inventory") out = { status: 200, body: await handleListInventory(inUrl) };
         else if (req.method === "GET" && path === "/inventory/names") out = { status: 200, body: await handleInventoryNames() };
+        else if (req.method === "GET" && path === "/inventory/restock-requests") {
+          out = await handleListRestockRequests(inUrl, auth.user);
+        }
+        else if (req.method === "POST" && path === "/inventory/restock-request") {
+          out = await handleCreateRestockRequest(req, auth.user);
+        }
         else if (req.method === "POST" && path === "/inventory/items") out = await handleCreateInventoryItem(req);
         else if ((req.method === "PATCH" || req.method === "DELETE") && path.startsWith("/inventory/items/")) {
           const idPart = path.slice("/inventory/items/".length).split("/")[0].split("?")[0];
@@ -5805,11 +6104,17 @@ Deno.serve(async (req) => {
       }
       // Alerts.
       if (path === "/alerts" || path === "/alerts/read" ||
-          /^\/alerts\/\d+\/(read|ack)$/.test(path)) {
+          path === "/alerts/restock-requests" ||
+          /^\/alerts\/\d+\/(read|ack|restock-status)$/.test(path)) {
         const auth = await authUser(req);
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
         let out;
         if (req.method === "GET" && path === "/alerts") out = { status: 200, body: await handleListAlerts(inUrl) };
+        else if (req.method === "GET" && path === "/alerts/restock-requests") {
+          const ownErr = requireOwner(auth.user);
+          if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
+          out = await handleListRestockRequests(inUrl, auth.user);
+        }
         else if (req.method === "PATCH" && path === "/alerts/read") {
           const ownErr = requireOwner(auth.user);
           if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
@@ -5822,6 +6127,13 @@ Deno.serve(async (req) => {
         }
         else if (req.method === "PATCH" && path.endsWith("/ack")) {
           out = await handleAlertAck(req, Number(path.split("/")[2]), auth.user);
+        }
+        else if (req.method === "PATCH" && path.endsWith("/restock-status")) {
+          out = await handleRestockRequestStatus(
+            req,
+            Number(path.split("/")[2]),
+            auth.user,
+          );
         }
         else return notFoundRes(origin, req, path);
         return jsonRes(origin, out.body, out.status);

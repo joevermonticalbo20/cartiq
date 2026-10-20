@@ -92,6 +92,26 @@ test("the same ingredient across two lines accumulates instead of overwriting", 
   assert.equal(restores.get(2).newStock, 80);
 });
 
+test("mixed flavors restore equal recipe shares from one priced line", () => {
+  const { restores, warnings } = planVoidRestores(
+    [{
+      productName: "Cheese Fries",
+      flavor: "BBQ + Sour Cream",
+      flavorShares: [
+        { flavor: "Cheese", share: 0.5 },
+        { flavor: "Sour Cream", share: 0.5 },
+      ],
+      qty: 1,
+    }],
+    maps,
+    [invPouch, invCheese],
+  );
+
+  assert.equal(warnings.length, 0);
+  assert.equal(restores.get(1).added, 1);
+  assert.equal(restores.get(2).added, 19);
+});
+
 test("a missing inventory row warns and skips only that ingredient", () => {
   const { restores, warnings } = planVoidRestores(
     [{ productName: "Cheese Fries", flavor: "Cheese", qty: 1 }],

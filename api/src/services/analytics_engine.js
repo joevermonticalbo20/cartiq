@@ -7,7 +7,7 @@ import {
   manilaDowOfKey,
   manilaCalendarToday,
 } from "./timezone.js";
-import { mapsForOrderLine } from "./inventory_rules.js";
+import { flavorSharesForOrderLine, mapsForOrderLine } from "./inventory_rules.js";
 
 // Re-exported so existing import sites keep working; canonical impl lives
 // in services/timezone.js (single source of truth, no drift).
@@ -118,8 +118,10 @@ export async function buildDailyUsage(locationId, windowDays) {
       // Same recipe resolution as the POS deduction (mapsForOrderLine):
       // every matching generic + the best specific per itemName, so usage
       // can never undercount multi-ingredient products.
-      for (const map of mapsForOrderLine(maps, item.productName, item.flavor ?? "")) {
-        bump(map.itemName, key, map.amountPerUnit * item.qty);
+      for (const { flavor, share } of flavorSharesForOrderLine(item)) {
+        for (const map of mapsForOrderLine(maps, item.productName, flavor ?? "")) {
+          bump(map.itemName, key, map.amountPerUnit * item.qty * share);
+        }
       }
     }
   }

@@ -8,6 +8,7 @@ import {
   flavorRecipeRows,
   houseRecipeFor,
 } from "../src/services/recipe_defaults.js";
+import { recipeAvailability } from "../src/services/inventory_rules.js";
 
 describe("recipe_defaults (house convention)", () => {
   it("deducts 1 pouch per unit", () => {
@@ -52,5 +53,36 @@ describe("recipe_defaults (house convention)", () => {
       rows.map((r) => r.itemName),
       ["Pouches", "Fries (frozen packs)", "Cheese Powder"]
     );
+  });
+
+  it("computes available servings from resolved generic and flavor recipes", () => {
+    const maps = [
+      { productName: "Fries", flavor: "", itemName: "Pouches", amountPerUnit: 1 },
+      { productName: "Fries", flavor: "", itemName: "Fries (frozen packs)", amountPerUnit: 0.05 },
+      { productName: "Fries", flavor: "Cheese", itemName: "Cheese Powder", amountPerUnit: 0.015 },
+    ];
+    const inventory = new Map([
+      ["Pouches", { stock: 20 }],
+      ["Fries (frozen packs)", { stock: 1 }],
+      ["Cheese Powder", { stock: 0.09 }],
+    ]);
+    assert.deepEqual(recipeAvailability("Fries", "Cheese", maps, inventory), {
+      isAvailable: true,
+      availableServings: 6,
+      limitingIngredient: "Cheese Powder",
+    });
+  });
+
+  it("uses house defaults when no recipe map exists and reports depleted stock", () => {
+    const inventory = new Map([
+      ["Pouches", { stock: 20 }],
+      ["Fries (frozen packs)", { stock: 1 }],
+      ["BBQ Powder", { stock: 0 }],
+    ]);
+    assert.deepEqual(recipeAvailability("Fries", "BBQ", [], inventory), {
+      isAvailable: false,
+      availableServings: 0,
+      limitingIngredient: "BBQ Powder",
+    });
   });
 });

@@ -7,6 +7,7 @@ class MoneyInput {
   static const int maxIntDigits = 7;
   static const int maxDecimals = 2;
   static const double maxValue = 9999999.99;
+  static const List<int> cashDenominations = [50, 100, 200, 500, 1000];
 
   /// Live-typing sanitizer: digits + one dot, capped lengths. Extra
   /// keystrokes are ignored (input never reformatted mid-typing).

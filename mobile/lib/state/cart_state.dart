@@ -3,25 +3,42 @@ import 'package:flutter/material.dart';
 class CartItem {
   final String productName;
   final String? flavor;
+  final List<String>? flavors;
   final double unitPrice;
   int qty;
 
   CartItem({
     required this.productName,
     required this.flavor,
+    this.flavors,
     required this.unitPrice,
     this.qty = 1,
   });
 
-  String get key => '$productName|${flavor ?? ''}';
+  String get key {
+    final names = (flavors ?? [flavor ?? '']).toList()..sort();
+    return '$productName|$names';
+  }
+
+  String get displayFlavor => flavors != null && flavors!.length > 1
+      ? flavors!.join(' + ')
+      : flavor ?? '';
   double get lineTotal => unitPrice * qty;
 
-  Map<String, dynamic> toJson() => {
-        'productName': productName,
-        'flavor': flavor,
-        'qty': qty,
-        'unitPrice': unitPrice,
-      };
+  Map<String, dynamic> toJson() {
+    final mix = flavors != null && flavors!.length > 1;
+    return {
+      'productName': productName,
+      'flavor': mix ? displayFlavor : flavor,
+      'qty': qty,
+      'unitPrice': unitPrice,
+      if (mix)
+        'flavorShares': [
+          for (final name in flavors!)
+            {'flavor': name, 'share': 1 / flavors!.length},
+        ],
+    };
+  }
 }
 
 class CartState extends ChangeNotifier {
@@ -32,17 +49,61 @@ class CartState extends ChangeNotifier {
   int get totalQty => _items.fold(0, (sum, it) => sum + it.qty);
   double get total => _items.fold(0, (sum, it) => sum + it.lineTotal);
 
-  void add(String productName, String? flavor, double unitPrice) {
-    final key = '$productName|${flavor ?? ''}';
+  void add(
+    String productName,
+    String? flavor,
+    double unitPrice, {
+    int qty = 1,
+    int? maxQty,
+  }) {
+    if (qty <= 0) return;
+    final names = [flavor ?? '']..sort();
+    final key = '$productName|$names';
     final existing = _items.where((it) => it.key == key).toList();
     if (existing.isNotEmpty) {
-      existing.first.qty++;
+      final next = existing.first.qty + qty;
+      existing.first.qty = maxQty == null
+          ? next
+          : next.clamp(1, maxQty).toInt();
     } else {
-      _items.add(CartItem(
-        productName: productName,
-        flavor: flavor,
-        unitPrice: unitPrice,
-      ));
+      _items.add(
+        CartItem(
+          productName: productName,
+          flavor: flavor,
+          unitPrice: unitPrice,
+          qty: maxQty == null ? qty : qty.clamp(1, maxQty).toInt(),
+        ),
+      );
+    }
+    notifyListeners();
+  }
+
+  void addMixed(
+    String productName,
+    List<String> flavors,
+    double unitPrice, {
+    int qty = 1,
+    int? maxQty,
+  }) {
+    final normalized = flavors.toSet().toList()..sort();
+    if (normalized.length < 2 || normalized.length > 3 || qty <= 0) return;
+    final key = '$productName|$normalized';
+    final existing = _items.where((it) => it.key == key).toList();
+    if (existing.isNotEmpty) {
+      final next = existing.first.qty + qty;
+      existing.first.qty = maxQty == null
+          ? next
+          : next.clamp(1, maxQty).toInt();
+    } else {
+      _items.add(
+        CartItem(
+          productName: productName,
+          flavor: null,
+          flavors: normalized,
+          unitPrice: unitPrice,
+          qty: maxQty == null ? qty : qty.clamp(1, maxQty).toInt(),
+        ),
+      );
     }
     notifyListeners();
   }

@@ -32,6 +32,31 @@ void main() {
       expect(label.startsWith('Today '), isTrue);
     });
 
+    group('ManilaTime 12-hour formatting', () {
+      test('formats midnight, noon, and afternoon with AM/PM', () {
+        expect(
+          ManilaTime.formatClock12(DateTime(2026, 1, 1, 0, 5)),
+          '12:05 AM',
+        );
+        expect(
+          ManilaTime.formatClock12(DateTime(2026, 1, 1, 12, 0)),
+          '12:00 PM',
+        );
+        expect(
+          ManilaTime.formatClock12(DateTime(2026, 1, 1, 13, 7)),
+          '1:07 PM',
+        );
+      });
+
+      test('12-hour relative timestamp includes date context', () {
+        final today = ManilaTime.now();
+        final label = ManilaTime.formatTime12(
+          DateTime(today.year, today.month, today.day, 13, 0),
+        );
+        expect(label, 'Today 1:00 PM');
+      });
+    });
+
     test('includes year for old dates', () {
       // Full pipeline: UTC string -> Manila wall-clock -> label.
       // 2020-01-05 00:00 UTC = 2020-01-05 08:00 Manila.
@@ -54,9 +79,7 @@ void main() {
   group('ManilaTime.shortLabel', () {
     test('formats current-year dates without year', () {
       final year = ManilaTime.now().year;
-      final label = ManilaTime.shortLabel(
-        '$year-03-04T01:02:00Z',
-      );
+      final label = ManilaTime.shortLabel('$year-03-04T01:02:00Z');
       expect(label, '3/4 · 09:02');
     });
 

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cartiq_mobile/services/api_client.dart';
 import 'package:cartiq_mobile/services/auth_state.dart';
+import 'package:cartiq_mobile/services/data_refresh.dart';
 import 'package:cartiq_mobile/services/offline_queue.dart';
 import 'package:cartiq_mobile/services/sync_service.dart';
 
@@ -70,43 +71,65 @@ class _FakeQueue implements OfflineQueue {
 }
 
 QueuedRecord _order(String id) => QueuedRecord(
-      id: id,
-      kind: 'order',
-      payload: {
-        'clientRef': id,
-        'locationCode': 'CART-01',
-        'items': [
-          {'productName': 'Flavored Fries', 'qty': 1, 'unitPrice': 40},
-        ],
-      },
-    );
+  id: id,
+  kind: 'order',
+  payload: {
+    'clientRef': id,
+    'locationCode': 'CART-01',
+    'items': [
+      {'productName': 'Flavored Fries', 'qty': 1, 'unitPrice': 40},
+    ],
+  },
+);
 
 QueuedRecord _orderMissingLocation(String id) => QueuedRecord(
-      id: id,
-      kind: 'order',
-      payload: {
-        'clientRef': id,
-        'items': [
-          {'productName': 'Flavored Fries', 'qty': 1, 'unitPrice': 40},
-        ],
-      },
-    );
+  id: id,
+  kind: 'order',
+  payload: {
+    'clientRef': id,
+    'items': [
+      {'productName': 'Flavored Fries', 'qty': 1, 'unitPrice': 40},
+    ],
+  },
+);
 
 void main() {
   late _FakeApi api;
   late _FakeAuth auth;
   late _FakeQueue queue;
   late SyncService sync;
+  late DataRefresh dataRefresh;
 
   setUp(() {
     api = _FakeApi();
     auth = _FakeAuth(apiClient: api);
     auth.token = 'expired-token';
     queue = _FakeQueue();
-    sync = SyncService(api: api, auth: auth, queue: queue);
+    dataRefresh = DataRefresh();
+    sync = SyncService(
+      api: api,
+      auth: auth,
+      queue: queue,
+      dataRefresh: dataRefresh,
+    );
   });
 
   group('SyncService drain', () {
+    test('online no-op sync does not refresh mounted screens', () async {
+      await sync.syncAll();
+      expect(dataRefresh.lastReason, isNull);
+      expect(dataRefresh.version, 0);
+    });
+
+    test('uploaded sale notifies mounted stock and catalog screens', () async {
+      await queue.enqueue(_order('sale'));
+
+      await sync.syncAll();
+
+      expect(dataRefresh.lastReason, 'sale');
+      expect(dataRefresh.version, 1);
+    });
+
     test('401 recovers via refresh and uploads the record', () async {
       await queue.enqueue(_order('a'));
       api.script.addAll([
@@ -136,28 +159,29 @@ void main() {
       expect(await queue.count, 1);
     });
 
-    test('poison 400 is dropped with reason and the rest still drains',
-        () async {
-      await queue.enqueue(_order('poison'));
-      await queue.enqueue(_order('good'));
-      api.script.addAll([
-        ApiException('bad payload', statusCode: 400),
-        null, // good record uploads
-      ]);
+    test(
+      'poison 400 is dropped with reason and the rest still drains',
+      () async {
+        await queue.enqueue(_order('poison'));
+        await queue.enqueue(_order('good'));
+        api.script.addAll([
+          ApiException('bad payload', statusCode: 400),
+          null, // good record uploads
+        ]);
 
-      final result = await sync.syncAll();
+        final result = await sync.syncAll();
 
-      expect(result.synced, 1);
-      expect(result.remaining, 0);
-      expect(await queue.count, 0);
-      expect(result.dropped, hasLength(1));
-      expect(result.dropped.single.id, 'poison');
-      expect(result.dropped.single.reason, 'SERVER_REJECTED_400');
-      expect(result.fullySynced, isFalse);
-    });
+        expect(result.synced, 1);
+        expect(result.remaining, 0);
+        expect(await queue.count, 0);
+        expect(result.dropped, hasLength(1));
+        expect(result.dropped.single.id, 'poison');
+        expect(result.dropped.single.reason, 'SERVER_REJECTED_400');
+        expect(result.fullySynced, isFalse);
+      },
+    );
 
-    test('missing location is dropped, never synced, never retried',
-        () async {
+    test('missing location is dropped, never synced, never retried', () async {
       await queue.enqueue(_orderMissingLocation('noloc'));
 
       final result = await sync.syncAll();
@@ -221,18 +245,20 @@ void main() {
       expect(api.calls, 0);
     });
 
-    test('unreachable server reports offline without attempting upload',
-        () async {
-      await queue.enqueue(_order('a'));
-      api.healthy = false;
+    test(
+      'unreachable server reports offline without attempting upload',
+      () async {
+        await queue.enqueue(_order('a'));
+        api.healthy = false;
 
-      final result = await sync.syncAll();
+        final result = await sync.syncAll();
 
-      expect(result.online, isFalse);
-      expect(result.synced, 0);
-      expect(result.remaining, 1);
-      expect(api.calls, 0);
-    });
+        expect(result.online, isFalse);
+        expect(result.synced, 0);
+        expect(result.remaining, 1);
+        expect(api.calls, 0);
+      },
+    );
 
     test('cancelActiveSync stops further uploads after logout', () async {
       await queue.enqueue(_order('a'));

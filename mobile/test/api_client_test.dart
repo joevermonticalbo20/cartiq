@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -22,10 +24,7 @@ class _FakeStore implements KeyValueStore {
 }
 
 ApiClient _clientWith(Future<http.Response> Function(http.Request) handler) =>
-    ApiClient(
-      secureStorage: _FakeStore(),
-      httpClient: MockClient(handler),
-    );
+    ApiClient(secureStorage: _FakeStore(), httpClient: MockClient(handler));
 
 void main() {
   group('forgotPassword', () {
@@ -34,8 +33,9 @@ void main() {
       final client = _clientWith((req) async {
         seen = req;
         return http.Response(
-            '{"success":true,"message":"If an account exists for this email, a reset code was sent."}',
-            200);
+          '{"success":true,"message":"If an account exists for this email, a reset code was sent."}',
+          200,
+        );
       });
       final data = await client.forgotPassword('staff@gmail.com');
       expect(seen!.url.path, endsWith('/auth/forgot-password'));
@@ -43,12 +43,19 @@ void main() {
     });
 
     test('server 400 surfaces the error message', () async {
-      final client = _clientWith((_) async =>
-          http.Response('{"error":"A valid email address is required"}', 400));
+      final client = _clientWith(
+        (_) async =>
+            http.Response('{"error":"A valid email address is required"}', 400),
+      );
       expect(
         () => client.forgotPassword('nope'),
-        throwsA(isA<ApiException>().having(
-            (e) => e.message, 'message', 'A valid email address is required')),
+        throwsA(
+          isA<ApiException>().having(
+            (e) => e.message,
+            'message',
+            'A valid email address is required',
+          ),
+        ),
       );
     });
   });
@@ -58,23 +65,82 @@ void main() {
       http.Request? seen;
       final client = _clientWith((req) async {
         seen = req;
-        return http.Response(
-            '{"updated":true,"sessionsRevoked":true}', 200);
+        return http.Response('{"updated":true,"sessionsRevoked":true}', 200);
       });
       final data = await client.resetPassword(
-          email: 's@gmail.com', code: '482916', newPassword: 'newpass12');
+        email: 's@gmail.com',
+        code: '482916',
+        newPassword: 'newpass12',
+      );
       expect(seen!.url.path, endsWith('/auth/reset-password'));
       expect(data['updated'], isTrue);
     });
 
+    group('restock requests', () {
+      test('loads requests scoped to a cart', () async {
+        http.Request? seen;
+        final client = _clientWith((req) async {
+          seen = req;
+          return http.Response(
+            '{"data":[{"id":7,"ingredientId":42,"status":"pending"}]}',
+            200,
+          );
+        });
+
+        final requests = await client.restockRequests(
+          'access-token',
+          locationCode: 'CART 01',
+        );
+
+        expect(seen!.url.path, endsWith('/inventory/restock-requests'));
+        expect(seen!.url.queryParameters['code'], 'CART 01');
+        expect(seen!.headers['authorization'], 'Bearer access-token');
+        expect(requests.single['ingredientId'], 42);
+      });
+
+      test('posts one restock request with urgency and note', () async {
+        http.Request? seen;
+        final client = _clientWith((req) async {
+          seen = req;
+          return http.Response(
+            '{"data":[{"id":7,"ingredientId":42,"status":"pending"}]}',
+            201,
+          );
+        });
+
+        final result = await client.createRestockRequest('access-token', {
+          'ingredientId': 42,
+          'urgency': 'urgent',
+          'notes': 'Need more stock',
+        });
+
+        expect(seen!.url.path, endsWith('/inventory/restock-request'));
+        expect(jsonDecode(seen!.body), {
+          'ingredientId': 42,
+          'urgency': 'urgent',
+          'notes': 'Need more stock',
+        });
+        expect(result['data'], isA<List<dynamic>>());
+      });
+    });
+
     test('invalid code surfaces the generic server message', () async {
-      final client = _clientWith((_) async =>
-          http.Response('{"error":"Invalid or expired code."}', 400));
+      final client = _clientWith(
+        (_) async => http.Response('{"error":"Invalid or expired code."}', 400),
+      );
       expect(
         () => client.resetPassword(
-            email: 's@gmail.com', code: '000000', newPassword: 'newpass12'),
-        throwsA(isA<ApiException>().having(
-            (e) => e.message, 'message', 'Invalid or expired code.')),
+          email: 's@gmail.com',
+          code: '000000',
+          newPassword: 'newpass12',
+        ),
+        throwsA(
+          isA<ApiException>().having(
+            (e) => e.message,
+            'message',
+            'Invalid or expired code.',
+          ),
+        ),
       );
     });
   });
@@ -114,7 +180,10 @@ void main() {
     });
 
     test('scheme-only input throws ApiException', () {
-      expect(() => normalizeApiBaseUrl('http://'), throwsA(isA<ApiException>()));
+      expect(
+        () => normalizeApiBaseUrl('http://'),
+        throwsA(isA<ApiException>()),
+      );
     });
   });
 }

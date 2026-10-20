@@ -1,5 +1,6 @@
 // Shared inventory business rules used by both the POS order flow and the
 // IoT sensor ingestion, so threshold alerts behave identically everywhere.
+import { houseRecipeFor } from "./recipe_defaults.js";
 
 const trim3 = (n) => Number(n.toFixed(3));
 
@@ -39,6 +40,47 @@ export function mapsForOrderLine(maps, productName, flavorKey) {
   return [...byItem.values()];
 }
 
+export function flavorSharesForOrderLine(row) {
+  return Array.isArray(row.flavorShares) && row.flavorShares.length
+    ? row.flavorShares
+    : [{ flavor: row.flavor ?? "", share: 1 }];
+}
+
+/**
+ * Estimate the number of complete servings one recipe can produce from
+ * inventory at a location. Uses the exact same map precedence as order
+ * deductions, with house defaults only when no recipe rows exist.
+ */
+export function recipeAvailability(productName, flavorName, maps, inventoryByName) {
+  const matched = mapsForOrderLine(maps, productName, flavorName ?? "");
+  const recipe = matched.length
+    ? matched
+    : houseRecipeFor(flavorName ?? "").rows;
+
+  let availableServings = Number.POSITIVE_INFINITY;
+  let limitingIngredient = "";
+  for (const row of recipe) {
+    const amount = Number(row.amountPerUnit);
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    const inventory = inventoryByName.get(row.itemName);
+    const stock = Number(inventory?.stock);
+    const servings = inventory && Number.isFinite(stock)
+      ? Math.floor((stock + 1e-9) / amount)
+      : 0;
+    if (servings < availableServings) {
+      availableServings = servings;
+      limitingIngredient = row.itemName;
+    }
+  }
+
+  const servings = Number.isFinite(availableServings) ? availableServings : 0;
+  return {
+    isAvailable: servings > 0,
+    availableServings: servings,
+    limitingIngredient,
+  };
+}
+
 /**
  * Plan the stock restores for a VOID, without touching the database.
  *
@@ -66,47 +108,41 @@ export function planVoidRestores(orderItems, maps, invRows) {
   const warnings = [];
   const restores = new Map(); // invId -> { inv, newStock, added }
   for (const row of orderItems ?? []) {
-    const flavorKey = row.flavor ?? "";
-    const label = [row.productName, row.flavor].filter(Boolean).join(" / ");
-    const matched = mapsForOrderLine(maps, row.productName, flavorKey);
-    if (matched.length === 0) {
-      warnings.push(
-        `no recipe matched "${label}" at void — stock NOT restored ` +
-        `(product or flavor was renamed after this sale)`,
-      );
-      continue;
-    }
-    // Flavour-drift guard. A FLAVOURED line that resolves only to generic
-    // ("") recipes, on a product that DOES carry flavour-specific recipes,
-    // means this flavour's override was renamed or deleted after the sale:
-    // the deduction used the flavour amount but the restore falls back to
-    // the generic one, silently restoring the wrong quantity. Products whose
-    // recipe is genuinely flavourless have no flavour-specific maps at all,
-    // so this stays quiet for them.
-    if (
-      flavorKey &&
-      matched.every((m) => m.flavor === "") &&
-      maps.some((m) => m.productName === row.productName && m.flavor !== "")
-    ) {
-      warnings.push(
-        `only the generic recipe matched "${label}" at void — stock restored at ` +
-        `the generic amount, not the flavour amount ` +
-        `(that flavour's recipe was likely renamed after this sale)`,
-      );
-    }
-    for (const map of matched) {
-      const inv = invByName.get(map.itemName);
-      if (!inv) {
-        warnings.push(`no inventory row "${map.itemName}" at void — restore skipped`);
+    for (const { flavor, share } of flavorSharesForOrderLine(row)) {
+      const label = [row.productName, flavor].filter(Boolean).join(" / ");
+      const matched = mapsForOrderLine(maps, row.productName, flavor ?? "");
+      if (matched.length === 0) {
+        warnings.push(
+          `no recipe matched "${label}" at void — stock NOT restored ` +
+          `(product or flavor was renamed after this sale)`,
+        );
         continue;
       }
-      const add = map.amountPerUnit * row.qty;
-      const prev = restores.has(inv.id) ? restores.get(inv.id).newStock : inv.stock;
-      restores.set(inv.id, {
-        inv,
-        newStock: prev + add,
-        added: (restores.get(inv.id)?.added ?? 0) + add,
-      });
+      if (
+        flavor &&
+        matched.every((m) => m.flavor === "") &&
+        maps.some((m) => m.productName === row.productName && m.flavor !== "")
+      ) {
+        warnings.push(
+          `only the generic recipe matched "${label}" at void — stock restored at ` +
+          `the generic amount, not the flavour amount ` +
+          `(that flavour's recipe was likely renamed after the sale)`,
+        );
+      }
+      for (const map of matched) {
+        const inv = invByName.get(map.itemName);
+        if (!inv) {
+          warnings.push(`no inventory row "${map.itemName}" at void — restore skipped`);
+          continue;
+        }
+        const add = map.amountPerUnit * row.qty * share;
+        const prev = restores.has(inv.id) ? restores.get(inv.id).newStock : inv.stock;
+        restores.set(inv.id, {
+          inv,
+          newStock: prev + add,
+          added: (restores.get(inv.id)?.added ?? 0) + add,
+        });
+      }
     }
   }
   return { restores, warnings };

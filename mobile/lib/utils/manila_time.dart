@@ -45,6 +45,32 @@ class ManilaTime {
     return '$md $hh:$mm';
   }
 
+  /// `Today h:mm AM/PM`, `Yesterday h:mm AM/PM`, else `M/D h:mm AM/PM`.
+  static String formatTime12(DateTime manilaDt) {
+    final today = now();
+    final clock = formatClock12(manilaDt);
+    final isToday = manilaDt.year == today.year &&
+        manilaDt.month == today.month &&
+        manilaDt.day == today.day;
+    if (isToday) return 'Today $clock';
+    final yesterday = today.subtract(const Duration(days: 1));
+    final isYesterday = manilaDt.year == yesterday.year &&
+        manilaDt.month == yesterday.month &&
+        manilaDt.day == yesterday.day;
+    if (isYesterday) return 'Yesterday $clock';
+    final md = '${manilaDt.month}/${manilaDt.day}';
+    if (manilaDt.year != today.year) return '$md/${manilaDt.year} $clock';
+    return '$md $clock';
+  }
+
+  /// 12-hour Manila wall-clock label, such as `1:05 PM`.
+  static String formatClock12(DateTime manilaDt) {
+    final hour = manilaDt.hour % 12 == 0 ? 12 : manilaDt.hour % 12;
+    final minute = manilaDt.minute.toString().padLeft(2, '0');
+    final period = manilaDt.hour < 12 ? 'AM' : 'PM';
+    return '$hour:$minute $period';
+  }
+
   /// Group key `yyyy/mm/dd` in Manila time (stable across device TZ).
   static String groupKey(dynamic input) {
     final dt = parse(input);

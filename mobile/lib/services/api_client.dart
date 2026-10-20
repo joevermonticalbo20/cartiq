@@ -453,6 +453,34 @@ class ApiClient {
     return body['locations'] as List<dynamic>;
   }
 
+  Future<List<dynamic>> restockRequests(
+    String token, {
+    String? locationCode,
+  }) async {
+    final path = locationCode == null
+        ? '/inventory/restock-requests'
+        : '/inventory/restock-requests?code=${Uri.encodeQueryComponent(locationCode)}';
+    final res = await _send(
+      () => _http.get(_uri(path), headers: _headers(token: token)),
+    );
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    return body['data'] as List<dynamic>;
+  }
+
+  Future<Map<String, dynamic>> createRestockRequest(
+    String token,
+    Map<String, dynamic> payload,
+  ) async {
+    final res = await _send(
+      () => _http.post(
+        _uri('/inventory/restock-request'),
+        headers: _headers(token: token),
+        body: jsonEncode(payload),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> submitOrder(
     Map<String, dynamic> payload,
     String token,

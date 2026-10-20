@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole, assertOwnLocation } from "../middleware/auth.js";
-import { fmtStock, mapsForOrderLine, oversellShortage, planVoidRestores } from "../services/inventory_rules.js";
+import { flavorSharesForOrderLine, fmtStock, mapsForOrderLine, oversellShortage, planVoidRestores } from "../services/inventory_rules.js";
 import { lowStockDedupeKey, shouldOpenLowStockAlert } from "../services/low_stock_alert.js";
 import { manilaDayRange } from "../services/timezone.js";
 import { emit } from "./events.js";
@@ -32,6 +32,23 @@ router.post("/orders", requireAuth, async (req, res, next) => {
         return res.status(400).json({
           error: "each item needs a productName, an integer qty 1-100 and a unitPrice 0-10000",
         });
+      }
+      if (it.flavorShares !== undefined) {
+        const shares = it.flavorShares;
+        const valid = Array.isArray(shares) &&
+          shares.length >= 2 && shares.length <= 3 &&
+          shares.every((entry) =>
+            entry && typeof entry.flavor === "string" && entry.flavor.trim() &&
+            entry.flavor.length <= 80 && Number.isFinite(+entry.share) &&
+            +entry.share > 0 && +entry.share <= 1
+          ) &&
+          new Set(shares.map((entry) => entry.flavor.trim())).size === shares.length &&
+          Math.abs(shares.reduce((sum, entry) => sum + +entry.share, 0) - 1) < 0.0001;
+        if (!valid) {
+          return res.status(400).json({
+            error: "flavorShares must contain 2-3 unique flavors with positive shares totaling 1",
+          });
+        }
       }
     }
 
@@ -103,6 +120,12 @@ router.post("/orders", requireAuth, async (req, res, next) => {
           flavor: it.flavor == null ? null : String(it.flavor).slice(0, 80),
           qty: Math.trunc(+it.qty),
           unitPrice: +it.unitPrice,
+          ...(it.flavorShares !== undefined
+            ? { flavorShares: flavorSharesForOrderLine(it).map((entry) => ({
+                flavor: entry.flavor.trim().slice(0, 80),
+                share: +entry.share,
+              })) }
+            : {}),
         }));
         const warnings = [];
         const stockWrites = new Map(); // invId -> { inv, newStock }
@@ -115,49 +138,46 @@ router.post("/orders", requireAuth, async (req, res, next) => {
             warnings.push(`unknown product "${row.productName}" — recorded without deduction`);
             continue;
           }
-          const flavorKey = row.flavor ?? "";
-          for (const map of mapsForOrderLine(maps, row.productName, flavorKey)) {
-            const inv = invByName.get(map.itemName);
-            if (!inv) {
-              warnings.push(`no inventory row "${map.itemName}" at ${location.code}`);
-              continue;
-            }
-            const base = stockWrites.has(inv.id) ? stockWrites.get(inv.id).newStock : inv.stock;
-            const deduction = map.amountPerUnit * row.qty;
-            const newStock = Math.max(0, base - deduction);
-            const shortage = oversellShortage(base, map.amountPerUnit, row.qty);
-            if (shortage > 0) {
-              warnings.push(
-                `OVERSOLD "${map.itemName}" at ${location.code}: requested ${fmtStock(deduction)} ${inv.unit}, had ${fmtStock(base)}, short ${fmtStock(shortage)}`
-              );
-            }
-            // applyStockChange parity: alert only on threshold CROSSING.
-            const crossed = base > inv.threshold && newStock <= inv.threshold;
-            stockWrites.set(inv.id, { inv, newStock });
-            if (crossed) {
-              // One keyed lookup instead of scanning every alert in history.
-              // Two lines of one order hitting the same item collapse on the
-              // second line without a second lookup.
-              if (await shouldOpenLowStockAlert({
-                locationId: location.id,
-                inventoryItemId: inv.id,
-                known: createdNeedles,
-                lookup: (key) => tx.alert.findMany({ where: { lowStockKey: key }, take: 4 }),
-              })) {
-                newAlerts.push({
-                  type: "LOW_STOCK",
-                  // Indexed field: the dedupe above never has to scan.
-                  lowStockKey: lowStockDedupeKey(location.id, inv.id),
-                  message: `${inv.name} @ ${location.code} dropped below threshold (${newStock} ${inv.unit} left)`,
-                  payload: JSON.stringify({
-                    dedupeKey: lowStockDedupeKey(location.id, inv.id),
-                    inventoryItemId: inv.id,
-                    locationId: location.id,
-                    stock: newStock,
-                    threshold: inv.threshold,
-                    unit: inv.unit,
-                  }),
-                });
+          for (const { flavor, share } of flavorSharesForOrderLine(row)) {
+            for (const map of mapsForOrderLine(maps, row.productName, flavor ?? "")) {
+              const inv = invByName.get(map.itemName);
+              if (!inv) {
+                warnings.push(`no inventory row "${map.itemName}" at ${location.code}`);
+                continue;
+              }
+              const base = stockWrites.has(inv.id) ? stockWrites.get(inv.id).newStock : inv.stock;
+              const amountPerUnit = map.amountPerUnit * share;
+              const deduction = amountPerUnit * row.qty;
+              const newStock = Math.max(0, base - deduction);
+              const shortage = oversellShortage(base, amountPerUnit, row.qty);
+              if (shortage > 0) {
+                warnings.push(
+                  `OVERSOLD "${map.itemName}" at ${location.code}: requested ${fmtStock(deduction)} ${inv.unit}, had ${fmtStock(base)}, short ${fmtStock(shortage)}`
+                );
+              }
+              const crossed = base > inv.threshold && newStock <= inv.threshold;
+              stockWrites.set(inv.id, { inv, newStock });
+              if (crossed) {
+                if (await shouldOpenLowStockAlert({
+                  locationId: location.id,
+                  inventoryItemId: inv.id,
+                  known: createdNeedles,
+                  lookup: (key) => tx.alert.findMany({ where: { lowStockKey: key }, take: 4 }),
+                })) {
+                  newAlerts.push({
+                    type: "LOW_STOCK",
+                    lowStockKey: lowStockDedupeKey(location.id, inv.id),
+                    message: `${inv.name} @ ${location.code} dropped below threshold (${newStock} ${inv.unit} left)`,
+                    payload: JSON.stringify({
+                      dedupeKey: lowStockDedupeKey(location.id, inv.id),
+                      inventoryItemId: inv.id,
+                      locationId: location.id,
+                      stock: newStock,
+                      threshold: inv.threshold,
+                      unit: inv.unit,
+                    }),
+                  });
+                }
               }
             }
           }

@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 
 import 'api_client.dart';
 import 'auth_state.dart';
+import 'data_refresh.dart';
 import 'offline_queue.dart';
 
 /// A queued record the server will never accept. Kept out of the queue but
@@ -25,6 +26,7 @@ class SyncResult {
   final int synced;
   final int remaining;
   final List<DroppedRecord> dropped;
+
   /// True when the drain stopped because the session could not be
   /// refreshed — the user must log in again (records stay queued).
   final bool authExpired;
@@ -64,8 +66,14 @@ class SyncService extends ChangeNotifier {
   final ApiClient api;
   final AuthState auth;
   final OfflineQueue queue;
+  final DataRefresh? dataRefresh;
 
-  SyncService({required this.api, required this.auth, required this.queue});
+  SyncService({
+    required this.api,
+    required this.auth,
+    required this.queue,
+    this.dataRefresh,
+  });
 
   Timer? _timer;
   bool _running = false;
@@ -90,7 +98,9 @@ class SyncService extends ChangeNotifier {
     _running = true;
     notifyListeners();
     try {
-      return await _doSync();
+      final result = await _doSync();
+      if (result.synced > 0) dataRefresh?.bump('sale');
+      return result;
     } finally {
       _running = false;
       notifyListeners();
@@ -131,11 +141,9 @@ class SyncService extends ChangeNotifier {
       final problem = _validateRecord(record);
       if (problem != null) {
         await queue.remove(record.id);
-        dropped.add(DroppedRecord(
-          id: record.id,
-          kind: record.kind,
-          reason: problem,
-        ));
+        dropped.add(
+          DroppedRecord(id: record.id, kind: record.kind, reason: problem),
+        );
         continue;
       }
       try {
@@ -149,11 +157,13 @@ class SyncService extends ChangeNotifier {
           // cannot fix it. Drop with a clear reason instead of retrying
           // every 30s behind a poisoned record.
           await queue.remove(record.id);
-          dropped.add(DroppedRecord(
-            id: record.id,
-            kind: record.kind,
-            reason: 'STAFF_OUTSIDE_CART',
-          ));
+          dropped.add(
+            DroppedRecord(
+              id: record.id,
+              kind: record.kind,
+              reason: 'STAFF_OUTSIDE_CART',
+            ),
+          );
           continue;
         }
         if (e.statusCode == 401) {
@@ -194,11 +204,13 @@ class SyncService extends ChangeNotifier {
         // Any other 4xx slipped past pre-validation: drop with its status
         // as the reason, keep draining the rest.
         await queue.remove(record.id);
-        dropped.add(DroppedRecord(
-          id: record.id,
-          kind: record.kind,
-          reason: 'SERVER_REJECTED_${e.statusCode}',
-        ));
+        dropped.add(
+          DroppedRecord(
+            id: record.id,
+            kind: record.kind,
+            reason: 'SERVER_REJECTED_${e.statusCode}',
+          ),
+        );
         continue;
       } catch (_) {
         break; // network hiccup mid-drain: try again next sync

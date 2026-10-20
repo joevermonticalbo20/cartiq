@@ -75,12 +75,15 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   bool _searching = false;
   String _search = '';
   String _categoryFilter = 'All';
+  Set<String> _bestSellerNames = {};
+  String? _bestSellerError;
   Timer? _searchDebounce;
   final _searchController = TextEditingController();
   bool _paying = false;
   // Guards the explicit header refresh button so a double tap cannot fire
   // two concurrent catalog refetches.
   bool _refreshingCatalog = false;
+  DataRefresh? _dataRefresh;
 
   OfflineQueue get _queue => PersistedOfflineQueue.instance;
 
@@ -89,11 +92,14 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     super.initState();
     _catalogFuture = _loadCatalog();
     WidgetsBinding.instance.addObserver(this);
+    _dataRefresh = context.read<DataRefresh?>();
+    _dataRefresh?.addListener(_onDataRefresh);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _dataRefresh?.removeListener(_onDataRefresh);
     _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
@@ -102,6 +108,20 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) _reloadCatalog(forceRefresh: true);
+  }
+
+  void _onDataRefresh() {
+    if (!mounted) return;
+    if (_dataRefresh?.lastReason == 'sale' ||
+        _dataRefresh?.lastReason == 'inventory') {
+      _reloadCatalog(forceRefresh: true);
+    }
+  }
+
+  bool _flavorAvailable(Map<String, dynamic> flavor) {
+    return flavor['isAvailable'] != false &&
+        !(flavor['availableServings'] is num &&
+            (flavor['availableServings'] as num) <= 0);
   }
 
   void _onSearchChanged(String v) {
@@ -113,12 +133,12 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   }
 
   /// Starts a catalog load and returns THAT future.
-///
-/// Returning the new future matters: callers must await the value, never the
-/// `_catalogFuture` field. Re-reading the field after the first refresh
-/// completed would hand back an already-finished future, so the second tap
-/// would resolve instantly without ever hitting the network.
-Future<List<Map<String, dynamic>>> _reloadCatalog({
+  ///
+  /// Returning the new future matters: callers must await the value, never the
+  /// `_catalogFuture` field. Re-reading the field after the first refresh
+  /// completed would hand back an already-finished future, so the second tap
+  /// would resolve instantly without ever hitting the network.
+  Future<List<Map<String, dynamic>>> _reloadCatalog({
     bool forceRefresh = false,
   }) {
     final future = _loadCatalog(forceRefresh: forceRefresh);
@@ -169,6 +189,7 @@ Future<List<Map<String, dynamic>>> _reloadCatalog({
     }
     try {
       final data = await auth.api.catalog(token, forceRefresh: forceRefresh);
+      unawaited(_loadBestSellers(auth, token));
       return (data['products'] as List).cast<Map<String, dynamic>>();
     } on ApiException catch (e) {
       if (e.statusCode == 401 &&
@@ -178,9 +199,50 @@ Future<List<Map<String, dynamic>>> _reloadCatalog({
           auth.token!,
           forceRefresh: forceRefresh,
         );
+        unawaited(_loadBestSellers(auth, auth.token!));
         return (data['products'] as List).cast<Map<String, dynamic>>();
       }
       rethrow;
+    }
+  }
+
+  Future<void> _loadBestSellers(AuthState auth, String token) async {
+    try {
+      final orders = await auth.api.orders(
+        token,
+        pageSize: 100,
+        locationCode: auth.locationCode,
+      );
+      final unitsByProduct = <String, int>{};
+      for (final order in orders.whereType<Map<String, dynamic>>()) {
+        if (order['status'] != 'PAID') continue;
+        final items = order['items'];
+        if (items is! List) continue;
+        for (final item in items.whereType<Map<String, dynamic>>()) {
+          final name = item['productName'];
+          final qty = item['qty'];
+          if (name is String && qty is num) {
+            unitsByProduct[name] = (unitsByProduct[name] ?? 0) + qty.toInt();
+          }
+        }
+      }
+      final ranked = unitsByProduct.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      if (!mounted) return;
+      setState(() {
+        _bestSellerNames = ranked.take(5).map((entry) => entry.key).toSet();
+        _bestSellerError = null;
+      });
+    } on ApiException catch (error) {
+      if (error.statusCode == 401 &&
+          await auth.refreshSession() &&
+          auth.token != null) {
+        await _loadBestSellers(auth, auth.token!);
+        return;
+      }
+      if (mounted) setState(() => _bestSellerError = error.message);
+    } catch (error) {
+      if (mounted) setState(() => _bestSellerError = '$error');
     }
   }
 
@@ -189,20 +251,105 @@ Future<List<Map<String, dynamic>>> _reloadCatalog({
     final price = (product['basePrice'] as num).toDouble();
     final name = product['name'] as String;
 
-    for (var i = 0; i < qty; i++) {
-      cart.add(name, flavor, price);
-    }
+    cart.add(name, flavor, price, qty: qty);
     Haptics.select();
   }
 
-  Future<void> _openItemSheet(Map<String, dynamic> product) async {
-    final flavors = (product['flavors'] as List).cast<Map<String, dynamic>>();
-    String? selectedFlavor = flavors.isNotEmpty
-        ? flavors.first['name'] as String
-        : null;
-    var qty = 1;
+  bool _canMixFlavors(
+    Map<String, int> selection,
+    List<Map<String, dynamic>> flavors,
+  ) {
+    if (selection.length < 2 || selection.length > 3) return false;
+    final quantities = selection.values.toSet();
+    if (quantities.length != 1) return false;
+    return selection.keys.every(
+      (name) => flavors.any((flavor) => flavor['name'] == name),
+    );
+  }
 
+  void _addFlavorSelection(
+    Map<String, dynamic> product,
+    List<Map<String, dynamic>> flavors,
+    Map<String, int> selection, {
+    bool asMix = false,
+  }) {
+    final cart = context.read<CartState>();
+    if (selection.isEmpty) return;
+
+    if (asMix) {
+      if (!_canMixFlavors(selection, flavors)) return;
+      final qty = selection.values.first;
+      final maxQty = selection.keys
+          .map((name) {
+            final stock = flavors.firstWhere(
+              (flavor) => flavor['name'] == name,
+            )['availableServings'];
+            return stock is num ? stock.toInt() : 100;
+          })
+          .reduce((a, b) => a < b ? a : b);
+      cart.addMixed(
+        product['name'] as String,
+        selection.keys.toList(),
+        (product['basePrice'] as num).toDouble(),
+        qty: qty,
+        maxQty: maxQty,
+      );
+    } else {
+      for (final entry in selection.entries) {
+        final flavor = flavors.firstWhere(
+          (item) => item['name'] == entry.key,
+        );
+        final stock = flavor['availableServings'];
+        cart.add(
+          product['name'] as String,
+          entry.key,
+          (product['basePrice'] as num).toDouble(),
+          qty: entry.value,
+          maxQty: stock is num ? stock.toInt() : null,
+        );
+      }
+    }
+
+    final count = selection.values.fold<int>(0, (a, b) => a + b);
+    Haptics.select();
+    AppMessenger.showGlassToast(
+      context: context,
+      message: asMix
+          ? 'Added mixed flavors • $count serving(s)'
+          : 'Added selected flavors • $count serving(s)',
+      isSuccess: true,
+    );
+  }
+
+  bool _matchesFilter(Map<String, dynamic> product) {
+    final category = (product['category'] as String? ?? '').toLowerCase();
+    final flavors = product['flavors'] is List
+        ? (product['flavors'] as List)
+              .whereType<Map<String, dynamic>>()
+              .toList()
+        : <Map<String, dynamic>>[];
+    final available = flavors.isEmpty
+        ? _flavorAvailable(product)
+        : flavors.any(_flavorAvailable);
+    return switch (_categoryFilter) {
+      'Available Only' => available,
+      'Best Sellers' =>
+        _bestSellerNames.contains(product['name']) ||
+            product['isBestSeller'] == true ||
+            product['bestSeller'] == true,
+      'Fries' => category.contains('fries'),
+      'Drinks' => category.contains('drink'),
+      'Add-ons' => category.contains('add') || category.contains('topping'),
+      _ => true,
+    };
+  }
+
+  Future<void> _openItemSheet(Map<String, dynamic> product) async {
+    final flavors = product['flavors'] is List
+        ? (product['flavors'] as List).cast<Map<String, dynamic>>()
+        : <Map<String, dynamic>>[];
     if (flavors.isEmpty) {
+      if (!_flavorAvailable(product)) return;
       _addToCart(product);
       AppMessenger.showGlassToast(
         context: context,
@@ -212,126 +359,128 @@ Future<List<Map<String, dynamic>>> _reloadCatalog({
       return;
     }
 
+    final selection = <String, int>{};
     await showModalBottomSheet<void>(
       context: context,
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            final price = ((product['basePrice'] as num) * qty).toStringAsFixed(
-              0,
-            );
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final canMix = _canMixFlavors(selection, flavors);
+          final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+          return SafeArea(
+            top: false,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
                 AppSpacing.space5,
                 AppSpacing.space2,
                 AppSpacing.space5,
-                AppSpacing.space6,
+                AppSpacing.space4 + bottomInset,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      margin: const EdgeInsets.symmetric(
-                        vertical: AppSpacing.space2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(AppRadius.xs),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.82,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.symmetric(
+                          vertical: AppSpacing.space2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(AppRadius.xs),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: AppSpacing.space2),
-                  Text(
-                    product['name'] as String,
-                    style: Theme.of(sheetContext).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: AppSpacing.space1),
-                  Text(
-                    '₱${product['basePrice']} each',
-                    style: Theme.of(sheetContext).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: AppSpacing.space5),
-                  const Text(
-                    'Flavor',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: AppSpacing.space3),
-                  Wrap(
-                    spacing: AppSpacing.space2,
-                    runSpacing: AppSpacing.space2,
-                    children: [
-                      for (final f in flavors)
-                        ChoiceChip(
-                          label: Text(f['name'] as String),
-                          selected: selectedFlavor == f['name'],
-                          onSelected: (_) => setSheetState(
-                            () => selectedFlavor = f['name'] as String,
-                          ),
-                          showCheckmark: false,
-                          selectedColor: AppColors.primary,
-                          labelStyle: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: selectedFlavor == f['name']
-                                ? Colors.white
-                                : null,
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.space5),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      PosQtyButton(
-                        icon: Icons.remove,
-                        onPressed: qty > 1
-                            ? () => setSheetState(() => qty--)
-                            : null,
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.space6,
-                        ),
-                        child: Text(
-                          qty.toString(),
-                          style: Theme.of(sheetContext).textTheme.headlineMedium
-                              ?.copyWith(fontWeight: FontWeight.w800),
-                        ),
-                      ),
-                      PosQtyButton(
-                        icon: Icons.add,
-                        onPressed: () => setSheetState(() => qty++),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.space5),
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(56),
+                    Text(
+                      product['name'] as String,
+                      style: Theme.of(context).textTheme.titleLarge,
                     ),
-                    icon: const Icon(Icons.add_shopping_cart_rounded),
-                    label: Text('Add to order • ₱$price'),
-                    onPressed: () {
-                      _addToCart(product, flavor: selectedFlavor, qty: qty);
-                      Navigator.pop(sheetContext);
-                      AppMessenger.showGlassToast(
-                        context: context,
-                        message:
-                            'Added: ${product['name']}${selectedFlavor != null ? ' ($selectedFlavor)' : ''} x $qty',
-                        isSuccess: true,
-                      );
-                    },
-                  ),
-                ],
+                    const SizedBox(height: AppSpacing.space1),
+                    Text(
+                      '₱${product['basePrice']} per serving • choose one or more flavors',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: AppSpacing.space4),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: PosFlavorPicker(
+                          flavors: flavors,
+                          selectedQuantities: Map.unmodifiable(selection),
+                          onToggle: (name) => setSheetState(() {
+                            if (selection.containsKey(name)) {
+                              selection.remove(name);
+                            } else {
+                              selection[name] = 1;
+                            }
+                          }),
+                          onQuantityChanged: (name, value) =>
+                              setSheetState(() {
+                                if (value <= 0) {
+                                  selection.remove(name);
+                                } else {
+                                  final flavor = flavors.firstWhere(
+                                    (item) => item['name'] == name,
+                                  );
+                                  final stock = flavor['availableServings'];
+                                  selection[name] = stock is num
+                                      ? value.clamp(1, stock.toInt()).toInt()
+                                      : value;
+                                }
+                              }),
+                          onQuickAdd: (name, amount) => setSheetState(() {
+                            final flavor = flavors.firstWhere(
+                              (item) => item['name'] == name,
+                            );
+                            final stock = flavor['availableServings'];
+                            final current = selection[name] ?? 0;
+                            selection[name] = stock is num
+                                ? (current + amount)
+                                      .clamp(1, stock.toInt())
+                                      .toInt()
+                                : current + amount;
+                          }),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.space2),
+                    PosFlavorSelectionBar(
+                      selectedCount: selection.length,
+                      canMix: canMix,
+                      onAdd: selection.isEmpty
+                          ? null
+                          : () {
+                              _addFlavorSelection(product, flavors, selection);
+                              Navigator.pop(sheetContext);
+                            },
+                      onMix: canMix
+                          ? () {
+                              _addFlavorSelection(
+                                product,
+                                flavors,
+                                selection,
+                                asMix: true,
+                              );
+                              Navigator.pop(sheetContext);
+                            }
+                          : null,
+                    ),
+                  ],
+                ),
               ),
-            );
-          },
-        );
-      },
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -372,6 +521,7 @@ Future<List<Map<String, dynamic>>> _reloadCatalog({
       // Captured before any await so the later bump never touches a context
       // that may have been unmounted mid-checkout.
       final refresh = context.read<DataRefresh?>();
+      await Haptics.tap();
       if (cartCode == null || cartCode.isEmpty) {
         if (!mounted) return;
         await Haptics.error();
@@ -420,7 +570,7 @@ Future<List<Map<String, dynamic>>> _reloadCatalog({
       // Home and Receipts subscribe to this and re-read. `refresh` was
       // captured before the awaits above, because reading context after an
       // await is unsafe.
-      refresh?.bump('sale');
+      if (result.synced == 0) refresh?.bump('sale');
 
       if (result.fullySynced) {
         await Haptics.success();
@@ -468,96 +618,33 @@ Future<List<Map<String, dynamic>>> _reloadCatalog({
                   child: FutureBuilder<List<Map<String, dynamic>>>(
                     future: _catalogFuture,
                     builder: (context, snap) {
-                      List<Map<String, dynamic>> products = [];
-                      List<String> categories = ['All'];
-
-                      if (snap.hasData) {
-                        categories.addAll(
-                          snap.data!
-                              .map((p) => p['category'])
-                              .whereType<String>()
-                              .where((c) => c.isNotEmpty)
-                              .toSet(),
-                        );
-
-                        products = snap.data!
-                            .where(
-                              (p) =>
-                                  (_search.isEmpty ||
-                                      (p['name'] as String)
-                                          .toLowerCase()
-                                          .contains(_search)) &&
-                                  (_categoryFilter == 'All' ||
-                                      p['category'] == _categoryFilter),
-                            )
-                            .toList();
-                      }
+                      final products = snap.hasData
+                          ? snap.data!
+                                .where(
+                                  (p) =>
+                                      (_search.isEmpty ||
+                                          (p['name'] as String)
+                                              .toLowerCase()
+                                              .contains(_search) ||
+                                          ((p['flavors'] as List?)?.any(
+                                                (flavor) =>
+                                                    (flavor['name'] as String)
+                                                        .toLowerCase()
+                                                        .contains(_search),
+                                              ) ??
+                                              false)) &&
+                                      _matchesFilter(p),
+                                )
+                                .toList()
+                          : <Map<String, dynamic>>[];
 
                       return CustomScrollView(
                         physics: const AlwaysScrollableScrollPhysics(),
                         slivers: [
                           SliverToBoxAdapter(
-                            child: SizedBox(height: topPadding),
+                            child: SizedBox(height: topPadding + 54),
                           ),
                           const SliverToBoxAdapter(child: PosOfflineStrip()),
-                          if (snap.hasData)
-                            SliverToBoxAdapter(
-                              child: SizedBox(
-                                height: 48,
-                                child: ListView.separated(
-                                  scrollDirection: Axis.horizontal,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: AppSpacing.space4,
-                                  ),
-                                  itemCount: categories.length,
-                                  separatorBuilder: (_, _) =>
-                                      const SizedBox(width: AppSpacing.space2),
-                                  itemBuilder: (context, i) {
-                                    final cat = categories[i];
-                                    final selected = cat == _categoryFilter;
-                                    return FilterChip(
-                                      label: Text(cat),
-                                      selected: selected,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(
-                                          AppRadius.pill,
-                                        ),
-                                      ),
-                                      side: selected
-                                          ? BorderSide.none
-                                          : BorderSide(
-                                              color: Theme.of(context)
-                                                  .dividerColor
-                                                  .withValues(alpha: 0.15),
-                                              width: 1.5,
-                                            ),
-                                      backgroundColor: Theme.of(context)
-                                          .colorScheme
-                                          .surface
-                                          .withValues(alpha: 0.5),
-                                      elevation: 0,
-                                      pressElevation: 0,
-                                      showCheckmark: false,
-                                      selectedColor: AppColors.primary,
-                                      labelStyle: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        color: selected
-                                            ? Colors.white
-                                            : AppColors.muted,
-                                      ),
-                                      onSelected: (_) {
-                                        Haptics.select();
-                                        setState(() => _categoryFilter = cat);
-                                      },
-                                    );
-                                  },
-                                ),
-                              ),
-                            ),
-                          if (snap.hasData)
-                            const SliverToBoxAdapter(
-                              child: SizedBox(height: AppSpacing.space2),
-                            ),
 
                           if (snap.connectionState != ConnectionState.done)
                             SliverPadding(
@@ -611,6 +698,10 @@ Future<List<Map<String, dynamic>>> _reloadCatalog({
                                   title: 'No products match',
                                   subtitle: _search.isNotEmpty
                                       ? 'Try a different name or category.'
+                                      : _categoryFilter == 'Best Sellers'
+                                      ? _bestSellerError == null
+                                            ? 'No best-selling products are available yet.'
+                                            : 'Best sellers could not be loaded: $_bestSellerError'
                                       : 'Pull down to refresh the catalog.',
                                 ),
                               ),
@@ -623,21 +714,15 @@ Future<List<Map<String, dynamic>>> _reloadCatalog({
                                 AppSpacing.space4,
                                 AppSpacing.space4,
                               ),
-                              sliver: SliverGrid(
-                                gridDelegate:
-                                    const SliverGridDelegateWithMaxCrossAxisExtent(
-                                      maxCrossAxisExtent: 190,
-                                      childAspectRatio: 0.95,
-                                      crossAxisSpacing: AppSpacing.space3,
-                                      mainAxisSpacing: AppSpacing.space3,
-                                    ),
+                              sliver: SliverList(
                                 delegate: SliverChildBuilderDelegate((
                                   context,
                                   i,
                                 ) {
                                   final product = products[i];
-                                  final flavorCount =
-                                      (product['flavors'] as List).length;
+                                  final flavorCount = product['flavors'] is List
+                                      ? (product['flavors'] as List).length
+                                      : 0;
                                   final inCartQty = cart.items
                                       .where(
                                         (it) =>
@@ -645,46 +730,84 @@ Future<List<Map<String, dynamic>>> _reloadCatalog({
                                       )
                                       .fold<int>(0, (s, it) => s + it.qty);
 
-                                  return PosProductCard(
-                                    product: product,
-                                    flavorCount: flavorCount,
-                                    inCartQty: inCartQty,
-                                    onTap: () => _openItemSheet(product),
-                                    onLongPress: flavorCount == 0
-                                        ? null
-                                        : () {
-                                            final flavors =
-                                                (product['flavors'] as List)
-                                                    .cast<
-                                                      Map<String, dynamic>
-                                                    >();
-                                            final def =
-                                                flavors.first['name'] as String;
-                                            _addToCart(product, flavor: def);
-                                            Haptics.select();
-                                            AppMessenger.showGlassToast(
-                                              context: context,
-                                              message:
-                                                  'Added: ${product['name']} ($def)',
-                                              isSuccess: true,
-                                            );
-                                          },
-                                    onQuickAdd: flavorCount == 0
-                                        ? () {
-                                            _addToCart(product);
-                                            AppMessenger.showGlassToast(
-                                              context: context,
-                                              message:
-                                                  'Added: ${product['name']}',
-                                              isSuccess: true,
-                                            );
-                                          }
-                                        : null,
+                                  return Padding(
+                                    padding: const EdgeInsets.only(
+                                      bottom: AppSpacing.space3,
+                                    ),
+                                    child: PosProductCard(
+                                      product: product,
+                                      flavorCount: flavorCount,
+                                      inCartQty: inCartQty,
+                                      onTap: () => _openItemSheet(product),
+                                      onQuickAdd: flavorCount == 0
+                                          ? () {
+                                              _addToCart(product);
+                                              AppMessenger.showGlassToast(
+                                                context: context,
+                                                message:
+                                                    'Added: ${product['name']}',
+                                                isSuccess: true,
+                                              );
+                                            }
+                                          : null,
+                                    ),
                                   );
                                 }, childCount: products.length),
                               ),
                             ),
                         ],
+                      );
+                    },
+                  ),
+                ),
+
+                Positioned(
+                  top: topPadding - 2,
+                  left: 0,
+                  right: 0,
+                  height: 50,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.space4,
+                    ),
+                    itemCount: const [
+                      'All',
+                      'Available Only',
+                      'Best Sellers',
+                      'Fries',
+                      'Drinks',
+                      'Add-ons',
+                    ].length,
+                    separatorBuilder: (_, _) =>
+                        const SizedBox(width: AppSpacing.space2),
+                    itemBuilder: (context, index) {
+                      const filters = [
+                        'All',
+                        'Available Only',
+                        'Best Sellers',
+                        'Fries',
+                        'Drinks',
+                        'Add-ons',
+                      ];
+                      final filter = filters[index];
+                      final selected = _categoryFilter == filter;
+                      return FilterChip(
+                        label: Text(filter),
+                        selected: selected,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppRadius.pill),
+                        ),
+                        showCheckmark: false,
+                        selectedColor: AppColors.primary,
+                        labelStyle: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: selected ? Colors.white : AppColors.muted,
+                        ),
+                        onSelected: (_) {
+                          Haptics.select();
+                          setState(() => _categoryFilter = filter);
+                        },
                       );
                     },
                   ),
@@ -798,9 +921,7 @@ Future<List<Map<String, dynamic>>> _reloadCatalog({
                                     )
                                   else
                                     IconButton(
-                                      icon: const Icon(
-                                        Icons.search_rounded,
-                                      ),
+                                      icon: const Icon(Icons.search_rounded),
                                       tooltip: 'Search product',
                                       onPressed: () =>
                                           setState(() => _searching = true),
@@ -851,9 +972,6 @@ class _CartSheetState extends State<_CartSheet> {
   }
 
   double get _tendered => double.tryParse(_cashController.text) ?? 0;
-
-  double get _change =>
-      _method == PaymentMethod.cash ? _tendered - widget.cart.total : 0;
 
   bool get _canPay =>
       _method != PaymentMethod.cash || _tendered >= widget.cart.total;
@@ -1084,9 +1202,9 @@ class _CartSheetState extends State<_CartSheet> {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Text(
-                                        item.flavor == null
+                                        item.displayFlavor.isEmpty
                                             ? item.productName
-                                            : '${item.productName} (${item.flavor})',
+                                            : '${item.productName} (${item.displayFlavor})',
                                         style: const TextStyle(
                                           fontWeight: FontWeight.w700,
                                         ),
@@ -1293,78 +1411,15 @@ class _CartSheetState extends State<_CartSheet> {
                   onSubmitted: (_) => _submitIfReady(),
                 ),
                 const SizedBox(height: AppSpacing.space2),
-                Wrap(
-                  spacing: AppSpacing.space2,
-                  runSpacing: AppSpacing.space2,
-                  children: [
-                    for (final bill in const [20, 50, 100, 500, 1000])
-                      ActionChip(
-                        label: Text('+$bill'),
-                        onPressed: () {
-                          Haptics.select();
-                          final next = _tendered + bill;
-                          _cashController.text = next.toStringAsFixed(0);
-                          setState(() {});
-                        },
-                      ),
-                    for (final amt in _quickCash(cart.total))
-                      ActionChip(
-                        label: Text('₱$amt'),
-                        onPressed: () {
-                          Haptics.select();
-                          _cashController.text = amt.toStringAsFixed(0);
-                          setState(() {});
-                        },
-                      ),
-                    ActionChip(
-                      label: const Text('Exact'),
-                      onPressed: () {
-                        Haptics.select();
-                        _cashController.text = cart.total.toStringAsFixed(0);
-                        setState(() {});
-                      },
-                    ),
-                  ],
+                PosCashQuickAmounts(
+                  total: cart.total,
+                  onSelect: (amount) {
+                    _cashController.text = amount.toStringAsFixed(0);
+                    setState(() {});
+                  },
                 ),
                 const SizedBox(height: AppSpacing.space3),
-                Container(
-                  padding: const EdgeInsets.all(AppSpacing.space3),
-                  decoration: BoxDecoration(
-                    color: _tendered >= cart.total
-                        ? AppColors.ok.withValues(alpha: 0.12)
-                        : AppColors.danger.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(AppRadius.s),
-                    border: Border.all(
-                      color: _tendered >= cart.total
-                          ? AppColors.ok.withValues(alpha: 0.4)
-                          : AppColors.danger.withValues(alpha: 0.4),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        _tendered >= cart.total ? 'Change' : 'Short by',
-                        style: TextStyle(
-                          color: _tendered >= cart.total
-                              ? AppColors.ok
-                              : AppColors.danger,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      Text(
-                        '₱${(_tendered >= cart.total ? _change : cart.total - _tendered).toStringAsFixed(0)}',
-                        style: TextStyle(
-                          color: _tendered >= cart.total
-                              ? AppColors.ok
-                              : AppColors.danger,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 18,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                PosChangeDisplay(total: cart.total, tendered: _tendered),
               ],
               const SizedBox(height: AppSpacing.space4),
               FilledButton.icon(
@@ -1398,19 +1453,6 @@ class _CartSheetState extends State<_CartSheet> {
         ),
       ),
     );
-  }
-
-  List<int> _quickCash(double total) {
-    final t = total.ceil();
-    final suggestions = <int>{};
-    suggestions.add(t);
-    suggestions.add(((t / 50).ceil() * 50));
-    suggestions.add(((t / 100).ceil() * 100));
-    suggestions.add(((t / 500).ceil() * 500));
-    suggestions.add(((t / 1000).ceil() * 1000));
-    suggestions.removeWhere((v) => v <= t);
-    final list = suggestions.toList()..sort();
-    return list.take(4).toList();
   }
 }
 

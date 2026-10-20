@@ -268,6 +268,7 @@
   cursor: pointer;
   transform: none;
 }
+.notif-request { cursor: default; }
 
 /* Selectors repeat the .ghost class so they outrank `button.ghost:hover`
    (0,3,1) and cannot be repainted by the global skin. */

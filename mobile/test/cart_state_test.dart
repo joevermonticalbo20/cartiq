@@ -29,6 +29,28 @@ void main() {
       expect(cart.totalQty, 2);
     });
 
+    test('mixed flavors have one item price and equal recipe shares', () {
+      final cart = CartState();
+      cart.addMixed('Flavored Fries', ['Cheese', 'BBQ'], 40, qty: 2);
+
+      expect(cart.items, hasLength(1));
+      expect(cart.totalQty, 2);
+      expect(cart.total, 80);
+      expect(cart.items.single.toJson()['flavorShares'], [
+        {'flavor': 'BBQ', 'share': 0.5},
+        {'flavor': 'Cheese', 'share': 0.5},
+      ]);
+    });
+
+    test('mixed cart key ignores flavor selection order', () {
+      final cart = CartState();
+      cart.addMixed('Flavored Fries', ['Cheese', 'BBQ'], 40);
+      cart.addMixed('Flavored Fries', ['BBQ', 'Cheese'], 40);
+
+      expect(cart.items, hasLength(1));
+      expect(cart.items.single.qty, 2);
+    });
+
     test('changeQty to zero removes the line', () {
       final cart = CartState();
       cart.add('Flavored Fries', 'Cheese', 40);

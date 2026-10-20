@@ -19,6 +19,11 @@ import { useSSE } from "./useSSE.js";
 const listeners = new Map(); // event name -> Set<handler>
 const statusListeners = new Set(); // connection status -> Set<handler>
 
+export const LIVE_EVENTS = Object.freeze({
+  restockRequestNew: "restock-request:new",
+  restockRequestUpdated: "restock-request:updated",
+});
+
 function dispatch(event, data) {
   const set = listeners.get(event);
   if (!set) return;

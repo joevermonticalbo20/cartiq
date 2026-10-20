@@ -12,6 +12,7 @@ import '../theme.dart';
 import 'home_screen.dart';
 import 'history_screen.dart';
 import 'pos_screen.dart';
+import 'live_stock_screen.dart';
 import 'receipts_screen.dart';
 import 'scan_receipt_screen.dart';
 import 'settings_screen.dart';
@@ -49,6 +50,11 @@ class _RootShellState extends State<RootShell> {
       'label': 'Settings',
       'icon': Icons.settings_outlined,
       'activeIcon': Icons.settings,
+    },
+    {
+      'label': 'Live Stock',
+      'icon': Icons.inventory_2_outlined,
+      'activeIcon': Icons.inventory_2,
     },
   ];
 
@@ -173,6 +179,7 @@ class _RootShellState extends State<RootShell> {
             ),
             HistoryScreen(onNewSale: () => setState(() => _index = 0)),
             const SettingsScreen(),
+            const LiveStockScreen(),
           ],
         ),
       ),
@@ -218,7 +225,8 @@ class _RootShellState extends State<RootShell> {
                       builder: (context, constraints) {
                         final itemWidth =
                             constraints.maxWidth / _navItems.length;
-                        const pillWidth = 56.0;
+                        final pillWidth =
+                            (itemWidth - 4).clamp(44.0, 56.0).toDouble();
 
                         // Kino-compute kung saang eksaktong posisyon mag-i-slide ang pill
                         final leftPosition =

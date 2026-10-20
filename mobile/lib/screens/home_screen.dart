@@ -69,7 +69,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _refresh();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _refresh();
+    });
     _queueSub = _queue.changes.listen((c) {
       if (mounted) setState(() => _queueCount = c);
     });

@@ -2,6 +2,10 @@ import { Router } from "express";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole, assertOwnLocation } from "../middleware/auth.js";
 import { emit } from "./events.js";
+import {
+  restockRequestKey,
+  shouldCreateRestockRequest,
+} from "../services/low_stock_alert.js";
 
 const router = Router();
 
@@ -15,6 +19,7 @@ function decorate(items) {
   return items.map((it) => ({
     ...it,
     status: stockStatus(it.stock, it.threshold),
+    isOutOfStock: Number(it.stock) <= 0,
   }));
 }
 
@@ -35,6 +40,181 @@ router.get("/inventory", requireAuth, async (req, res, next) => {
         name: loc.name,
         items: decorate(loc.inventory),
       })),
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get("/inventory/restock-requests", requireAuth, async (req, res, next) => {
+  try {
+    const { code } = req.query;
+    let locationId;
+    if (code) {
+      const location = await prisma.location.findFirst({
+        where: { code: String(code) },
+      });
+      if (!location) return res.status(404).json({ error: "Location not found" });
+      assertOwnLocation(req, location.id);
+      locationId = location.id;
+    } else if (req.user.role !== "OWNER") {
+      locationId = req.user.locationId;
+      if (locationId == null) {
+        return res.status(403).json({ error: "Forbidden: no cart assigned to this account" });
+      }
+    }
+    const requests = await Promise.all(
+      ["pending", "acknowledged"].map((status) =>
+        prisma.alert.findMany({
+          where: {
+            type: "RESTOCK_REQUEST",
+            status,
+            ...(locationId != null ? { locationId } : {}),
+          },
+          orderBy: { createdAt: "desc" },
+          take: 200,
+          nocache: true,
+        }),
+      ),
+    );
+    return res.json({
+      data: requests.flat().sort((a, b) =>
+        new Date(b.createdAt) - new Date(a.createdAt),
+      ).slice(0, 200),
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /api/inventory/restock-request
+// { ingredientId } creates one request; { allLowStock: true } requests every
+// low/out-of-stock item for the signed-in cart. OWNERs may optionally pass
+// locationCode to choose a cart.
+router.post("/inventory/restock-request", requireAuth, async (req, res, next) => {
+  try {
+    const {
+      ingredientId,
+      allLowStock = false,
+      locationCode,
+      urgency = "normal",
+      notes,
+    } = req.body ?? {};
+    if (!["normal", "urgent", "critical"].includes(urgency)) {
+      return res.status(400).json({ error: "urgency must be normal, urgent, or critical" });
+    }
+    if (typeof notes !== "undefined" &&
+        (typeof notes !== "string" || notes.length > 500)) {
+      return res.status(400).json({ error: "notes must be a string of at most 500 characters" });
+    }
+    if (typeof allLowStock !== "boolean" ||
+        (allLowStock
+          ? ingredientId !== undefined
+          : ingredientId === undefined || ingredientId === null ||
+            ingredientId === "" || !Number.isInteger(Number(ingredientId)))) {
+      return res.status(400).json({
+        error: "provide ingredientId for one request or allLowStock: true for a batch",
+      });
+    }
+
+    let location;
+    if (locationCode != null && req.user.role === "OWNER") {
+      location = await prisma.location.findFirst({ where: { code: String(locationCode) } });
+    } else if (req.user.locationId != null) {
+      location = await prisma.location.findUnique({ where: { id: req.user.locationId } });
+    } else if (req.user.role === "OWNER" && allLowStock) {
+      location = await prisma.location.findFirst({
+        where: { status: "ACTIVE" },
+        orderBy: { code: "asc" },
+      });
+    }
+    if (!location) return res.status(404).json({ error: "Location not found" });
+    assertOwnLocation(req, location.id);
+
+    const inventory = allLowStock
+      ? await prisma.inventoryItem.findMany({ where: { locationId: location.id } })
+      : [await prisma.inventoryItem.findUnique({ where: { id: +ingredientId } })];
+    if (!allLowStock && !inventory[0]) {
+      return res.status(404).json({ error: "Inventory item not found" });
+    }
+    const candidates = inventory.filter((item) =>
+      item && item.locationId === location.id &&
+      (allLowStock ? Number(item.stock) <= Number(item.threshold) : true),
+    );
+    if (!allLowStock && candidates.length === 0) {
+      return res.status(404).json({ error: "Inventory item not found at this cart" });
+    }
+    if (allLowStock && candidates.length === 0) {
+      return res.status(400).json({ error: "No low-stock ingredients to request" });
+    }
+
+    const known = new Set();
+    const created = [];
+    const active = [];
+    for (const item of candidates) {
+      const key = restockRequestKey(location.id, item.id);
+      const shouldCreate = await shouldCreateRestockRequest({
+        locationId: location.id,
+        inventoryItemId: item.id,
+        known,
+        lookup: (restockKey) => prisma.alert.findMany({
+          where: { restockKey },
+          take: 10,
+          nocache: true,
+        }),
+      });
+      if (!shouldCreate) {
+        const existing = await prisma.alert.findMany({
+          where: { restockKey: key },
+          orderBy: { createdAt: "desc" },
+          take: 10,
+          nocache: true,
+        });
+        active.push(existing.find((request) =>
+          request.status === "pending" || request.status === "acknowledged",
+        ));
+        continue;
+      }
+      const message = `Restock requested: ${item.name} @ ${location.code}`;
+      const request = await prisma.alert.create({
+        data: {
+          type: "RESTOCK_REQUEST",
+          message,
+          restockKey: key,
+          ingredientId: item.id,
+          ingredientName: item.name,
+          locationId: location.id,
+          locationCode: location.code,
+          urgency,
+          notes: String(notes ?? "").trim() || null,
+          requestedBy: req.user.sub,
+          requestedByName: req.user.name ?? req.user.username ?? "Staff",
+          status: "pending",
+          isRead: false,
+          payload: JSON.stringify({
+            ingredientId: item.id,
+            ingredientName: item.name,
+            locationId: location.id,
+            locationCode: location.code,
+            urgency,
+            notes: String(notes ?? "").trim() || null,
+            requestedBy: req.user.sub,
+            requestedByName: req.user.name ?? req.user.username ?? "Staff",
+            status: "pending",
+          }),
+        },
+      });
+      created.push(request);
+      emit("restock-request:new", {
+        ...request,
+        ingredientName: item.name,
+        locationCode: location.code,
+      });
+    }
+    return res.status(created.length > 0 ? 201 : 200).json({
+      data: created,
+      activeRequests: [...active.filter(Boolean), ...created],
+      skipped: candidates.length - created.length - active.length,
     });
   } catch (err) {
     return next(err);

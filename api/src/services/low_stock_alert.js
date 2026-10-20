@@ -1,7 +1,8 @@
 // Low-stock alert identity + dedupe.
 //
-// Mirrors supabase/functions/api/index.ts (lowStockAlertId /
-// readOpenLowStockAlert). Keep both in sync.
+// The LOW_STOCK helpers mirror lowStockAlertId / readOpenLowStockAlert in the
+// Supabase Edge Function. The restock request helpers below share its
+// deterministic-key approach.
 //
 // WHY THIS EXISTS
 // Dedupe used to be "scan every LOW_STOCK alert ever created, then filter in
@@ -54,4 +55,29 @@ export async function shouldOpenLowStockAlert({
   known.add(key);
   const existing = await lookup(key);
   return !existing.some((a) => a.isRead === false);
+}
+
+/** Stable key for one active restock request per cart and ingredient. */
+export function restockRequestKey(locationId, inventoryItemId) {
+  return `restock:${locationId}:${inventoryItemId}`;
+}
+
+/**
+ * Check one indexed alert key before creating a request. A pending or
+ * acknowledged request stays active; fulfilled requests may be requested
+ * again after a future stock drop.
+ */
+export async function shouldCreateRestockRequest({
+  locationId,
+  inventoryItemId,
+  known,
+  lookup,
+}) {
+  const key = restockRequestKey(locationId, inventoryItemId);
+  if (known.has(key)) return false;
+  known.add(key);
+  const existing = await lookup(key);
+  return !existing.some((request) =>
+    request.status === "pending" || request.status === "acknowledged",
+  );
 }

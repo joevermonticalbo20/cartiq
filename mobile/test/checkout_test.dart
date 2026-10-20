@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cartiq_mobile/screens/pos_screen.dart';
 import 'package:cartiq_mobile/services/offline_queue.dart';
 import 'package:cartiq_mobile/state/cart_state.dart';
+import 'package:cartiq_mobile/widgets/pos_cart_widgets.dart';
+import 'package:flutter/material.dart';
 
 class _FakeQueue implements OfflineQueue {
   final List<QueuedRecord> items = [];
@@ -38,13 +40,13 @@ CartState _cartWithSale() {
 }
 
 Map<String, dynamic> _payload(CartState cart) => {
-      'clientRef': 'ref-1',
-      'locationCode': 'CART-01',
-      'items': cart.items.map((it) => it.toJson()).toList(),
-      'total': cart.total,
-      'status': 'PAID',
-      'paymentMethod': 'CASH',
-    };
+  'clientRef': 'ref-1',
+  'locationCode': 'CART-01',
+  'items': cart.items.map((it) => it.toJson()).toList(),
+  'total': cart.total,
+  'status': 'PAID',
+  'paymentMethod': 'CASH',
+};
 
 void main() {
   group('persistCheckout', () {
@@ -71,8 +73,9 @@ void main() {
 
     test('enqueue failure leaves cart exactly unchanged', () async {
       final cart = _cartWithSale();
-      final before =
-          cart.items.map((it) => Map<String, dynamic>.from(it.toJson())).toList();
+      final before = cart.items
+          .map((it) => Map<String, dynamic>.from(it.toJson()))
+          .toList();
       final queue = _FakeQueue()..throwOnEnqueue = true;
 
       await expectLater(
@@ -106,5 +109,60 @@ void main() {
       expect(cart.totalQty, 3);
       expect(await queue.count, 0);
     });
+
+    test(
+      'mixed flavor checkout keeps one price with equal flavor shares',
+      () async {
+        final cart = CartState()
+          ..addMixed('Flavored Fries', ['Cheese', 'BBQ'], 40, qty: 2);
+        final queue = _FakeQueue();
+
+        await persistCheckout(
+          cart: cart,
+          queue: queue,
+          buildPayload: () => _payload(cart),
+        );
+
+        final item =
+            (queue.items.single.payload['items'] as List).single
+                as Map<String, dynamic>;
+        expect(item['unitPrice'], 40);
+        expect(item['qty'], 2);
+        expect(item['flavorShares'], [
+          {'flavor': 'BBQ', 'share': 0.5},
+          {'flavor': 'Cheese', 'share': 0.5},
+        ]);
+      },
+    );
+  });
+
+  testWidgets('checkout quick cash and change indicator show all choices', (
+    tester,
+  ) async {
+    double? selected;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              PosCashQuickAmounts(
+                total: 80,
+                onSelect: (amount) => selected = amount,
+              ),
+              const PosChangeDisplay(total: 80, tendered: 100),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Exact'), findsOneWidget);
+    for (final amount in const [50, 100, 200, 500, 1000]) {
+      expect(find.text('₱$amount'), findsOneWidget);
+    }
+    expect(find.text('Change'), findsOneWidget);
+    expect(find.text('₱20'), findsOneWidget);
+    await tester.tap(find.text('₱100'));
+    expect(selected, 100);
   });
 }

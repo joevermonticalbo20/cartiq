@@ -15,6 +15,7 @@ import { useToast } from "../components/Toast.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import { sanitizeQtyInput, parseQty } from "../utils/format.js";
 import { sanitizeTextInput, validateItemName } from "../utils/text.js";
+import { LIVE_EVENTS, useLiveEvent } from "../hooks/useLiveStream.js";
 
 const STATUS_LABEL = { ok: "OK", low: "LOW", critical: "CRITICAL" };
 
@@ -65,6 +66,8 @@ export default function InventoryPage() {
 
   // Stock item name -> ["Product (Flavor)", ...] (from /products recipes).
   const [usageByItem, setUsageByItem] = useState(new Map());
+  const [restockRequests, setRestockRequests] = useState([]);
+  const [resolvingRequest, setResolvingRequest] = useState(null);
 
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkValue, setBulkValue] = useState("");
@@ -107,8 +110,10 @@ export default function InventoryPage() {
       api.get(`/analytics/forecast?code=${targetCode}`).catch(() => ({ data: { items: [] } })),
       api.get(`/reorders/prep?code=${targetCode}&days=3`).catch(() => ({ data: null })),
       api.get("/products").catch(() => ({ data: { data: [] } })),
+      api.get(`/inventory/restock-requests?code=${encodeURIComponent(targetCode)}`)
+        .catch(() => ({ data: { data: [] } })),
     ])
-      .then(([inv, fc, pr, prod]) => {
+      .then(([inv, fc, pr, prod, restocks]) => {
         const locs = inv.data?.locations ?? [];
         setLocations(locs);
         setForecast(fc.data?.items ?? []);
@@ -128,6 +133,7 @@ export default function InventoryPage() {
           }
         }
         setUsageByItem(usage);
+        setRestockRequests(restocks.data?.data ?? []);
         setLoadError("");
 
         if (!locs.some((l) => l.code === selected) && locs[0]) {
@@ -139,6 +145,9 @@ export default function InventoryPage() {
       .catch((err) => setLoadError(getFriendlyError(err, "Unable to load inventory.")))
       .finally(() => setLoading(false));
   }, [selected]);
+
+  useLiveEvent(LIVE_EVENTS.restockRequestNew, refresh);
+  useLiveEvent(LIVE_EVENTS.restockRequestUpdated, refresh);
 
   useEffect(() => {
     const timer = setTimeout(refresh, 0);
@@ -152,6 +161,7 @@ export default function InventoryPage() {
       setAdjustError("Enter a stock count from 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).");
       return;
     }
+
     if (value === adjusting.stock) {
       toast(`No changes - ${adjusting.name} is already ${adjusting.stock} ${adjusting.unit}.`, "info");
       closeAdjustModal();
@@ -173,6 +183,29 @@ export default function InventoryPage() {
       setAdjustError(getFriendlyError(err, "Adjustment failed - try again."));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function updateRestockRequest(request, resolution) {
+    setResolvingRequest(request.id);
+    try {
+      await api.patch(`/alerts/${request.id}/restock-status`, {
+        status: resolution === "acknowledged" ? "acknowledged" : "fulfilled",
+        ...(resolution === "acknowledged" ? {} : { resolution }),
+      });
+      toast(
+        resolution === "dismissed"
+          ? "Restock request dismissed."
+          : resolution === "acknowledged"
+            ? "Restock request acknowledged."
+            : "Restock request marked as restocked.",
+        "success",
+      );
+      refresh();
+    } catch (err) {
+      toast(getFriendlyError(err, "Unable to update restock request."), "error");
+    } finally {
+      setResolvingRequest(null);
     }
   }
 
@@ -563,6 +596,73 @@ export default function InventoryPage() {
             </div>
           )}
         </section>
+
+        {isOwner && restockRequests.length > 0 && (
+          <section className="panel" style={{ marginTop: "var(--space-3)" }}>
+            <h3 className="section-title">Mobile restock requests</h3>
+            <p className="muted small">
+              Requests remain active until marked restocked or dismissed.
+            </p>
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th><span className="th-inner">Ingredient</span></th>
+                    <th><span className="th-inner">Cart</span></th>
+                    <th><span className="th-inner">Urgency</span></th>
+                    <th><span className="th-inner">Requested by</span></th>
+                    <th><span className="th-inner">Note</span></th>
+                    <th className="t-center"><span className="th-inner">Action</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {restockRequests.map((request) => (
+                    <tr key={request.id}>
+                      <td><strong>{request.ingredientName ?? request.message}</strong></td>
+                      <td>{request.locationCode ?? request.locationId}</td>
+                      <td>
+                        <Badge
+                          variant={request.urgency === "critical" ? "danger" : request.urgency === "urgent" ? "warn" : "info"}
+                        >
+                          {String(request.urgency ?? "normal").toUpperCase()}
+                        </Badge>
+                      </td>
+                      <td>{request.requestedByName ?? "Staff"}</td>
+                      <td className="muted">{request.notes || "—"}</td>
+                      <td className="t-center nowrap">
+                        <div className="flex items-center justify-center gap-1">
+                          {request.status === "pending" && (
+                            <button
+                              className="ghost small-btn"
+                              disabled={resolvingRequest === request.id}
+                              onClick={() => updateRestockRequest(request, "acknowledged")}
+                            >
+                              Acknowledge
+                            </button>
+                          )}
+                          <button
+                            className="small-btn"
+                            disabled={resolvingRequest === request.id}
+                            onClick={() => updateRestockRequest(request, "restocked")}
+                          >
+                            Mark Restocked
+                          </button>
+                          <button
+                            className="danger-ghost small-btn"
+                            disabled={resolvingRequest === request.id}
+                            onClick={() => updateRestockRequest(request, "dismissed")}
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
         {selectedIds.size > 0 && (
           <div className="bulk-action-bar" role="region" aria-live="polite">

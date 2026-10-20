@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+
 import '../theme.dart';
 import 'app_badge.dart';
 
-/// Product tile for the POS catalog grid. Pure presentational widget:
-/// all cart/API logic stays in `pos_screen.dart`.
+/// Product tile that opens the existing bottom-sheet ordering flow.
 class PosProductCard extends StatelessWidget {
   const PosProductCard({
     super.key,
@@ -22,32 +22,48 @@ class PosProductCard extends StatelessWidget {
   final VoidCallback? onLongPress;
   final VoidCallback? onQuickAdd;
 
+  bool _unavailable(Map<String, dynamic> item) {
+    return item['isAvailable'] == false ||
+        (item['availableServings'] is num &&
+            (item['availableServings'] as num) <= 0);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final name = product['name'] as String;
-    final price = product['basePrice'] as num;
-    final surfaceColor = Theme.of(context).colorScheme.surface;
+    final flavors = product['flavors'] is List
+        ? (product['flavors'] as List)
+              .whereType<Map<String, dynamic>>()
+              .toList()
+        : <Map<String, dynamic>>[];
+    final unavailable = flavors.isNotEmpty
+        ? flavors.every(_unavailable)
+        : _unavailable(product);
+    final availableServings = flavors.isNotEmpty
+        ? flavors
+              .where((flavor) => !_unavailable(flavor))
+              .map((flavor) => flavor['availableServings'])
+              .whereType<num>()
+              .fold<num?>(
+                null,
+                (best, count) => best == null || count < best ? count : best,
+              )
+        : product['availableServings'] as num?;
 
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: surfaceColor,
-        borderRadius: BorderRadius.circular(AppRadius.l),
-        boxShadow:
-            AppShadow.sm(), // Pinalitan ng malambot na shadow nang walang border
-      ),
+    return Opacity(
+      opacity: unavailable ? 0.48 : 1,
       child: Material(
-        color: Colors.transparent,
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(AppRadius.l),
+        elevation: 2,
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
-          borderRadius: BorderRadius.circular(AppRadius.l),
-          onTap: onTap,
-          onLongPress: onLongPress,
+          onTap: unavailable ? null : onTap,
+          onLongPress: unavailable ? null : onLongPress,
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.space3),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Top: food icon tile + name + cart badge
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -68,7 +84,7 @@ class PosProductCard extends StatelessWidget {
                     const SizedBox(width: AppSpacing.space2),
                     Expanded(
                       child: Text(
-                        name,
+                        product['name'] as String,
                         style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(fontWeight: FontWeight.w700),
                         maxLines: 2,
@@ -84,60 +100,48 @@ class PosProductCard extends StatelessWidget {
                     ],
                   ],
                 ),
-                const Spacer(),
-                // Price + flavor badge / quick-add
+                if (unavailable) ...[
+                  const SizedBox(height: AppSpacing.space2),
+                  const AppBadge(
+                    label: 'Out of Stock',
+                    variant: AppBadgeVariant.danger,
+                  ),
+                ] else if (availableServings != null &&
+                    availableServings > 0 &&
+                    availableServings <= 10) ...[
+                  const SizedBox(height: AppSpacing.space2),
+                  AppBadge(
+                    label: '${availableServings.toInt()} servings left',
+                    variant: AppBadgeVariant.warn,
+                  ),
+                ],
+                const SizedBox(height: AppSpacing.space2),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Flexible(
-                      child: Text(
-                        '₱$price',
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w800,
-                            ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                    Text(
+                      '₱${product['basePrice']}',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                     if (flavorCount > 0)
                       AppBadge(
-                        label: '$flavorCount',
+                        label: '$flavorCount flavor${flavorCount == 1 ? '' : 's'}',
                         variant: AppBadgeVariant.brand,
                       )
-                    else if (onQuickAdd != null)
-                      Tooltip(
-                        message: 'Quick-add $name',
-                        child: Material(
-                          color: AppColors.primary,
-                          shape: const CircleBorder(),
-                          child: InkWell(
-                            customBorder: const CircleBorder(),
-                            onTap: onQuickAdd,
-                            child: const SizedBox(
-                              width: 48,
-                              height: 48,
-                              child: Icon(
-                                Icons.add,
-                                color: Colors.white,
-                                size: 22,
-                              ),
-                            ),
-                          ),
-                        ),
+                    else if (onQuickAdd != null && !unavailable)
+                      IconButton.filled(
+                        tooltip: 'Quick-add ${product['name']}',
+                        onPressed: onQuickAdd,
+                        icon: const Icon(Icons.add),
                       ),
                   ],
                 ),
-                const SizedBox(height: AppSpacing.space1),
                 Text(
-                  flavorCount > 0
-                      ? '$flavorCount flavor${flavorCount != 1 ? 's' : ''}'
-                      : 'tap to add',
+                  flavorCount > 0 ? 'Tap to choose flavors' : 'tap to add',
                   style: Theme.of(context).textTheme.bodySmall,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),

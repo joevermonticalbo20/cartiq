@@ -43,14 +43,19 @@ Future<void> main() async {
 
   final api = ApiClient();
   final auth = AuthState(apiClient: api);
-  final sync = SyncService(api: api, auth: auth, queue: PersistedOfflineQueue.instance);
+  final dataRefresh = DataRefresh();
+  final sync = SyncService(
+    api: api,
+    auth: auth,
+    queue: PersistedOfflineQueue.instance,
+    dataRefresh: dataRefresh,
+  );
   final themeController = ThemeController();
   // One instance for the whole app: every mounted tab subscribes to it so a
   // sale on the POS reaches Sales History, Home and Receipts without a manual
   // pull-to-refresh. Provided with `.value`, not `create:`, because the
   // MultiProvider sits inside a build method and `create` would hand each tab
   // a different instance.
-  final dataRefresh = DataRefresh();
   try {
     await themeController.load();
   } catch (e) {

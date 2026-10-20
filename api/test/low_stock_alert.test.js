@@ -5,6 +5,8 @@ import assert from "node:assert/strict";
 import {
   lowStockDedupeKey,
   shouldOpenLowStockAlert,
+  restockRequestKey,
+  shouldCreateRestockRequest,
 } from "../src/services/low_stock_alert.js";
 
 test("the dedupe key is stable per location + item", () => {
@@ -111,4 +113,27 @@ test("the lookup is keyed, so it stays one read regardless of history size", asy
   });
   assert.equal(open, true);
   assert.ok(requestedLimit <= 4, "lookup must stay bounded, not scan all alerts");
+});
+
+test("restock request keys are stable per cart and ingredient", () => {
+  assert.equal(restockRequestKey(1, 42), "restock:1:42");
+  assert.notEqual(restockRequestKey(1, 42), restockRequestKey(2, 42));
+});
+
+test("active restock requests prevent duplicates until fulfilled", async () => {
+  const input = {
+    locationId: 1,
+    inventoryItemId: 42,
+    known: new Set(),
+    lookup: async () => [{ status: "acknowledged" }],
+  };
+  assert.equal(await shouldCreateRestockRequest(input), false);
+  assert.equal(
+    await shouldCreateRestockRequest({
+      ...input,
+      known: new Set(),
+      lookup: async () => [{ status: "fulfilled" }],
+    }),
+    true,
+  );
 });
