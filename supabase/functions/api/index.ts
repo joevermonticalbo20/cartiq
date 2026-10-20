@@ -420,6 +420,49 @@ function cacheInvalidate(collection) {
   _listCache.delete(collection);
 }
 
+// ---------- analytics order-window cache ----------
+//
+// ordersSince and the daily report each read up to 5,000 orders, and six
+// analytics endpoints plus the dashboard KPI call them. Firestore bills one
+// read per document returned, so a single dashboard load could cost tens of
+// thousands of reads, and every auto-refresh paid it again.
+//
+// 60 seconds, matching the Express API's own read-through cache
+// (api/src/firestore.js, CACHE_TTL_MS = 60s), which has been serving these
+// same numbers all along. An order written through this function invalidates
+// the cache, so the dashboard moves as soon as a sale lands.
+//
+// On Edge, isolates share no memory, so a write in one isolate does not
+// invalidate another's cache and a stale entry can be up to 60s old. That is
+// the same staleness the Express API already accepts.
+const ANALYTICS_CACHE_TTL_MS = 60 * 1000;
+const ANALYTICS_CACHE_MAX = 40;
+const _analyticsCache = new Map();
+
+function analyticsCacheGet(key) {
+  const hit = _analyticsCache.get(key);
+  if (!hit) return null;
+  if (hit.exp <= Date.now()) {
+    _analyticsCache.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+
+function analyticsCacheSet(key, value) {
+  if (_analyticsCache.size >= ANALYTICS_CACHE_MAX) {
+    // Map preserves insertion order, so the first key is the oldest entry.
+    _analyticsCache.delete(_analyticsCache.keys().next().value);
+  }
+  _analyticsCache.set(key, { exp: Date.now() + ANALYTICS_CACHE_TTL_MS, value });
+  return value;
+}
+
+/** Drop the cached order windows. Called whenever an order is written. */
+function invalidateAnalyticsCache() {
+  _analyticsCache.clear();
+}
+
 function colOfDocName(name) {
   const m = /\/documents\/([^/]+)\//.exec(String(name || ""));
   return m ? m[1] : null;
@@ -544,6 +587,8 @@ async function fsCommit(writes) {
   for (const w of writes) {
     const col = w.update ? colOfDocName(w.update.name) : null;
     if (col) cacheInvalidate(col);
+    // A new order changes every analytics window, so the cached ones are stale.
+    if (col === "orders") invalidateAnalyticsCache();
   }
   return data;
 }
@@ -2332,14 +2377,21 @@ async function handleDailyReport(url) {
     day = manilaDayStart(0);
     nextDay = new Date(day.getTime() + 24 * 60 * 60 * 1000);
   }
-  let orders = await fsRunQuery("orders", {
-    filters: [
-      { field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: day },
-      { field: "createdAt", op: "LESS_THAN", value: nextDay },
-    ],
-    limit: 5000,
-  });
-  orders = orders.filter((o) => o.status === "PAID");
+  // Cached for 60s, same as the analytics windows. The dashboard polls this on
+  // every refresh, and each poll used to read up to 5,000 orders.
+  const dayKey = `daily|${day.toISOString()}|${nextDay.toISOString()}`;
+  let orders = analyticsCacheGet(dayKey);
+  if (!orders) {
+    orders = await fsRunQuery("orders", {
+      filters: [
+        { field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: day },
+        { field: "createdAt", op: "LESS_THAN", value: nextDay },
+      ],
+      limit: 5000,
+    });
+    analyticsCacheSet(dayKey, orders);
+  }
+  orders = [...orders].filter((o) => o.status === "PAID");
   if (code) {
     const loc = await fsQueryEqual("locations", "code", String(code), 1).then((r) => r[0]);
     orders = loc ? orders.filter((o) => Number(o.locationId) === Number(loc.id)) : [];
@@ -4087,6 +4139,14 @@ async function getLocationNative(codeOrId) {
 async function ordersSince(since, locationId, status) {
   // Server-side recency window (+ location when scoped); status split in
   // code so no triple composite is ever needed. Bounded newest-5000.
+  //
+  // Cached for 60s - see the analytics cache note above. A shallow copy is
+  // returned so a caller that sorts the array in place cannot corrupt the
+  // cached window.
+  const key = `since|${since instanceof Date ? since.toISOString() : String(since)}|${locationId ?? "*"}|${status ?? "*"}`;
+  const hit = analyticsCacheGet(key);
+  if (hit) return [...hit];
+
   const filters = [{ field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: since }];
   if (locationId !== null && locationId !== undefined) {
     filters.unshift({ field: "locationId", op: "EQUAL", value: Number(locationId) });
@@ -4096,7 +4156,9 @@ async function ordersSince(since, locationId, status) {
     orderBy: [{ field: "createdAt", dir: "DESCENDING" }],
     limit: 5000,
   });
-  return orders.filter((o) => !status || o.status === status);
+  const window = orders.filter((o) => !status || o.status === status);
+  analyticsCacheSet(key, window);
+  return [...window];
 }
 
 async function handleTrends(url) {

@@ -209,8 +209,12 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3">
             <h1 className="page-header-title">Hello, {firstName}</h1>
             <span
-              className={`sse-pill ${sseStatus === "open" ? "open" : sseStatus === "down" ? "down" : "connecting"}`}
-              title={`Live stream: ${sseStatus}`}
+              className={`sse-pill ${sseStatus === "open" ? "open" : sseStatus === "down" ? "down" : sseStatus === "paused" ? "paused" : "connecting"}`}
+              title={
+                sseStatus === "paused"
+                  ? "Live stream paused while this tab is hidden - it resumes when you come back"
+                  : `Live stream: ${sseStatus}`
+              }
               aria-label={`Connection status: ${sseStatus}`}
             >
               <Radio
@@ -218,7 +222,13 @@ export default function DashboardPage() {
                 className={sseStatus === "open" ? "spin" : ""}
                 style={sseStatus === "open" ? { animation: "pulse-dot 1.6s ease-in-out infinite" } : undefined}
               />
-              {sseStatus === "open" ? "Live" : sseStatus === "down" ? "Offline" : "Connecting"}
+              {sseStatus === "open"
+                ? "Live"
+                : sseStatus === "down"
+                  ? "Offline"
+                  : sseStatus === "paused"
+                    ? "Paused"
+                    : "Connecting"}
             </span>
             {livePulse > 0 && (
               <span className="live-badge" aria-label={`${livePulse} live updates`}>

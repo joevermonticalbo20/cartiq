@@ -199,6 +199,13 @@
 .sse-pill.connecting {
   color: var(--text-muted);
 }
+/* Paused: the tab is hidden, so the stream is deliberately closed. Not an
+   error, so it must not look like one. */
+.sse-pill.paused {
+  color: var(--text-muted);
+  border-style: dashed;
+  opacity: 0.85;
+}
 
 .alert-item {
   display: flex;
