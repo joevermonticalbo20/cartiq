@@ -47,6 +47,40 @@ extension PaymentMethodX on PaymentMethod {
   };
 }
 
+class PosCatalogUnavailableState extends StatelessWidget {
+  const PosCatalogUnavailableState({
+    super.key,
+    required this.message,
+    required this.onRetry,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.space6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off_outlined, size: 48),
+            const SizedBox(height: AppSpacing.space3),
+            Text('Catalog unavailable:\n$message', textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.space4),
+            FilledButton.icon(
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Retry'),
+              onPressed: onRetry,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 Future<Map<String, dynamic>> persistCheckout({
   required CartState cart,
   required OfflineQueue queue,
@@ -166,13 +200,10 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       );
     } catch (e) {
       if (!mounted) return;
-      // Never swallow: a failed refresh that looks identical to success is
-      // how a stale catalog goes unnoticed (wrong server, expired session).
-      final msg = e is ApiException ? e.message : 'Refresh failed: $e';
-      AppMessenger.showGlassToast(
+      AppMessenger.showErrorSnackBar(
         context: context,
-        message: msg,
-        isSuccess: false,
+        error: e,
+        onRetry: _refreshCatalog,
       );
     } finally {
       if (mounted) setState(() => _refreshingCatalog = false);
@@ -570,7 +601,10 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       // Home and Receipts subscribe to this and re-read. `refresh` was
       // captured before the awaits above, because reading context after an
       // await is unsafe.
-      if (result.synced == 0) refresh?.bump('sale');
+      final stockConflict = result.dropped.any(
+        (record) => record.code == 'INSUFFICIENT_STOCK',
+      );
+      if (result.synced == 0 && !stockConflict) refresh?.bump('sale');
 
       if (result.fullySynced) {
         await Haptics.success();
@@ -587,13 +621,26 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       final paymentDetails =
           '${method.label} • ₱${snapshotTotal.toStringAsFixed(0)}'
           '${change == null ? '' : ' • Change ₱${change.toStringAsFixed(0)}'}';
-      AppMessenger.showGlassToast(
-        context: context,
-        message: result.fullySynced
-            ? 'Sale recorded • $paymentDetails'
-            : '${result.message} • $paymentDetails',
-        isSuccess: result.fullySynced,
-      );
+      if (result.fullySynced) {
+        AppMessenger.showGlassToast(
+          context: context,
+          message: 'Sale recorded • $paymentDetails',
+          isSuccess: true,
+        );
+      } else if (!stockConflict) {
+        AppMessenger.showErrorSnackBar(
+          context: context,
+          error: ApiException(
+            result.message,
+            statusCode: result.authExpired
+                ? 401
+                : result.errorMessage == ApiClient.unavailableMessage
+                ? 503
+                : null,
+          ),
+          onRetry: () => sync.syncAll(),
+        );
+      }
     } finally {
       _paying = false;
     }
@@ -642,7 +689,9 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                         physics: const AlwaysScrollableScrollPhysics(),
                         slivers: [
                           SliverToBoxAdapter(
-                            child: SizedBox(height: topPadding + 54),
+                            child: SizedBox(
+                              height: snap.hasError ? 0 : topPadding + 54,
+                            ),
                           ),
                           const SliverToBoxAdapter(child: PosOfflineStrip()),
 
@@ -656,33 +705,11 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                               ),
                             )
                           else if (snap.hasError)
-                            SliverToBoxAdapter(
-                              child: Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(
-                                    AppSpacing.space6,
-                                  ),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(
-                                        Icons.cloud_off_outlined,
-                                        size: 48,
-                                      ),
-                                      const SizedBox(height: AppSpacing.space3),
-                                      Text(
-                                        'Catalog unavailable:\n${snap.error}',
-                                        textAlign: TextAlign.center,
-                                      ),
-                                      const SizedBox(height: AppSpacing.space4),
-                                      FilledButton.icon(
-                                        icon: const Icon(Icons.refresh_rounded),
-                                        label: const Text('Retry'),
-                                        onPressed: _refreshCatalog,
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                            SliverFillRemaining(
+                              hasScrollBody: false,
+                              child: PosCatalogUnavailableState(
+                                message: AppMessenger.messageFor(snap.error!),
+                                onRetry: _refreshCatalog,
                               ),
                             )
                           else if (products.isEmpty)

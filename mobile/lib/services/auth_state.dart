@@ -9,6 +9,8 @@ import 'rfid_registration.dart';
 
 /// Holds the session token and profile for the whole app.
 class AuthState extends ChangeNotifier {
+  static const sessionExpiredMessage = ApiClient.sessionExpiredMessage;
+
   final ApiClient api;
   final KeyValueStore storage;
   late final OfflinePinService pin;

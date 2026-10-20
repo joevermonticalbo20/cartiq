@@ -208,6 +208,39 @@ void main() {
       expect(result.fullySynced, isTrue);
     });
 
+    test('stock conflict keeps flavor error and refreshes inventory', () async {
+      await queue.enqueue(_order('oversold'));
+      api.script.add(
+        ApiException(
+          'Stock for Cheese just ran out. Please update your cart before checking out.',
+          statusCode: 409,
+          code: 'INSUFFICIENT_STOCK',
+          flavorName: 'Cheese',
+        ),
+      );
+
+      final result = await sync.syncAll();
+
+      expect(result.synced, 0);
+      expect(result.remaining, 0);
+      expect(result.message,
+          'Stock for Cheese just ran out. Please update your cart before checking out.');
+      expect(result.dropped.single.code, 'INSUFFICIENT_STOCK');
+      expect(result.dropped.single.payload, _order('oversold').payload);
+      expect(dataRefresh.lastReason, 'inventory');
+      expect(await queue.count, 0);
+    });
+
+    test('offline result uses the safe queued-orders message', () async {
+      await queue.enqueue(_order('offline'));
+      api.healthy = false;
+
+      final result = await sync.syncAll();
+
+      expect(result.message, ApiClient.noInternetMessage);
+      expect(result.remaining, 1);
+    });
+
     test('429 rate-limit keeps the record for later', () async {
       await queue.enqueue(_order('a'));
       api.script.add(ApiException('slow down', statusCode: 429));

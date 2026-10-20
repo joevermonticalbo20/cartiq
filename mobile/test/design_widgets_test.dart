@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:cartiq_mobile/screens/pos_screen.dart';
+import 'package:cartiq_mobile/services/api_client.dart';
 import 'package:cartiq_mobile/utils/app_messenger.dart';
 import 'package:cartiq_mobile/widgets/app_badge.dart';
 import 'package:cartiq_mobile/widgets/app_dialog.dart';
@@ -10,6 +12,45 @@ import 'package:cartiq_mobile/widgets/app_skeleton.dart';
 Widget _wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
 
 void main() {
+  group('PosCatalogUnavailableState', () {
+    testWidgets('centers the message and retry action on screen', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      var retried = false;
+
+      await tester.pumpWidget(
+        _wrap(
+          SizedBox.expand(
+            child: PosCatalogUnavailableState(
+              message:
+                  'No internet connection. Your orders are safely saved offline and will sync automatically when you reconnect.',
+              onRetry: () => retried = true,
+            ),
+          ),
+        ),
+      );
+
+      expect(
+        tester
+            .getCenter(
+              find.descendant(
+                of: find.byType(PosCatalogUnavailableState),
+                matching: find.byType(Column),
+              ),
+            )
+            .dy,
+        closeTo(320, 30),
+      );
+      await tester.tap(find.text('Retry'));
+      await tester.pump();
+      expect(retried, isTrue);
+    });
+  });
+
   group('AppBadge', () {
     testWidgets('renders label with requested variant', (tester) async {
       await tester.pumpWidget(
@@ -94,6 +135,29 @@ void main() {
   });
 
   group('AppMessenger', () {
+    testWidgets('does not show the full offline snackbar', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          Builder(
+            builder: (context) => TextButton(
+              onPressed: () => AppMessenger.showErrorSnackBar(
+                context: context,
+                error: const ApiException(ApiClient.noInternetMessage),
+                onRetry: () {},
+              ),
+              child: const Text('show error'),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('show error'));
+      await tester.pumpAndSettle();
+
+      expect(find.text(ApiClient.noInternetMessage), findsNothing);
+      expect(find.text('Retry'), findsNothing);
+    });
+
     testWidgets('replaces the active toast and dismisses after four seconds', (
       tester,
     ) async {
@@ -141,6 +205,8 @@ void main() {
       expect(toastText.softWrap, isTrue);
       expect(toastText.overflow, TextOverflow.visible);
       expect(tester.getSize(find.text(longMessage)).height, greaterThan(20));
+      final toastCenter = tester.getCenter(find.text(longMessage));
+      expect(toastCenter.dy, closeTo(320, 40));
 
       await tester.tap(find.text('show second'));
       await tester.pumpAndSettle();

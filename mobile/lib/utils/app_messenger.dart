@@ -1,12 +1,144 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
 
+import '../services/auth_state.dart';
+import '../services/api_client.dart';
+import '../services/offline_pin.dart';
 import '../theme.dart';
+import '../widgets/pin_pad.dart';
 
 class AppMessenger {
   AppMessenger._();
+
+  static String messageFor(Object error) {
+    if (error is ApiException) {
+      if (error.statusCode == 401) return ApiClient.sessionExpiredMessage;
+      if (error.statusCode == 500 ||
+          error.statusCode == 502 ||
+          error.statusCode == 503) {
+        return ApiClient.unavailableMessage;
+      }
+      if (error.statusCode == 403) return ApiClient.permissionDeniedMessage;
+      if (error.statusCode == 429) return ApiClient.rateLimitedMessage;
+      if (error.statusCode == 409 && error.code != 'INSUFFICIENT_STOCK') {
+        return ApiClient.conflictMessage;
+      }
+      return error.message;
+    }
+    if (error is TimeoutException) return ApiClient.timeoutMessage;
+    if (error is SocketException || error is http.ClientException) {
+      return ApiClient.noInternetMessage;
+    }
+    return 'Something went wrong. Please try again.';
+  }
+
+  static void showErrorSnackBar({
+    required BuildContext context,
+    required Object error,
+    VoidCallback? onRetry,
+    VoidCallback? onOfflinePin,
+  }) {
+    if (!context.mounted) return;
+    if (messageFor(error) == ApiClient.noInternetMessage) return;
+    final sessionExpired = error is ApiException && error.statusCode == 401;
+    final action = sessionExpired
+        ? onOfflinePin ?? () => _openOfflinePin(context)
+        : onRetry;
+    final actionLabel = sessionExpired ? 'Offline PIN' : 'Retry';
+    final messenger = ScaffoldMessenger.of(context);
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(messageFor(error)),
+          duration: const Duration(seconds: 8),
+          action: action == null
+              ? null
+              : SnackBarAction(label: actionLabel, onPressed: action),
+        ),
+      );
+  }
+
+  static Future<void> _openOfflinePin(BuildContext context) async {
+    final auth = context.read<AuthState>();
+    final eligibility = await auth.checkOfflineEligibility();
+    if (!context.mounted) return;
+    if (!eligibility.eligible) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(eligibility.message)));
+      return;
+    }
+
+    String? error;
+    var verifying = false;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: AppSpacing.space5,
+              right: AppSpacing.space5,
+              top: AppSpacing.space4,
+              bottom:
+                  MediaQuery.of(context).viewInsets.bottom + AppSpacing.space6,
+            ),
+            child: PinPad(
+              title: 'Offline PIN',
+              errorText: error,
+              onComplete: (value) async {
+                if (verifying) return;
+                setSheetState(() {
+                  verifying = true;
+                  error = null;
+                });
+                try {
+                  await auth.unlockOffline(value);
+                  if (sheetContext.mounted) Navigator.pop(sheetContext);
+                } on PinException catch (exception) {
+                  setSheetState(() {
+                    verifying = false;
+                    error = exception.message;
+                  });
+                } catch (_) {
+                  setSheetState(() {
+                    verifying = false;
+                    error =
+                        'Could not verify the Offline PIN on this device. Please log in online.';
+                  });
+                }
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static void showRecoverySnackBar({
+    required BuildContext context,
+    required String message,
+    required String actionLabel,
+    required VoidCallback onAction,
+  }) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: const Duration(seconds: 8),
+          action: SnackBarAction(label: actionLabel, onPressed: onAction),
+        ),
+      );
+  }
 
   static OverlayEntry? _activeEntry;
   static Timer? _dismissTimer;
@@ -79,7 +211,7 @@ class _GlassToastState extends State<_GlassToast>
       duration: const Duration(milliseconds: 850),
       reverseDuration: const Duration(milliseconds: 500),
     );
-    _slide = Tween<Offset>(begin: const Offset(0, -1.6), end: Offset.zero)
+    _slide = Tween<Offset>(begin: const Offset(0, 0.16), end: Offset.zero)
         .animate(
           CurvedAnimation(
             parent: _controller,
@@ -118,77 +250,68 @@ class _GlassToastState extends State<_GlassToast>
         : const Color(0xFF7F1D1D);
 
     return Positioned.fill(
-      child: IgnorePointer(
-        child: Stack(
-          children: [
-            Positioned(
-              top: MediaQuery.paddingOf(context).top + 8,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: MediaQuery.sizeOf(context).width - 32,
-                    ),
-                    child: FadeTransition(
-                      opacity: _fade,
-                      child: SlideTransition(
-                        position: _slide,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(28),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: Color.lerp(
-                                  Colors.white.withValues(alpha: 0.76),
-                                  tint.withValues(alpha: 0.78),
-                                  0.24,
-                                ),
-                                borderRadius: BorderRadius.circular(28),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.72),
-                                  width: 1,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.12),
-                                    blurRadius: 24,
-                                    offset: const Offset(0, 10),
-                                  ),
-                                ],
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 18,
-                                  vertical: 14,
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(icon, color: textColor, size: 22),
-                                    const SizedBox(width: 12),
-                                    Flexible(
-                                      child: Text(
-                                        widget.message,
-                                        softWrap: true,
-                                        overflow: TextOverflow.visible,
-                                        style: TextStyle(
-                                          color: textColor,
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w600,
-                                          height: 1.3,
-                                          decoration: TextDecoration.none,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.sizeOf(context).width - 32,
+            ),
+            child: FadeTransition(
+              opacity: _fade,
+              child: SlideTransition(
+                position: _slide,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(28),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Color.lerp(
+                          Colors.white.withValues(alpha: 0.76),
+                          tint.withValues(alpha: 0.78),
+                          0.24,
+                        ),
+                        borderRadius: BorderRadius.circular(28),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.72),
+                          width: 1,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.12),
+                            blurRadius: 24,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 14,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Icon(icon, color: textColor, size: 22),
+                            const SizedBox(width: 12),
+                            Flexible(
+                              child: Text(
+                                widget.message,
+                                textAlign: TextAlign.center,
+                                softWrap: true,
+                                overflow: TextOverflow.visible,
+                                style: TextStyle(
+                                  color: textColor,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.3,
+                                  decoration: TextDecoration.none,
                                 ),
                               ),
                             ),
-                          ),
+                          ],
                         ),
                       ),
                     ),
@@ -196,7 +319,7 @@ class _GlassToastState extends State<_GlassToast>
                 ),
               ),
             ),
-          ],
+          ),
         ),
       ),
     );

@@ -67,6 +67,29 @@ void main() {
       expect(cart.total, 0);
     });
 
+    test('restores a stock-rejected mixed order for editing', () {
+      final cart = CartState();
+      cart.restoreRejectedOrder({
+        'items': [
+          {
+            'productName': 'Flavored Fries',
+            'flavor': 'BBQ + Cheese',
+            'qty': 2,
+            'unitPrice': 40,
+            'flavorShares': [
+              {'flavor': 'BBQ', 'share': 0.5},
+              {'flavor': 'Cheese', 'share': 0.5},
+            ],
+          },
+        ],
+      });
+
+      expect(cart.items, hasLength(1));
+      expect(cart.items.single.qty, 2);
+      expect(cart.items.single.flavors, ['BBQ', 'Cheese']);
+      expect(cart.total, 80);
+    });
+
     test('CartItem key distinguishes null flavor', () {
       final a = CartItem(productName: 'Fries', flavor: null, unitPrice: 40);
       final b = CartItem(productName: 'Fries', flavor: 'Cheese', unitPrice: 40);

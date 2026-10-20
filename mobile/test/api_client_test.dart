@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -27,6 +29,98 @@ ApiClient _clientWith(Future<http.Response> Function(http.Request) handler) =>
     ApiClient(secureStorage: _FakeStore(), httpClient: MockClient(handler));
 
 void main() {
+  group('user-friendly request errors', () {
+    test('timeout maps to a recovery message', () async {
+      final client = _clientWith(
+        (_) async => throw TimeoutException('request timed out'),
+      );
+
+      await expectLater(
+        client.submitOrder({'items': []}, 'token'),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.message,
+            'message',
+            ApiClient.timeoutMessage,
+          ),
+        ),
+      );
+    });
+
+    test('socket failure maps to offline-safe message', () async {
+      final client = _clientWith(
+        (_) async => throw const SocketException('connection refused'),
+      );
+
+      await expectLater(
+        client.submitOrder({'items': []}, 'token'),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.message,
+            'message',
+            ApiClient.noInternetMessage,
+          ),
+        ),
+      );
+    });
+
+    test('insufficient stock 409 includes the flavor name', () async {
+      final client = _clientWith(
+        (_) async => http.Response(
+          '{"error":"INSUFFICIENT_STOCK","flavorName":"Cheese"}',
+          409,
+        ),
+      );
+
+      await expectLater(
+        client.submitOrder({'items': []}, 'token'),
+        throwsA(
+          isA<ApiException>()
+              .having((error) => error.code, 'code', 'INSUFFICIENT_STOCK')
+              .having(
+                (error) => error.message,
+                'message',
+                'Stock for Cheese just ran out. Please update your cart before checking out.',
+              ),
+        ),
+      );
+    });
+
+    test('server unavailable status maps to safe retry message', () async {
+      final client = _clientWith(
+        (_) async => http.Response('{"error":"database unavailable"}', 503),
+      );
+
+      await expectLater(
+        client.submitOrder({'items': []}, 'token'),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.message,
+            'message',
+            ApiClient.unavailableMessage,
+          ),
+        ),
+      );
+    });
+
+    test('unauthorized requests map to session recovery message', () async {
+      final client = _clientWith(
+        (_) async => http.Response('{"error":"Unauthorized"}', 401),
+      );
+
+      await expectLater(
+        client.submitOrder({'items': []}, 'token'),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.message,
+            'message',
+            ApiClient.sessionExpiredMessage,
+          ),
+        ),
+      );
+    });
+  });
+
   group('forgotPassword', () {
     test('posts email and returns the generic message', () async {
       http.Request? seen;

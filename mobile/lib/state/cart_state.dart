@@ -118,4 +118,44 @@ class CartState extends ChangeNotifier {
     _items.clear();
     notifyListeners();
   }
+
+  void restoreRejectedOrder(Map<String, dynamic> payload) {
+    final items = payload['items'];
+    if (items is! List) return;
+    for (final value in items.whereType<Map<String, dynamic>>()) {
+      final productName = value['productName'];
+      final quantity = value['qty'];
+      final price = value['unitPrice'];
+      if (productName is! String ||
+          quantity is! int ||
+          quantity < 1 ||
+          price is! num) {
+        continue;
+      }
+      final shares = value['flavorShares'];
+      if (shares is List) {
+        final flavors = shares
+            .whereType<Map<String, dynamic>>()
+            .map((share) => share['flavor'])
+            .whereType<String>()
+            .toList();
+        if (flavors.length >= 2 && flavors.length <= 3) {
+          addMixed(
+            productName,
+            flavors,
+            price.toDouble(),
+            qty: quantity,
+          );
+          continue;
+        }
+      }
+      final flavor = value['flavor'];
+      add(
+        productName,
+        flavor is String && flavor.isNotEmpty ? flavor : null,
+        price.toDouble(),
+        qty: quantity,
+      );
+    }
+  }
 }

@@ -12,7 +12,14 @@ export 'kv_store.dart' show KeyValueStore;
 class ApiException implements Exception {
   final String message;
   final int? statusCode;
-  ApiException(this.message, {this.statusCode});
+  final String? code;
+  final String? flavorName;
+  const ApiException(
+    this.message, {
+    this.statusCode,
+    this.code,
+    this.flavorName,
+  });
 
   @override
   String toString() => message;
@@ -35,6 +42,21 @@ String normalizeApiBaseUrl(String input) {
 
 /// Thin HTTP client for the local CartIQ REST API.
 class ApiClient {
+  static const noInternetMessage =
+      'No internet connection. Your orders are safely saved offline and will sync automatically when you reconnect.';
+  static const timeoutMessage =
+      'The server is taking too long to respond due to a slow connection. Please check your signal and try again.';
+  static const unavailableMessage =
+      'The server is temporarily unavailable. Your local POS transactions are safe—please try again shortly.';
+  static const sessionExpiredMessage =
+      'Your session has expired. Please log in again or use your Offline PIN to continue.';
+  static const permissionDeniedMessage =
+      'You do not have permission to do that. Check your assigned cart or ask a manager.';
+  static const rateLimitedMessage =
+      'The server is busy right now. Please wait a moment and try again.';
+  static const conflictMessage =
+      'The information changed on the server. Refresh and try again.';
+
   static const _manualKey = 'cartiq_api_url';
   static const _catalogKey = 'cartiq_catalog_json';
   static const _catalogTsKey = 'cartiq_catalog_ts';
@@ -49,9 +71,9 @@ class ApiClient {
   bool _isManual = false;
 
   ApiClient({KeyValueStore? secureStorage, http.Client? httpClient})
-      : storage = secureStorage ??
-            const SecureStoreAdapter(FlutterSecureStorage()),
-        _http = httpClient ?? http.Client();
+    : storage =
+          secureStorage ?? const SecureStoreAdapter(FlutterSecureStorage()),
+      _http = httpClient ?? http.Client();
 
   Future<void> ensureResolved() async {
     if (_resolvedBaseUrl != null) return;
@@ -175,30 +197,106 @@ class ApiClient {
     if (token != null) 'Authorization': 'Bearer $token',
   };
 
-  Future<http.Response> _send(Future<http.Response> Function() action) async {
+  Future<http.Response> _send(
+    Future<http.Response> Function() action, {
+    bool preserveUnauthorizedMessage = false,
+  }) async {
     try {
       final res = await action().timeout(const Duration(seconds: 8));
       if (res.statusCode >= 400) {
-        String message = 'Request failed (${res.statusCode})';
+        Map<String, dynamic>? body;
         try {
-          final body = jsonDecode(res.body) as Map<String, dynamic>?;
-          message = body?['error'] as String? ?? message;
+          final decoded = jsonDecode(res.body);
+          if (decoded is Map<String, dynamic>) body = decoded;
         } catch (_) {
-          // Non-JSON error body (gateway HTML etc.) - keep generic message.
+          // A gateway may return HTML instead of the API's JSON error shape.
         }
-        throw ApiException(message, statusCode: res.statusCode);
+        final rawError = body?['error'];
+        final rawMessage = body?['message'];
+        final details = body?['details'] is Map<String, dynamic>
+            ? body!['details'] as Map<String, dynamic>
+            : const <String, dynamic>{};
+        final errorObject = rawError is Map<String, dynamic>
+            ? rawError
+            : const <String, dynamic>{};
+        final serverMessage = rawError is String
+            ? rawError
+            : errorObject['message'] is String
+            ? errorObject['message'] as String
+            : rawMessage is String
+            ? rawMessage
+            : 'Request failed (${res.statusCode})';
+        final codeValue =
+            body?['code'] ??
+            body?['errorCode'] ??
+            errorObject['code'] ??
+            details['code'];
+        final code = codeValue is String
+            ? codeValue
+            : rawError is String &&
+                  RegExp(r'^[A-Z][A-Z0-9_]+$').hasMatch(rawError)
+            ? rawError
+            : null;
+        final flavorValue =
+            body?['flavorName'] ??
+            body?['flavor'] ??
+            body?['itemName'] ??
+            errorObject['flavorName'] ??
+            errorObject['flavor'] ??
+            details['flavorName'] ??
+            details['flavor'];
+        final flavorName = flavorValue is String && flavorValue.isNotEmpty
+            ? flavorValue
+            : null;
+
+        if (res.statusCode == 401 && !preserveUnauthorizedMessage) {
+          throw ApiException(
+            sessionExpiredMessage,
+            statusCode: 401,
+            code: code,
+          );
+        }
+        if (res.statusCode == 409 &&
+            (code == 'INSUFFICIENT_STOCK' ||
+                serverMessage.contains('INSUFFICIENT_STOCK'))) {
+          final flavor = flavorName ?? 'selected flavor';
+          throw ApiException(
+            'Stock for $flavor just ran out. Please update your cart before checking out.',
+            statusCode: 409,
+            code: 'INSUFFICIENT_STOCK',
+            flavorName: flavorName,
+          );
+        }
+        if (res.statusCode == 403) {
+          throw ApiException(permissionDeniedMessage, statusCode: 403);
+        }
+        if (res.statusCode == 409) {
+          throw ApiException(conflictMessage, statusCode: 409, code: code);
+        }
+        if (res.statusCode == 429) {
+          throw ApiException(rateLimitedMessage, statusCode: 429);
+        }
+        if (res.statusCode == 500 ||
+            res.statusCode == 502 ||
+            res.statusCode == 503) {
+          throw ApiException(unavailableMessage, statusCode: res.statusCode);
+        }
+        throw ApiException(
+          serverMessage,
+          statusCode: res.statusCode,
+          code: code,
+        );
       }
       return res;
     } on TimeoutException {
-      throw ApiException('Timed out reaching CartIQ server at $currentBaseUrl');
-    } on SocketException catch (e) {
-      throw ApiException(
-        'Cannot reach CartIQ server at $currentBaseUrl'
-        ' (${e.message})',
-      );
+      throw ApiException(timeoutMessage);
+    } on SocketException {
+      throw ApiException(noInternetMessage);
+    } on http.ClientException {
+      throw ApiException(noInternetMessage);
     } catch (e) {
       if (e is ApiException) rethrow;
-      throw ApiException('Network error reaching CartIQ server: $e');
+      throw ApiException('Could not complete the request. Please try again.');
     }
   }
 
@@ -209,6 +307,7 @@ class ApiClient {
         headers: _headers(),
         body: jsonEncode({'username': username, 'password': password}),
       ),
+      preserveUnauthorizedMessage: true,
     );
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
@@ -284,10 +383,7 @@ class ApiClient {
       () => _http.post(
         _uri('/auth/my-rfid/claim'),
         headers: _headers(token: token),
-        body: jsonEncode({
-          'locationCode': ?locationCode,
-          'event': ?event,
-        }),
+        body: jsonEncode({'locationCode': ?locationCode, 'event': ?event}),
       ),
     );
     final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -313,10 +409,8 @@ class ApiClient {
   /// Remove this account's own card. Throws when offline.
   Future<Map<String, dynamic>> unbindRfid(String token) async {
     final res = await _send(
-      () => _http.delete(
-        _uri('/auth/my-rfid'),
-        headers: _headers(token: token),
-      ),
+      () =>
+          _http.delete(_uri('/auth/my-rfid'), headers: _headers(token: token)),
     );
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
@@ -345,8 +439,11 @@ class ApiClient {
       () => _http.post(
         _uri('/auth/reset-password'),
         headers: _headers(),
-        body: jsonEncode(
-            {'email': email, 'code': code, 'newPassword': newPassword}),
+        body: jsonEncode({
+          'email': email,
+          'code': code,
+          'newPassword': newPassword,
+        }),
       ),
     );
     return jsonDecode(res.body) as Map<String, dynamic>;

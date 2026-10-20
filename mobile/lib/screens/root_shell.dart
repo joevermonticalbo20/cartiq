@@ -1,8 +1,14 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../services/api_client.dart';
 import '../services/auth_state.dart';
+import '../services/persisted_queue.dart';
 import '../services/rfid_registration.dart';
+import '../services/sync_service.dart';
+import '../state/cart_state.dart';
+import '../utils/app_messenger.dart';
 import '../utils/haptics.dart';
 import '../utils/pin_setup.dart';
 import '../widgets/app_dialog.dart';
@@ -28,6 +34,12 @@ class _RootShellState extends State<RootShell> {
   int _index = 2; // Default is Home (Gitna)
 
   final _receiptsKey = GlobalKey<ReceiptsScreenState>();
+  final _queue = PersistedOfflineQueue.instance;
+  late final SyncService _sync;
+  late final StreamSubscription<int> _queueSubscription;
+  int _queuedOrders = 0;
+  bool _syncListenerAdded = false;
+  SyncResult? _handledSyncResult;
 
   final List<Map<String, dynamic>> _navItems = [
     {
@@ -61,11 +73,149 @@ class _RootShellState extends State<RootShell> {
   @override
   void initState() {
     super.initState();
+    _queueSubscription = _queue.changes.listen((count) {
+      if (mounted) setState(() => _queuedOrders = count);
+    });
+    _readQueueCount();
     // RFID first: clocking in and out needs a card, so it is the more useful of
     // the two prompts. They are separate callbacks rather than one chain so a
     // skipped PIN setup cannot suppress the card prompt (and vice versa).
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybePromptRfid());
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybePromptPin());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_syncListenerAdded) return;
+    _sync = context.read<SyncService>();
+    _sync.addListener(_onSyncChanged);
+    _syncListenerAdded = true;
+  }
+
+  @override
+  void dispose() {
+    _queueSubscription.cancel();
+    if (_syncListenerAdded) _sync.removeListener(_onSyncChanged);
+    super.dispose();
+  }
+
+  Future<void> _readQueueCount() async {
+    final count = await _queue.count;
+    if (mounted) setState(() => _queuedOrders = count);
+  }
+
+  void _onSyncChanged() {
+    if (!mounted) return;
+    setState(() {});
+    final result = _sync.lastResult;
+    if (result == null || identical(result, _handledSyncResult)) return;
+    _handledSyncResult = result;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      for (final dropped in result.dropped) {
+        if (dropped.code == 'INSUFFICIENT_STOCK' && dropped.payload != null) {
+          context.read<CartState>().restoreRejectedOrder(dropped.payload!);
+        }
+      }
+      if (result.authExpired) {
+        AppMessenger.showErrorSnackBar(
+          context: context,
+          error: const ApiException(
+            AuthState.sessionExpiredMessage,
+            statusCode: 401,
+          ),
+        );
+      } else if (result.dropped.any(
+        (record) => record.code == 'INSUFFICIENT_STOCK',
+      )) {
+        final record = result.dropped.firstWhere(
+          (entry) => entry.code == 'INSUFFICIENT_STOCK',
+        );
+        AppMessenger.showRecoverySnackBar(
+          context: context,
+          message: record.reason,
+          actionLabel: 'Review cart',
+          onAction: () => setState(() => _index = 0),
+        );
+      }
+    });
+  }
+
+  Future<void> _retrySync() async {
+    await Haptics.tap();
+    try {
+      final result = await _sync.syncAll();
+      if (!mounted || result.fullySynced || result.dropped.isNotEmpty) return;
+      if (!result.online || result.errorMessage != null) {
+        AppMessenger.showErrorSnackBar(
+          context: context,
+          error: ApiException(
+            result.errorMessage ?? ApiClient.noInternetMessage,
+            statusCode: result.authExpired ? 401 : null,
+          ),
+          onRetry: _retrySync,
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      AppMessenger.showErrorSnackBar(
+        context: context,
+        error: error,
+        onRetry: _retrySync,
+      );
+    }
+  }
+
+  Widget _offlineSyncBanner() {
+    final auth = context.watch<AuthState>();
+    final isOffline = auth.offlineMode || _sync.lastResult?.online == false;
+    final isVisible =
+        _queuedOrders > 0 || auth.offlineMode || _sync.lastResult?.online == false;
+    if (!isVisible) return const SizedBox.shrink();
+
+    final status = _sync.isSyncing
+        ? 'Syncing queued orders'
+        : isOffline
+        ? 'Offline Mode'
+        : 'Orders queued for sync';
+    final details = _queuedOrders == 1
+        ? '1 order queued for sync'
+        : '$_queuedOrders orders queued for sync';
+    return Material(
+      color: isOffline
+          ? AppColors.warn.withValues(alpha: 0.14)
+          : AppColors.primary.withValues(alpha: 0.1),
+      child: InkWell(
+        onTap: _sync.isSyncing ? null : _retrySync,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.space4,
+            vertical: AppSpacing.space2,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                isOffline ? Icons.cloud_off_rounded : Icons.sync_rounded,
+                size: 18,
+                color: isOffline ? AppColors.warn : AppColors.primary,
+              ),
+              const SizedBox(width: AppSpacing.space2),
+              Expanded(
+                child: Text(
+                  '$status • $details${_sync.isSyncing ? '…' : ' — Tap to retry'}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   /// Post-login nudge for a staff member with no card on file. Skipping is
@@ -164,22 +314,29 @@ class _RootShellState extends State<RootShell> {
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
         bottom: false,
-        child: IndexedStack(
-          index: _index,
+        child: Column(
           children: [
-            const PosScreen(),
-            ReceiptsScreen(key: _receiptsKey),
-            HomeScreen(
-              onScanReceipt: () async {
-                await _openScan(context);
-                _receiptsKey.currentState?.reload();
-              },
-              onGoPos: () => setState(() => _index = 0),
-              onGoHistory: () => setState(() => _index = 3),
+            _offlineSyncBanner(),
+            Expanded(
+              child: IndexedStack(
+                index: _index,
+                children: [
+                  const PosScreen(),
+                  ReceiptsScreen(key: _receiptsKey),
+                  HomeScreen(
+                    onScanReceipt: () async {
+                      await _openScan(context);
+                      _receiptsKey.currentState?.reload();
+                    },
+                    onGoPos: () => setState(() => _index = 0),
+                    onGoHistory: () => setState(() => _index = 3),
+                  ),
+                  HistoryScreen(onNewSale: () => setState(() => _index = 0)),
+                  const SettingsScreen(),
+                  const LiveStockScreen(),
+                ],
+              ),
             ),
-            HistoryScreen(onNewSale: () => setState(() => _index = 0)),
-            const SettingsScreen(),
-            const LiveStockScreen(),
           ],
         ),
       ),

@@ -13,11 +13,15 @@ class DroppedRecord {
   final String id;
   final String kind;
   final String reason;
+  final String? code;
+  final Map<String, dynamic>? payload;
 
   const DroppedRecord({
     required this.id,
     required this.kind,
     required this.reason,
+    this.code,
+    this.payload,
   });
 }
 
@@ -30,6 +34,7 @@ class SyncResult {
   /// True when the drain stopped because the session could not be
   /// refreshed — the user must log in again (records stay queued).
   final bool authExpired;
+  final String? errorMessage;
 
   const SyncResult({
     required this.online,
@@ -37,6 +42,7 @@ class SyncResult {
     required this.remaining,
     this.dropped = const [],
     this.authExpired = false,
+    this.errorMessage,
   });
 
   bool get allDone => online && remaining == 0;
@@ -46,8 +52,10 @@ class SyncResult {
   bool get fullySynced => allDone && dropped.isEmpty;
 
   String get message {
-    if (!online) return 'Offline - records saved on this device';
-    if (authExpired) return 'Session expired — please log in again';
+    if (!online) return ApiClient.noInternetMessage;
+    if (authExpired) return ApiClient.sessionExpiredMessage;
+    final stockFailure = dropped.where((d) => d.code == 'INSUFFICIENT_STOCK');
+    if (stockFailure.isNotEmpty) return stockFailure.first.reason;
     if (dropped.isNotEmpty) {
       final reasons = dropped.map((d) => d.reason).toSet().join(', ');
       if (remaining == 0 && synced == 0) {
@@ -55,7 +63,10 @@ class SyncResult {
       }
       return 'Synced $synced record(s), ${dropped.length} could not be sent ($reasons)';
     }
-    if (synced == 0 && remaining > 0) return 'Server reachable but sync failed';
+    if (errorMessage != null) return errorMessage!;
+    if (synced == 0 && remaining > 0) {
+      return 'Unable to sync queued orders. Please try again.';
+    }
     return 'Synced $synced record(s)';
   }
 }
@@ -79,6 +90,7 @@ class SyncService extends ChangeNotifier {
   bool _running = false;
   bool _appResumed = true;
   bool get isSyncing => _running;
+  SyncResult? lastResult;
 
   /// Bumped on logout. An in-flight drain checks it before every upload and
   /// stops instead of sending another request with stale credentials.
@@ -99,6 +111,7 @@ class SyncService extends ChangeNotifier {
     notifyListeners();
     try {
       final result = await _doSync();
+      lastResult = result;
       if (result.synced > 0) dataRefresh?.bump('sale');
       return result;
     } finally {
@@ -123,6 +136,7 @@ class SyncService extends ChangeNotifier {
     var synced = 0;
     var activeToken = startToken;
     var authExpired = false;
+    String? errorMessage;
     final dropped = <DroppedRecord>[];
     final gen = _generation;
     for (final record in await queue.pending()) {
@@ -172,11 +186,13 @@ class SyncService extends ChangeNotifier {
           // queue behind an expired session.
           if (!await auth.refreshSession()) {
             authExpired = true;
+            errorMessage = ApiClient.sessionExpiredMessage;
             break;
           }
           final fresh = auth.token;
           if (fresh == null) {
             authExpired = true;
+            errorMessage = ApiClient.sessionExpiredMessage;
             break;
           }
           activeToken = fresh;
@@ -184,12 +200,46 @@ class SyncService extends ChangeNotifier {
             await api.submitOrder(record.payload, activeToken);
             await queue.remove(record.id);
             synced++;
-          } catch (_) {
+          } catch (retryError) {
+            if (retryError is ApiException && retryError.statusCode == 401) {
+              authExpired = true;
+              errorMessage = ApiClient.sessionExpiredMessage;
+            } else if (retryError is ApiException &&
+                retryError.statusCode == 409 &&
+                retryError.code == 'INSUFFICIENT_STOCK') {
+              await queue.remove(record.id);
+              dropped.add(
+                DroppedRecord(
+                  id: record.id,
+                  kind: record.kind,
+                  reason: retryError.message,
+                  code: retryError.code,
+                  payload: record.payload,
+                ),
+              );
+              dataRefresh?.bump('inventory');
+            } else if (retryError is ApiException) {
+              errorMessage = retryError.message;
+            }
             break; // still failing after refresh: stop this round
           }
           continue;
         }
         if (e.statusCode == 409) {
+          if (e.code == 'INSUFFICIENT_STOCK') {
+            await queue.remove(record.id);
+            dropped.add(
+              DroppedRecord(
+                id: record.id,
+                kind: record.kind,
+                reason: e.message,
+                code: e.code,
+                payload: record.payload,
+              ),
+            );
+            dataRefresh?.bump('inventory');
+            continue;
+          }
           // Idempotent replay: the server already has this order, so it
           // counts as synced, not dropped.
           await queue.remove(record.id);
@@ -199,6 +249,7 @@ class SyncService extends ChangeNotifier {
         if (e.statusCode == null ||
             e.statusCode == 429 ||
             e.statusCode! >= 500) {
+          errorMessage = e.message;
           break; // retryable: network/timeout/rate-limit/5xx stays queued
         }
         // Any other 4xx slipped past pre-validation: drop with its status
@@ -222,6 +273,7 @@ class SyncService extends ChangeNotifier {
       remaining: await queue.count,
       dropped: dropped,
       authExpired: authExpired,
+      errorMessage: errorMessage,
     );
   }
 
