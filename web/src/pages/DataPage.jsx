@@ -254,6 +254,9 @@ function escapeXml(str) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;")
+    // Deliberate: strips control characters so an exported spreadsheet cell
+    // cannot carry a raw byte that would corrupt the file.
+    // eslint-disable-next-line no-control-regex
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
 }
 

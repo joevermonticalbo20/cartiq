@@ -1201,6 +1201,26 @@ export default function ProductsPage() {
           </div>
         )}
 
+        {/* ARCHIVE / RESTORE CONFIRMATION */}
+        <ConfirmDialog
+          open={Boolean(archiving)}
+          title={
+            archiving?.toActive ? "Restore product?" : "Archive product?"
+          }
+          message={
+            archiving
+              ? archiving.toActive
+                ? `"${archiving.product.name}" will show up in the POS catalog again. Its history is untouched.`
+                : `"${archiving.product.name}" will be hidden from the POS catalog. Sales history and reports are kept.`
+              : ""
+          }
+          confirmLabel={archiving?.toActive ? "Restore Product" : "Archive Product"}
+          pending={isArchiving}
+          pendingLabel={archiving?.toActive ? "Restoring..." : "Archiving..."}
+          onConfirm={handleArchiveToggle}
+          onCancel={() => setArchiving(null)}
+        />
+
         {/* DELETE PRODUCT CONFIRMATION */}
         <ConfirmDialog
           open={Boolean(deleting)}

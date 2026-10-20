@@ -153,23 +153,26 @@ router.post("/inventory/restock-request", requireAuth, async (req, res, next) =>
     const active = [];
     for (const item of candidates) {
       const key = restockRequestKey(location.id, item.id);
+      // ONE query, reused for both decisions: "should a new request be opened?"
+      // and "which existing request is still active?". This used to run the
+      // same query twice - once inside the helper and once again right after -
+      // which doubled the reads on a route the POS app calls often.
+      let existing = [];
       const shouldCreate = await shouldCreateRestockRequest({
         locationId: location.id,
         inventoryItemId: item.id,
         known,
-        lookup: (restockKey) => prisma.alert.findMany({
-          where: { restockKey },
-          take: 10,
-          nocache: true,
-        }),
+        lookup: async (restockKey) => {
+          existing = await prisma.alert.findMany({
+            where: { restockKey },
+            orderBy: { createdAt: "desc" },
+            take: 10,
+            nocache: true,
+          });
+          return existing;
+        },
       });
       if (!shouldCreate) {
-        const existing = await prisma.alert.findMany({
-          where: { restockKey: key },
-          orderBy: { createdAt: "desc" },
-          take: 10,
-          nocache: true,
-        });
         active.push(existing.find((request) =>
           request.status === "pending" || request.status === "acknowledged",
         ));

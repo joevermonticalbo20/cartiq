@@ -16,7 +16,6 @@ import {
   RefreshCw,
   ShoppingBag,
   TrendingUp,
-  Users,
   X,
 } from "lucide-react";
 import api from "../api.js";
@@ -67,7 +66,11 @@ export default function DashboardPage() {
   const [inventory, setInventory] = useState([]);
   const [onShift, setOnShift] = useState([]);
   const [latestSales, setLatestSales] = useState([]);
-  const [alerts, setAlerts] = useState([]);
+    // The alerts ARRAY is never rendered - the Stock alerts panel reads live
+  // inventory status instead. The state is kept only so the alert:new live
+  // event has somewhere to land; the fetch itself still matters, because a
+  // failure there is reported in the refresh banner.
+  const [, setAlerts] = useState([]);
   const [trends, setTrends] = useState(null);
   const [prev, setPrev] = useState(null);
 
@@ -167,14 +170,12 @@ export default function DashboardPage() {
   const safeInventory = Array.isArray(inventory) ? inventory : [];
   const safeOnShift = Array.isArray(onShift) ? onShift : [];
   const safeLatestSales = Array.isArray(latestSales) ? latestSales : [];
-  const safeAlerts = Array.isArray(alerts) ? alerts : [];
 
   const activeInventory = cartFilter ? safeInventory.filter((l) => l.code === cartFilter) : safeInventory;
   const activeOnShift = cartFilter ? safeOnShift.filter((s) => s.location_code === cartFilter) : safeOnShift;
 
   const lowCount = activeInventory.reduce((sum, loc) => sum + (loc.items ?? []).filter((i) => i.status !== "ok").length, 0);
   const criticalCount = activeInventory.reduce((sum, loc) => sum + (loc.items ?? []).filter((i) => i.status === "critical").length, 0);
-  const lowStockAlerts = safeAlerts.filter((a) => a.type === "LOW_STOCK");
 
   const todaySales = report?.total_sales ?? 0;
   const todayOrders = report?.orders ?? 0;
@@ -339,7 +340,7 @@ export default function DashboardPage() {
               </div>
               <div className="kpi-card-body">
                 <div>
-                  <div className="kpi-card-value">{report ? <>P{Number(todaySales).toLocaleString()}</> : " "}</div>
+                  <div className="kpi-card-value">{report ? <>P{Number(todaySales).toLocaleString()}</> : "—"}</div>
                   <div className="kpi-card-sub">{report ? `${todayOrders} orders - avg P${avgTicket.toFixed(0)} ticket` : "Sales unavailable"}</div>
                 </div>
                 <span className="kpi-card-trend"><TrendArrow dir={salesDir} /> {labelOf(salesDelta)}</span>
@@ -353,7 +354,7 @@ export default function DashboardPage() {
               </div>
               <div className="kpi-card-body">
                 <div>
-                  <div className="kpi-card-value">{report ? todayOrders : " "}</div>
+                  <div className="kpi-card-value">{report ? todayOrders : "—"}</div>
                   <div className="kpi-card-sub">Across {activeInventory.length} active carts</div>
                 </div>
                 <span className={`kpi-card-trend ${ordersDir}`}><TrendArrow dir={ordersDir} /> {labelOf(ordersDelta)}</span>
@@ -365,7 +366,7 @@ export default function DashboardPage() {
                 <span className="kpi-card-label">Avg ticket</span>
                 <span className="kpi-card-icon"><ReceiptText size={20} /></span>
               </div>
-              <div className="kpi-card-value">P{avgTicket.toFixed(0)}</div>
+              <div className="kpi-card-value">{report ? <>P{avgTicket.toFixed(0)}</> : "—"}</div>
               <div className="kpi-card-sub">Per order {dateFilter ? "selected" : "today"}</div>
             </div>
 
@@ -375,7 +376,7 @@ export default function DashboardPage() {
                 <span className="kpi-card-icon"><BarChart2 size={20} /></span>
               </div>
               <div className="kpi-card-value" style={{ fontSize: "var(--fs-lg)", fontWeight: "var(--fw-extrabold)" }}>
-                {topItem ? (topItem.flavor ?? topItem.name) : "-"}
+                {topItem ? (topItem.flavor ?? topItem.name) : "—"}
               </div>
               <div className="kpi-card-sub">{topItem ? `${topItem.qty ?? 0} sold (7d)` : "No data yet"}</div>
             </div>

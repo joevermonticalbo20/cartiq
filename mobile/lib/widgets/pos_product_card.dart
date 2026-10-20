@@ -50,6 +50,11 @@ class PosProductCard extends StatelessWidget {
               )
         : product['availableServings'] as num?;
 
+    // True when a status badge takes a row of the card's fixed height.
+    final hasStatusBadge =
+        unavailable ||
+        (availableServings != null && availableServings > 0 && availableServings <= 10);
+
     return Opacity(
       opacity: unavailable ? 0.48 : 1,
       child: Container(
@@ -131,14 +136,25 @@ class PosProductCard extends StatelessWidget {
                   ],
 
                   // PRODUCT NAME
-                  Text(
-                    product['name'] as String,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      height: 1.1,
+                  //
+                  // A status badge costs vertical room the fixed-height grid
+                  // cell does not have: with a two-line name the column
+                  // overflowed its box by 17px, which Flutter reports as a
+                  // RenderFlex overflow and which shows up as clipped content
+                  // on a real device. One line while a badge is showing keeps
+                  // the card inside its cell; without a badge there is room for
+                  // two.
+                  Flexible(
+                    fit: FlexFit.loose,
+                    child: Text(
+                      product['name'] as String,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        height: 1.1,
+                      ),
+                      maxLines: hasStatusBadge ? 1 : 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: AppSpacing.space2),
 

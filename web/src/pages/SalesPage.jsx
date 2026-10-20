@@ -66,7 +66,7 @@ export default function SalesPage() {
       
       const res = await api.get(`/reports/daily${qs}`);
       setTotalIncome(res.data?.total_sales ?? 0);
-    } catch (err) {
+    } catch  {
       setTotalIncome(null);
     }
   }, [loc, date]);

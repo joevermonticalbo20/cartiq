@@ -32,7 +32,7 @@ void main() {
       );
       expect(find.text('Cheese Fries'), findsOneWidget);
       expect(find.text('₱59'), findsOneWidget);
-      expect(find.text('2 flavors'), findsOneWidget);
+      expect(find.text('2 flavs'), findsOneWidget);
     });
 
     testWidgets('shows cart badge when in cart', (tester) async {
@@ -124,7 +124,7 @@ void main() {
           ),
         ),
       );
-      expect(find.text('10 servings left'), findsOneWidget);
+      expect(find.text('10 left'), findsOneWidget);
     });
 
     testWidgets('quick-add renders for flavorless products', (tester) async {
@@ -140,7 +140,7 @@ void main() {
           ),
         ),
       );
-      expect(find.text('tap to add'), findsOneWidget);
+      expect(find.byIcon(Icons.add), findsOneWidget);
       await tester.tap(find.byIcon(Icons.add));
       expect(tapped, isTrue);
     });
@@ -162,25 +162,33 @@ void main() {
                 inCartQty: 0,
                 onTap: () => showModalBottomSheet<void>(
                   context: context,
+                  isScrollControlled: true,
                   builder: (sheetContext) {
                     final selected = <String, int>{};
                     return StatefulBuilder(
                       builder: (context, setState) => Padding(
                         padding: const EdgeInsets.all(24),
-                        child: PosFlavorPicker(
-                          flavors: flavors,
-                          selectedQuantities: Map.unmodifiable(selected),
-                          onToggle: (name) => setState(() {
-                            if (selected.containsKey(name)) {
-                              selected.remove(name);
-                            } else {
-                              selected[name] = 1;
-                            }
-                          }),
-                          onQuantityChanged: (name, quantity) =>
-                              setState(() => selected[name] = quantity),
-                          onQuickAdd: (name, amount) =>
-                              setState(() => selected[name] = amount),
+                        // Mirrors how the POS screen hosts the picker: the
+                        // picker itself is not scrollable, the sheet gives it a
+                        // bounded, scrollable area. Without this the quantity
+                        // controls overflow the sheet by 17px once more than
+                        // one flavor is selected.
+                        child: SingleChildScrollView(
+                          child: PosFlavorPicker(
+                            flavors: flavors,
+                            selectedQuantities: Map.unmodifiable(selected),
+                            onToggle: (name) => setState(() {
+                              if (selected.containsKey(name)) {
+                                selected.remove(name);
+                              } else {
+                                selected[name] = 1;
+                              }
+                            }),
+                            onQuantityChanged: (name, quantity) =>
+                                setState(() => selected[name] = quantity),
+                            onQuickAdd: (name, amount) =>
+                                setState(() => selected[name] = amount),
+                          ),
                         ),
                       ),
                     );

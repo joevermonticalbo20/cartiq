@@ -172,7 +172,11 @@ export default function AnalyticsPage() {
       });
 
     return () => { alive = false; };
-  }, [range, cartCode, reload, isOwner]);
+    // startDate/endDate are state, and the request above is built from them.
+    // Without them in the deps, changing the custom date range left the page
+    // showing the previous range's numbers until something else forced a
+    // reload.
+  }, [range, cartCode, reload, isOwner, startDate, endDate]);
 
   const revenueTrend = useMemo(() => {
     if (!trends || !prevTrends || prevTrends.total_sales <= 0) return null;
