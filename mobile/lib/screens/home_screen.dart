@@ -22,11 +22,13 @@ class HomeScreen extends StatefulWidget {
     required this.onScanReceipt,
     required this.onGoPos,
     required this.onGoHistory,
+    required this.onGoLiveStock, // BAGONG CALLBACK PARA SA LIVE STOCK
   });
 
   final VoidCallback onScanReceipt;
   final VoidCallback onGoPos;
   final VoidCallback onGoHistory;
+  final VoidCallback onGoLiveStock;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -37,7 +39,6 @@ class _HomeScreenState extends State<HomeScreen> {
   double _todaySales = 0;
   int _todayOrders = 0;
   int _queueCount = 0;
-
   List<Map<String, dynamic>> _lowItems = const [];
   List<Map<String, dynamic>> _onShift = const [];
   List<Map<String, dynamic>> _recentOrders = const [];
@@ -50,8 +51,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Today's totals must move the moment a sale is recorded or voided on
-    // another tab - this screen stays mounted inside the IndexedStack.
     final bus = context.read<DataRefresh?>();
     if (bus != null && !identical(bus, _bus)) {
       _bus?.removeListener(_onDataChanged);
@@ -131,6 +130,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       if (!mounted) return;
+
       setState(() {
         _todaySales = ((report?['total_sales'] ?? 0) as num).toDouble();
         _todayOrders = (report?['orders'] ?? 0) as int;
@@ -149,7 +149,6 @@ class _HomeScreenState extends State<HomeScreen> {
         const SnackBar(content: Text('Offline - showing cached info')),
       );
     }
-
     final count = await _queue.count;
     if (mounted) setState(() => _queueCount = count);
   }
@@ -209,6 +208,35 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
+              // BAGONG SYNC STATUS BUTTON SA HEADER
+              Consumer<SyncService>(
+                builder: (context, sync, _) {
+                  final syncing = sync.isSyncing;
+                  return Badge(
+                    isLabelVisible: _queueCount > 0,
+                    label: Text('$_queueCount'),
+                    backgroundColor: AppColors.warn,
+                    offset: const Offset(-2, 2),
+                    child: _GlassIconButton(
+                      tooltip: syncing
+                          ? 'Syncing...'
+                          : (_queueCount > 0
+                                ? 'Pending sync'
+                                : 'Everything synced'),
+                      icon: syncing
+                          ? Icons.cloud_sync_rounded
+                          : (_queueCount > 0
+                                ? Icons.cloud_upload_rounded
+                                : Icons.cloud_done_rounded),
+                      color: _queueCount > 0
+                          ? AppColors.warn
+                          : AppColors.primary,
+                      onTap: _manualSync,
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(width: AppSpacing.space2),
               // GLASSMORPHISM LOG OUT BUTTON
               _GlassIconButton(
                 tooltip: 'Log out',
@@ -407,70 +435,6 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: AppSpacing.space4),
           ],
 
-          // ---------- sync status ----------
-          Consumer<SyncService>(
-            builder: (context, sync, _) {
-              final syncing = sync.isSyncing;
-              return Container(
-                clipBehavior: Clip.antiAlias,
-                decoration: BoxDecoration(
-                  color: surfaceColor,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: AppShadow.sm(),
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 4,
-                    ),
-                    leading: Badge(
-                      isLabelVisible: _queueCount > 0,
-                      label: Text('$_queueCount'),
-                      backgroundColor: AppColors.warn,
-                      child: CircleAvatar(
-                        radius: 19,
-                        backgroundColor: Theme.of(
-                          context,
-                        ).colorScheme.surfaceContainerHighest,
-                        child: syncing
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : Icon(
-                                Icons.cloud_sync_rounded,
-                                size: 20,
-                                color: _queueCount > 0 ? AppColors.warn : null,
-                              ),
-                      ),
-                    ),
-                    title: Text(
-                      syncing
-                          ? 'Syncing...'
-                          : _queueCount > 0
-                          ? '$_queueCount sale${_queueCount != 1 ? 's' : ''} waiting to sync'
-                          : 'Everything synced',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    subtitle: Text(
-                      _queueCount > 0
-                          ? 'Uploads automatically when online'
-                          : 'Offline records upload when online',
-                    ),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: _manualSync,
-                  ),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: AppSpacing.space4),
-
           // ---------- stock alerts ----------
           Container(
             decoration: BoxDecoration(
@@ -482,15 +446,30 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // BAGONG STOCK ALERTS HEADER NA MAY 'VIEW ALL STOCK'
                 _SectionHeader(
                   title: 'Stock alerts',
-                  trailing: _lowItems.isNotEmpty
-                      ? AppBadge(
-                          label:
-                              '${_lowItems.length} ITEM${_lowItems.length != 1 ? 'S' : ''}',
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_lowItems.isNotEmpty) ...[
+                        AppBadge(
+                          label: '${_lowItems.length} LOW',
                           variant: AppBadgeVariant.danger,
-                        )
-                      : null,
+                        ),
+                        const SizedBox(width: AppSpacing.space2),
+                      ],
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: widget.onGoLiveStock,
+                        child: const Text('View all'),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 8),
                 if (_loading)
@@ -520,7 +499,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ..._lowItems.map((item) {
                     final critical = item['status'] == 'critical';
                     final c = critical ? AppColors.danger : AppColors.warn;
-
                     return ListTile(
                       contentPadding: EdgeInsets.zero,
                       dense: true,
@@ -789,7 +767,6 @@ class _WeeklyTrendPanel extends StatelessWidget {
     if (weekSales.isEmpty || weekSales.length < 2) {
       return const SizedBox.shrink();
     }
-
     final maxVal = weekSales.reduce(max);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -886,7 +863,6 @@ class _WeeklyTrendPanel extends StatelessWidget {
 // ---------- section header ----------
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({required this.title, this.trailing});
-
   final String title;
   final Widget? trailing;
 
@@ -899,7 +875,6 @@ class _SectionHeader extends StatelessWidget {
 // ---------- staff chip ----------
 class _StaffChip extends StatelessWidget {
   const _StaffChip({required this.name, required this.location});
-
   final String name;
   final String location;
 
@@ -951,7 +926,6 @@ class _StaffChip extends StatelessWidget {
 // ---------- recent order tile ----------
 class _RecentOrderTile extends StatelessWidget {
   const _RecentOrderTile({required this.order});
-
   final Map<String, dynamic> order;
 
   @override
@@ -1089,7 +1063,7 @@ class _QuickAction extends StatelessWidget {
   }
 }
 
-// ---------- NEW: GLASSMORPHISM LOG OUT BUTTON ----------
+// ---------- GLASSMORPHISM LOG OUT BUTTON ----------
 class _GlassIconButton extends StatelessWidget {
   const _GlassIconButton({
     required this.icon,
@@ -1114,7 +1088,6 @@ class _GlassIconButton extends StatelessWidget {
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              // DITO ANG FIX: Ginawang tinted (pula) ang anino at background para mapansin agad
               color: color.withValues(alpha: 0.15),
               blurRadius: 24,
               offset: const Offset(0, 8),
@@ -1128,7 +1101,6 @@ class _GlassIconButton extends StatelessWidget {
             child: Container(
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                // DITO ANG FIX: Naka-base sa 'danger' color (pula) na may low opacity imbes na transparent
                 color: color.withValues(alpha: 0.12),
                 border: Border.all(
                   color: Colors.white.withValues(alpha: 0.4),

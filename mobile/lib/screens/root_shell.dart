@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../services/persisted_queue.dart';
@@ -31,7 +32,8 @@ class RootShell extends StatefulWidget {
 }
 
 class _RootShellState extends State<RootShell> {
-  int _index = 2; // Default is Home (Gitna)
+  int _index =
+      2; // Perfectly centered now! (0: POS, 1: Receipts, 2: Home, 3: History, 4: Settings)
 
   final _receiptsKey = GlobalKey<ReceiptsScreenState>();
   final _queue = PersistedOfflineQueue.instance;
@@ -41,6 +43,7 @@ class _RootShellState extends State<RootShell> {
   bool _syncListenerAdded = false;
   SyncResult? _handledSyncResult;
 
+  // TINANGGAL NA ANG LIVE STOCK DITO
   final List<Map<String, dynamic>> _navItems = [
     {
       'label': 'POS',
@@ -63,11 +66,6 @@ class _RootShellState extends State<RootShell> {
       'icon': Icons.settings_outlined,
       'activeIcon': Icons.settings,
     },
-    {
-      'label': 'Live Stock',
-      'icon': Icons.inventory_2_outlined,
-      'activeIcon': Icons.inventory_2,
-    },
   ];
 
   @override
@@ -77,9 +75,6 @@ class _RootShellState extends State<RootShell> {
       if (mounted) setState(() => _queuedOrders = count);
     });
     _readQueueCount();
-    // RFID first: clocking in and out needs a card, so it is the more useful of
-    // the two prompts. They are separate callbacks rather than one chain so a
-    // skipped PIN setup cannot suppress the card prompt (and vice versa).
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybePromptRfid());
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybePromptPin());
   }
@@ -171,7 +166,9 @@ class _RootShellState extends State<RootShell> {
     final auth = context.watch<AuthState>();
     final isOffline = auth.offlineMode || _sync.lastResult?.online == false;
     final isVisible =
-        _queuedOrders > 0 || auth.offlineMode || _sync.lastResult?.online == false;
+        _queuedOrders > 0 ||
+        auth.offlineMode ||
+        _sync.lastResult?.online == false;
     if (!isVisible) return const SizedBox.shrink();
 
     final status = _sync.isSyncing
@@ -206,9 +203,9 @@ class _RootShellState extends State<RootShell> {
                   '$status • $details${_sync.isSyncing ? '…' : ' — Tap to retry'}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
                 ),
               ),
             ],
@@ -218,15 +215,11 @@ class _RootShellState extends State<RootShell> {
     );
   }
 
-  /// Post-login nudge for a staff member with no card on file. Skipping is
-  /// silent by design: Settings > Session always offers it again.
   Future<void> _maybePromptRfid() async {
     if (!mounted) return;
     final auth = context.read<AuthState>();
     if (!await auth.needsRfidPrompt()) return;
 
-    // Marked as offered before showing, not after: a skip must not nag on every
-    // cold start.
     await auth.markRfidPromptShown();
     if (!mounted) return;
 
@@ -248,8 +241,6 @@ class _RootShellState extends State<RootShell> {
     );
     if (!mounted || result == null) return;
 
-    // A success already folded the new UID into auth.user; the others report
-    // why nothing was saved.
     final isSuccess = result is RfidBound;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -330,10 +321,18 @@ class _RootShellState extends State<RootShell> {
                     },
                     onGoPos: () => setState(() => _index = 0),
                     onGoHistory: () => setState(() => _index = 3),
+                    // BAGONG CALLBACK: Gumagamit ng Navigator push para sa Live Stock screen
+                    onGoLiveStock: () {
+                      Navigator.of(context, rootNavigator: true).push(
+                        MaterialPageRoute(
+                          builder: (_) => const LiveStockScreen(),
+                        ),
+                      );
+                    },
                   ),
                   HistoryScreen(onNewSale: () => setState(() => _index = 0)),
                   const SettingsScreen(),
-                  const LiveStockScreen(),
+                  // TINANGGAL NA ANG LIVE STOCK SCREEN DITO SA INDEXED STACK
                 ],
               ),
             ),
@@ -377,15 +376,15 @@ class _RootShellState extends State<RootShell> {
                         width: 1.2,
                       ),
                     ),
-                    // MAGIC: Gumamit tayo ng LayoutBuilder para malaman ang lapad ng screen
                     child: LayoutBuilder(
                       builder: (context, constraints) {
+                        // Dynamically computes perfectly for the 5 items left
                         final itemWidth =
                             constraints.maxWidth / _navItems.length;
-                        final pillWidth =
-                            (itemWidth - 4).clamp(44.0, 56.0).toDouble();
+                        final pillWidth = (itemWidth - 4)
+                            .clamp(44.0, 56.0)
+                            .toDouble();
 
-                        // Kino-compute kung saang eksaktong posisyon mag-i-slide ang pill
                         final leftPosition =
                             (_index * itemWidth) +
                             (itemWidth / 2) -
@@ -393,15 +392,11 @@ class _RootShellState extends State<RootShell> {
 
                         return Stack(
                           children: [
-                            // 1. ANG SLIDING PILL (Nasa ilalim ng icons)
                             AnimatedPositioned(
                               duration: const Duration(milliseconds: 350),
-                              // Eto ang curve para sa stretchy/bouncy slide effect
                               curve: Curves.easeOutBack,
                               left: leftPosition,
-                              top:
-                                  (72 - 48) /
-                                  2, // Centered vertically (72 bar height - 48 pill height)
+                              top: (72 - 48) / 2,
                               child: Container(
                                 width: pillWidth,
                                 height: 48,
@@ -427,7 +422,6 @@ class _RootShellState extends State<RootShell> {
                                     ),
                                   ],
                                 ),
-                                // Fading icon animation habang nag-i-slide ang pill
                                 child: AnimatedSwitcher(
                                   duration: const Duration(milliseconds: 200),
                                   child: Icon(
@@ -439,8 +433,6 @@ class _RootShellState extends State<RootShell> {
                                 ),
                               ),
                             ),
-
-                            // 2. MGA INACTIVE ICONS AT TAP AREAS (Nasa ibabaw)
                             Row(
                               children: List.generate(_navItems.length, (i) {
                                 final isSelected = _index == i;
@@ -455,7 +447,6 @@ class _RootShellState extends State<RootShell> {
                                     behavior: HitTestBehavior.opaque,
                                     child: SizedBox(
                                       height: 72,
-                                      // I-fade out ang inactive icon kapag tumapat na sa kanya ang pill
                                       child: AnimatedOpacity(
                                         duration: const Duration(
                                           milliseconds: 200,

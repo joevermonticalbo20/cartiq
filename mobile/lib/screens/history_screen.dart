@@ -29,19 +29,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
   int _page = 1;
   bool _loading = false;
   bool _done = false;
-
   bool _searching = false;
   String _search = '';
   final _searchCtrl = TextEditingController();
-
   String? _error;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Subscribe once the provider is reachable. All five tabs live in an
-    // IndexedStack, so this screen stays mounted while a sale happens on the
-    // POS - without this it kept showing yesterday until a pull-to-refresh.
     final bus = context.read<DataRefresh?>();
     if (bus != null && !identical(bus, _bus)) {
       _bus?.removeListener(_onDataChanged);
@@ -50,9 +45,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   DataRefresh? _bus;
-
-  /// Monotonic request stamp. A slow response from before a refresh must not
-  /// overwrite fresher rows, so late answers are dropped.
   int _requestSeq = 0;
 
   void _onDataChanged() {
@@ -79,6 +71,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final lq = q.toLowerCase();
     final total = '₱${((order['total'] ?? 0) as num).toStringAsFixed(0)}';
     if (total.toLowerCase().contains(lq)) return true;
+
     final items = (order['items'] as List?) ?? [];
     for (final it in items) {
       if ((it['productName'] as String? ?? '').toLowerCase().contains(lq)) {
@@ -96,7 +89,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final hadRows = _rows.isNotEmpty;
     setState(() => _error = message);
     if (hadRows && mounted) {
-      // INAYOS: Gumamit ng bagong bouncing Glass Toast
       AppMessenger.showGlassToast(
         context: context,
         message: 'Refresh failed: $message',
@@ -108,10 +100,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Future<void> _loadMore({bool reset = false}) async {
     if (_loading || (_done && !reset)) return;
     final seq = ++_requestSeq;
+
     setState(() {
       _loading = true;
       _error = null;
     });
+
     try {
       final auth = context.read<AuthState>();
       final token = auth.token;
@@ -120,15 +114,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
         setState(() => _error = 'Session expired. Please log in again.');
         return;
       }
+
       final data = await auth.api.ordersPaged(
         token,
         page: reset ? 1 : _page,
         locationCode: auth.locationCode,
       );
+
       final batch = (data['data'] as List).cast<Map<String, dynamic>>();
       if (!mounted) return;
-      // A newer refresh started while this was in flight; its answer wins.
       if (seq != _requestSeq) return;
+
       setState(() {
         if (reset) _rows.clear();
         _rows.addAll(batch);
@@ -150,9 +146,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Future<void> _promptVoidOrder(Map<String, dynamic> order) async {
-    // The route needs the NUMERIC id. `clientRef` is a string and is not
-    // accepted here; the old `?? order['clientRef']` fallback was harmless
-    // only because this value was never actually used.
     final rawId = order['id'];
     if (rawId is! num) {
       AppMessenger.showGlassToast(
@@ -162,6 +155,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       );
       return;
     }
+
     final orderId = rawId.toInt();
     final reasons = [
       'Wrong item punched',
@@ -169,6 +163,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       'Duplicate order',
       'Others',
     ];
+
     final reason = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -178,6 +173,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ),
       builder: (modalContext) => _VoidReasonSheet(reasons: reasons),
     );
+
     if (reason == null) return;
     if (!mounted) return;
 
@@ -196,8 +192,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
     try {
       res = await auth.api.voidOrder(token, orderId, reason: reason);
     } on ApiException catch (e) {
-      // This previously showed "Order voided successfully" without ever
-      // calling the API — a fake success on an action that mutated nothing.
       if (!mounted) return;
       AppMessenger.showGlassToast(
         context: context,
@@ -216,9 +210,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
     if (!mounted) return;
 
-    // The server tells us what it could and could not put back. If a recipe
-    // no longer matches (product/flavour renamed after the sale) nothing is
-    // restored, so say so instead of claiming a clean void.
     final restored = (res['restored'] as List?) ?? [];
     final warnings =
         (res['warnings'] as List?)
@@ -226,6 +217,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             .where((w) => w.isNotEmpty)
             .toList() ??
         const <String>[];
+
     final unrestored = warnings
         .where(
           (w) =>
@@ -234,20 +226,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
         .toList();
 
     final msg = unrestored.isNotEmpty
-        ? 'Voided · ${restored.length} restored · ${unrestored.length} NOT restored'
+        ? 'Voided • ${restored.length} restored • ${unrestored.length} NOT restored'
         : (restored.isEmpty
-              ? 'Voided · no stock needed restoring'
-              : 'Voided · ${restored.length} ingredient${restored.length == 1 ? '' : 's'} restored');
+              ? 'Voided • no stock needed restoring'
+              : 'Voided • ${restored.length} ingredient${restored.length == 1 ? '' : 's'} restored');
 
     AppMessenger.showGlassToast(
       context: context,
       message: msg,
       isSuccess: unrestored.isEmpty,
     );
+
     if (unrestored.isNotEmpty && mounted) {
-      // Surface the detail where it cannot be missed — the operator needs to
-      // recount, and silently lost stock is the bug this whole path exists to
-      // prevent.
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
@@ -274,21 +264,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
       );
     }
 
-    // Reflect the new state locally first so the row turns red immediately,
-    // then reconcile against the server.
     setState(() {
       order['status'] = 'VOID';
       order['voidReason'] = reason;
     });
-    // Home totals and the day header elsewhere need to know the money moved.
-    // Bumped before the await below, and guarded, rather than reading context
-    // after an async gap.
+
     if (mounted) _bus?.bump('void');
     await _loadMore(reset: true);
   }
 
   Future<void> _editPaymentMethod(Map<String, dynamic> order) async {
     final currentMethod = order['paymentMethod'] ?? 'CASH';
+
     final method = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -299,14 +286,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
       builder: (modalContext) =>
           _EditPaymentSheet(initialMethod: currentMethod),
     );
+
     if (method == null) return;
     if (!mounted) return;
 
-    // Same fake-success defect as the void path: this showed "Payment method
-    // updated successfully" without ever issuing a request.
     final rawId = order['id'];
     final auth = context.read<AuthState>();
     final token = auth.token;
+
     if (rawId is! num || token == null) {
       AppMessenger.showGlassToast(
         context: context,
@@ -317,6 +304,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       );
       return;
     }
+
     final chosen = method;
     try {
       await auth.api.updateOrderPayment(token, rawId.toInt(), chosen);
@@ -345,11 +333,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
       isSuccess: true,
     );
     setState(() => order['paymentMethod'] = chosen);
+
     if (mounted) _bus?.bump('payment');
     await _loadMore(reset: true);
   }
 
-  // BAGONG FUNCTION PARA I-VIEW ANG GCASH RECEIPT MULA SA NETWORK
   void _viewNetworkProof(BuildContext context, String? url) {
     if (url == null || url.isEmpty) {
       AppMessenger.showGlassToast(
@@ -429,10 +417,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final total = (order['total'] ?? 0) as num;
     final paymentMethod = order['paymentMethod'] ?? 'CASH';
     final clientRef = order['clientRef'] ?? order['id'] ?? 'N/A';
+
     final dt = ManilaTime.parse(order['createdAt']);
-    final dateStr = dt == null ? 'Unknown' : ManilaTime.formatTime(dt);
-    // Both actions below are rejected by the API on a voided order, so they
-    // are hidden rather than left to fail. A reversed sale is read-only.
+    // DITO GINAMIT ANG formatTime12 PARA SA 12HR FORMAT SA DETAILS
+    final dateStr = dt == null ? 'Unknown' : ManilaTime.formatTime12(dt);
     final isVoided = (order['status'] ?? 'PAID').toString() == 'VOID';
     final voidReason = order['voidReason'];
 
@@ -465,12 +453,40 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: AppSpacing.space2),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Text(
-                  'Order details',
-                  style: Theme.of(context).textTheme.titleLarge,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Order Details',
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -0.5,
+                            ),
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.calendar_today_rounded,
+                            size: 14,
+                            color: AppColors.muted,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            dateStr,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
                 if (isVoided)
                   const AppBadge(
@@ -486,29 +502,50 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
+                        horizontal: 12,
+                        vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.1),
+                        color: paymentMethod == 'GCASH'
+                            ? AppColors.info.withValues(alpha: 0.1)
+                            : AppColors.primary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(AppRadius.pill),
+                        border: Border.all(
+                          color: paymentMethod == 'GCASH'
+                              ? AppColors.info.withValues(alpha: 0.2)
+                              : AppColors.primary.withValues(alpha: 0.2),
+                        ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          Icon(
+                            paymentMethod == 'GCASH'
+                                ? Icons.phone_android_rounded
+                                : Icons.payments_rounded,
+                            size: 14,
+                            color: paymentMethod == 'GCASH'
+                                ? AppColors.info
+                                : AppColors.primary,
+                          ),
+                          const SizedBox(width: 6),
                           Text(
-                            paymentMethod,
-                            style: const TextStyle(
-                              color: AppColors.primary,
+                            paymentMethod == 'GCASH' ? 'GCash' : 'Cash',
+                            style: TextStyle(
+                              color: paymentMethod == 'GCASH'
+                                  ? AppColors.info
+                                  : AppColors.primary,
                               fontWeight: FontWeight.w800,
                               fontSize: 12,
                             ),
                           ),
                           const SizedBox(width: 4),
-                          const Icon(
+                          Icon(
                             Icons.edit,
                             size: 12,
-                            color: AppColors.primary,
+                            color: paymentMethod == 'GCASH'
+                                ? AppColors.info
+                                : AppColors.primary,
                           ),
                         ],
                       ),
@@ -516,74 +553,145 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   ),
               ],
             ),
-            const SizedBox(height: AppSpacing.space2),
-            Text(dateStr, style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(height: AppSpacing.space4),
-            const Divider(height: 1),
-            const SizedBox(height: AppSpacing.space4),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 240),
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: items.length,
-                separatorBuilder: (_, _) =>
-                    const SizedBox(height: AppSpacing.space3),
-                itemBuilder: (context, index) {
-                  final item = items[index];
-                  final name = item['productName'] ?? 'Item';
-                  final flavor = item['flavor'];
-                  final qty = item['qty'] ?? 1;
-                  final unitPrice = (item['unitPrice'] ?? 0) as num;
-                  final lineTotal = qty * unitPrice;
-                  return Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Column(
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.space4),
+              decoration: BoxDecoration(
+                color: Theme.of(context).dividerColor.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(AppRadius.l),
+                border: Border.all(
+                  color: Theme.of(context).dividerColor.withValues(alpha: 0.2),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 240),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: items.length,
+                      separatorBuilder: (_, _) => Padding(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: AppSpacing.space2,
+                        ),
+                        child: Divider(
+                          height: 1,
+                          color: Theme.of(
+                            context,
+                          ).dividerColor.withValues(alpha: 0.2),
+                        ),
+                      ),
+                      itemBuilder: (context, index) {
+                        final item = items[index];
+                        final name = item['productName'] ?? 'Item';
+                        final flavor = item['flavor'];
+                        final qty = item['qty'] ?? 1;
+                        final unitPrice = (item['unitPrice'] ?? 0) as num;
+                        final lineTotal = qty * unitPrice;
+
+                        return Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              '$qty x $name${flavor != null ? ' ($flavor)' : ''}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                '${qty}x',
+                                style: const TextStyle(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    name,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                  if (flavor != null) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      flavor,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                  ],
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '@ ₱${unitPrice.toStringAsFixed(0)}',
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(fontSize: 11),
+                                  ),
+                                ],
                               ),
                             ),
                             Text(
-                              '₱${unitPrice.toStringAsFixed(0)} each',
-                              style: Theme.of(context).textTheme.bodySmall,
+                              '₱${lineTotal.toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 15,
+                              ),
                             ),
                           ],
+                        );
+                      },
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.space3,
+                    ),
+                    child: Divider(
+                      height: 1,
+                      color: Theme.of(
+                        context,
+                      ).dividerColor.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Total Amount',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
                         ),
                       ),
                       Text(
-                        '₱${lineTotal.toStringAsFixed(0)}',
-                        style: const TextStyle(fontWeight: FontWeight.w800),
+                        '₱${total.toStringAsFixed(0)}',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: isVoided
+                              ? AppColors.danger
+                              : AppColors.primary,
+                          decoration: isVoided
+                              ? TextDecoration.lineThrough
+                              : null,
+                          decorationColor: AppColors.danger,
+                        ),
                       ),
                     ],
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: AppSpacing.space4),
-            const Divider(height: 1),
-            const SizedBox(height: AppSpacing.space4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Total Amount',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                Text(
-                  '₱${total.toStringAsFixed(0)}',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: isVoided ? AppColors.danger : AppColors.primary,
-                    fontWeight: FontWeight.w900,
-                    decoration: isVoided ? TextDecoration.lineThrough : null,
-                    decorationColor: AppColors.danger,
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
             if (isVoided) ...[
               const SizedBox(height: AppSpacing.space3),
@@ -600,36 +708,38 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'This sale was voided',
-                      style: TextStyle(
-                        color: AppColors.danger,
-                        fontWeight: FontWeight.w800,
-                      ),
+                    const Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline_rounded,
+                          color: AppColors.danger,
+                          size: 16,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'This sale was voided',
+                          style: TextStyle(
+                            color: AppColors.danger,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
                     ),
                     if (voidReason != null && '$voidReason'.isNotEmpty) ...[
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 4),
                       Text(
                         'Reason: $voidReason',
-                        style: Theme.of(context).textTheme.bodySmall,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.danger,
+                        ),
                       ),
                     ],
                   ],
                 ),
               ),
             ],
-            const SizedBox(height: AppSpacing.space3),
-            Text(
-              'Ref: $clientRef',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(fontSize: 10),
-              overflow: TextOverflow.ellipsis,
-            ),
-
-            // BAGONG BUTTON PARA I-VIEW ANG GCASH RECEIPT KUNG GCASH ANG BINAYAD
             if (paymentMethod == 'GCASH') ...[
-              const SizedBox(height: AppSpacing.space4),
+              const SizedBox(height: AppSpacing.space3),
               FilledButton.tonalIcon(
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(48),
@@ -639,12 +749,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 icon: const Icon(Icons.image_outlined, size: 18),
                 label: const Text('View GCash Receipt'),
                 onPressed: () {
-                  // I-a-assume natin na may 'proofImageUrl' data mula sa API kapag GCash
                   _viewNetworkProof(sheetContext, order['proofImageUrl']);
                 },
               ),
             ],
-
             const SizedBox(height: AppSpacing.space5),
             Row(
               children: [
@@ -654,7 +762,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.danger,
                         side: const BorderSide(color: AppColors.danger),
-                        minimumSize: const Size.fromHeight(48),
+                        minimumSize: const Size.fromHeight(52),
                       ),
                       icon: const Icon(Icons.block_rounded, size: 18),
                       label: const Text('Void Order'),
@@ -668,7 +776,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 Expanded(
                   child: FilledButton(
                     style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
+                      minimumSize: const Size.fromHeight(52),
                     ),
                     onPressed: () => Navigator.pop(sheetContext),
                     child: const Text('Close'),
@@ -676,10 +784,61 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
               ],
             ),
+            const SizedBox(height: AppSpacing.space4),
+            Center(
+              child: Text(
+                'Ref: $clientRef',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontSize: 10,
+                  color: AppColors.muted,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
       ),
     );
+  }
+
+  String _friendlyDate(String key) {
+    if (key == 'unknown') return 'Unknown date';
+    final parts = key.split('/');
+    if (parts.length == 3) {
+      final year = int.tryParse(parts[0]);
+      final month = int.tryParse(parts[1]);
+      final day = int.tryParse(parts[2]);
+      if (year != null && month != null && day != null) {
+        final dt = DateTime(year, month, day);
+        final now = ManilaTime.now();
+        final yesterday = now.subtract(const Duration(days: 1));
+
+        if (dt.year == now.year && dt.month == now.month && dt.day == now.day) {
+          return 'Today';
+        } else if (dt.year == yesterday.year &&
+            dt.month == yesterday.month &&
+            dt.day == yesterday.day) {
+          return 'Yesterday';
+        } else {
+          const months = [
+            'Jan',
+            'Feb',
+            'Mar',
+            'Apr',
+            'May',
+            'Jun',
+            'Jul',
+            'Aug',
+            'Sep',
+            'Oct',
+            'Nov',
+            'Dec',
+          ];
+          return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+        }
+      }
+    }
+    return key;
   }
 
   @override
@@ -687,23 +846,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final filtered = _rows.where((o) => _matches(o, _search)).toList();
     final hasResults = filtered.isNotEmpty;
     final surfaceColor = Theme.of(context).colorScheme.surface;
-
     final topPadding = MediaQuery.of(context).padding.top + 90;
 
     final grouped = <String, List<Map<String, dynamic>>>{};
     for (final o in filtered) {
       final key = ManilaTime.groupKey(o['createdAt']);
-      final label = key == 'unknown' ? 'Unknown date' : key;
-      (grouped[label] ??= []).add(o);
+      (grouped[key] ??= []).add(o);
     }
 
     final rows = <Object>[];
     for (final entry in grouped.entries) {
-      // A voided sale is not money. Summing it into the day's takings was the
-      // bug reported from the field: the total never moved after a void.
-      // Voided rows stay visible (an operator needs the audit trail) but they
-      // do not count toward the figure, and the count excludes them too so the
-      // header and the number cannot disagree.
       final payable = entry.value
           .where((o) => (o['status'] ?? 'PAID').toString() != 'VOID')
           .toList();
@@ -712,7 +864,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
         0,
         (s, o) => s + ((o['total'] ?? 0) as num).toDouble(),
       );
-      rows.add((entry.key, payable.length, dayTotal, voidedCount));
+
+      rows.add((
+        _friendlyDate(entry.key),
+        payable.length,
+        dayTotal,
+        voidedCount,
+      ));
       rows.addAll(entry.value);
     }
 
@@ -814,27 +972,32 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             ),
                           );
                         }
+
                         final row = rows[i];
                         if (row is (String, int, double, int)) {
-                          final (date, count, total, voided) = row;
+                          final (dateLabel, count, total, voided) = row;
                           return Padding(
                             padding: const EdgeInsets.only(
-                              top: AppSpacing.space2,
-                              bottom: AppSpacing.space1,
+                              top: AppSpacing.space3,
+                              bottom: AppSpacing.space2,
                             ),
                             child: SectionHeader(
-                              title: date,
+                              title: dateLabel,
                               eyebrow: voided > 0
-                                  ? '$count sale${count != 1 ? 's' : ''} · $voided voided'
+                                  ? '$count sale${count != 1 ? 's' : ''} • $voided voided'
                                   : '$count sale${count != 1 ? 's' : ''}',
                               trailing: Text(
                                 '₱${total.toStringAsFixed(0)}',
                                 style: Theme.of(context).textTheme.labelSmall
-                                    ?.copyWith(fontWeight: FontWeight.w800),
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 13,
+                                    ),
                               ),
                             ),
                           );
                         }
+
                         final o = row as Map<String, dynamic>;
                         final items = (o['items'] as List)
                             .map(
@@ -842,61 +1005,71 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                   '${it['qty']}x ${it['productName']}${it['flavor'] != null ? ' (${it['flavor']})' : ''}',
                             )
                             .join(', ');
-                        // Voided sales read as voided at a glance: red wash,
-                        // danger border, a struck-through amount and an
-                        // explicit badge. Previously every row looked
-                        // identical with a green payment icon, so a reversed
-                        // sale was indistinguishable from a real one.
+
                         final isVoided =
                             (o['status'] ?? 'PAID').toString() == 'VOID';
+                        final payMethod = o['paymentMethod'] == 'GCASH'
+                            ? 'GCash'
+                            : 'Cash';
+
+                        // DITO GINAMIT ANG ManilaTime.formatClock12 PARA SA 12HR ORAS SA LISTA
+                        final timeStr = o['createdAt'] != null
+                            ? ManilaTime.formatClock12(
+                                ManilaTime.parse(o['createdAt'])!,
+                              )
+                            : '--:--';
+
                         return Container(
                           clipBehavior: Clip.antiAlias,
                           decoration: BoxDecoration(
                             color: isVoided
-                                ? AppColors.danger.withValues(alpha: 0.06)
+                                ? AppColors.danger.withValues(alpha: 0.04)
                                 : surfaceColor,
                             borderRadius: BorderRadius.circular(AppRadius.l),
                             boxShadow: isVoided ? null : AppShadow.sm(),
-                            border: isVoided
-                                ? Border.all(
-                                    color: AppColors.danger.withValues(
-                                      alpha: 0.35,
-                                    ),
-                                  )
-                                : null,
+                            border: Border.all(
+                              color: isVoided
+                                  ? AppColors.danger.withValues(alpha: 0.3)
+                                  : Theme.of(
+                                      context,
+                                    ).dividerColor.withValues(alpha: 0.4),
+                              width: 1,
+                            ),
                           ),
                           child: Material(
                             color: Colors.transparent,
                             child: InkWell(
                               onTap: () => _showOrderDetails(o),
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.space4,
-                                  vertical: AppSpacing.space3,
+                                padding: const EdgeInsets.all(
+                                  AppSpacing.space4,
                                 ),
                                 child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
                                   children: [
                                     Container(
-                                      width: 44,
-                                      height: 44,
+                                      width: 48,
+                                      height: 48,
                                       decoration: BoxDecoration(
                                         color:
                                             (isVoided
                                                     ? AppColors.danger
-                                                    : AppColors.ok)
+                                                    : AppColors.primary)
                                                 .withValues(alpha: 0.1),
                                         borderRadius: BorderRadius.circular(
-                                          AppRadius.s,
+                                          AppRadius.m,
                                         ),
                                       ),
                                       child: Icon(
                                         isVoided
                                             ? Icons.block_rounded
-                                            : Icons.payments_rounded,
-                                        size: 21,
+                                            : (payMethod == 'GCash'
+                                                  ? Icons.phone_android_rounded
+                                                  : Icons.payments_rounded),
+                                        size: 24,
                                         color: isVoided
                                             ? AppColors.danger
-                                            : AppColors.ok,
+                                            : AppColors.primary,
                                       ),
                                     ),
                                     const SizedBox(width: AppSpacing.space3),
@@ -905,28 +1078,38 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
-                                          Row(
+                                          Text(
+                                            items,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 14.5,
+                                              height: 1.2,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Wrap(
+                                            crossAxisAlignment:
+                                                WrapCrossAlignment.center,
+                                            spacing: 6,
                                             children: [
                                               Text(
-                                                '₱${((o['total'] ?? 0) as num).toStringAsFixed(0)}',
+                                                timeStr,
                                                 style: Theme.of(context)
                                                     .textTheme
-                                                    .titleMedium
+                                                    .bodySmall
                                                     ?.copyWith(
                                                       fontWeight:
-                                                          FontWeight.w800,
-                                                      color: isVoided
-                                                          ? AppColors.danger
-                                                          : null,
-                                                      decoration: isVoided
-                                                          ? TextDecoration
-                                                                .lineThrough
-                                                          : null,
-                                                      decorationColor:
-                                                          AppColors.danger,
+                                                          FontWeight.w600,
                                                     ),
                                               ),
-                                              const SizedBox(width: 8),
+                                              Text(
+                                                '•',
+                                                style: Theme.of(
+                                                  context,
+                                                ).textTheme.bodySmall,
+                                              ),
                                               Text(
                                                 '${(o['items'] as List).length} item(s)',
                                                 style: Theme.of(
@@ -934,32 +1117,59 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                                 ).textTheme.bodySmall,
                                               ),
                                               if (isVoided) ...[
-                                                const SizedBox(width: 8),
+                                                const SizedBox(width: 4),
                                                 const AppBadge(
                                                   label: 'VOIDED',
                                                   variant:
                                                       AppBadgeVariant.danger,
-                                                  icon: Icons.block_rounded,
                                                 ),
                                               ],
                                             ],
                                           ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            items,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: Theme.of(
-                                              context,
-                                            ).textTheme.bodySmall,
-                                          ),
                                         ],
                                       ),
                                     ),
-                                    const Icon(
-                                      Icons.chevron_right_rounded,
-                                      size: 20,
-                                      color: Colors.grey,
+                                    const SizedBox(width: AppSpacing.space2),
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          '₱${((o['total'] ?? 0) as num).toStringAsFixed(0)}',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleLarge
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w900,
+                                                color: isVoided
+                                                    ? AppColors.danger
+                                                    : null,
+                                                decoration: isVoided
+                                                    ? TextDecoration.lineThrough
+                                                    : null,
+                                                decorationColor:
+                                                    AppColors.danger,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          payMethod,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w800,
+                                            color: isVoided
+                                                ? AppColors.danger.withValues(
+                                                    alpha: 0.7,
+                                                  )
+                                                : AppColors.primary.withValues(
+                                                    alpha: 0.8,
+                                                  ),
+                                            letterSpacing: 0.5,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),
@@ -971,7 +1181,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     ),
                   ),
           ),
-
           Positioned(
             top: 0,
             left: 0,
@@ -1040,7 +1249,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       ),
                     ),
                     const SizedBox(width: AppSpacing.space2),
-
                     _GlassPillContainer(
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
@@ -1085,9 +1293,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 }
 
-// ---------------------------------------------------------
-// Void Reason Modal
-// ---------------------------------------------------------
 class _VoidReasonSheet extends StatefulWidget {
   const _VoidReasonSheet({required this.reasons});
   final List<String> reasons;
@@ -1254,9 +1459,6 @@ class _VoidReasonSheetState extends State<_VoidReasonSheet> {
                         otherController.text.trim().isEmpty) {
                       return;
                     }
-                    // Return the reason itself, not a bare `true` - the API
-                    // stores voidReason, and an operator reading the audit
-                    // trail later needs to know why the sale was reversed.
                     final text = selectedReason == 'Others'
                         ? otherController.text.trim()
                         : selectedReason;
@@ -1273,9 +1475,6 @@ class _VoidReasonSheetState extends State<_VoidReasonSheet> {
   }
 }
 
-// ---------------------------------------------------------
-// Edit Payment Method Modal (INAYOS: Kopyang-kopya ang GCash layout sa POS)
-// ---------------------------------------------------------
 class _EditPaymentSheet extends StatefulWidget {
   const _EditPaymentSheet({required this.initialMethod});
   final String initialMethod;
@@ -1300,10 +1499,10 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
     currentMethod = widget.initialMethod;
   }
 
-  // Kinuha mula sa pos_screen.dart
   Future<void> _pickGCashProof() async {
     if (_isPickingImage) return;
     setState(() => _isPickingImage = true);
+
     try {
       final picker = ImagePicker();
       final xfile = await picker.pickImage(
@@ -1319,7 +1518,6 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
     }
   }
 
-  // Kinuha mula sa pos_screen.dart
   void _viewGCashProof() {
     if (proofImage == null) return;
     showDialog(
@@ -1434,8 +1632,6 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
             style: Theme.of(context).textTheme.titleSmall,
           ),
           const SizedBox(height: AppSpacing.space2),
-
-          // INAYOS: Parehong Payment Method Chips mula sa POS Screen
           Row(
             children: [
               for (final m in methods) ...[
@@ -1448,15 +1644,6 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
                       Haptics.select();
                       final v = m['key'] as String;
                       setState(() => currentMethod = v);
-                      // No longer auto-opens the proof picker. There is no
-                      // upload endpoint anywhere in the app (no multipart in
-                      // ApiClient), so the picked image was never sent - but
-                      // selecting GCash was BLOCKED on attaching one, so the
-                      // operator filed a receipt that went nowhere and was
-                      // told "Payment method updated successfully". Choosing a
-                      // payment method must not depend on that. TODO: either
-                      // add a receipt-proof upload endpoint or drop the
-                      // attach UI, so nothing implies it was transmitted.
                     },
                   ),
                 ),
@@ -1464,8 +1651,6 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
               ],
             ],
           ),
-
-          // INAYOS: GCash Proof Capture / Retake / View UI
           if (currentMethod == 'GCASH') ...[
             const SizedBox(height: AppSpacing.space4),
             if (proofImage != null)
@@ -1526,7 +1711,6 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
                 ),
               ),
           ],
-
           const SizedBox(height: AppSpacing.space4),
           Row(
             children: [
@@ -1557,7 +1741,6 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
   }
 }
 
-// Lokal na kopya ng Payment Chip (mula pos_screen)
 class _PaymentChip extends StatelessWidget {
   const _PaymentChip({
     required this.label,
@@ -1616,7 +1799,6 @@ class _GlassPillContainer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final surfaceColor = Theme.of(context).colorScheme.surface;
-
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(AppRadius.pill),

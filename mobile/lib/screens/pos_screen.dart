@@ -66,6 +66,7 @@ Future<Map<String, dynamic>> persistCheckout({
 
 class PosScreen extends StatefulWidget {
   const PosScreen({super.key});
+
   @override
   State<PosScreen> createState() => _PosScreenState();
 }
@@ -77,14 +78,17 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   String _categoryFilter = 'All';
   Set<String> _bestSellerNames = {};
   String? _bestSellerError;
+
   Timer? _searchDebounce;
   final _searchController = TextEditingController();
+
   bool _paying = false;
+
   // Guards the explicit header refresh button so a double tap cannot fire
   // two concurrent catalog refetches.
   bool _refreshingCatalog = false;
-  DataRefresh? _dataRefresh;
 
+  DataRefresh? _dataRefresh;
   OfflineQueue get _queue => PersistedOfflineQueue.instance;
 
   @override
@@ -184,6 +188,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     if (token == null) {
       throw ApiException('Session expired. Please log in again.');
     }
+
     try {
       final data = await auth.api.catalog(token, forceRefresh: forceRefresh);
       unawaited(_loadBestSellers(auth, token));
@@ -210,11 +215,13 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
         pageSize: 100,
         locationCode: auth.locationCode,
       );
+
       final unitsByProduct = <String, int>{};
       for (final order in orders.whereType<Map<String, dynamic>>()) {
         if (order['status'] != 'PAID') continue;
         final items = order['items'];
         if (items is! List) continue;
+
         for (final item in items.whereType<Map<String, dynamic>>()) {
           final name = item['productName'];
           final qty = item['qty'];
@@ -223,8 +230,10 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
           }
         }
       }
+
       final ranked = unitsByProduct.entries.toList()
         ..sort((a, b) => b.value.compareTo(a.value));
+
       if (!mounted) return;
       setState(() {
         _bestSellerNames = ranked.take(5).map((entry) => entry.key).toSet();
@@ -247,7 +256,6 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     final cart = context.read<CartState>();
     final price = (product['basePrice'] as num).toDouble();
     final name = product['name'] as String;
-
     cart.add(name, flavor, price, qty: qty);
     Haptics.select();
   }
@@ -259,6 +267,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     if (selection.length < 2 || selection.length > 3) return false;
     final quantities = selection.values.toSet();
     if (quantities.length != 1) return false;
+
     return selection.keys.every(
       (name) => flavors.any((flavor) => flavor['name'] == name),
     );
@@ -276,6 +285,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     if (asMix) {
       if (!_canMixFlavors(selection, flavors)) return;
       final qty = selection.values.first;
+
       final maxQty = selection.keys
           .map((name) {
             final stock = flavors.firstWhere(
@@ -284,6 +294,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
             return stock is num ? stock.toInt() : 100;
           })
           .reduce((a, b) => a < b ? a : b);
+
       cart.addMixed(
         product['name'] as String,
         selection.keys.toList(),
@@ -295,6 +306,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       for (final entry in selection.entries) {
         final flavor = flavors.firstWhere((item) => item['name'] == entry.key);
         final stock = flavor['availableServings'];
+
         cart.add(
           product['name'] as String,
           entry.key,
@@ -323,9 +335,11 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
               .whereType<Map<String, dynamic>>()
               .toList()
         : <Map<String, dynamic>>[];
+
     final available = flavors.isEmpty
         ? _flavorAvailable(product)
         : flavors.any(_flavorAvailable);
+
     return switch (_categoryFilter) {
       'Available Only' => available,
       'Best Sellers' =>
@@ -343,6 +357,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     final flavors = product['flavors'] is List
         ? (product['flavors'] as List).cast<Map<String, dynamic>>()
         : <Map<String, dynamic>>[];
+
     if (flavors.isEmpty) {
       if (!_flavorAvailable(product)) return;
       _addToCart(product);
@@ -355,6 +370,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     }
 
     final selection = <String, int>{};
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -366,12 +382,14 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
         builder: (context, setSheetState) {
           final canMix = _canMixFlavors(selection, flavors);
           final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
           return SafeArea(
             top: false,
             child: Padding(
               padding: EdgeInsets.fromLTRB(
                 AppSpacing.space5,
-                AppSpacing.space2,
+                AppSpacing
+                    .space4, // Tinaasan ang padding para mas maluwag sa drag handle
                 AppSpacing.space5,
                 AppSpacing.space4 + bottomInset,
               ),
@@ -383,27 +401,24 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        margin: const EdgeInsets.symmetric(
-                          vertical: AppSpacing.space2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.3),
-                          borderRadius: BorderRadius.circular(AppRadius.xs),
-                        ),
-                      ),
-                    ),
+                    // INALIS NA NATIN YONG RED LINE DITO
+
+                    // IMPROVED TYPOGRAPHY SA HEADER
                     Text(
                       product['name'] as String,
-                      style: Theme.of(context).textTheme.titleLarge,
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.5,
+                          ),
                     ),
                     const SizedBox(height: AppSpacing.space1),
                     Text(
                       '₱${product['basePrice']} per serving • choose one or more flavors',
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.muted,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                     const SizedBox(height: AppSpacing.space4),
                     Expanded(
@@ -508,14 +523,16 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
     if (cart.isEmpty) return;
     if (_paying) return;
-    _paying = true;
 
+    _paying = true;
     try {
       final cartCode = auth.locationCode;
+
       // Captured before any await so the later bump never touches a context
       // that may have been unmounted mid-checkout.
       final refresh = context.read<DataRefresh?>();
       await Haptics.tap();
+
       if (cartCode == null || cartCode.isEmpty) {
         if (!mounted) return;
         await Haptics.error();
@@ -567,6 +584,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       final stockConflict = result.dropped.any(
         (record) => record.code == 'INSUFFICIENT_STOCK',
       );
+
       if (result.synced == 0 && !stockConflict) refresh?.bump('sale');
 
       if (result.fullySynced) {
@@ -576,14 +594,17 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       } else {
         await Haptics.tap();
       }
+
       if (!mounted) return;
 
       final change = method == PaymentMethod.cash && cashTendered != null
           ? cashTendered - snapshotTotal
           : null;
+
       final paymentDetails =
-          '${method.label} • ₱${snapshotTotal.toStringAsFixed(0)}'
+          '${method.label} ₱${snapshotTotal.toStringAsFixed(0)}'
           '${change == null ? '' : ' • Change ₱${change.toStringAsFixed(0)}'}';
+
       if (result.fullySynced) {
         AppMessenger.showGlassToast(
           context: context,
@@ -695,6 +716,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                               ),
                             )
                           else
+                            // GINAMIT ANG SLIVERGRID PARA MAGING 2x2
                             SliverPadding(
                               padding: const EdgeInsets.fromLTRB(
                                 AppSpacing.space4,
@@ -702,7 +724,14 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                                 AppSpacing.space4,
                                 AppSpacing.space4,
                               ),
-                              sliver: SliverList(
+                              sliver: SliverGrid(
+                                gridDelegate:
+                                    const SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: 2,
+                                      mainAxisSpacing: AppSpacing.space3,
+                                      crossAxisSpacing: AppSpacing.space3,
+                                      childAspectRatio: 0.85,
+                                    ),
                                 delegate: SliverChildBuilderDelegate((
                                   context,
                                   i,
@@ -718,27 +747,22 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                                       )
                                       .fold<int>(0, (s, it) => s + it.qty);
 
-                                  return Padding(
-                                    padding: const EdgeInsets.only(
-                                      bottom: AppSpacing.space3,
-                                    ),
-                                    child: PosProductCard(
-                                      product: product,
-                                      flavorCount: flavorCount,
-                                      inCartQty: inCartQty,
-                                      onTap: () => _openItemSheet(product),
-                                      onQuickAdd: flavorCount == 0
-                                          ? () {
-                                              _addToCart(product);
-                                              AppMessenger.showGlassToast(
-                                                context: context,
-                                                message:
-                                                    'Added: ${product['name']}',
-                                                isSuccess: true,
-                                              );
-                                            }
-                                          : null,
-                                    ),
+                                  return PosProductCard(
+                                    product: product,
+                                    flavorCount: flavorCount,
+                                    inCartQty: inCartQty,
+                                    onTap: () => _openItemSheet(product),
+                                    onQuickAdd: flavorCount == 0
+                                        ? () {
+                                            _addToCart(product);
+                                            AppMessenger.showGlassToast(
+                                              context: context,
+                                              message:
+                                                  'Added: ${product['name']}',
+                                              isSuccess: true,
+                                            );
+                                          }
+                                        : null,
                                   );
                                 }, childCount: products.length),
                               ),
@@ -780,6 +804,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                       ];
                       final filter = filters[index];
                       final selected = _categoryFilter == filter;
+
                       return FilterChip(
                         label: Text(filter),
                         selected: selected,
@@ -801,7 +826,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                   ),
                 ),
 
-                // 2. BAGONG FLOATING GLASS PILL HEADER (KAMUKHA NG HISTORY SCREEN)
+                // 2. BAGONG FLOATING GLASS PILL HEADER
                 Positioned(
                   top: 0,
                   left: 0,
@@ -879,10 +904,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  // Explicit force-refresh: the catalog cache
-                                  // keeps products alive for 15 minutes, so an
-                                  // archive/restored item in the dashboard is
-                                  // invisible until a real refetch happens.
+                                  // Explicit force-refresh
                                   IconButton(
                                     icon: const Icon(
                                       Icons.sync_rounded,
@@ -896,7 +918,10 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                                   ),
                                   if (_searching)
                                     IconButton(
-                                      icon: const Icon(Icons.close_rounded),
+                                      icon: const Icon(
+                                        Icons.close_rounded,
+                                        size: 20,
+                                      ),
                                       tooltip: 'Close search',
                                       onPressed: () {
                                         _searchDebounce?.cancel();
@@ -909,7 +934,10 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                                     )
                                   else
                                     IconButton(
-                                      icon: const Icon(Icons.search_rounded),
+                                      icon: const Icon(
+                                        Icons.search_rounded,
+                                        size: 20,
+                                      ),
                                       tooltip: 'Search product',
                                       onPressed: () =>
                                           setState(() => _searching = true),
@@ -930,7 +958,6 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
           // Cart Bar at the bottom
           PosCartBar(cart: cart, onTap: _openCartSheet),
 
-          // INAYOS NA: Tinaasan pa lalo ang padding (120) para umangat ang Cart Bar at hindi tabunan ng root menu
           const SizedBox(height: 120),
         ],
       ),
@@ -940,6 +967,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
 class _CartSheet extends StatefulWidget {
   const _CartSheet({required this.cart, required this.onPay});
+
   final CartState cart;
   final void Function(PaymentMethod method, double? cashTendered) onPay;
 
@@ -972,6 +1000,7 @@ class _CartSheetState extends State<_CartSheet> {
   Future<void> _pickGCashProof() async {
     if (_isPickingImage) return;
     setState(() => _isPickingImage = true);
+
     try {
       final picker = ImagePicker();
       final xfile = await picker.pickImage(
@@ -1187,64 +1216,59 @@ class _CartSheetState extends State<_CartSheet> {
                                   child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Text(
-                                        item.displayFlavor.isEmpty
-                                            ? item.productName
-                                            : '${item.productName} (${item.displayFlavor})',
+                                        item.productName,
                                         style: const TextStyle(
                                           fontWeight: FontWeight.w700,
+                                          height: 1.1,
                                         ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
                                       ),
-                                      Text(
-                                        '₱${item.unitPrice.toStringAsFixed(0)} each',
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.bodySmall,
-                                      ),
+                                      if (item.displayFlavor.isNotEmpty) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          item.displayFlavor,
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.bodySmall,
+                                        ),
+                                      ],
                                     ],
                                   ),
                                 ),
-                                IconButton(
-                                  icon: Icon(
-                                    item.qty == 1
-                                        ? Icons.delete_outline
-                                        : Icons.remove_circle_outline,
-                                  ),
-                                  color: item.qty == 1
-                                      ? AppColors.danger
-                                      : null,
-                                  tooltip: item.qty == 1
-                                      ? 'Remove item'
-                                      : 'Decrease quantity',
-                                  onPressed: () {
-                                    Haptics.select();
-                                    cart.changeQty(item, -1);
-                                  },
-                                  visualDensity: VisualDensity.compact,
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.add_circle_outline),
-                                  tooltip: 'Increase quantity',
-                                  onPressed: () {
-                                    Haptics.select();
-                                    cart.changeQty(item, 1);
-                                  },
-                                  visualDensity: VisualDensity.compact,
-                                ),
-                                const SizedBox(width: AppSpacing.space2),
-                                SizedBox(
-                                  width: 60,
-                                  child: Text(
-                                    '₱${item.lineTotal.toStringAsFixed(0)}',
-                                    textAlign: TextAlign.end,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      '₱${item.lineTotal.toStringAsFixed(0)}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                      ),
                                     ),
-                                  ),
+                                    Row(
+                                      children: [
+                                        IconButton(
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          onPressed: () {
+                                            Haptics.select();
+                                            cart.changeQty(item, -1);
+                                          },
+                                          icon: const Icon(Icons.remove),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        IconButton(
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          onPressed: () {
+                                            Haptics.select();
+                                            cart.changeQty(item, 1);
+                                          },
+                                          icon: const Icon(Icons.add),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -1253,190 +1277,174 @@ class _CartSheetState extends State<_CartSheet> {
                       },
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.space2),
-                  TextButton.icon(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.add_circle_outline, size: 18),
-                    label: const Text('Add more items'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppColors.primary,
-                      textStyle: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                ],
-              ),
-            if (!cart.isEmpty) ...[
-              const Divider(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Total', style: Theme.of(context).textTheme.titleMedium),
-                  Text(
-                    '₱${cart.total.toStringAsFixed(0)}',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.space4),
-              Text(
-                'Payment method',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: Theme.of(context).textTheme.bodySmall?.color,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.space2),
-              Row(
-                children: [
-                  for (final m in PaymentMethod.values) ...[
-                    Expanded(
-                      child: _PaymentMethodChip(
-                        method: m,
-                        selected: _method == m,
-                        onTap: () async {
-                          Haptics.select();
-                          setState(() {
-                            _method = m;
-                            if (m != PaymentMethod.cash) {
-                              _cashController.clear();
-                            }
-                          });
-                          if (m == PaymentMethod.gcash &&
-                              _gcashProofImage == null) {
-                            await _pickGCashProof();
-                          }
-                        },
-                      ),
-                    ),
-                    if (m != PaymentMethod.values.last)
-                      const SizedBox(width: AppSpacing.space2),
-                  ],
-                ],
-              ),
-              if (_method == PaymentMethod.gcash) ...[
-                const SizedBox(height: AppSpacing.space4),
-                if (_gcashProofImage != null)
+                  const SizedBox(height: AppSpacing.space3),
+                  const Divider(height: 1),
+                  const SizedBox(height: AppSpacing.space3),
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Expanded(
-                        flex: 3,
-                        child: FilledButton.tonalIcon(
-                          onPressed: _viewGCashProof,
-                          icon: const Icon(Icons.visibility_outlined, size: 16),
-                          label: const Text(
-                            'View proof of payment',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppColors.ok.withValues(
-                              alpha: 0.12,
-                            ),
-                            foregroundColor: AppColors.ok,
-                            minimumSize: const Size(0, 52),
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                          ),
-                        ),
+                      Text(
+                        'Total Amount',
+                        style: Theme.of(context).textTheme.titleLarge,
                       ),
-                      const SizedBox(width: AppSpacing.space2),
-                      Expanded(
-                        flex: 2,
-                        child: OutlinedButton.icon(
-                          onPressed: _pickGCashProof,
-                          icon: const Icon(Icons.camera_alt_outlined, size: 16),
-                          label: const Text(
-                            'Retake',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
+                      Text(
+                        '₱${cart.total.toStringAsFixed(0)}',
+                        style: Theme.of(context).textTheme.headlineMedium
+                            ?.copyWith(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w900,
                             ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(0, 52),
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                          ),
-                        ),
                       ),
                     ],
-                  )
-                else
-                  OutlinedButton.icon(
-                    onPressed: _pickGCashProof,
-                    icon: const Icon(Icons.camera_alt_outlined),
-                    label: const Text('Capture Proof of Payment'),
-                    style: OutlinedButton.styleFrom(
+                  ),
+                  const SizedBox(height: AppSpacing.space4),
+                  Row(
+                    children: [
+                      for (final m in PaymentMethod.values) ...[
+                        Expanded(
+                          child: _PaymentChip(
+                            label: m.label,
+                            icon: m.icon,
+                            selected: _method == m,
+                            onTap: () {
+                              Haptics.select();
+                              setState(() => _method = m);
+                            },
+                          ),
+                        ),
+                        if (m != PaymentMethod.values.last)
+                          const SizedBox(width: AppSpacing.space2),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.space4),
+                  if (_method == PaymentMethod.cash) ...[
+                    TextField(
+                      controller: _cashController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      inputFormatters: [MoneyInputFormatter()],
+                      textInputAction: TextInputAction.done,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'Cash Tendered',
+                        prefixIcon: const Icon(Icons.payments_outlined),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.backspace_outlined),
+                          onPressed: () {
+                            Haptics.select();
+                            _cashController.clear();
+                            setState(() {});
+                          },
+                        ),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                      onSubmitted: (_) => _submitIfReady(),
+                    ),
+                    const SizedBox(height: AppSpacing.space3),
+                    PosCashQuickAmounts(
+                      total: cart.total,
+                      onSelect: (v) {
+                        _cashController.text = v == v.truncate()
+                            ? v.toStringAsFixed(0)
+                            : v.toStringAsFixed(2);
+                        setState(() {});
+                      },
+                    ),
+                    const SizedBox(height: AppSpacing.space4),
+                    PosChangeDisplay(total: cart.total, tendered: _tendered),
+                  ] else ...[
+                    if (_gcashProofImage != null)
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: FilledButton.tonalIcon(
+                              onPressed: _viewGCashProof,
+                              icon: const Icon(
+                                Icons.visibility_outlined,
+                                size: 16,
+                              ),
+                              label: const Text(
+                                'View proof',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.ok.withValues(
+                                  alpha: 0.12,
+                                ),
+                                foregroundColor: AppColors.ok,
+                                minimumSize: const Size(0, 52),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.space2),
+                          Expanded(
+                            flex: 2,
+                            child: OutlinedButton.icon(
+                              onPressed: _pickGCashProof,
+                              icon: const Icon(
+                                Icons.camera_alt_outlined,
+                                size: 16,
+                              ),
+                              label: const Text(
+                                'Retake',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size(0, 52),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      OutlinedButton.icon(
+                        onPressed: _pickGCashProof,
+                        icon: const Icon(Icons.camera_alt_outlined),
+                        label: const Text('Capture Proof of Payment'),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(56),
+                        ),
+                      ),
+                  ],
+                  const SizedBox(height: AppSpacing.space4),
+                  FilledButton.icon(
+                    onPressed: _canPay ? _submitIfReady : null,
+                    icon: const Icon(Icons.check_circle_rounded),
+                    label: Text(
+                      _method == PaymentMethod.cash
+                          ? 'Confirm Payment'
+                          : 'Record GCash Payment',
+                    ),
+                    style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(56),
+                      backgroundColor: _canPay
+                          ? AppColors.ok
+                          : Theme.of(context).disabledColor,
                     ),
                   ),
-              ],
-              if (_method == PaymentMethod.cash) ...[
-                const SizedBox(height: AppSpacing.space4),
-                TextField(
-                  controller: _cashController,
-                  autofocus: true,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  textInputAction: TextInputAction.done,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[\d.]')),
-                    MoneyInputFormatter(),
-                  ],
-                  decoration: const InputDecoration(
-                    labelText: 'Cash tendered (PHP)',
-                    prefixText: '₱ ',
-                  ),
-                  onChanged: (_) => setState(() {}),
-                  onSubmitted: (_) => _submitIfReady(),
-                ),
-                const SizedBox(height: AppSpacing.space2),
-                PosCashQuickAmounts(
-                  total: cart.total,
-                  onSelect: (amount) {
-                    _cashController.text = amount.toStringAsFixed(0);
-                    setState(() {});
-                  },
-                ),
-                const SizedBox(height: AppSpacing.space3),
-                PosChangeDisplay(total: cart.total, tendered: _tendered),
-              ],
-              const SizedBox(height: AppSpacing.space4),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(56),
-                ),
-                icon: const Icon(Icons.payments_rounded),
-                label: Text(
-                  _method == PaymentMethod.cash && _tendered > 0
-                      ? 'Record sale • ₱${cart.total.toStringAsFixed(0)}'
-                      : 'Record sale',
-                ),
-                onPressed: !_canPay ? null : _submitIfReady,
+                ],
               ),
-              if (!_canPay) ...[
-                const SizedBox(height: AppSpacing.space2),
-                Text(
-                  'Enter ₱${cart.total.toStringAsFixed(0)} or more to record the sale',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-              const SizedBox(height: AppSpacing.space2),
-              Text(
-                'clientRef • duplicate-safe • replays never double-charge',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
           ],
         ),
       ),
@@ -1444,14 +1452,16 @@ class _CartSheetState extends State<_CartSheet> {
   }
 }
 
-class _PaymentMethodChip extends StatelessWidget {
-  const _PaymentMethodChip({
-    required this.method,
+class _PaymentChip extends StatelessWidget {
+  const _PaymentChip({
+    required this.label,
+    required this.icon,
     required this.selected,
     required this.onTap,
   });
 
-  final PaymentMethod method;
+  final String label;
+  final IconData icon;
   final bool selected;
   final VoidCallback onTap;
 
@@ -1472,13 +1482,13 @@ class _PaymentMethodChip extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
-                method.icon,
+                icon,
                 color: selected ? Colors.white : AppColors.primary,
                 size: 24,
               ),
               const SizedBox(height: AppSpacing.space1),
               Text(
-                method.label,
+                label,
                 style: TextStyle(
                   color: selected ? Colors.white : AppColors.primary,
                   fontWeight: FontWeight.w700,
@@ -1493,15 +1503,13 @@ class _PaymentMethodChip extends StatelessWidget {
   }
 }
 
-// ---------- BAGONG REUSABLE WIDGET PARA SA GLASS PILL ----------
 class _GlassPillContainer extends StatelessWidget {
   const _GlassPillContainer({required this.child});
+
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    final surfaceColor = Theme.of(context).colorScheme.surface;
-
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(AppRadius.pill),
@@ -1519,7 +1527,9 @@ class _GlassPillContainer extends StatelessWidget {
           filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
           child: Container(
             decoration: BoxDecoration(
-              color: surfaceColor.withValues(alpha: 0.25),
+              color: Theme.of(
+                context,
+              ).colorScheme.surface.withValues(alpha: 0.25),
               borderRadius: BorderRadius.circular(AppRadius.pill),
               border: Border.all(
                 color: Colors.white.withValues(alpha: 0.4),

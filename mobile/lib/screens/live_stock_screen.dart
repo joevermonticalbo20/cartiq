@@ -1,5 +1,4 @@
 import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -34,6 +33,7 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
   DateTime? _lastSynced;
   bool _loading = true;
   bool _submittingRequest = false;
+
   late final DataRefresh? _dataRefresh;
 
   @override
@@ -78,7 +78,6 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
       }
       return;
     }
-
     try {
       List<dynamic> data;
       try {
@@ -98,8 +97,8 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
           locationCode: locationCode ?? auth.locationCode,
         );
       }
-
       final locations = data.cast<Map<String, dynamic>>();
+
       List<dynamic> requests = [];
       String? restockError;
       try {
@@ -126,6 +125,7 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
       } catch (error) {
         restockError = 'Unable to load restock request status: $error';
       }
+
       final requestedCode = locationCode ?? auth.locationCode;
       final locationOptions = locationCode != null && _locations.length > 1
           ? _locations
@@ -139,9 +139,11 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
                     )
                 ? _selectedCode
                 : locationOptions.firstOrNull?['code'] as String?);
+
       final location = locations
           .where((item) => item['code'] == selected)
           .firstOrNull;
+
       if (!mounted) return;
       setState(() {
         _locations = locationOptions;
@@ -263,7 +265,6 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
     final note = TextInputRules.sanitize(noteController.text).trim();
     noteController.dispose();
     if (_submittingRequest || !mounted) return;
-
     setState(() => _submittingRequest = true);
     try {
       final auth = context.read<AuthState>();
@@ -318,7 +319,6 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
 
   Widget _locationSelector() {
     if (_locations.length <= 1) return const SizedBox.shrink();
-
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.space2),
       child: DropdownButtonFormField<String>(
@@ -329,7 +329,7 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
               (location) => DropdownMenuItem(
                 value: location['code'] as String,
                 child: Text(
-                  '${location['code']} · ${location['name']}',
+                  '${location['code']}   ${location['name']}',
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -351,14 +351,17 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
       final name = (item['name'] as String? ?? '').toLowerCase();
       return name.contains(_search.trim().toLowerCase());
     }).toList();
+
     final syncedAt = _lastSynced == null
         ? 'Not synced yet'
         : ManilaTime.formatTime12(ManilaTime.parse(_lastSynced)!);
+
     final lowStockItems = _items.where((item) {
       final stock = item['stock'] is num ? item['stock'] as num : 0;
       final threshold = item['threshold'] is num ? item['threshold'] as num : 0;
       return stock <= threshold;
     }).toList();
+
     final hasUnrequestedLowStock = lowStockItems.any((item) {
       final id = item['id'];
       return id is! num || !_requestsByItem.containsKey(id.toInt());
@@ -379,14 +382,18 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
                   AppSpacing.space4,
                   topPadding,
                   AppSpacing.space4,
-                  120,
+                  AppSpacing
+                      .space6, // TINANGGAL ANG 120, Pinalitan ng normal padding
                 ),
                 children: [
                   if (_error != null && !_loading)
                     SizedBox(
-                      height: (constraints.maxHeight - topPadding - 120)
-                          .clamp(0.0, double.infinity)
-                          .toDouble(),
+                      height:
+                          (constraints.maxHeight -
+                                  topPadding -
+                                  AppSpacing.space6) // IN-UPDATE DIN DITO
+                              .clamp(0.0, double.infinity)
+                              .toDouble(),
                       child: Column(
                         children: [
                           Text(
@@ -411,20 +418,7 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
                     ),
                     _locationSelector(),
                     const SizedBox(height: AppSpacing.space3),
-                    if (!_loading && hasUnrequestedLowStock)
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: OutlinedButton.icon(
-                          onPressed: _submittingRequest
-                              ? null
-                              : () => _requestRestock(allLowStock: true),
-                          icon: const Icon(
-                            Icons.playlist_add_check_rounded,
-                            size: 18,
-                          ),
-                          label: const Text('Request all low-stock items'),
-                        ),
-                      ),
+
                     if (_loading)
                       const AppSkeleton(rows: 5)
                     else ...[
@@ -480,6 +474,7 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
                               : null;
                           final pending = request != null;
                           final needsRestock = status.label != 'In Stock';
+
                           return Card(
                             margin: const EdgeInsets.only(
                               bottom: AppSpacing.space2,
@@ -571,55 +566,77 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
                   children: [
                     Expanded(
                       child: _GlassPillContainer(
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 250),
-                          child: _searching
-                              ? TextField(
-                                  key: const ValueKey('searchField'),
-                                  controller: _searchController,
-                                  autofocus: true,
-                                  decoration: InputDecoration(
-                                    hintText: 'Search ingredients...',
-                                    border: InputBorder.none,
-                                    enabledBorder: InputBorder.none,
-                                    focusedBorder: InputBorder.none,
-                                    fillColor: Colors.transparent,
-                                    filled: true,
-                                    isDense: true,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 20,
-                                      vertical: 14,
-                                    ),
-                                    hintStyle: TextStyle(
-                                      color: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall?.color,
-                                    ),
-                                  ),
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.titleMedium,
-                                  onChanged: (value) =>
-                                      setState(() => _search = value.trim()),
-                                )
-                              : Container(
-                                  key: const ValueKey('titleText'),
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 20,
-                                    vertical: 14,
-                                  ),
-                                  child: Text(
-                                    'Live Stock',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleLarge
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.w800,
-                                          letterSpacing: -0.5,
+                        child: Row(
+                          children: [
+                            // BAGONG BACK BUTTON
+                            const SizedBox(width: 4),
+                            IconButton(
+                              icon: const Icon(
+                                Icons.arrow_back_rounded,
+                                size: 20,
+                              ),
+                              tooltip: 'Back',
+                              onPressed: () => Navigator.pop(context),
+                            ),
+                            Expanded(
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 250),
+                                child: _searching
+                                    ? TextField(
+                                        key: const ValueKey('searchField'),
+                                        controller: _searchController,
+                                        autofocus: true,
+                                        decoration: InputDecoration(
+                                          hintText: 'Search ingredients...',
+                                          border: InputBorder.none,
+                                          enabledBorder: InputBorder.none,
+                                          focusedBorder: InputBorder.none,
+                                          fillColor: Colors.transparent,
+                                          filled: true,
+                                          isDense: true,
+                                          contentPadding:
+                                              const EdgeInsets.fromLTRB(
+                                                4,
+                                                14,
+                                                20,
+                                                14,
+                                              ),
+                                          hintStyle: TextStyle(
+                                            color: Theme.of(
+                                              context,
+                                            ).textTheme.bodySmall?.color,
+                                          ),
                                         ),
-                                  ),
-                                ),
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleMedium,
+                                        onChanged: (value) => setState(
+                                          () => _search = value.trim(),
+                                        ),
+                                      )
+                                    : Container(
+                                        key: const ValueKey('titleText'),
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.fromLTRB(
+                                          4,
+                                          14,
+                                          20,
+                                          14,
+                                        ),
+                                        child: Text(
+                                          'Live Stock',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleLarge
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w800,
+                                                letterSpacing: -0.5,
+                                              ),
+                                        ),
+                                      ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -635,7 +652,10 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
                           children: _searching
                               ? [
                                   IconButton(
-                                    icon: const Icon(Icons.close_rounded),
+                                    icon: const Icon(
+                                      Icons.close_rounded,
+                                      size: 20,
+                                    ),
                                     tooltip: 'Close search',
                                     onPressed: () {
                                       setState(() {
@@ -647,15 +667,36 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
                                   ),
                                 ]
                               : [
+                                  if (hasUnrequestedLowStock)
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.playlist_add_check_rounded,
+                                        size: 20,
+                                      ),
+                                      color: AppColors.danger,
+                                      tooltip: 'Request all low-stock items',
+                                      onPressed:
+                                          (_loading || _submittingRequest)
+                                          ? null
+                                          : () => _requestRestock(
+                                              allLowStock: true,
+                                            ),
+                                    ),
                                   IconButton(
-                                    icon: const Icon(Icons.sync_rounded),
+                                    icon: const Icon(
+                                      Icons.sync_rounded,
+                                      size: 20,
+                                    ),
                                     tooltip: 'Refresh stock',
                                     onPressed: _loading
                                         ? null
                                         : () => _loadInventory(notifyPos: true),
                                   ),
                                   IconButton(
-                                    icon: const Icon(Icons.search_rounded),
+                                    icon: const Icon(
+                                      Icons.search_rounded,
+                                      size: 20,
+                                    ),
                                     tooltip: 'Search ingredients',
                                     onPressed: () =>
                                         setState(() => _searching = true),
@@ -682,36 +723,33 @@ class _GlassPillContainer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(AppRadius.pill),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 24,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.surface.withValues(alpha: 0.25),
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.4),
-                  width: 1.2,
-                ),
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Theme.of(
+                context,
+              ).colorScheme.surface.withValues(alpha: 0.25),
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.4),
+                width: 1.2,
               ),
-              child: child,
             ),
+            child: child,
           ),
         ),
       ),

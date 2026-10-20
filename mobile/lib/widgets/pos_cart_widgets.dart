@@ -12,16 +12,29 @@ class PosQtyButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = icon == Icons.add ? 'Increase quantity' : 'Decrease quantity';
+    final isAdd = icon == Icons.add;
+    final label = isAdd ? 'Increase quantity' : 'Decrease quantity';
+
+    // Mas soft at modern na kulay para sa buttons
+    final bgColor = onPressed == null
+        ? Theme.of(context).disabledColor.withValues(alpha: 0.1)
+        : (isAdd
+              ? AppColors.primary
+              : AppColors.primary.withValues(alpha: 0.12));
+
+    final iconColor = onPressed == null
+        ? Theme.of(context).disabledColor
+        : (isAdd ? Colors.white : AppColors.primary);
+
     return Tooltip(
       message: label,
       child: Material(
-        color: onPressed == null
-            ? Theme.of(context).disabledColor.withValues(alpha: 0.2)
-            : AppColors.primary,
-        shape: const CircleBorder(),
+        color: bgColor,
+        borderRadius: BorderRadius.circular(
+          AppRadius.s,
+        ), // Rounded rectangle imbes na bilog
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
-          customBorder: const CircleBorder(),
           onTap: onPressed == null
               ? null
               : () {
@@ -29,14 +42,9 @@ class PosQtyButton extends StatelessWidget {
                   onPressed!();
                 },
           child: SizedBox(
-            width: 48,
-            height: 48,
-            child: Icon(
-              icon,
-              color: onPressed == null
-                  ? Theme.of(context).disabledColor
-                  : Colors.white,
-            ),
+            width: 38,
+            height: 38,
+            child: Icon(icon, size: 20, color: iconColor),
           ),
         ),
       ),
@@ -50,7 +58,6 @@ class PosCashQuickAmounts extends StatelessWidget {
     required this.total,
     required this.onSelect,
   });
-
   final double total;
   final ValueChanged<double> onSelect;
 
@@ -86,7 +93,6 @@ class PosChangeDisplay extends StatelessWidget {
     required this.total,
     required this.tendered,
   });
-
   final double total;
   final double tendered;
 
@@ -95,6 +101,7 @@ class PosChangeDisplay extends StatelessWidget {
     final enough = tendered >= total;
     final color = enough ? AppColors.ok : AppColors.danger;
     final amount = enough ? tendered - total : total - tendered;
+
     return Container(
       padding: const EdgeInsets.all(AppSpacing.space3),
       decoration: BoxDecoration(
@@ -131,7 +138,6 @@ class PosFlavorSelectionBar extends StatelessWidget {
     required this.onAdd,
     required this.onMix,
   });
-
   final int selectedCount;
   final bool canMix;
   final VoidCallback? onAdd;
@@ -139,25 +145,23 @@ class PosFlavorSelectionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // GRAMMAR FIX
+    final flavorLabel = selectedCount == 1 ? 'Flavor' : 'Flavors';
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.space4,
-        AppSpacing.space2,
-        AppSpacing.space4,
-        AppSpacing.space2,
-      ),
+      padding: const EdgeInsets.only(top: AppSpacing.space2),
       child: Column(
         children: [
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
               icon: const Icon(Icons.add_shopping_cart_rounded),
-              label: Text('Add $selectedCount Selected Flavors to Cart'),
+              label: Text('Add $selectedCount Selected $flavorLabel to Cart'),
               onPressed: selectedCount == 0 ? null : onAdd,
             ),
           ),
           if (canMix) ...[
-            const SizedBox(height: AppSpacing.space1),
+            const SizedBox(height: AppSpacing.space2),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
@@ -200,21 +204,28 @@ class PosFlavorPicker extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text(
+        Text(
           'Choose flavors',
-          style: TextStyle(fontWeight: FontWeight.w700),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
         ),
-        const SizedBox(height: AppSpacing.space2),
+        const SizedBox(height: AppSpacing.space3),
         Wrap(
           spacing: AppSpacing.space2,
-          runSpacing: AppSpacing.space1,
+          runSpacing: AppSpacing.space2,
           children: [
             for (final flavor in flavors) _flavorChip(context, flavor),
           ],
         ),
+        const SizedBox(height: AppSpacing.space2),
         for (final flavor in flavors)
           if (selectedQuantities.containsKey(flavor['name']))
-            _quantityControls(flavor, selectedQuantities[flavor['name']]!),
+            _quantityControls(
+              context,
+              flavor,
+              selectedQuantities[flavor['name']]!,
+            ),
       ],
     );
   }
@@ -223,6 +234,7 @@ class PosFlavorPicker extends StatelessWidget {
     final name = flavor['name'] as String;
     final unavailable = _unavailable(flavor);
     final servings = flavor['availableServings'];
+
     return ChoiceChip(
       label: Text(
         unavailable
@@ -242,46 +254,81 @@ class PosFlavorPicker extends StatelessWidget {
     );
   }
 
-  Widget _quantityControls(Map<String, dynamic> flavor, int quantity) {
+  Widget _quantityControls(
+    BuildContext context,
+    Map<String, dynamic> flavor,
+    int quantity,
+  ) {
     final name = flavor['name'] as String;
     final stock = flavor['availableServings'];
     final maxQty = stock is num ? stock.toInt() : quantity;
-    return Padding(
-      padding: const EdgeInsets.only(top: AppSpacing.space2),
-      child: Row(
+
+    return Container(
+      margin: const EdgeInsets.only(top: AppSpacing.space3),
+      padding: const EdgeInsets.all(AppSpacing.space3),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(
+          alpha: 0.04,
+        ), // Subtle highlight box
+        borderRadius: BorderRadius.circular(AppRadius.m),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Text(
-              name,
-              style: const TextStyle(fontWeight: FontWeight.w600),
+          Text(
+            name,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 15,
+              color: AppColors.primaryStrong,
             ),
           ),
-          PosQtyButton(
-            icon: Icons.remove,
-            onPressed: () => onQuantityChanged(name, quantity - 1),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.space2),
-            child: Text(
-              '$quantity',
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
-          ),
-          PosQtyButton(
-            icon: Icons.add,
-            onPressed: quantity < maxQty
-                ? () => onQuantityChanged(name, quantity + 1)
-                : null,
-          ),
-          for (final amount in const [2, 3, 5])
-            Padding(
-              padding: const EdgeInsets.only(left: 2),
-              child: ActionChip(
-                visualDensity: VisualDensity.compact,
-                label: Text('+$amount'),
-                onPressed: () => onQuickAdd(name, amount),
+          const SizedBox(height: AppSpacing.space2),
+          Row(
+            children: [
+              PosQtyButton(
+                icon: Icons.remove,
+                onPressed: () => onQuantityChanged(name, quantity - 1),
               ),
-            ),
+              Container(
+                width: 44,
+                alignment: Alignment.center,
+                child: Text(
+                  '$quantity',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+              PosQtyButton(
+                icon: Icons.add,
+                onPressed: quantity < maxQty
+                    ? () => onQuantityChanged(name, quantity + 1)
+                    : null,
+              ),
+              const Spacer(),
+              for (final amount in const [2, 3, 5])
+                Padding(
+                  padding: const EdgeInsets.only(left: AppSpacing.space1),
+                  child: ActionChip(
+                    visualDensity: VisualDensity.compact,
+                    side: BorderSide(
+                      color: AppColors.primary.withValues(alpha: 0.2),
+                    ),
+                    backgroundColor: Colors.transparent,
+                    labelStyle: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primary.withValues(alpha: 0.8),
+                    ),
+                    label: Text('+$amount'),
+                    onPressed: () => onQuickAdd(name, amount),
+                  ),
+                ),
+            ],
+          ),
         ],
       ),
     );
@@ -317,6 +364,7 @@ class PosOfflineStripState extends State<PosOfflineStrip> {
       builder: (context, snap) {
         final count = snap.hasData ? snap.data! : _count;
         if (count <= 0) return const SizedBox.shrink();
+
         return Container(
           margin: const EdgeInsets.fromLTRB(
             AppSpacing.space4,
@@ -356,6 +404,7 @@ class PosOfflineStripState extends State<PosOfflineStrip> {
 
 class PosCartBar extends StatelessWidget {
   const PosCartBar({super.key, required this.cart, required this.onTap});
+
   final CartState cart;
   final VoidCallback onTap;
 
@@ -364,11 +413,8 @@ class PosCartBar extends StatelessWidget {
     final isEmpty = cart.isEmpty;
 
     return Center(
-      // INAYOS: Pinagitna ang buong Cart Bar
       child: Container(
-        constraints: const BoxConstraints(
-          maxWidth: 220,
-        ), // INAYOS: Pinaikli para hindi full-width
+        constraints: const BoxConstraints(maxWidth: 220),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(AppRadius.pill),
           boxShadow: [
@@ -392,10 +438,10 @@ class PosCartBar extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.symmetric(
                 horizontal: AppSpacing.space5,
-                vertical: 10, // INAYOS: Mas manipis at compact
+                vertical: 10,
               ),
               child: Row(
-                mainAxisSize: MainAxisSize.min, // Hugs content
+                mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const Icon(
