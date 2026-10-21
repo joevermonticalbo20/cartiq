@@ -259,70 +259,32 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     Haptics.select();
   }
 
-  bool _canMixFlavors(
-    Map<String, int> selection,
-    List<Map<String, dynamic>> flavors,
-  ) {
-    if (selection.length < 2 || selection.length > 3) return false;
-    final quantities = selection.values.toSet();
-    if (quantities.length != 1) return false;
-
-    return selection.keys.every(
-      (name) => flavors.any((flavor) => flavor['name'] == name),
-    );
-  }
-
   void _addFlavorSelection(
     Map<String, dynamic> product,
     List<Map<String, dynamic>> flavors,
-    Map<String, int> selection, {
-    bool asMix = false,
-  }) {
+    Map<String, int> selection,
+  ) {
     final cart = context.read<CartState>();
     if (selection.isEmpty) return;
 
-    if (asMix) {
-      if (!_canMixFlavors(selection, flavors)) return;
-      final qty = selection.values.first;
+    for (final entry in selection.entries) {
+      final flavor = flavors.firstWhere((item) => item['name'] == entry.key);
+      final stock = flavor['availableServings'];
 
-      final maxQty = selection.keys
-          .map((name) {
-            final stock = flavors.firstWhere(
-              (flavor) => flavor['name'] == name,
-            )['availableServings'];
-            return stock is num ? stock.toInt() : 100;
-          })
-          .reduce((a, b) => a < b ? a : b);
-
-      cart.addMixed(
+      cart.add(
         product['name'] as String,
-        selection.keys.toList(),
+        entry.key,
         (product['basePrice'] as num).toDouble(),
-        qty: qty,
-        maxQty: maxQty,
+        qty: entry.value,
+        maxQty: stock is num ? stock.toInt() : null,
       );
-    } else {
-      for (final entry in selection.entries) {
-        final flavor = flavors.firstWhere((item) => item['name'] == entry.key);
-        final stock = flavor['availableServings'];
-
-        cart.add(
-          product['name'] as String,
-          entry.key,
-          (product['basePrice'] as num).toDouble(),
-          qty: entry.value,
-          maxQty: stock is num ? stock.toInt() : null,
-        );
-      }
     }
 
     final count = selection.values.fold<int>(0, (a, b) => a + b);
     Haptics.select();
     AppMessenger.showGlassToast(
       context: context,
-      message: asMix
-          ? 'Added mixed flavors • $count serving(s)'
-          : 'Added selected flavors • $count serving(s)',
+      message: 'Added selected flavors • $count serving(s)',
       isSuccess: true,
     );
   }
@@ -379,7 +341,6 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       ),
       builder: (sheetContext) => StatefulBuilder(
         builder: (context, setSheetState) {
-          final canMix = _canMixFlavors(selection, flavors);
           final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
           return SafeArea(
@@ -463,24 +424,12 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                     const SizedBox(height: AppSpacing.space2),
                     PosFlavorSelectionBar(
                       selectedCount: selection.length,
-                      canMix: canMix,
                       onAdd: selection.isEmpty
                           ? null
                           : () {
                               _addFlavorSelection(product, flavors, selection);
                               Navigator.pop(sheetContext);
                             },
-                      onMix: canMix
-                          ? () {
-                              _addFlavorSelection(
-                                product,
-                                flavors,
-                                selection,
-                                asMix: true,
-                              );
-                              Navigator.pop(sheetContext);
-                            }
-                          : null,
                     ),
                   ],
                 ),

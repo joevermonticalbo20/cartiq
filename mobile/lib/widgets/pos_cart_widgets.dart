@@ -134,44 +134,21 @@ class PosFlavorSelectionBar extends StatelessWidget {
   const PosFlavorSelectionBar({
     super.key,
     required this.selectedCount,
-    required this.canMix,
     required this.onAdd,
-    required this.onMix,
   });
   final int selectedCount;
-  final bool canMix;
   final VoidCallback? onAdd;
-  final VoidCallback? onMix;
 
   @override
   Widget build(BuildContext context) {
-    // GRAMMAR FIX
     final flavorLabel = selectedCount == 1 ? 'Flavor' : 'Flavors';
 
-    return Padding(
-      padding: const EdgeInsets.only(top: AppSpacing.space2),
-      child: Column(
-        children: [
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              icon: const Icon(Icons.add_shopping_cart_rounded),
-              label: Text('Add $selectedCount Selected $flavorLabel to Cart'),
-              onPressed: selectedCount == 0 ? null : onAdd,
-            ),
-          ),
-          if (canMix) ...[
-            const SizedBox(height: AppSpacing.space2),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.join_inner_rounded),
-                label: const Text('Add as Mix-and-Match'),
-                onPressed: canMix ? onMix : null,
-              ),
-            ),
-          ],
-        ],
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        icon: const Icon(Icons.add_shopping_cart_rounded),
+        label: Text('Add $selectedCount Selected $flavorLabel to Cart'),
+        onPressed: selectedCount == 0 ? null : onAdd,
       ),
     );
   }
