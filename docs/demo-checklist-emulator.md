@@ -3,7 +3,33 @@
 Use this when the Spark quota is hit. Everything runs on your PC.
 Zero Firestore reads. Same API logic as production.
 
+## One command (recommended)
+
+```powershell
+cd C:\Users\Joever\Projects\cartiq
+scripts\start_local_stack.cmd
+```
+
+That boots the Firestore emulator, seeds it, starts the API on `:4000` and the
+web dashboard on `:5173`. No internet needed - the emulator JAR and
+firebase-tools are already on this PC.
+
+| Variant | What it does |
+|---|---|
+| `scripts\start_local_stack.cmd` | emulator + seed + API + web. ~2 min (21 days of sales history) |
+| `scripts\start_local_stack.cmd quick` | same but seeds no sales history. ~15 s. Analytics and forecast stay empty |
+| `scripts\start_local_stack.cmd api` | emulator + seed + API only, no web server |
+| `scripts\stop_local_stack.cmd` | stops all three |
+
+The stack is offline: the API talks to the emulator over `127.0.0.1` only, and
+the script forces `FIRESTORE_EMULATOR_HOST` before seeding. Never run a seed
+script without it - `api/.env` points `GOOGLE_APPLICATION_CREDENTIALS` at
+`service-account.prod.json`, so a seed with no emulator host writes to
+**production**.
+
 ## Terminals (4)
+
+Use these when you want to drive each piece by hand, or need the IoT simulator.
 
 ```powershell
 # T0 - repo root. IMPORTANT: firebase-tools needs Java 21+.
@@ -82,8 +108,9 @@ Honest answer: "Local emulator for today's demo because the Spark free quota is 
 | `Cannot reach CartIQ server` on phone | PC and phone same WiFi (not guest/mobile data). `ipconfig` -> IPv4. `curl http://<PC_LAN_IP>:4000/api/health` from PC. Windows Firewall allow TCP 4000: `New-NetFirewallRule -DisplayName "CartIQ API" -Direction Inbound -LocalPort 4000 -Protocol TCP -Action Allow` |
 | `JWT_SECRET is not set` | You ran `npm run dev` instead of `npm run dev:emulator`. Use the emulator script. |
 | Dashboard login fails | Check T1 shows `CartIQ API listening`. Check proxy: `curl http://127.0.0.1:4000/api/health`. Never set `VITE_API_BASE` for local demo. |
-| Emulator won't start | Java required. `java -version` must work. CI uses Java 21; Java 17 usually works. |
-| Empty Analytics | You skipped `npm run demo:setup` or the `--clean` history step. Re-run it. |
+| Emulator won't start | Java 21 is required - firebase-tools rejects Java 17 with "no longer supports Java version before 21". The stack script points at `C:\Users\Joever\.jdks\jbr-21.0.11`; if you run the emulator by hand, set `JAVA_HOME` and `PATH` to it first. |
+| Empty Analytics | You skipped `npm run demo:setup` or the `--clean` history step. Re-run it, or use the full `scripts\start_local_stack.cmd` (the `quick` variant seeds no sales history, so Analytics stays empty on purpose). |
+| Login works but the data looks like demo data | You are on the emulator, not production. That is the point - the emulator is seeded from `api/scripts/seed_firestore.mjs`. |
 | `mDNS error: Service name is already in use` | Harmless (stale Bonjour registration). HTTP still serves. |
 
 ## After the demo

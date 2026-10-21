@@ -1,0 +1,9 @@
+# cmd.exe cannot parse a multi-line if/else block in an LF-only batch file.
+# It fails with "... was unexpected at this time." and drops the rest of the
+# script. Force CRLF on the Windows batch files no matter how the repo was
+# checked out, so scripts\start_local_stack.cmd works for everyone.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Keep everything else as-is (LF in the repo).
+* text=auto
