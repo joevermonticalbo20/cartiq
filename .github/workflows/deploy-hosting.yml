@@ -11,6 +11,13 @@
 # refuses to deploy a bundle that does not contain the API base.
 name: Deploy Hosting
 
+# Two pushes in quick succession would otherwise deploy at the same time, and
+# the older build could finish last - leaving a stale site live. Queue them
+# instead: the newer deploy runs after the older one finishes.
+concurrency:
+  group: deploy-hosting
+  cancel-in-progress: false
+
 on:
   push:
     branches: [main]

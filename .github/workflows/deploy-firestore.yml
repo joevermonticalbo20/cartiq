@@ -7,6 +7,11 @@
 # "The query requires an index". The restock-requests query hit exactly that.
 name: Deploy Firestore config
 
+# Queue concurrent deploys so they run in order - see deploy-hosting.yml.
+concurrency:
+  group: deploy-firestore
+  cancel-in-progress: false
+
 on:
   push:
     branches: [main]

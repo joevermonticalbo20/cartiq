@@ -5,6 +5,11 @@
 # Access Tokens). Runs on GitHub's runners, so no local CLI/Docker needed.
 name: Deploy Edge Functions
 
+# Queue concurrent deploys so they run in order - see deploy-hosting.yml.
+concurrency:
+  group: deploy-edge-functions
+  cancel-in-progress: false
+
 on:
   push:
     branches:

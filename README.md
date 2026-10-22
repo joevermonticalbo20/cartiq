@@ -15,9 +15,9 @@ errors/loading pass complete, pending hardware pilot and faculty approval.
 
 | Component | Path | Stack | Status |
 |---|---|---|---|
-| REST API | `api/` (local dev + CI reference) + `supabase/functions/api/` (production) | Node.js 24, Express 5 (local) / Deno Edge Function (prod), Firestore (Spark free tier), typed JWT (access/refresh) + rotating refresh + revocation, staff cart scoping, login + endpoint rate limiting, ExcelJS, Bonjour/mDNS advertise (local only) | done, tested (30 unit + 174 integration checks in CI), **live on Supabase** |
-| Web admin dashboard | `web/` | React 19, Vite, React Router, Axios | done, builds (lint 0 errors, 191 tests), **live on Firebase Hosting** |
-| Mobile POS app | `mobile/` | Flutter (Android/Windows), offline-first sqflite queue, ML Kit OCR, shared-prod API default | done, analyzes clean, 67 tests; release APK in `mobile/build/app/outputs/flutter-apk/` |
+| REST API | `api/` (local dev + CI reference) + `supabase/functions/api/` (production) | Node.js 24, Express 5 (local) / Deno Edge Function (prod), Firestore (Spark free tier), typed JWT (access/refresh) + rotating refresh + revocation, staff cart scoping, login + endpoint rate limiting, ExcelJS, Bonjour/mDNS advertise (local only) | done, tested (91 unit + phase2-9 + authz in CI), **live on Supabase** |
+| Web admin dashboard | `web/` | React 19, Vite, React Router, Axios | done, builds (lint 0 errors, 268 tests), **live on Firebase Hosting** |
+| Mobile POS app | `mobile/` | Flutter (Android/Windows), offline-first sqflite queue, ML Kit OCR, shared-prod API default | done, analyzes clean, 196 tests; release APK in `mobile/build/app/outputs/flutter-apk/` |
 | ESP32 IoT node | `iot/` | Arduino C++ firmware + **Node simulator** (`iot/simulator.mjs`) | code complete; hardware pending |
 
 Live URLs: web dashboard `https://cartiq-8e46f.web.app` · API
@@ -48,17 +48,27 @@ Mobile POS ───────── API_BASE_URL (supabase URL) ────�
 Local dev only: api/ (Express, npm run dev) + Firestore emulator.
 ```
 
-* **Frontend:** `cd web && $env:VITE_API_BASE='https://ezynbxzarxozzmwqdjxs.supabase.co/functions/v1/api'; npm run build`
-  then `firebase deploy --only hosting --project cartiq-8e46f` (PowerShell: one line at a time).
-  `VITE_API_BASE` is baked into `web/dist` at build time — building without it
-  points the live site at `/api` (static hosting, no backend) and login fails.
+* **Frontend:** automatic. A push to `main` that touches `web/**` runs
+  `deploy-hosting.yml`: it lints, tests, builds with `VITE_API_BASE` and
+  deploys to Firebase Hosting. The workflow refuses to deploy a bundle
+  that does not contain the API base - building without it points the live
+  site at `/api` (static hosting, no backend) and login fails. To deploy
+  by hand: `cd web && $env:VITE_API_BASE='https://ezynbxzarxozzmwqdjxs.supabase.co/functions/v1/api'; npm run build`
+  then `firebase deploy --only hosting --project cartiq-8e46f`.
 * **Backend:** `supabase/functions/api/index.ts` auto-deploys on push to `main`
-  (GitHub Actions → Edge Functions). Function secrets (JWT_SECRET,
-  JWT_REFRESH_SECRET, FIREBASE_SERVICE_ACCOUNT_JSON, FIREBASE_PROJECT_ID,
-  CORS_ORIGINS) live in the Supabase dashboard, never in git.
+  (GitHub Actions - Edge Functions). The same workflow stamps the commit SHA
+  into the function's secrets, so `/health` reports which build is actually
+  serving traffic - check `build` and `builtAt` there. Function secrets
+  (JWT_SECRET, JWT_REFRESH_SECRET, FIREBASE_SERVICE_ACCOUNT_JSON,
+  FIREBASE_PROJECT_ID, CORS_ORIGINS) live in the Supabase dashboard, never
+  in git.
 * **Database:** seeded once (`npm run db:seed` against prod). Never run `seed_history` on prod;
-  demo history stays on the emulator. Rules (`firestore.rules`) deny direct client access —
-  everything goes through the API: `firebase deploy --only firestore:rules --project cartiq-8e46f`.
+  demo history stays on the emulator. Rules (`firestore.rules`) deny direct client access -
+  everything goes through the API. Indexes and rules deploy on push too
+  (`deploy-firestore.yml`), because CI cannot catch a missing composite
+  index - the emulator creates indexes automatically, so an index that was
+  added but never deployed passes every test and then fails in production.
+  By hand: `firebase deploy --only firestore:indexes,firestore:rules --project cartiq-8e46f`.
 * **Free-tier notes:** Supabase Edge Functions (no sleep; SSE streams poll
   Firestore per connection and reconnect automatically); Firestore reads are
   uncached for correctness (Spark 50k/day quota — dashboard polls every 60s).
@@ -284,11 +294,11 @@ node scripts/test_authz_fix.mjs # logout/revoke, 15min tokens, VOID restore, dev
 node --test test/*.test.js     # api unit tests (run inside api/) - 30 checks
 flutter analyze                # mobile static analysis
 flutter test                   # mobile unit tests - 67 checks (URL normalize, cart, receipt parser, sync, money/text input)
-cd web && npm run lint && npm run test && npm run build  # web lint + 191 tests + production build
+cd web && npm run lint && npm run test && npm run build  # web lint + 268 tests + production build
 ```
 
 Regression totals: **153 phase checks + 21 authz checks + 30 api unit +
-67 mobile + 191 web**, all runnable in CI (`api-ci.yml` runs the full
+196 mobile + 268 web**, all runnable in CI (`api-ci.yml` runs the full
 emulator-backed integration job: Java 21 → emulator → seed + 21-day
 history → API → every suite). Run phase suites against the emulator only —
 never prod; they write test data. (`@google-cloud/firestore` is pinned as a
@@ -369,7 +379,7 @@ React+Vite setup:
   crash on one screen doesn't take the app down.
 - **Quick cart switcher** on the dashboard — shows each cart with its
   current low-stock count, links to the Inventory page.
-- **Vitest test suite** — `npm run test` (191 unit tests covering error mapping, ErrorBox, by-flavor Products, api utils,
+- **Vitest test suite** — `npm run test` (268 unit tests covering error mapping, ErrorBox, by-flavor Products, api utils,
   money/text/qty input rules, DataTable, Select, ConfirmDialog, Pagination,
   EmptyState, PasswordStrengthMeter, Settings/DataHub flows, and custom
   hooks); `npm run lint`
