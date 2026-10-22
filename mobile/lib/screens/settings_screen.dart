@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../app_version.dart';
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../services/offline_pin.dart';
@@ -612,7 +613,7 @@ Future<void> _clockFlow(AuthState auth, String event) async {
                     icon: Icons.info_outline_rounded,
                     iconColor: AppColors.primary,
                     title: 'Version',
-                    subtitle: 'v1.0.0 • Pota Fries Operations',
+                    subtitle: 'v$appVersion • Pota Fries Operations',
                   ),
                   _PremiumTile(
                     icon: Icons.dns_outlined,

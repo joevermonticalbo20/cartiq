@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'app_version.dart';
 import 'screens/login_screen.dart';
 import 'screens/root_shell.dart';
 import 'services/api_client.dart';
@@ -238,7 +239,7 @@ class _BootAppState extends State<_BootApp> {
                     ),
                     const SizedBox(height: AppSpacing.space5),
                     Text(
-                      'Pota Fries • Staff POS • v1.0.0',
+                      'Pota Fries • Staff POS • v$appVersion',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
