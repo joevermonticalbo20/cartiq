@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -34,6 +35,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
   final _searchCtrl = TextEditingController();
   String? _error;
 
+  String _categoryFilter = 'All';
+  final List<String> _filters = ['All', 'Cash', 'GCash', 'Voided'];
+
+  // STATE PARA SA AUTO-HIDE SCROLL
+  bool _showFilters = true;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -48,7 +55,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
   int _requestSeq = 0;
 
   void _onDataChanged() {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     _loadMore(reset: true);
   }
 
@@ -67,11 +76,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   bool _matches(Map<String, dynamic> order, String q) {
-    if (q.isEmpty) return true;
+    if (q.isEmpty) {
+      return true;
+    }
     final lq = q.toLowerCase();
-    final total = '₱${((order['total'] ?? 0) as num).toStringAsFixed(0)}';
-    if (total.toLowerCase().contains(lq)) return true;
-
+    final total = ' ${((order['total'] ?? 0) as num).toStringAsFixed(0)}';
+    if (total.toLowerCase().contains(lq)) {
+      return true;
+    }
     final items = (order['items'] as List?) ?? [];
     for (final it in items) {
       if ((it['productName'] as String? ?? '').toLowerCase().contains(lq)) {
@@ -85,7 +97,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   void _fail(String message) {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     final hadRows = _rows.isNotEmpty;
     setState(() => _error = message);
     if (hadRows && mounted) {
@@ -98,9 +112,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Future<void> _loadMore({bool reset = false}) async {
-    if (_loading || (_done && !reset)) return;
+    if (_loading || (_done && !reset)) {
+      return;
+    }
     final seq = ++_requestSeq;
-
     setState(() {
       _loading = true;
       _error = null;
@@ -110,11 +125,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
       final auth = context.read<AuthState>();
       final token = auth.token;
       if (token == null) {
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
         setState(() => _error = 'Session expired. Please log in again.');
         return;
       }
-
       final data = await auth.api.ordersPaged(
         token,
         page: reset ? 1 : _page,
@@ -122,26 +138,40 @@ class _HistoryScreenState extends State<HistoryScreen> {
       );
 
       final batch = (data['data'] as List).cast<Map<String, dynamic>>();
-      if (!mounted) return;
-      if (seq != _requestSeq) return;
+      if (!mounted) {
+        return;
+      }
+      if (seq != _requestSeq) {
+        return;
+      }
 
       setState(() {
-        if (reset) _rows.clear();
+        if (reset) {
+          _rows.clear();
+        }
         _rows.addAll(batch);
         _page = reset ? 2 : _page + 1;
         _done = batch.length < 10;
       });
     } on ApiException catch (e) {
-      if (seq != _requestSeq) return;
+      if (seq != _requestSeq) {
+        return;
+      }
       _fail(e.message);
     } on FormatException {
-      if (seq != _requestSeq) return;
+      if (seq != _requestSeq) {
+        return;
+      }
       _fail('Server returned an unexpected response.');
     } catch (e) {
-      if (seq != _requestSeq) return;
+      if (seq != _requestSeq) {
+        return;
+      }
       _fail('Unexpected error: $e');
     } finally {
-      if (mounted && seq == _requestSeq) setState(() => _loading = false);
+      if (mounted && seq == _requestSeq) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -155,8 +185,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
       );
       return;
     }
-
     final orderId = rawId.toInt();
+
     final reasons = [
       'Wrong item punched',
       'Customer cancelled',
@@ -174,8 +204,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
       builder: (modalContext) => _VoidReasonSheet(reasons: reasons),
     );
 
-    if (reason == null) return;
-    if (!mounted) return;
+    if (reason == null) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
 
     final auth = context.read<AuthState>();
     final token = auth.token;
@@ -192,7 +226,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
     try {
       res = await auth.api.voidOrder(token, orderId, reason: reason);
     } on ApiException catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       AppMessenger.showGlassToast(
         context: context,
         message: e.message,
@@ -200,7 +236,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
       );
       return;
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       AppMessenger.showGlassToast(
         context: context,
         message: 'Could not reach the server. Order not voided.',
@@ -208,7 +246,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
       );
       return;
     }
-    if (!mounted) return;
+
+    if (!mounted) {
+      return;
+    }
 
     final restored = (res['restored'] as List?) ?? [];
     final warnings =
@@ -217,7 +258,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
             .where((w) => w.isNotEmpty)
             .toList() ??
         const <String>[];
-
     final unrestored = warnings
         .where(
           (w) =>
@@ -226,10 +266,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
         .toList();
 
     final msg = unrestored.isNotEmpty
-        ? 'Voided • ${restored.length} restored • ${unrestored.length} NOT restored'
+        ? 'Voided   ${restored.length} restored   ${unrestored.length} NOT restored'
         : (restored.isEmpty
-              ? 'Voided • no stock needed restoring'
-              : 'Voided • ${restored.length} ingredient${restored.length == 1 ? '' : 's'} restored');
+              ? 'Voided   no stock needed restoring'
+              : 'Voided   ${restored.length} ingredient${restored.length == 1 ? '' : 's'} restored');
 
     AppMessenger.showGlassToast(
       context: context,
@@ -269,7 +309,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
       order['voidReason'] = reason;
     });
 
-    if (mounted) _bus?.bump('void');
+    if (mounted) {
+      _bus?.bump('void');
+    }
     await _loadMore(reset: true);
   }
 
@@ -287,8 +329,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
           _EditPaymentSheet(initialMethod: currentMethod),
     );
 
-    if (method == null) return;
-    if (!mounted) return;
+    if (method == null) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
 
     final rawId = order['id'];
     final auth = context.read<AuthState>();
@@ -309,7 +355,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
     try {
       await auth.api.updateOrderPayment(token, rawId.toInt(), chosen);
     } on ApiException catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       AppMessenger.showGlassToast(
         context: context,
         message: e.message,
@@ -317,7 +365,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
       );
       return;
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       AppMessenger.showGlassToast(
         context: context,
         message: 'Could not reach the server. Not saved.',
@@ -325,16 +375,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
       );
       return;
     }
-    if (!mounted) return;
 
+    if (!mounted) {
+      return;
+    }
     AppMessenger.showGlassToast(
       context: context,
       message: 'Payment method updated to $chosen.',
       isSuccess: true,
     );
-    setState(() => order['paymentMethod'] = chosen);
 
-    if (mounted) _bus?.bump('payment');
+    setState(() => order['paymentMethod'] = chosen);
+    if (mounted) {
+      _bus?.bump('payment');
+    }
     await _loadMore(reset: true);
   }
 
@@ -379,7 +433,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           ),
                         ),
                         loadingBuilder: (context, child, progress) {
-                          if (progress == null) return child;
+                          if (progress == null) {
+                            return child;
+                          }
                           return const Center(
                             child: CircularProgressIndicator(
                               color: Colors.white,
@@ -419,8 +475,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final clientRef = order['clientRef'] ?? order['id'] ?? 'N/A';
 
     final dt = ManilaTime.parse(order['createdAt']);
-    // DITO GINAMIT ANG formatTime12 PARA SA 12HR FORMAT SA DETAILS
     final dateStr = dt == null ? 'Unknown' : ManilaTime.formatTime12(dt);
+
     final isVoided = (order['status'] ?? 'PAID').toString() == 'VOID';
     final voidReason = order['voidReason'];
 
@@ -457,6 +513,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: (isVoided ? AppColors.danger : AppColors.primary)
+                        .withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(AppRadius.m),
+                  ),
+                  child: Icon(
+                    isVoided ? Icons.block_rounded : Icons.receipt_long_rounded,
+                    color: isVoided ? AppColors.danger : AppColors.primary,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.space3),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -472,7 +542,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       const SizedBox(height: 2),
                       Row(
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.calendar_today_rounded,
                             size: 14,
                             color: AppColors.muted,
@@ -519,16 +589,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            paymentMethod == 'GCASH'
-                                ? Icons.phone_android_rounded
-                                : Icons.payments_rounded,
-                            size: 14,
-                            color: paymentMethod == 'GCASH'
-                                ? AppColors.info
-                                : AppColors.primary,
-                          ),
-                          const SizedBox(width: 6),
                           Text(
                             paymentMethod == 'GCASH' ? 'GCash' : 'Cash',
                             style: TextStyle(
@@ -634,7 +694,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                   ],
                                   const SizedBox(height: 2),
                                   Text(
-                                    '@ ₱${unitPrice.toStringAsFixed(0)}',
+                                    '@ ₱${unitPrice.toStringAsFixed(2)}',
                                     style: Theme.of(context).textTheme.bodySmall
                                         ?.copyWith(fontSize: 11),
                                   ),
@@ -642,7 +702,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               ),
                             ),
                             Text(
-                              '₱${lineTotal.toStringAsFixed(0)}',
+                              '₱${lineTotal.toStringAsFixed(2)}',
                               style: const TextStyle(
                                 fontWeight: FontWeight.w800,
                                 fontSize: 15,
@@ -675,7 +735,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         ),
                       ),
                       Text(
-                        '₱${total.toStringAsFixed(0)}',
+                        '₱${total.toStringAsFixed(2)}',
                         style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w900,
@@ -802,7 +862,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   String _friendlyDate(String key) {
-    if (key == 'unknown') return 'Unknown date';
+    if (key == 'unknown') {
+      return 'Unknown date';
+    }
     final parts = key.split('/');
     if (parts.length == 3) {
       final year = int.tryParse(parts[0]);
@@ -812,7 +874,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
         final dt = DateTime(year, month, day);
         final now = ManilaTime.now();
         final yesterday = now.subtract(const Duration(days: 1));
-
         if (dt.year == now.year && dt.month == now.month && dt.day == now.day) {
           return 'Today';
         } else if (dt.year == yesterday.year &&
@@ -843,9 +904,29 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filtered = _rows.where((o) => _matches(o, _search)).toList();
+    final filtered = _rows.where((o) {
+      if (!_matches(o, _search)) {
+        return false;
+      }
+      final isVoided = (o['status'] ?? 'PAID').toString() == 'VOID';
+      final payMethod = o['paymentMethod'] == 'GCASH' ? 'GCash' : 'Cash';
+
+      if (_categoryFilter == 'Voided' && !isVoided) {
+        return false;
+      }
+      if (_categoryFilter == 'Cash' && (payMethod != 'Cash' || isVoided)) {
+        return false;
+      }
+      if (_categoryFilter == 'GCash' && (payMethod != 'GCash' || isVoided)) {
+        return false;
+      }
+      return true;
+    }).toList();
+
     final hasResults = filtered.isNotEmpty;
     final surfaceColor = Theme.of(context).colorScheme.surface;
+
+    // Fixed top padding for the ListView so it starts below the floating header
     final topPadding = MediaQuery.of(context).padding.top + 90;
 
     final grouped = <String, List<Map<String, dynamic>>>{};
@@ -864,7 +945,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
         0,
         (s, o) => s + ((o['total'] ?? 0) as num).toDouble(),
       );
-
       rows.add((
         _friendlyDate(entry.key),
         payable.length,
@@ -878,413 +958,474 @@ class _HistoryScreenState extends State<HistoryScreen> {
       extendBody: true,
       body: Stack(
         children: [
-          RefreshIndicator(
-            onRefresh: () async => _loadMore(reset: true),
-            child: _rows.isEmpty && _loading && _error == null
-                ? ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: EdgeInsets.fromLTRB(
-                      AppSpacing.space4,
-                      topPadding,
-                      AppSpacing.space4,
-                      120,
-                    ),
-                    children: const [AppSkeleton(rows: 6)],
-                  )
-                : !hasResults && !_loading
-                ? _error != null
-                      ? LayoutBuilder(
-                          builder: (context, constraints) => ListView(
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            padding: EdgeInsets.fromLTRB(0, topPadding, 0, 120),
-                            children: [
-                              SizedBox(
-                                height:
-                                    (constraints.maxHeight - topPadding - 120)
-                                        .clamp(0.0, double.infinity)
-                                        .toDouble(),
-                                child: AppUnavailableState(
-                                  message: _error!,
-                                  onRetry: () => _loadMore(reset: true),
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      : ListView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: EdgeInsets.fromLTRB(0, topPadding, 0, 120),
-                          children: [
-                            AppEmptyState(
-                              icon: _search.isNotEmpty
-                                  ? Icons.search_off_rounded
-                                  : Icons.receipt_long_rounded,
-                              title: _search.isNotEmpty
-                                  ? 'No sales match "$_search"'
-                                  : 'No sales recorded yet',
-                              subtitle: _search.isNotEmpty
-                                  ? 'Try a different product, flavor, or amount.'
-                                  : (widget.onNewSale != null
-                                        ? 'Record a sale on the POS tab to see it appear here.'
-                                        : null),
-                              actionLabel: _search.isNotEmpty
-                                  ? 'Clear search'
-                                  : (widget.onNewSale != null
-                                        ? 'Open POS'
-                                        : null),
-                              actionIcon: _search.isNotEmpty
-                                  ? Icons.close
-                                  : Icons.point_of_sale_rounded,
-                              onAction: _search.isNotEmpty
-                                  ? () => setState(() {
-                                      _search = '';
-                                      _searchCtrl.clear();
-                                      _searching = false;
-                                    })
-                                  : widget.onNewSale,
-                            ),
-                          ],
-                        )
-                : NotificationListener<ScrollNotification>(
-                    onNotification: (n) {
-                      if (n.metrics.pixels > n.metrics.maxScrollExtent - 200) {
-                        _loadMore();
-                      }
-                      return false;
-                    },
-                    child: ListView.separated(
+          NotificationListener<UserScrollNotification>(
+            onNotification: (notification) {
+              final direction = notification.direction;
+              if (direction == ScrollDirection.reverse) {
+                if (_showFilters) {
+                  setState(() => _showFilters = false);
+                }
+              } else if (direction == ScrollDirection.forward) {
+                if (!_showFilters) {
+                  setState(() => _showFilters = true);
+                }
+              }
+              return false; // let the notification bubble up
+            },
+            child: RefreshIndicator(
+              onRefresh: () async => _loadMore(reset: true),
+              child: _rows.isEmpty && _loading && _error == null
+                  ? ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: EdgeInsets.fromLTRB(
                         AppSpacing.space4,
-                        topPadding,
+                        topPadding +
+                            54, // initial space when filters are showing
                         AppSpacing.space4,
                         120,
                       ),
-                      itemCount: rows.length + (_loading ? 1 : 0),
-                      separatorBuilder: (_, _) =>
-                          const SizedBox(height: AppSpacing.space2),
-                      itemBuilder: (context, i) {
-                        if (i >= rows.length) {
-                          return const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(12),
-                              child: CircularProgressIndicator(),
-                            ),
-                          );
-                        }
-
-                        final row = rows[i];
-                        if (row is (String, int, double, int)) {
-                          final (dateLabel, count, total, voided) = row;
-                          return Padding(
-                            padding: const EdgeInsets.only(
-                              top: AppSpacing.space3,
-                              bottom: AppSpacing.space2,
-                            ),
-                            child: SectionHeader(
-                              title: dateLabel,
-                              eyebrow: voided > 0
-                                  ? '$count sale${count != 1 ? 's' : ''} • $voided voided'
-                                  : '$count sale${count != 1 ? 's' : ''}',
-                              trailing: Text(
-                                '₱${total.toStringAsFixed(0)}',
-                                style: Theme.of(context).textTheme.labelSmall
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 13,
-                                    ),
-                              ),
-                            ),
-                          );
-                        }
-
-                        final o = row as Map<String, dynamic>;
-                        final items = (o['items'] as List)
-                            .map(
-                              (it) =>
-                                  '${it['qty']}x ${it['productName']}${it['flavor'] != null ? ' (${it['flavor']})' : ''}',
-                            )
-                            .join(', ');
-
-                        final isVoided =
-                            (o['status'] ?? 'PAID').toString() == 'VOID';
-                        final payMethod = o['paymentMethod'] == 'GCASH'
-                            ? 'GCash'
-                            : 'Cash';
-
-                        // DITO GINAMIT ANG ManilaTime.formatClock12 PARA SA 12HR ORAS SA LISTA
-                        final timeStr = o['createdAt'] != null
-                            ? ManilaTime.formatClock12(
-                                ManilaTime.parse(o['createdAt'])!,
-                              )
-                            : '--:--';
-
-                        return Container(
-                          clipBehavior: Clip.antiAlias,
-                          decoration: BoxDecoration(
-                            color: isVoided
-                                ? AppColors.danger.withValues(alpha: 0.04)
-                                : surfaceColor,
-                            borderRadius: BorderRadius.circular(AppRadius.l),
-                            boxShadow: isVoided ? null : AppShadow.sm(),
-                            border: Border.all(
-                              color: isVoided
-                                  ? AppColors.danger.withValues(alpha: 0.3)
-                                  : Theme.of(
-                                      context,
-                                    ).dividerColor.withValues(alpha: 0.4),
-                              width: 1,
-                            ),
+                      children: const [AppSkeleton(rows: 6)],
+                    )
+                  : !hasResults && !_loading
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: EdgeInsets.fromLTRB(
+                        AppSpacing.space4,
+                        topPadding + 54,
+                        AppSpacing.space4,
+                        120,
+                      ),
+                      children: [
+                        if (_error != null)
+                          AppUnavailableState(
+                            message: _error!,
+                            onRetry: () => _loadMore(reset: true),
+                          )
+                        else
+                          AppEmptyState(
+                            icon: _search.isNotEmpty
+                                ? Icons.search_off_rounded
+                                : Icons.receipt_long_rounded,
+                            title: _search.isNotEmpty
+                                ? 'No sales match "$_search"'
+                                : 'No sales recorded yet',
+                            subtitle: _search.isNotEmpty
+                                ? 'Try a different product, flavor, or amount.'
+                                : (widget.onNewSale != null
+                                      ? 'Record a sale on the POS tab to see it appear here.'
+                                      : null),
+                            actionLabel: _search.isNotEmpty
+                                ? 'Clear search'
+                                : (widget.onNewSale != null
+                                      ? 'Open POS'
+                                      : null),
+                            actionIcon: _search.isNotEmpty
+                                ? Icons.close
+                                : Icons.point_of_sale_rounded,
+                            onAction: _search.isNotEmpty
+                                ? () => setState(() {
+                                    _search = '';
+                                    _searchCtrl.clear();
+                                    _searching = false;
+                                  })
+                                : widget.onNewSale,
                           ),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: () => _showOrderDetails(o),
+                      ],
+                    )
+                  : NotificationListener<ScrollNotification>(
+                      onNotification: (n) {
+                        if (n.metrics.pixels >
+                            n.metrics.maxScrollExtent - 200) {
+                          _loadMore();
+                        }
+                        return false;
+                      },
+                      child: ListView.separated(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: EdgeInsets.fromLTRB(
+                          AppSpacing.space4,
+                          topPadding + 54, // Leaves room for header and filters
+                          AppSpacing.space4,
+                          120,
+                        ),
+                        itemCount: rows.length + (_loading ? 1 : 0),
+                        separatorBuilder: (_, _) =>
+                            const SizedBox(height: AppSpacing.space2),
+                        itemBuilder: (context, i) {
+                          if (i >= rows.length) {
+                            return const Center(
                               child: Padding(
-                                padding: const EdgeInsets.all(
-                                  AppSpacing.space4,
+                                padding: EdgeInsets.all(12),
+                                child: CircularProgressIndicator(),
+                              ),
+                            );
+                          }
+
+                          final row = rows[i];
+                          if (row is (String, int, double, int)) {
+                            final (dateLabel, count, total, voided) = row;
+                            return Padding(
+                              padding: const EdgeInsets.only(
+                                top: AppSpacing.space3,
+                                bottom: AppSpacing.space2,
+                              ),
+                              child: SectionHeader(
+                                title: dateLabel,
+                                eyebrow: voided > 0
+                                    ? '$count sale${count != 1 ? 's' : ''}   $voided voided'
+                                    : '$count sale${count != 1 ? 's' : ''}',
+                                trailing: Text(
+                                  '₱${total.toStringAsFixed(0)}',
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 13,
+                                      ),
                                 ),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  children: [
-                                    Container(
-                                      width: 48,
-                                      height: 48,
-                                      decoration: BoxDecoration(
-                                        color:
-                                            (isVoided
-                                                    ? AppColors.danger
-                                                    : AppColors.primary)
-                                                .withValues(alpha: 0.1),
-                                        borderRadius: BorderRadius.circular(
-                                          AppRadius.m,
+                              ),
+                            );
+                          }
+
+                          final o = row as Map<String, dynamic>;
+                          final items = (o['items'] as List)
+                              .map(
+                                (it) =>
+                                    '${it['qty']}x ${it['productName']}${it['flavor'] != null ? ' (${it['flavor']})' : ''}',
+                              )
+                              .join(', ');
+
+                          final isVoided =
+                              (o['status'] ?? 'PAID').toString() == 'VOID';
+                          final payMethod = o['paymentMethod'] == 'GCASH'
+                              ? 'GCash'
+                              : 'Cash';
+                          final timeStr = o['createdAt'] != null
+                              ? ManilaTime.formatClock12(
+                                  ManilaTime.parse(o['createdAt'])!,
+                                )
+                              : '--:--';
+
+                          // INAYOS NA: Solid surfaceColor base at transparent red tint
+                          // para gumana nang tama at malinis ang shadow kapag voided
+                          return Container(
+                            clipBehavior: Clip.antiAlias,
+                            decoration: BoxDecoration(
+                              color: surfaceColor,
+                              borderRadius: BorderRadius.circular(AppRadius.l),
+                              boxShadow: AppShadow.sm(),
+                            ),
+                            child: Material(
+                              color: isVoided
+                                  ? AppColors.danger.withValues(alpha: 0.04)
+                                  : Colors.transparent,
+                              child: InkWell(
+                                onTap: () => _showOrderDetails(o),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(
+                                    AppSpacing.space4,
+                                  ),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      Container(
+                                        width: 48,
+                                        height: 48,
+                                        decoration: BoxDecoration(
+                                          color:
+                                              (isVoided
+                                                      ? AppColors.danger
+                                                      : AppColors.primary)
+                                                  .withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(
+                                            AppRadius.m,
+                                          ),
+                                        ),
+                                        child: Icon(
+                                          isVoided
+                                              ? Icons.block_rounded
+                                              : (payMethod == 'GCash'
+                                                    ? Icons
+                                                          .phone_android_rounded
+                                                    : Icons.payments_rounded),
+                                          size: 24,
+                                          color: isVoided
+                                              ? AppColors.danger
+                                              : AppColors.primary,
                                         ),
                                       ),
-                                      child: Icon(
-                                        isVoided
-                                            ? Icons.block_rounded
-                                            : (payMethod == 'GCash'
-                                                  ? Icons.phone_android_rounded
-                                                  : Icons.payments_rounded),
-                                        size: 24,
-                                        color: isVoided
-                                            ? AppColors.danger
-                                            : AppColors.primary,
-                                      ),
-                                    ),
-                                    const SizedBox(width: AppSpacing.space3),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            items,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 14.5,
-                                              height: 1.2,
+                                      const SizedBox(width: AppSpacing.space3),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              items,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 14.5,
+                                                height: 1.2,
+                                              ),
                                             ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Wrap(
-                                            crossAxisAlignment:
-                                                WrapCrossAlignment.center,
-                                            spacing: 6,
-                                            children: [
-                                              Text(
-                                                timeStr,
-                                                style: Theme.of(context)
-                                                    .textTheme
-                                                    .bodySmall
-                                                    ?.copyWith(
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                              ),
-                                              Text(
-                                                '•',
-                                                style: Theme.of(
-                                                  context,
-                                                ).textTheme.bodySmall,
-                                              ),
-                                              Text(
-                                                '${(o['items'] as List).length} item(s)',
-                                                style: Theme.of(
-                                                  context,
-                                                ).textTheme.bodySmall,
-                                              ),
-                                              if (isVoided) ...[
-                                                const SizedBox(width: 4),
-                                                const AppBadge(
-                                                  label: 'VOIDED',
-                                                  variant:
-                                                      AppBadgeVariant.danger,
+                                            const SizedBox(height: 4),
+                                            Wrap(
+                                              crossAxisAlignment:
+                                                  WrapCrossAlignment.center,
+                                              spacing: 6,
+                                              children: [
+                                                Text(
+                                                  timeStr,
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.copyWith(
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                ),
+                                                Text(
+                                                  '•',
+                                                  style: Theme.of(
+                                                    context,
+                                                  ).textTheme.bodySmall,
+                                                ),
+                                                Text(
+                                                  '${(o['items'] as List).length} item(s)',
+                                                  style: Theme.of(
+                                                    context,
+                                                  ).textTheme.bodySmall,
                                                 ),
                                               ],
-                                            ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: AppSpacing.space2),
+                                      Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.end,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            '₱${((o['total'] ?? 0) as num).toStringAsFixed(0)}',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleLarge
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.w900,
+                                                  color: isVoided
+                                                      ? AppColors.danger
+                                                      : null,
+                                                  decoration: isVoided
+                                                      ? TextDecoration
+                                                            .lineThrough
+                                                      : null,
+                                                  decorationColor:
+                                                      AppColors.danger,
+                                                ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          // PAYMENT METHOD PILL
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 2,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: isVoided
+                                                  ? AppColors.danger.withValues(
+                                                      alpha: 0.1,
+                                                    )
+                                                  : (payMethod == 'GCash'
+                                                            ? AppColors.info
+                                                            : AppColors.primary)
+                                                        .withValues(alpha: 0.1),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              isVoided ? 'VOID' : payMethod,
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w800,
+                                                color: isVoided
+                                                    ? AppColors.danger
+                                                    : (payMethod == 'GCash'
+                                                          ? AppColors.info
+                                                          : AppColors.primary),
+                                              ),
+                                            ),
                                           ),
                                         ],
                                       ),
-                                    ),
-                                    const SizedBox(width: AppSpacing.space2),
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.end,
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Text(
-                                          '₱${((o['total'] ?? 0) as num).toStringAsFixed(0)}',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleLarge
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.w900,
-                                                color: isVoided
-                                                    ? AppColors.danger
-                                                    : null,
-                                                decoration: isVoided
-                                                    ? TextDecoration.lineThrough
-                                                    : null,
-                                                decorationColor:
-                                                    AppColors.danger,
-                                              ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          payMethod,
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w800,
-                                            color: isVoided
-                                                ? AppColors.danger.withValues(
-                                                    alpha: 0.7,
-                                                  )
-                                                : AppColors.primary.withValues(
-                                                    alpha: 0.8,
-                                                  ),
-                                            letterSpacing: 0.5,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        );
-                      },
+                          );
+                        },
+                      ),
                     ),
-                  ),
+            ),
           ),
+
+          // FLOATING GLASS HEADER + AUTO-HIDE FILTERS
           Positioned(
             top: 0,
             left: 0,
             right: 0,
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.space4,
-                  vertical: AppSpacing.space3,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _GlassPillContainer(
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 250),
-                          child: _searching
-                              ? TextField(
-                                  key: const ValueKey('searchField'),
-                                  controller: _searchCtrl,
-                                  autofocus: true,
-                                  decoration: InputDecoration(
-                                    hintText: 'Search product, flavor...',
-                                    border: InputBorder.none,
-                                    enabledBorder: InputBorder.none,
-                                    focusedBorder: InputBorder.none,
-                                    fillColor: Colors.transparent,
-                                    filled: true,
-                                    isDense: true,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 20,
-                                      vertical: 14,
-                                    ),
-                                    hintStyle: TextStyle(
-                                      color: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall?.color,
-                                    ),
-                                  ),
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.titleMedium,
-                                  onChanged: (v) =>
-                                      setState(() => _search = v.trim()),
-                                )
-                              : Container(
-                                  key: const ValueKey('titleText'),
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 20,
-                                    vertical: 14,
-                                  ),
-                                  child: Text(
-                                    'Sales history',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleLarge
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.w800,
-                                          letterSpacing: -0.5,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.space4,
+                      vertical: AppSpacing.space3,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _GlassPillContainer(
+                            child: AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 250),
+                              child: _searching
+                                  ? TextField(
+                                      key: const ValueKey('searchField'),
+                                      controller: _searchCtrl,
+                                      autofocus: true,
+                                      decoration: InputDecoration(
+                                        hintText: 'Search product, flavor...',
+                                        border: InputBorder.none,
+                                        enabledBorder: InputBorder.none,
+                                        focusedBorder: InputBorder.none,
+                                        fillColor: Colors.transparent,
+                                        filled: true,
+                                        isDense: true,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 20,
+                                              vertical: 14,
+                                            ),
+                                        hintStyle: TextStyle(
+                                          color: Theme.of(
+                                            context,
+                                          ).textTheme.bodySmall?.color,
                                         ),
-                                  ),
-                                ),
+                                      ),
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.titleMedium,
+                                      onChanged: (v) =>
+                                          setState(() => _search = v.trim()),
+                                    )
+                                  : Container(
+                                      key: const ValueKey('titleText'),
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 20,
+                                        vertical: 14,
+                                      ),
+                                      child: Text(
+                                        'Sales History',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleLarge
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: -0.5,
+                                            ),
+                                      ),
+                                    ),
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: AppSpacing.space2),
+                        _GlassPillContainer(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 4,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: _searching
+                                  ? [
+                                      IconButton(
+                                        icon: const Icon(Icons.close_rounded),
+                                        tooltip: 'Close search',
+                                        onPressed: () {
+                                          setState(() {
+                                            _searching = false;
+                                            _search = '';
+                                            _searchCtrl.clear();
+                                          });
+                                        },
+                                      ),
+                                    ]
+                                  : [
+                                      IconButton(
+                                        icon: const Icon(Icons.search_rounded),
+                                        tooltip: 'Search sales',
+                                        onPressed: () =>
+                                            setState(() => _searching = true),
+                                      ),
+                                    ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: AppSpacing.space2),
-                    _GlassPillContainer(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 4,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: _searching
-                              ? [
-                                  IconButton(
-                                    icon: const Icon(Icons.close_rounded),
-                                    tooltip: 'Close search',
-                                    onPressed: () {
-                                      setState(() {
-                                        _searching = false;
-                                        _search = '';
-                                        _searchCtrl.clear();
-                                      });
-                                    },
-                                  ),
-                                ]
-                              : [
-                                  IconButton(
-                                    icon: const Icon(Icons.search_rounded),
-                                    tooltip: 'Search sales',
-                                    onPressed: () =>
-                                        setState(() => _searching = true),
-                                  ),
-                                ],
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+
+                // AUTO-HIDE FILTER PILLS
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeInOut,
+                  height: _showFilters ? 50.0 : 0.0,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 200),
+                    opacity: _showFilters ? 1.0 : 0.0,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.space4,
+                      ),
+                      itemCount: _filters.length,
+                      separatorBuilder: (_, _) =>
+                          const SizedBox(width: AppSpacing.space2),
+                      itemBuilder: (context, index) {
+                        final filter = _filters[index];
+                        final selected = _categoryFilter == filter;
+                        return FilterChip(
+                          label: Text(filter),
+                          selected: selected,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.pill),
+                          ),
+                          showCheckmark: false,
+                          selectedColor: AppColors.primary,
+                          labelStyle: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: selected ? Colors.white : AppColors.muted,
+                          ),
+                          onSelected: (_) {
+                            Haptics.select();
+                            setState(() => _categoryFilter = filter);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1341,6 +1482,7 @@ class _VoidReasonSheetState extends State<_VoidReasonSheet> {
               ),
             ),
           ),
+          const SizedBox(height: AppSpacing.space2),
           Row(
             children: [
               Container(
@@ -1362,7 +1504,9 @@ class _VoidReasonSheetState extends State<_VoidReasonSheet> {
                   children: [
                     Text(
                       'Void Order',
-                      style: Theme.of(context).textTheme.titleLarge,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -1423,10 +1567,22 @@ class _VoidReasonSheetState extends State<_VoidReasonSheet> {
               child: TextField(
                 controller: otherController,
                 autofocus: true,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Specify custom reason',
                   hintText: 'Enter reason here...',
-                  prefixIcon: Icon(Icons.edit_note_rounded),
+                  prefixIcon: const Icon(Icons.edit_note_rounded),
+                  filled: true,
+                  fillColor: Theme.of(
+                    context,
+                  ).dividerColor.withValues(alpha: 0.04),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.m),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 16,
+                  ),
                 ),
               ),
             ),
@@ -1500,7 +1656,9 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
   }
 
   Future<void> _pickGCashProof() async {
-    if (_isPickingImage) return;
+    if (_isPickingImage) {
+      return;
+    }
     setState(() => _isPickingImage = true);
 
     try {
@@ -1514,12 +1672,16 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
         Haptics.success();
       }
     } finally {
-      if (mounted) setState(() => _isPickingImage = false);
+      if (mounted) {
+        setState(() => _isPickingImage = false);
+      }
     }
   }
 
   void _viewGCashProof() {
-    if (proofImage == null) return;
+    if (proofImage == null) {
+      return;
+    }
     showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.4),
@@ -1591,6 +1753,7 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
               ),
             ),
           ),
+          const SizedBox(height: AppSpacing.space2),
           Row(
             children: [
               Container(
@@ -1612,7 +1775,9 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
                   children: [
                     Text(
                       'Edit Payment Method',
-                      style: Theme.of(context).textTheme.titleLarge,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(

@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:math';
-import 'dart:ui'; // Idinagdag para sa glass blur effect
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -22,7 +22,7 @@ class HomeScreen extends StatefulWidget {
     required this.onScanReceipt,
     required this.onGoPos,
     required this.onGoHistory,
-    required this.onGoLiveStock, // BAGONG CALLBACK PARA SA LIVE STOCK
+    required this.onGoLiveStock,
   });
 
   final VoidCallback onScanReceipt;
@@ -39,6 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
   double _todaySales = 0;
   int _todayOrders = 0;
   int _queueCount = 0;
+
   List<Map<String, dynamic>> _lowItems = const [];
   List<Map<String, dynamic>> _onShift = const [];
   List<Map<String, dynamic>> _recentOrders = const [];
@@ -61,7 +62,9 @@ class _HomeScreenState extends State<HomeScreen> {
   DataRefresh? _bus;
 
   void _onDataChanged() {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     _refresh();
   }
 
@@ -69,10 +72,15 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _refresh();
+      if (mounted) {
+        _refresh();
+      }
     });
+
     _queueSub = _queue.changes.listen((c) {
-      if (mounted) setState(() => _queueCount = c);
+      if (mounted) {
+        setState(() => _queueCount = c);
+      }
     });
   }
 
@@ -87,10 +95,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _refresh() async {
     final auth = context.read<AuthState>();
     final sync = context.read<SyncService>();
-    final code = auth.locationCode;
 
+    final code = auth.locationCode;
     if (code == null) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
       return;
     }
 
@@ -99,7 +109,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final token = auth.token;
       if (token == null) {
-        if (mounted) setState(() => _loading = false);
+        if (mounted) {
+          setState(() => _loading = false);
+        }
         return;
       }
 
@@ -129,7 +141,9 @@ class _HomeScreenState extends State<HomeScreen> {
         low = items.where((i) => i['status'] != 'ok').take(5).toList();
       }
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _todaySales = ((report?['total_sales'] ?? 0) as num).toDouble();
@@ -143,19 +157,26 @@ class _HomeScreenState extends State<HomeScreen> {
         _loading = false;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() => _loading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Offline - showing cached info')),
       );
     }
+
     final count = await _queue.count;
-    if (mounted) setState(() => _queueCount = count);
+    if (mounted) {
+      setState(() => _queueCount = count);
+    }
   }
 
   Future<void> _manualSync() async {
     final result = await context.read<SyncService>().syncAll();
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(result.message)));
@@ -166,7 +187,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   double get _vsYesterday {
     final prev = ((_prevReport?['total_sales'] ?? 0) as num).toDouble();
-    if (prev <= 0) return 0;
+    if (prev <= 0) {
+      return 0;
+    }
     return ((_todaySales - prev) / prev) * 100;
   }
 
@@ -189,7 +212,7 @@ class _HomeScreenState extends State<HomeScreen> {
           120,
         ),
         children: [
-          // ---------- header ----------
+          // ---------- HEADER ----------
           Row(
             children: [
               Expanded(
@@ -202,13 +225,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: AppSpacing.space1),
                     Text(
-                      '${auth.locationCode ?? "No cart"} • ${auth.roleDisplay}',
+                      '${auth.locationCode ?? "No cart"}   ${auth.roleDisplay}',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
                 ),
               ),
-              // BAGONG SYNC STATUS BUTTON SA HEADER
               Consumer<SyncService>(
                 builder: (context, sync, _) {
                   final syncing = sync.isSyncing;
@@ -237,7 +259,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               ),
               const SizedBox(width: AppSpacing.space2),
-              // GLASSMORPHISM LOG OUT BUTTON
               _GlassIconButton(
                 tooltip: 'Log out',
                 icon: Icons.logout_rounded,
@@ -251,11 +272,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         : 'No queued sales. You can sign back in anytime.',
                     confirmLabel: 'Log out',
                   );
-                  if (!confirmed || !context.mounted) return;
-                  final auth = context.read<AuthState>();
-                  if (!auth.isLoggedIn) return;
+                  if (!confirmed || !context.mounted) {
+                    return;
+                  }
+                  final authState = context.read<AuthState>();
+                  if (!authState.isLoggedIn) {
+                    return;
+                  }
                   context.read<SyncService>().cancelActiveSync();
-                  await auth.signOut();
+                  await authState.signOut();
                 },
               ),
             ],
@@ -284,7 +309,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             )
           else ...[
-            // Solid Brand Card (Sales)
             _SolidBrandCard(
               title: 'Sales today',
               value: _todaySales,
@@ -292,8 +316,6 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Icons.payments_rounded,
             ),
             const SizedBox(height: AppSpacing.space3),
-
-            // 2x2 Style Grid (Orders & Avg Ticket)
             Row(
               children: [
                 Expanded(
@@ -316,13 +338,11 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
             const SizedBox(height: AppSpacing.space3),
-
-            // Trend Bar Chart
             _WeeklyTrendPanel(weekSales: _weekSales),
           ],
           const SizedBox(height: AppSpacing.space4),
 
-          // ---------- quick actions ----------
+          // ---------- QUICK ACTIONS ----------
           Row(
             children: [
               Expanded(
@@ -346,7 +366,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: AppSpacing.space4),
 
-          // ---------- on-shift staff ----------
+          // ---------- ON-SHIFT STAFF ----------
           if (_onShift.isNotEmpty) ...[
             _SectionHeader(
               title: 'On shift now',
@@ -374,13 +394,14 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: AppSpacing.space4),
           ],
 
-          // ---------- recent orders ----------
+          // ---------- RECENT ORDERS ----------
           if (_recentOrders.isNotEmpty) ...[
             _SectionHeader(
               title: 'Recent sales',
-              trailing: TextButton(
-                onPressed: widget.onGoHistory,
-                child: const Text('View all'),
+              trailing: _HeaderButton(
+                label: 'View all',
+                icon: Icons.chevron_right_rounded,
+                onTap: widget.onGoHistory,
               ),
             ),
             const SizedBox(height: AppSpacing.space2),
@@ -389,9 +410,10 @@ class _HomeScreenState extends State<HomeScreen> {
           ] else if (!_loading) ...[
             _SectionHeader(
               title: 'Recent sales',
-              trailing: TextButton(
-                onPressed: widget.onGoPos,
-                child: const Text('New sale'),
+              trailing: _HeaderButton(
+                label: 'New sale',
+                icon: Icons.add_rounded,
+                onTap: widget.onGoPos,
               ),
             ),
             const SizedBox(height: AppSpacing.space2),
@@ -435,18 +457,17 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: AppSpacing.space4),
           ],
 
-          // ---------- stock alerts ----------
+          // ---------- STOCK ALERTS ----------
           Container(
             decoration: BoxDecoration(
               color: surfaceColor,
               borderRadius: BorderRadius.circular(20),
               boxShadow: AppShadow.sm(),
             ),
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // BAGONG STOCK ALERTS HEADER NA MAY 'VIEW ALL STOCK'
                 _SectionHeader(
                   title: 'Stock alerts',
                   trailing: Row(
@@ -459,14 +480,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         const SizedBox(width: AppSpacing.space2),
                       ],
-                      TextButton(
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        onPressed: widget.onGoLiveStock,
-                        child: const Text('View all'),
+                      _HeaderButton(
+                        label: 'View all',
+                        icon: Icons.chevron_right_rounded,
+                        onTap: widget.onGoLiveStock,
                       ),
                     ],
                   ),
@@ -478,19 +495,53 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: LinearProgressIndicator(minHeight: 3),
                   )
                 else if (_lowItems.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
+                  Container(
+                    margin: const EdgeInsets.only(top: 4, bottom: 4),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.ok.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(AppRadius.m),
+                      border: Border.all(
+                        color: AppColors.ok.withValues(alpha: 0.2),
+                      ),
+                    ),
                     child: Row(
                       children: [
-                        const Icon(
-                          Icons.check_circle_rounded,
-                          color: AppColors.ok,
-                          size: 20,
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppColors.ok.withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.check_rounded,
+                            color: AppColors.ok,
+                            size: 20,
+                          ),
                         ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'All stocks healthy',
-                          style: Theme.of(context).textTheme.bodyMedium,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'All stocks healthy',
+                                style: TextStyle(
+                                  color: AppColors.ok,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              Text(
+                                'No critical or low items right now.',
+                                style: TextStyle(
+                                  color: AppColors.ok.withValues(alpha: 0.8),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
@@ -522,7 +573,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         style: Theme.of(context).textTheme.titleSmall,
                       ),
                       subtitle: Text(
-                        '${item['stock']} ${item['unit']} left • threshold ${item['threshold']}',
+                        '${item['stock']} ${item['unit']} left   threshold ${item['threshold']}',
                       ),
                       trailing: Text(
                         critical ? 'CRITICAL' : 'LOW',
@@ -534,7 +585,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     );
                   }),
-                const SizedBox(height: 4),
               ],
             ),
           ),
@@ -544,7 +594,43 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ---------- NEW: SOLID BRAND KPI CARD ----------
+/// Custom button para sa "View all" / "New sale" action headers.
+class _HeaderButton extends StatelessWidget {
+  const _HeaderButton({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        foregroundColor: AppColors.primary,
+      ),
+      onPressed: onTap,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(width: 2),
+          Icon(icon, size: 16),
+        ],
+      ),
+    );
+  }
+}
+
 class _SolidBrandCard extends StatelessWidget {
   const _SolidBrandCard({
     required this.title,
@@ -579,7 +665,6 @@ class _SolidBrandCard extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          // Glowing Orbs
           Positioned(
             top: -60,
             right: -60,
@@ -604,7 +689,6 @@ class _SolidBrandCard extends StatelessWidget {
               ),
             ),
           ),
-          // Content
           Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
@@ -683,7 +767,6 @@ class _SolidBrandCard extends StatelessWidget {
   }
 }
 
-// ---------- NEW: STANDARD KPI CARD ----------
 class _StandardKpiCard extends StatelessWidget {
   const _StandardKpiCard({
     required this.title,
@@ -756,10 +839,8 @@ class _StandardKpiCard extends StatelessWidget {
   }
 }
 
-// ---------- NEW: WEEKLY TREND PANEL ----------
 class _WeeklyTrendPanel extends StatelessWidget {
   const _WeeklyTrendPanel({required this.weekSales});
-
   final List<double> weekSales;
 
   @override
@@ -767,6 +848,7 @@ class _WeeklyTrendPanel extends StatelessWidget {
     if (weekSales.isEmpty || weekSales.length < 2) {
       return const SizedBox.shrink();
     }
+
     final maxVal = weekSales.reduce(max);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -860,7 +942,6 @@ class _WeeklyTrendPanel extends StatelessWidget {
   }
 }
 
-// ---------- section header ----------
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({required this.title, this.trailing});
   final String title;
@@ -872,7 +953,6 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-// ---------- staff chip ----------
 class _StaffChip extends StatelessWidget {
   const _StaffChip({required this.name, required this.location});
   final String name;
@@ -881,6 +961,7 @@ class _StaffChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
@@ -923,7 +1004,6 @@ class _StaffChip extends StatelessWidget {
   }
 }
 
-// ---------- recent order tile ----------
 class _RecentOrderTile extends StatelessWidget {
   const _RecentOrderTile({required this.order});
   final Map<String, dynamic> order;
@@ -937,6 +1017,7 @@ class _RecentOrderTile extends StatelessWidget {
       (sum, i) => sum + ((i['qty'] ?? 1) as int),
     );
     final total = (order['total'] ?? 0) as num;
+
     final time = order['createdAt'] != null
         ? ManilaTime.parse(order['createdAt'])
         : null;
@@ -1012,7 +1093,6 @@ class _RecentOrderTile extends StatelessWidget {
   }
 }
 
-// ---------- quick action ----------
 class _QuickAction extends StatelessWidget {
   const _QuickAction({
     required this.icon,
@@ -1063,7 +1143,6 @@ class _QuickAction extends StatelessWidget {
   }
 }
 
-// ---------- GLASSMORPHISM LOG OUT BUTTON ----------
 class _GlassIconButton extends StatelessWidget {
   const _GlassIconButton({
     required this.icon,

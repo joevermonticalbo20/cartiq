@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 
 import '../services/api_client.dart';
@@ -7,8 +8,8 @@ import '../services/auth_state.dart';
 import '../services/data_refresh.dart';
 import '../theme.dart';
 import '../utils/app_messenger.dart';
+import '../utils/haptics.dart';
 import '../utils/manila_time.dart';
-import '../widgets/app_badge.dart';
 import '../widgets/app_skeleton.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/section_header.dart';
@@ -29,12 +30,25 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
   int _page = 1;
   bool _loading = false;
   bool _done = false;
-
   bool _searching = false;
   String _search = '';
   final _searchCtrl = TextEditingController();
-
   String? _error;
+
+  String _categoryFilter = 'All';
+  final List<String> _filters = [
+    'All',
+    'Manual',
+    'OCR',
+    'Supplies',
+    'LPG/Gas',
+    'Maintenance',
+    'Fees/Rent',
+    'Other',
+  ];
+
+  // STATE PARA SA AUTO-HIDE SCROLL
+  bool _showFilters = true;
 
   @override
   void didChangeDependencies() {
@@ -47,9 +61,10 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
   }
 
   DataRefresh? _bus;
-
   void _onDataChanged() {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     _loadMore(reset: true);
   }
 
@@ -68,15 +83,24 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
   }
 
   bool _matches(Map<String, dynamic> e, String q) {
-    if (q.isEmpty) return true;
+    if (q.isEmpty) {
+      return true;
+    }
     final lq = q.toLowerCase();
-    final amount = '₱${((e['amount'] ?? 0) as num).toStringAsFixed(0)}';
-    if (amount.toLowerCase().contains(lq)) return true;
-    if ((e['vendor'] as String? ?? '').toLowerCase().contains(lq)) return true;
+    final amount = ' ${((e['amount'] ?? 0) as num).toStringAsFixed(0)}';
+
+    if (amount.toLowerCase().contains(lq)) {
+      return true;
+    }
+    if ((e['vendor'] as String? ?? '').toLowerCase().contains(lq)) {
+      return true;
+    }
     if ((e['category'] as String? ?? '').toLowerCase().contains(lq)) {
       return true;
     }
-    if ((e['note'] as String? ?? '').toLowerCase().contains(lq)) return true;
+    if ((e['note'] as String? ?? '').toLowerCase().contains(lq)) {
+      return true;
+    }
     final loc = e['location'] as Map<String, dynamic>?;
     if (loc != null &&
         (loc['code'] as String? ?? '').toLowerCase().contains(lq)) {
@@ -86,7 +110,9 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
   }
 
   void _fail(String message) {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     final hadRows = _rows.isNotEmpty;
     setState(() => _error = message);
     if (hadRows && mounted) {
@@ -99,7 +125,10 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
   }
 
   Future<void> _loadMore({bool reset = false}) async {
-    if (_loading || (_done && !reset)) return;
+    if (_loading || (_done && !reset)) {
+      return;
+    }
+
     setState(() {
       _loading = true;
       _error = null;
@@ -109,7 +138,9 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
       final auth = context.read<AuthState>();
       final token = auth.token;
       if (token == null) {
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
         setState(() => _error = 'Session expired. Please log in again.');
         return;
       }
@@ -118,9 +149,11 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
         page: reset ? 1 : _page,
         locationCode: auth.locationCode,
       );
-      final batch = (data['data'] as List).cast<Map<String, dynamic>>();
 
-      if (!mounted) return;
+      final batch = (data['data'] as List).cast<Map<String, dynamic>>();
+      if (!mounted) {
+        return;
+      }
       setState(() {
         if (reset) _rows.clear();
         _rows.addAll(batch);
@@ -139,7 +172,10 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
   }
 
   Future<void> _scanAndReload() async {
-    if (_loading) return;
+    if (_loading) {
+      return;
+    }
+
     if (widget.onScanReceipt != null) {
       await widget.onScanReceipt!();
     } else {
@@ -147,24 +183,288 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
         context,
       ).push(MaterialPageRoute(builder: (_) => const ScanReceiptScreen()));
     }
-    if (!mounted) return;
+
+    if (!mounted) {
+      return;
+    }
     _loadMore(reset: true);
+  }
+
+  Future<void> _showReceiptDetails(Map<String, dynamic> e) async {
+    final isOcr = e['source'] == 'OCR';
+    final dt = ManilaTime.parse(e['date']);
+    final dateStr = dt != null
+        ? '${dt.month}/${dt.day}/${dt.year}   ${ManilaTime.formatClock12(dt)}'
+        : 'Unknown Date';
+    final amount = ((e['amount'] ?? 0) as num).toDouble();
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.space5,
+          AppSpacing.space3,
+          AppSpacing.space5,
+          MediaQuery.of(context).viewInsets.bottom + AppSpacing.space6,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.symmetric(vertical: AppSpacing.space2),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(AppRadius.xs),
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.space2),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(AppRadius.m),
+                  ),
+                  child: Icon(
+                    isOcr
+                        ? Icons.document_scanner_rounded
+                        : Icons.edit_note_rounded,
+                    color: AppColors.primary,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.space3),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        e['vendor'] ?? 'Unknown Vendor',
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -0.5,
+                            ),
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.calendar_today_rounded,
+                            size: 14,
+                            color: AppColors.muted,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            dateStr,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                    border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: Text(
+                    isOcr ? 'OCR' : 'Manual',
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.space4),
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.space4),
+              decoration: BoxDecoration(
+                color: Theme.of(context).dividerColor.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(AppRadius.l),
+                border: Border.all(
+                  color: Theme.of(context).dividerColor.withValues(alpha: 0.2),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Total Amount',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Text(
+                        '₱${amount.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.space3,
+                    ),
+                    child: Divider(
+                      height: 1,
+                      color: Theme.of(
+                        context,
+                      ).dividerColor.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  _detailRow('Category', e['category'] ?? 'Other'),
+                  const SizedBox(height: 12),
+                  _detailRow(
+                    'Location Code',
+                    (e['location'] as Map<String, dynamic>?)?['code'] ?? 'N/A',
+                  ),
+                  if (e['note'] != null &&
+                      e['note'].toString().trim().isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _detailRow('Note', e['note'].toString()),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.space5),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(52),
+              ),
+              onPressed: () => Navigator.pop(sheetContext),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _detailRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            color: AppColors.muted,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _friendlyDate(String key) {
+    if (key == 'unknown') {
+      return 'Unknown date';
+    }
+    final parts = key.split('/');
+    if (parts.length == 3) {
+      final year = int.tryParse(parts[0]);
+      final month = int.tryParse(parts[1]);
+      final day = int.tryParse(parts[2]);
+      if (year != null && month != null && day != null) {
+        final dt = DateTime(year, month, day);
+        final now = ManilaTime.now();
+        final yesterday = now.subtract(const Duration(days: 1));
+        if (dt.year == now.year && dt.month == now.month && dt.day == now.day) {
+          return 'Today';
+        } else if (dt.year == yesterday.year &&
+            dt.month == yesterday.month &&
+            dt.day == yesterday.day) {
+          return 'Yesterday';
+        } else {
+          const months = [
+            'Jan',
+            'Feb',
+            'Mar',
+            'Apr',
+            'May',
+            'Jun',
+            'Jul',
+            'Aug',
+            'Sep',
+            'Oct',
+            'Nov',
+            'Dec',
+          ];
+          return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+        }
+      }
+    }
+    return key;
   }
 
   @override
   Widget build(BuildContext context) {
-    final filtered = _rows.where((e) => _matches(e, _search)).toList();
+    final filtered = _rows.where((e) {
+      if (!_matches(e, _search)) {
+        return false;
+      }
+      if (_categoryFilter == 'OCR' && e['source'] != 'OCR') {
+        return false;
+      }
+      if (_categoryFilter == 'Manual' && e['source'] == 'OCR') {
+        return false;
+      }
+      if (!['All', 'OCR', 'Manual'].contains(_categoryFilter)) {
+        if (e['category'] != _categoryFilter) {
+          return false;
+        }
+      }
+      return true;
+    }).toList();
+
     final hasResults = filtered.isNotEmpty;
     final surfaceColor = Theme.of(context).colorScheme.surface;
-
-    // Mas malaking padding para pumasok ng maayos ang custom floating pill header
     final topPadding = MediaQuery.of(context).padding.top + 90;
 
     final grouped = <String, List<Map<String, dynamic>>>{};
     for (final e in filtered) {
       final key = ManilaTime.groupKey(e['date']);
-      final label = key == 'unknown' ? 'Unknown date' : key;
-      (grouped[label] ??= []).add(e);
+      (grouped[key] ??= []).add(e);
     }
 
     final rows = <Object>[];
@@ -173,38 +473,58 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
         0,
         (s, e) => s + ((e['amount'] ?? 0) as num).toDouble(),
       );
-      rows.add((entry.key, entry.value.length, dayTotal));
+      rows.add((_friendlyDate(entry.key), entry.value.length, dayTotal));
       rows.addAll(entry.value);
     }
 
     return Scaffold(
-      extendBody: true, // Pinapayagang pumasok sa ilalim ng bottom nav
+      extendBody: true,
       body: Stack(
         children: [
-          // 1. ANG LISTAHAN SA ILALIM
-          RefreshIndicator(
-            onRefresh: () async => _loadMore(reset: true),
-            child: _rows.isEmpty && _loading && _error == null
-                ? ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: EdgeInsets.fromLTRB(
-                      AppSpacing.space4,
-                      topPadding,
-                      AppSpacing.space4,
-                      120, // 120 bottom padding para iwasan ang menu
-                    ),
-                    children: const [AppSkeleton(rows: 6)],
-                  )
-                : !hasResults && !_loading
-                // INAYOS NA: Binalik sa Padding wrapper ang AppEmptyState para hindi siya mag-crash/mawala
-                ? Padding(
-                    padding: EdgeInsets.only(top: topPadding, bottom: 120),
-                    child: _error != null
-                        ? AppUnavailableState(
+          NotificationListener<UserScrollNotification>(
+            onNotification: (notification) {
+              final direction = notification.direction;
+              if (direction == ScrollDirection.reverse) {
+                if (_showFilters) {
+                  setState(() => _showFilters = false);
+                }
+              } else if (direction == ScrollDirection.forward) {
+                if (!_showFilters) {
+                  setState(() => _showFilters = true);
+                }
+              }
+              return false; // let the notification bubble up
+            },
+            child: RefreshIndicator(
+              onRefresh: () async => _loadMore(reset: true),
+              child: _rows.isEmpty && _loading && _error == null
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: EdgeInsets.fromLTRB(
+                        AppSpacing.space4,
+                        topPadding + 54,
+                        AppSpacing.space4,
+                        120,
+                      ),
+                      children: const [AppSkeleton(rows: 6)],
+                    )
+                  : !hasResults && !_loading
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: EdgeInsets.fromLTRB(
+                        AppSpacing.space4,
+                        topPadding + 54,
+                        AppSpacing.space4,
+                        120,
+                      ),
+                      children: [
+                        if (_error != null)
+                          AppUnavailableState(
                             message: _error!,
                             onRetry: () => _loadMore(reset: true),
                           )
-                        : AppEmptyState(
+                        else
+                          AppEmptyState(
                             icon: _search.isNotEmpty
                                 ? Icons.search_off_rounded
                                 : Icons.receipt_long,
@@ -228,262 +548,398 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
                                   })
                                 : () => _scanAndReload(),
                           ),
-                  )
-                : NotificationListener<ScrollNotification>(
-                    onNotification: (n) {
-                      if (n.metrics.pixels > n.metrics.maxScrollExtent - 200) {
-                        _loadMore();
-                      }
-                      return false;
-                    },
-                    child: ListView.separated(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: EdgeInsets.fromLTRB(
-                        AppSpacing.space4,
-                        topPadding,
-                        AppSpacing.space4,
-                        120, // 120 bottom padding para iwasan ang menu
-                      ),
-                      itemCount: rows.length + (_loading ? 1 : 0),
-                      separatorBuilder: (_, _) =>
-                          const SizedBox(height: AppSpacing.space2),
-                      itemBuilder: (context, i) {
-                        if (i >= rows.length) {
-                          return const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(12),
-                              child: CircularProgressIndicator(),
-                            ),
-                          );
+                      ],
+                    )
+                  : NotificationListener<ScrollNotification>(
+                      onNotification: (n) {
+                        if (n.metrics.pixels >
+                            n.metrics.maxScrollExtent - 200) {
+                          _loadMore();
                         }
-
-                        final row = rows[i];
-                        if (row is (String, int, double)) {
-                          final (date, count, total) = row;
-                          return Padding(
-                            padding: const EdgeInsets.only(
-                              top: AppSpacing.space2,
-                              bottom: AppSpacing.space1,
-                            ),
-                            child: SectionHeader(
-                              title: date,
-                              eyebrow: '$count receipt${count != 1 ? 's' : ''}',
-                              trailing: Text(
-                                '₱${total.toStringAsFixed(0)}', // Pinalitan din ang P ng ₱
-                                style: Theme.of(context).textTheme.labelSmall
-                                    ?.copyWith(fontWeight: FontWeight.w800),
-                              ),
-                            ),
-                          );
-                        }
-
-                        final e = row as Map<String, dynamic>;
-                        final isOcr = e['source'] == 'OCR';
-                        final dateStr = ManilaTime.shortLabel(e['date']);
-                        final dateLabel = dateStr.isEmpty ? '-' : dateStr;
-
-                        return Container(
-                          clipBehavior: Clip.antiAlias,
-                          decoration: BoxDecoration(
-                            color: surfaceColor,
-                            borderRadius: BorderRadius.circular(AppRadius.l),
-                            boxShadow: AppShadow.sm(),
-                          ),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: ListTile(
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.space4,
-                                vertical: AppSpacing.space2,
-                              ),
-                              leading: Container(
-                                width: 44,
-                                height: 44,
-                                decoration: BoxDecoration(
-                                  color: isOcr
-                                      ? AppColors.primary.withValues(
-                                          alpha: 0.13,
-                                        )
-                                      : Theme.of(context).dividerColor,
-                                  borderRadius: BorderRadius.circular(
-                                    AppRadius.s,
-                                  ),
-                                ),
-                                child: Icon(
-                                  isOcr
-                                      ? Icons.document_scanner_rounded
-                                      : Icons.edit_note_rounded,
-                                  size: 21,
-                                  color: isOcr
-                                      ? AppColors.primary
-                                      : Theme.of(
-                                          context,
-                                        ).colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                              title: Text(
-                                e['vendor'] ?? '',
-                                style: Theme.of(context).textTheme.titleMedium,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              subtitle: Text(
-                                '$dateLabel • ${e['category'] ?? 'Other'}'
-                                '${(e['location'] as Map<String, dynamic>?)?['code'] != null ? ' • ${(e['location'] as Map<String, dynamic>)['code']}' : ''}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              trailing: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    '₱${((e['amount'] ?? 0) as num).toStringAsFixed(0)}',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium
-                                        ?.copyWith(fontWeight: FontWeight.w800),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  AppBadge(
-                                    label: e['source'] ?? 'MANUAL',
-                                    variant: isOcr
-                                        ? AppBadgeVariant.warn
-                                        : AppBadgeVariant.neutral,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
+                        return false;
                       },
+                      child: ListView.separated(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: EdgeInsets.fromLTRB(
+                          AppSpacing.space4,
+                          topPadding + 54,
+                          AppSpacing.space4,
+                          120,
+                        ),
+                        itemCount: rows.length + (_loading ? 1 : 0),
+                        separatorBuilder: (_, _) =>
+                            const SizedBox(height: AppSpacing.space2),
+                        itemBuilder: (context, i) {
+                          if (i >= rows.length) {
+                            return const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(12),
+                                child: CircularProgressIndicator(),
+                              ),
+                            );
+                          }
+
+                          final row = rows[i];
+                          if (row is (String, int, double)) {
+                            final (dateLabel, count, total) = row;
+                            return Padding(
+                              padding: const EdgeInsets.only(
+                                top: AppSpacing.space2,
+                                bottom: AppSpacing.space1,
+                              ),
+                              child: SectionHeader(
+                                title: dateLabel,
+                                eyebrow:
+                                    '$count receipt${count != 1 ? 's' : ''}',
+                                trailing: Text(
+                                  '₱${total.toStringAsFixed(0)}',
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 13,
+                                      ),
+                                ),
+                              ),
+                            );
+                          }
+
+                          final e = row as Map<String, dynamic>;
+                          final isOcr = e['source'] == 'OCR';
+
+                          final dt = ManilaTime.parse(e['date']);
+                          final timeStr = dt != null
+                              ? ManilaTime.formatClock12(dt)
+                              : '--:--';
+
+                          return Container(
+                            clipBehavior: Clip.antiAlias,
+                            decoration: BoxDecoration(
+                              color: surfaceColor,
+                              borderRadius: BorderRadius.circular(AppRadius.l),
+                              boxShadow: AppShadow.sm(),
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () {
+                                  Haptics.select();
+                                  _showReceiptDetails(e);
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.all(
+                                    AppSpacing.space4,
+                                  ),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      Container(
+                                        width: 48,
+                                        height: 48,
+                                        decoration: BoxDecoration(
+                                          color: AppColors.primary.withValues(
+                                            alpha: 0.12,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            AppRadius.m,
+                                          ),
+                                        ),
+                                        child: Icon(
+                                          isOcr
+                                              ? Icons.document_scanner_rounded
+                                              : Icons.edit_note_rounded,
+                                          size: 24,
+                                          color: AppColors.primary,
+                                        ),
+                                      ),
+                                      const SizedBox(width: AppSpacing.space3),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              e['vendor'] ?? 'Unknown Vendor',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 14.5,
+                                                height: 1.2,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Wrap(
+                                              crossAxisAlignment:
+                                                  WrapCrossAlignment.center,
+                                              spacing: 6,
+                                              children: [
+                                                Text(
+                                                  timeStr,
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.copyWith(
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                ),
+                                                Text(
+                                                  '•',
+                                                  style: Theme.of(
+                                                    context,
+                                                  ).textTheme.bodySmall,
+                                                ),
+                                                Text(
+                                                  e['category'] ?? 'Other',
+                                                  style: Theme.of(
+                                                    context,
+                                                  ).textTheme.bodySmall,
+                                                ),
+                                                if ((e['location']
+                                                        as Map<
+                                                          String,
+                                                          dynamic
+                                                        >?)?['code'] !=
+                                                    null) ...[
+                                                  Text(
+                                                    '•',
+                                                    style: Theme.of(
+                                                      context,
+                                                    ).textTheme.bodySmall,
+                                                  ),
+                                                  Text(
+                                                    (e['location']
+                                                        as Map<
+                                                          String,
+                                                          dynamic
+                                                        >)['code'],
+                                                    style: Theme.of(
+                                                      context,
+                                                    ).textTheme.bodySmall,
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: AppSpacing.space2),
+                                      Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.end,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            '₱${((e['amount'] ?? 0) as num).toStringAsFixed(0)}',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleLarge
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.w900,
+                                                ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 2,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: AppColors.primary
+                                                  .withValues(alpha: 0.1),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              isOcr ? 'OCR' : 'Manual',
+                                              style: const TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w800,
+                                                color: AppColors.primary,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                  ),
+            ),
           ),
 
-          // 2. BAGONG FLOATING GLASS PILL HEADER (MATCHED EXACTLY TO ROOT SHELL NAV BAR)
+          // FLOATING GLASS HEADER + AUTO-HIDE FILTERS
           Positioned(
             top: 0,
             left: 0,
             right: 0,
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.space4,
-                  vertical: AppSpacing.space3,
-                ),
-                child: Row(
-                  children: [
-                    // A. TITLE O SEARCH FIELD (Hiwalay na Pill)
-                    Expanded(
-                      child: _GlassPillContainer(
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 250),
-                          child: _searching
-                              ? TextField(
-                                  key: const ValueKey('searchField'),
-                                  controller: _searchCtrl,
-                                  autofocus: true,
-                                  decoration: InputDecoration(
-                                    hintText: 'Search expenses...',
-                                    border: InputBorder.none,
-                                    enabledBorder: InputBorder.none,
-                                    focusedBorder: InputBorder.none,
-                                    fillColor: Colors
-                                        .transparent, // Transparent para lumutang ang glass effect
-                                    filled: true,
-                                    isDense: true,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 20,
-                                      vertical: 14,
-                                    ),
-                                    hintStyle: TextStyle(
-                                      color: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall?.color,
-                                    ),
-                                  ),
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.titleMedium,
-                                  onChanged: (v) =>
-                                      setState(() => _search = v.trim()),
-                                )
-                              : Container(
-                                  key: const ValueKey('titleText'),
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 20,
-                                    vertical: 14,
-                                  ),
-                                  child: Text(
-                                    'Expenses',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleLarge
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.w800,
-                                          letterSpacing: -0.5,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.space4,
+                      vertical: AppSpacing.space3,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _GlassPillContainer(
+                            child: AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 250),
+                              child: _searching
+                                  ? TextField(
+                                      key: const ValueKey('searchField'),
+                                      controller: _searchCtrl,
+                                      autofocus: true,
+                                      decoration: InputDecoration(
+                                        hintText: 'Search expenses...',
+                                        border: InputBorder.none,
+                                        enabledBorder: InputBorder.none,
+                                        focusedBorder: InputBorder.none,
+                                        fillColor: Colors.transparent,
+                                        filled: true,
+                                        isDense: true,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 20,
+                                              vertical: 14,
+                                            ),
+                                        hintStyle: TextStyle(
+                                          color: Theme.of(
+                                            context,
+                                          ).textTheme.bodySmall?.color,
                                         ),
-                                  ),
-                                ),
+                                      ),
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.titleMedium,
+                                      onChanged: (v) =>
+                                          setState(() => _search = v.trim()),
+                                    )
+                                  : Container(
+                                      key: const ValueKey('titleText'),
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 20,
+                                        vertical: 14,
+                                      ),
+                                      child: Text(
+                                        'Expenses',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleLarge
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: -0.5,
+                                            ),
+                                      ),
+                                    ),
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: AppSpacing.space2),
+                        _GlassPillContainer(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 4,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: _searching
+                                  ? [
+                                      IconButton(
+                                        icon: const Icon(Icons.close_rounded),
+                                        tooltip: 'Close search',
+                                        onPressed: () {
+                                          setState(() {
+                                            _searching = false;
+                                            _search = '';
+                                            _searchCtrl.clear();
+                                          });
+                                        },
+                                      ),
+                                    ]
+                                  : [
+                                      IconButton(
+                                        icon: const Icon(Icons.search_rounded),
+                                        tooltip: 'Search expenses',
+                                        onPressed: () =>
+                                            setState(() => _searching = true),
+                                      ),
+                                      Container(
+                                        width: 1,
+                                        height: 24,
+                                        color: Theme.of(
+                                          context,
+                                        ).dividerColor.withValues(alpha: 0.3),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.add_rounded),
+                                        color: AppColors.primary,
+                                        tooltip: 'Scan / record expense',
+                                        onPressed: _scanAndReload,
+                                      ),
+                                    ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: AppSpacing.space2),
-
-                    // B. ACTION BUTTONS (Hiwalay na Pill)
-                    _GlassPillContainer(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 4,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: _searching
-                              ? [
-                                  IconButton(
-                                    icon: const Icon(Icons.close_rounded),
-                                    tooltip: 'Close search',
-                                    onPressed: () {
-                                      setState(() {
-                                        _searching = false;
-                                        _search = '';
-                                        _searchCtrl.clear();
-                                      });
-                                    },
-                                  ),
-                                ]
-                              : [
-                                  IconButton(
-                                    icon: const Icon(Icons.search_rounded),
-                                    tooltip: 'Search expenses',
-                                    onPressed: () =>
-                                        setState(() => _searching = true),
-                                  ),
-                                  Container(
-                                    width: 1,
-                                    height: 24,
-                                    color: Theme.of(
-                                      context,
-                                    ).dividerColor.withValues(alpha: 0.3),
-                                  ), // Maliit na divider sa pagitan ng search at add
-                                  IconButton(
-                                    icon: const Icon(Icons.add_rounded),
-                                    color: AppColors
-                                        .primary, // Naka-highlight ang Add button
-                                    tooltip: 'Scan / record expense',
-                                    onPressed: _scanAndReload,
-                                  ),
-                                ],
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+
+                // AUTO-HIDE FILTER PILLS
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeInOut,
+                  height: _showFilters ? 50.0 : 0.0,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 200),
+                    opacity: _showFilters ? 1.0 : 0.0,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.space4,
+                      ),
+                      itemCount: _filters.length,
+                      separatorBuilder: (_, _) =>
+                          const SizedBox(width: AppSpacing.space2),
+                      itemBuilder: (context, index) {
+                        final filter = _filters[index];
+                        final selected = _categoryFilter == filter;
+                        return FilterChip(
+                          label: Text(filter),
+                          selected: selected,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.pill),
+                          ),
+                          showCheckmark: false,
+                          selectedColor: AppColors.primary,
+                          labelStyle: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: selected ? Colors.white : AppColors.muted,
+                          ),
+                          onSelected: (_) {
+                            Haptics.select();
+                            setState(() => _categoryFilter = filter);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -492,8 +948,6 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
   }
 }
 
-// ---------- BAGONG REUSABLE WIDGET PARA SA GLASS PILL ----------
-// INAYOS NA: Kinopya ang EKSAKTONG timpla ng shadow, blur, at border mula sa Root Shell menu.
 class _GlassPillContainer extends StatelessWidget {
   const _GlassPillContainer({required this.child});
   final Widget child;
@@ -501,37 +955,27 @@ class _GlassPillContainer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final surfaceColor = Theme.of(context).colorScheme.surface;
-
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(AppRadius.pill),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(
-              alpha: 0.1,
-            ), // Match RootShell (0.1 opacity)
-            blurRadius: 24, // Match RootShell
-            offset: const Offset(0, 8), // Match RootShell
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppRadius.pill),
         child: BackdropFilter(
-          filter: ImageFilter.blur(
-            sigmaX: 12,
-            sigmaY: 12,
-          ), // Match RootShell (12 blur)
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
           child: Container(
             decoration: BoxDecoration(
-              color: surfaceColor.withValues(
-                alpha: 0.25,
-              ), // Match RootShell (0.25 opacity surface)
+              color: surfaceColor.withValues(alpha: 0.25),
               borderRadius: BorderRadius.circular(AppRadius.pill),
               border: Border.all(
-                color: Colors.white.withValues(
-                  alpha: 0.4,
-                ), // Match RootShell frost edge
+                color: Colors.white.withValues(alpha: 0.4),
                 width: 1.2,
               ),
             ),
@@ -542,3 +986,4 @@ class _GlassPillContainer extends StatelessWidget {
     );
   }
 }
+// System-generated tag workaround

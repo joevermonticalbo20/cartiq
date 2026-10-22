@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
-import 'dart:ui'; // Idinagdag para sa glass blur effect
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -80,14 +81,14 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
   Timer? _searchDebounce;
   final _searchController = TextEditingController();
-
   bool _paying = false;
 
-  // Guards the explicit header refresh button so a double tap cannot fire
-  // two concurrent catalog refetches.
   bool _refreshingCatalog = false;
-
   DataRefresh? _dataRefresh;
+
+  // STATE PARA SA AUTO-HIDE SCROLL
+  bool _showFilters = true;
+
   OfflineQueue get _queue => PersistedOfflineQueue.instance;
 
   @override
@@ -110,11 +111,15 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _reloadCatalog(forceRefresh: true);
+    if (state == AppLifecycleState.resumed) {
+      _reloadCatalog(forceRefresh: true);
+    }
   }
 
   void _onDataRefresh() {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     if (_dataRefresh?.lastReason == 'sale' ||
         _dataRefresh?.lastReason == 'inventory') {
       _reloadCatalog(forceRefresh: true);
@@ -130,24 +135,17 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   void _onSearchChanged(String v) {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 300), () {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() => _search = v.trim().toLowerCase());
     });
   }
 
-  /// Starts a catalog load and returns THAT future.
-  ///
-  /// Returning the new future matters: callers must await the value, never the
-  /// `_catalogFuture` field. Re-reading the field after the first refresh
-  /// completed would hand back an already-finished future, so the second tap
-  /// would resolve instantly without ever hitting the network.
   Future<List<Map<String, dynamic>>> _reloadCatalog({
     bool forceRefresh = false,
   }) {
     final future = _loadCatalog(forceRefresh: forceRefresh);
-    // Block body on purpose: an arrow closure would RETURN the assigned
-    // Future, which trips Flutter's `setState() callback returned a Future`
-    // assertion. Assign only.
     setState(() {
       _catalogFuture = future;
     });
@@ -155,20 +153,25 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _refreshCatalog() async {
-    if (_refreshingCatalog) return;
+    if (_refreshingCatalog) {
+      return;
+    }
     setState(() => _refreshingCatalog = true);
+
     try {
       final products = await _reloadCatalog(forceRefresh: true);
-      if (!mounted) return;
-      // Say how many products came back so a stale backend is visible:
-      // archiving on the web must change this number on the next refresh.
+      if (!mounted) {
+        return;
+      }
       AppMessenger.showGlassToast(
         context: context,
-        message: 'Catalog updated • ${products.length} product(s)',
+        message: 'Catalog updated   ${products.length} product(s)',
         isSuccess: true,
       );
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       AppMessenger.showErrorSnackBar(
         context: context,
         error: e,
@@ -184,6 +187,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   }) async {
     final auth = context.read<AuthState>();
     var token = auth.token;
+
     if (token == null) {
       throw ApiException('Session expired. Please log in again.');
     }
@@ -217,10 +221,13 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
       final unitsByProduct = <String, int>{};
       for (final order in orders.whereType<Map<String, dynamic>>()) {
-        if (order['status'] != 'PAID') continue;
+        if (order['status'] != 'PAID') {
+          continue;
+        }
         final items = order['items'];
-        if (items is! List) continue;
-
+        if (items is! List) {
+          continue;
+        }
         for (final item in items.whereType<Map<String, dynamic>>()) {
           final name = item['productName'];
           final qty = item['qty'];
@@ -233,7 +240,9 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       final ranked = unitsByProduct.entries.toList()
         ..sort((a, b) => b.value.compareTo(a.value));
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _bestSellerNames = ranked.take(5).map((entry) => entry.key).toSet();
         _bestSellerError = null;
@@ -255,6 +264,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     final cart = context.read<CartState>();
     final price = (product['basePrice'] as num).toDouble();
     final name = product['name'] as String;
+
     cart.add(name, flavor, price, qty: qty);
     Haptics.select();
   }
@@ -265,12 +275,13 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     Map<String, int> selection,
   ) {
     final cart = context.read<CartState>();
-    if (selection.isEmpty) return;
+    if (selection.isEmpty) {
+      return;
+    }
 
     for (final entry in selection.entries) {
       final flavor = flavors.firstWhere((item) => item['name'] == entry.key);
       final stock = flavor['availableServings'];
-
       cart.add(
         product['name'] as String,
         entry.key,
@@ -284,7 +295,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     Haptics.select();
     AppMessenger.showGlassToast(
       context: context,
-      message: 'Added selected flavors • $count serving(s)',
+      message: 'Added selected flavors   $count serving(s)',
       isSuccess: true,
     );
   }
@@ -296,7 +307,6 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
               .whereType<Map<String, dynamic>>()
               .toList()
         : <Map<String, dynamic>>[];
-
     final available = flavors.isEmpty
         ? _flavorAvailable(product)
         : flavors.any(_flavorAvailable);
@@ -320,7 +330,9 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
         : <Map<String, dynamic>>[];
 
     if (flavors.isEmpty) {
-      if (!_flavorAvailable(product)) return;
+      if (!_flavorAvailable(product)) {
+        return;
+      }
       _addToCart(product);
       AppMessenger.showGlassToast(
         context: context,
@@ -342,14 +354,12 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       builder: (sheetContext) => StatefulBuilder(
         builder: (context, setSheetState) {
           final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-
           return SafeArea(
             top: false,
             child: Padding(
               padding: EdgeInsets.fromLTRB(
                 AppSpacing.space5,
-                AppSpacing
-                    .space4, // Tinaasan ang padding para mas maluwag sa drag handle
+                AppSpacing.space4,
                 AppSpacing.space5,
                 AppSpacing.space4 + bottomInset,
               ),
@@ -361,9 +371,6 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // INALIS NA NATIN YONG RED LINE DITO
-
-                    // IMPROVED TYPOGRAPHY SA HEADER
                     Text(
                       product['name'] as String,
                       style: Theme.of(context).textTheme.headlineSmall
@@ -374,7 +381,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: AppSpacing.space1),
                     Text(
-                      '₱${product['basePrice']} per serving • choose one or more flavors',
+                      '₱${product['basePrice']} per serving   choose one or more flavors',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: AppColors.muted,
                         fontWeight: FontWeight.w500,
@@ -443,6 +450,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
   Future<void> _openCartSheet() async {
     final cart = context.read<CartState>();
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -469,22 +477,28 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     final auth = sheetContext.read<AuthState>();
     final sync = sheetContext.read<SyncService>();
 
-    if (cart.isEmpty) return;
-    if (_paying) return;
-
+    if (cart.isEmpty) {
+      return;
+    }
+    if (_paying) {
+      return;
+    }
     _paying = true;
+
     try {
       final cartCode = auth.locationCode;
-
-      // Captured before any await so the later bump never touches a context
-      // that may have been unmounted mid-checkout.
       final refresh = context.read<DataRefresh?>();
+
       await Haptics.tap();
 
       if (cartCode == null || cartCode.isEmpty) {
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
         await Haptics.error();
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
         AppMessenger.showGlassToast(
           context: context,
           message: 'No cart assigned to this account - ask OWNER',
@@ -494,6 +508,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       }
 
       final snapshotTotal = cart.total;
+
       try {
         await persistCheckout(
           cart: cart,
@@ -508,9 +523,13 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
           },
         );
       } catch (_) {
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
         await Haptics.error();
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
         AppMessenger.showGlassToast(
           context: context,
           message: 'Could not save sale on this device - cart kept',
@@ -519,21 +538,21 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
         return;
       }
 
-      if (sheetContext.mounted) Navigator.pop(sheetContext);
-
+      if (sheetContext.mounted) {
+        Navigator.pop(sheetContext);
+      }
       final result = await sync.syncAll();
-      if (!mounted) return;
 
-      // The sale is durably queued (and synced when online), so tell the other
-      // tabs now instead of waiting for a pull-to-refresh. Sales History,
-      // Home and Receipts subscribe to this and re-read. `refresh` was
-      // captured before the awaits above, because reading context after an
-      // await is unsafe.
+      if (!mounted) {
+        return;
+      }
       final stockConflict = result.dropped.any(
         (record) => record.code == 'INSUFFICIENT_STOCK',
       );
 
-      if (result.synced == 0 && !stockConflict) refresh?.bump('sale');
+      if (result.synced == 0 && !stockConflict) {
+        refresh?.bump('sale');
+      }
 
       if (result.fullySynced) {
         await Haptics.success();
@@ -543,20 +562,21 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
         await Haptics.tap();
       }
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       final change = method == PaymentMethod.cash && cashTendered != null
           ? cashTendered - snapshotTotal
           : null;
-
       final paymentDetails =
           '${method.label} ₱${snapshotTotal.toStringAsFixed(0)}'
-          '${change == null ? '' : ' • Change ₱${change.toStringAsFixed(0)}'}';
+          '${change == null ? '' : '   Change ₱${change.toStringAsFixed(0)}'}';
 
       if (result.fullySynced) {
         AppMessenger.showGlassToast(
           context: context,
-          message: 'Sale recorded • $paymentDetails',
+          message: 'Sale recorded   $paymentDetails',
           isSuccess: true,
         );
       } else if (!stockConflict) {
@@ -583,6 +603,15 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     final cart = context.watch<CartState>();
     final topPadding = MediaQuery.of(context).padding.top + 90;
 
+    final filters = [
+      'All',
+      'Available Only',
+      'Best Sellers',
+      'Fries',
+      'Drinks',
+      'Add-ons',
+    ];
+
     return SafeArea(
       top: false,
       bottom: false,
@@ -591,321 +620,329 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
           Expanded(
             child: Stack(
               children: [
-                // 1. SCROLLABLE CONTENT (Grid, Categories, Offline Strip)
-                RefreshIndicator(
-                  onRefresh: _refreshCatalog,
-                  child: FutureBuilder<List<Map<String, dynamic>>>(
-                    future: _catalogFuture,
-                    builder: (context, snap) {
-                      final products = snap.hasData
-                          ? snap.data!
-                                .where(
-                                  (p) =>
-                                      (_search.isEmpty ||
-                                          (p['name'] as String)
-                                              .toLowerCase()
-                                              .contains(_search) ||
-                                          ((p['flavors'] as List?)?.any(
-                                                (flavor) =>
-                                                    (flavor['name'] as String)
-                                                        .toLowerCase()
-                                                        .contains(_search),
-                                              ) ??
-                                              false)) &&
-                                      _matchesFilter(p),
-                                )
-                                .toList()
-                          : <Map<String, dynamic>>[];
+                NotificationListener<UserScrollNotification>(
+                  onNotification: (notification) {
+                    final direction = notification.direction;
+                    if (direction == ScrollDirection.reverse) {
+                      if (_showFilters) {
+                        setState(() => _showFilters = false);
+                      }
+                    } else if (direction == ScrollDirection.forward) {
+                      if (!_showFilters) {
+                        setState(() => _showFilters = true);
+                      }
+                    }
+                    return false;
+                  },
+                  child: RefreshIndicator(
+                    onRefresh: _refreshCatalog,
+                    child: FutureBuilder<List<Map<String, dynamic>>>(
+                      future: _catalogFuture,
+                      builder: (context, snap) {
+                        final products = snap.hasData
+                            ? snap.data!
+                                  .where(
+                                    (p) =>
+                                        (_search.isEmpty ||
+                                            (p['name'] as String)
+                                                .toLowerCase()
+                                                .contains(_search) ||
+                                            ((p['flavors'] as List?)?.any(
+                                                  (flavor) =>
+                                                      (flavor['name'] as String)
+                                                          .toLowerCase()
+                                                          .contains(_search),
+                                                ) ??
+                                                false)) &&
+                                        _matchesFilter(p),
+                                  )
+                                  .toList()
+                            : <Map<String, dynamic>>[];
 
-                      return CustomScrollView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        slivers: [
-                          SliverToBoxAdapter(
-                            child: SizedBox(height: topPadding + 54),
-                          ),
-                          const SliverToBoxAdapter(child: PosOfflineStrip()),
-
-                          if (snap.connectionState != ConnectionState.done)
-                            SliverPadding(
-                              padding: const EdgeInsets.all(AppSpacing.space4),
-                              sliver: SliverToBoxAdapter(
-                                child: Column(
-                                  children: const [AppSkeleton(rows: 6)],
-                                ),
-                              ),
-                            )
-                          else if (snap.hasError)
-                            SliverFillRemaining(
-                              hasScrollBody: false,
-                              child: AppUnavailableState(
-                                message: AppMessenger.messageFor(snap.error!),
-                                onRetry: _refreshCatalog,
-                              ),
-                            )
-                          else if (products.isEmpty)
+                        return CustomScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          slivers: [
                             SliverToBoxAdapter(
-                              child: Padding(
-                                padding: const EdgeInsets.only(
-                                  top: 60,
-                                  bottom: AppSpacing.space4,
-                                ),
-                                child: AppEmptyState(
-                                  compact: true,
-                                  icon: Icons.search_off_rounded,
-                                  title: 'No products match',
-                                  subtitle: _search.isNotEmpty
-                                      ? 'Try a different name or category.'
-                                      : _categoryFilter == 'Best Sellers'
-                                      ? _bestSellerError == null
-                                            ? 'No best-selling products are available yet.'
-                                            : 'Best sellers could not be loaded: $_bestSellerError'
-                                      : 'Pull down to refresh the catalog.',
-                                ),
-                              ),
-                            )
-                          else
-                            // GINAMIT ANG SLIVERGRID PARA MAGING 2x2
-                            SliverPadding(
-                              padding: const EdgeInsets.fromLTRB(
-                                AppSpacing.space4,
-                                AppSpacing.space1,
-                                AppSpacing.space4,
-                                AppSpacing.space4,
-                              ),
-                              sliver: SliverGrid(
-                                gridDelegate:
-                                    const SliverGridDelegateWithFixedCrossAxisCount(
-                                      crossAxisCount: 2,
-                                      mainAxisSpacing: AppSpacing.space3,
-                                      crossAxisSpacing: AppSpacing.space3,
-                                      childAspectRatio: 0.85,
-                                    ),
-                                delegate: SliverChildBuilderDelegate((
-                                  context,
-                                  i,
-                                ) {
-                                  final product = products[i];
-                                  final flavorCount = product['flavors'] is List
-                                      ? (product['flavors'] as List).length
-                                      : 0;
-                                  final inCartQty = cart.items
-                                      .where(
-                                        (it) =>
-                                            it.productName == product['name'],
-                                      )
-                                      .fold<int>(0, (s, it) => s + it.qty);
-
-                                  return PosProductCard(
-                                    product: product,
-                                    flavorCount: flavorCount,
-                                    inCartQty: inCartQty,
-                                    onTap: () => _openItemSheet(product),
-                                    onQuickAdd: flavorCount == 0
-                                        ? () {
-                                            _addToCart(product);
-                                            AppMessenger.showGlassToast(
-                                              context: context,
-                                              message:
-                                                  'Added: ${product['name']}',
-                                              isSuccess: true,
-                                            );
-                                          }
-                                        : null,
-                                  );
-                                }, childCount: products.length),
-                              ),
+                              child: SizedBox(height: topPadding + 54),
                             ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
+                            const SliverToBoxAdapter(child: PosOfflineStrip()),
+                            if (snap.connectionState != ConnectionState.done)
+                              SliverPadding(
+                                padding: const EdgeInsets.all(
+                                  AppSpacing.space4,
+                                ),
+                                sliver: SliverToBoxAdapter(
+                                  child: Column(
+                                    children: const [AppSkeleton(rows: 6)],
+                                  ),
+                                ),
+                              )
+                            else if (snap.hasError)
+                              SliverFillRemaining(
+                                hasScrollBody: false,
+                                child: AppUnavailableState(
+                                  message: AppMessenger.messageFor(snap.error!),
+                                  onRetry: _refreshCatalog,
+                                ),
+                              )
+                            else if (products.isEmpty)
+                              SliverToBoxAdapter(
+                                child: Padding(
+                                  padding: const EdgeInsets.only(
+                                    top: 60,
+                                    bottom: AppSpacing.space4,
+                                  ),
+                                  child: AppEmptyState(
+                                    compact: true,
+                                    icon: Icons.search_off_rounded,
+                                    title: 'No products match',
+                                    subtitle: _search.isNotEmpty
+                                        ? 'Try a different name or category.'
+                                        : _categoryFilter == 'Best Sellers'
+                                        ? _bestSellerError == null
+                                              ? 'No best-selling products are available yet.'
+                                              : 'Best sellers could not be loaded: $_bestSellerError'
+                                        : 'Pull down to refresh the catalog.',
+                                  ),
+                                ),
+                              )
+                            else
+                              SliverPadding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  AppSpacing.space4,
+                                  AppSpacing.space1,
+                                  AppSpacing.space4,
+                                  AppSpacing.space4,
+                                ),
+                                sliver: SliverGrid(
+                                  gridDelegate:
+                                      const SliverGridDelegateWithFixedCrossAxisCount(
+                                        crossAxisCount: 2,
+                                        mainAxisSpacing: AppSpacing.space3,
+                                        crossAxisSpacing: AppSpacing.space3,
+                                        childAspectRatio: 0.85,
+                                      ),
+                                  delegate: SliverChildBuilderDelegate((
+                                    context,
+                                    i,
+                                  ) {
+                                    final product = products[i];
+                                    final flavorCount =
+                                        product['flavors'] is List
+                                        ? (product['flavors'] as List).length
+                                        : 0;
+                                    final inCartQty = cart.items
+                                        .where(
+                                          (it) =>
+                                              it.productName == product['name'],
+                                        )
+                                        .fold<int>(0, (s, it) => s + it.qty);
 
-                Positioned(
-                  top: topPadding - 2,
-                  left: 0,
-                  right: 0,
-                  height: 50,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.space4,
+                                    return PosProductCard(
+                                      product: product,
+                                      flavorCount: flavorCount,
+                                      inCartQty: inCartQty,
+                                      onTap: () => _openItemSheet(product),
+                                      onQuickAdd: flavorCount == 0
+                                          ? () {
+                                              _addToCart(product);
+                                              AppMessenger.showGlassToast(
+                                                context: context,
+                                                message:
+                                                    'Added: ${product['name']}',
+                                                isSuccess: true,
+                                              );
+                                            }
+                                          : null,
+                                    );
+                                  }, childCount: products.length),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
                     ),
-                    itemCount: const [
-                      'All',
-                      'Available Only',
-                      'Best Sellers',
-                      'Fries',
-                      'Drinks',
-                      'Add-ons',
-                    ].length,
-                    separatorBuilder: (_, _) =>
-                        const SizedBox(width: AppSpacing.space2),
-                    itemBuilder: (context, index) {
-                      const filters = [
-                        'All',
-                        'Available Only',
-                        'Best Sellers',
-                        'Fries',
-                        'Drinks',
-                        'Add-ons',
-                      ];
-                      final filter = filters[index];
-                      final selected = _categoryFilter == filter;
-
-                      return FilterChip(
-                        label: Text(filter),
-                        selected: selected,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppRadius.pill),
-                        ),
-                        showCheckmark: false,
-                        selectedColor: AppColors.primary,
-                        labelStyle: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: selected ? Colors.white : AppColors.muted,
-                        ),
-                        onSelected: (_) {
-                          Haptics.select();
-                          setState(() => _categoryFilter = filter);
-                        },
-                      );
-                    },
                   ),
                 ),
 
-                // 2. BAGONG FLOATING GLASS PILL HEADER
+                // FLOATING GLASS HEADER + AUTO-HIDE FILTERS
                 Positioned(
                   top: 0,
                   left: 0,
                   right: 0,
-                  child: SafeArea(
-                    bottom: false,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.space4,
-                        vertical: AppSpacing.space3,
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: _GlassPillContainer(
-                              child: AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 250),
-                                child: _searching
-                                    ? TextField(
-                                        key: const ValueKey('searchField'),
-                                        controller: _searchController,
-                                        autofocus: true,
-                                        decoration: InputDecoration(
-                                          hintText: 'Search product...',
-                                          border: InputBorder.none,
-                                          enabledBorder: InputBorder.none,
-                                          focusedBorder: InputBorder.none,
-                                          fillColor: Colors.transparent,
-                                          filled: true,
-                                          isDense: true,
-                                          contentPadding:
-                                              const EdgeInsets.symmetric(
-                                                horizontal: 20,
-                                                vertical: 14,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SafeArea(
+                        bottom: false,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.space4,
+                            vertical: AppSpacing.space3,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: _GlassPillContainer(
+                                  child: AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 250),
+                                    child: _searching
+                                        ? TextField(
+                                            key: const ValueKey('searchField'),
+                                            controller: _searchController,
+                                            autofocus: true,
+                                            decoration: InputDecoration(
+                                              hintText: 'Search product...',
+                                              border: InputBorder.none,
+                                              enabledBorder: InputBorder.none,
+                                              focusedBorder: InputBorder.none,
+                                              fillColor: Colors.transparent,
+                                              filled: true,
+                                              isDense: true,
+                                              contentPadding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 20,
+                                                    vertical: 14,
+                                                  ),
+                                              hintStyle: TextStyle(
+                                                color: Theme.of(
+                                                  context,
+                                                ).textTheme.bodySmall?.color,
                                               ),
-                                          hintStyle: TextStyle(
-                                            color: Theme.of(
+                                            ),
+                                            style: Theme.of(
                                               context,
-                                            ).textTheme.bodySmall?.color,
+                                            ).textTheme.titleMedium,
+                                            onChanged: _onSearchChanged,
+                                          )
+                                        : Container(
+                                            key: const ValueKey('titleText'),
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 20,
+                                              vertical: 14,
+                                            ),
+                                            child: Text(
+                                              'POS',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleLarge
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w800,
+                                                    letterSpacing: -0.5,
+                                                  ),
+                                            ),
                                           ),
-                                        ),
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.titleMedium,
-                                        onChanged: _onSearchChanged,
-                                      )
-                                    : Container(
-                                        key: const ValueKey('titleText'),
-                                        width: double.infinity,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 20,
-                                          vertical: 14,
-                                        ),
-                                        child: Text(
-                                          'POS',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleLarge
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.w800,
-                                                letterSpacing: -0.5,
-                                              ),
-                                        ),
-                                      ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: AppSpacing.space2),
-                          _GlassPillContainer(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                                vertical: 4,
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  // Explicit force-refresh
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.sync_rounded,
-                                      size: 20,
-                                    ),
-                                    tooltip:
-                                        'Refresh catalog (drops the local cache)',
-                                    onPressed: _refreshingCatalog
-                                        ? null
-                                        : _refreshCatalog,
                                   ),
-                                  if (_searching)
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.close_rounded,
-                                        size: 20,
-                                      ),
-                                      tooltip: 'Close search',
-                                      onPressed: () {
-                                        _searchDebounce?.cancel();
-                                        _searchController.clear();
-                                        setState(() {
-                                          _search = '';
-                                          _searching = false;
-                                        });
-                                      },
-                                    )
-                                  else
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.search_rounded,
-                                        size: 20,
-                                      ),
-                                      tooltip: 'Search product',
-                                      onPressed: () =>
-                                          setState(() => _searching = true),
-                                    ),
-                                ],
+                                ),
                               ),
-                            ),
+                              const SizedBox(width: AppSpacing.space2),
+                              _GlassPillContainer(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                    vertical: 4,
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.sync_rounded,
+                                          size: 20,
+                                        ),
+                                        tooltip:
+                                            'Refresh catalog (drops the local cache)',
+                                        onPressed: _refreshingCatalog
+                                            ? null
+                                            : _refreshCatalog,
+                                      ),
+                                      if (_searching)
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.close_rounded,
+                                            size: 20,
+                                          ),
+                                          tooltip: 'Close search',
+                                          onPressed: () {
+                                            _searchDebounce?.cancel();
+                                            _searchController.clear();
+                                            setState(() {
+                                              _search = '';
+                                              _searching = false;
+                                            });
+                                          },
+                                        )
+                                      else
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.search_rounded,
+                                            size: 20,
+                                          ),
+                                          tooltip: 'Search product',
+                                          onPressed: () =>
+                                              setState(() => _searching = true),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
-                    ),
+
+                      // AUTO-HIDE FILTER PILLS
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 250),
+                        curve: Curves.easeInOut,
+                        height: _showFilters ? 50.0 : 0.0,
+                        child: AnimatedOpacity(
+                          duration: const Duration(milliseconds: 200),
+                          opacity: _showFilters ? 1.0 : 0.0,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.space4,
+                            ),
+                            itemCount: filters.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(width: AppSpacing.space2),
+                            itemBuilder: (context, index) {
+                              final filter = filters[index];
+                              final selected = _categoryFilter == filter;
+                              return FilterChip(
+                                label: Text(filter),
+                                selected: selected,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadius.pill,
+                                  ),
+                                ),
+                                showCheckmark: false,
+                                selectedColor: AppColors.primary,
+                                labelStyle: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: selected
+                                      ? Colors.white
+                                      : AppColors.muted,
+                                ),
+                                onSelected: (_) {
+                                  Haptics.select();
+                                  setState(() => _categoryFilter = filter);
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
-
-          // Cart Bar at the bottom
           PosCartBar(cart: cart, onTap: _openCartSheet),
-
           const SizedBox(height: 120),
         ],
       ),
@@ -915,7 +952,6 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
 class _CartSheet extends StatefulWidget {
   const _CartSheet({required this.cart, required this.onPay});
-
   final CartState cart;
   final void Function(PaymentMethod method, double? cashTendered) onPay;
 
@@ -941,12 +977,16 @@ class _CartSheetState extends State<_CartSheet> {
       _method != PaymentMethod.cash || _tendered >= widget.cart.total;
 
   void _submitIfReady() {
-    if (!_canPay) return;
+    if (!_canPay) {
+      return;
+    }
     widget.onPay(_method, _method == PaymentMethod.cash ? _tendered : null);
   }
 
   Future<void> _pickGCashProof() async {
-    if (_isPickingImage) return;
+    if (_isPickingImage) {
+      return;
+    }
     setState(() => _isPickingImage = true);
 
     try {
@@ -965,7 +1005,9 @@ class _CartSheetState extends State<_CartSheet> {
   }
 
   void _viewGCashProof() {
-    if (_gcashProofImage == null) return;
+    if (_gcashProofImage == null) {
+      return;
+    }
     showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.4),
@@ -1061,7 +1103,9 @@ class _CartSheetState extends State<_CartSheet> {
                         confirmLabel: 'Clear',
                         danger: true,
                       );
-                      if (confirmed) cart.clear();
+                      if (confirmed) {
+                        cart.clear();
+                      }
                     },
                     icon: const Icon(Icons.delete_outline, size: 18),
                     label: const Text('Clear'),
@@ -1188,7 +1232,7 @@ class _CartSheetState extends State<_CartSheet> {
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
                                     Text(
-                                      '₱${item.lineTotal.toStringAsFixed(0)}',
+                                      '₱${item.lineTotal.toStringAsFixed(2)}',
                                       style: const TextStyle(
                                         fontWeight: FontWeight.w800,
                                       ),
@@ -1236,7 +1280,7 @@ class _CartSheetState extends State<_CartSheet> {
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       Text(
-                        '₱${cart.total.toStringAsFixed(0)}',
+                        '₱${cart.total.toStringAsFixed(2)}',
                         style: Theme.of(context).textTheme.headlineMedium
                             ?.copyWith(
                               color: AppColors.primary,
@@ -1453,7 +1497,6 @@ class _PaymentChip extends StatelessWidget {
 
 class _GlassPillContainer extends StatelessWidget {
   const _GlassPillContainer({required this.child});
-
   final Widget child;
 
   @override
