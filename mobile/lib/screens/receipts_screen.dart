@@ -87,7 +87,7 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
       return true;
     }
     final lq = q.toLowerCase();
-    final amount = ' ${((e['amount'] ?? 0) as num).toStringAsFixed(0)}';
+    final amount = '₱${((e['amount'] ?? 0) as num).toStringAsFixed(0)}';
 
     if (amount.toLowerCase().contains(lq)) {
       return true;
@@ -108,6 +108,26 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
     }
     return false;
   }
+
+  /// The category chips filter the rows that are already loaded. Kept as its
+  /// own predicate so the list and the "keep paging" helper cannot drift.
+  bool _passesFilter(Map<String, dynamic> e) {
+    if (_categoryFilter == 'OCR' && e['source'] != 'OCR') {
+      return false;
+    }
+    if (_categoryFilter == 'Manual' && e['source'] == 'OCR') {
+      return false;
+    }
+    if (!['All', 'OCR', 'Manual'].contains(_categoryFilter)) {
+      if (e['category'] != _categoryFilter) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _isVisible(Map<String, dynamic> e) =>
+      _matches(e, _search) && _passesFilter(e);
 
   void _fail(String message) {
     if (!mounted) {
@@ -171,6 +191,30 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
     }
   }
 
+  /// The category chips filter the rows that are already loaded, so a match
+  /// that lives on page 2 would look like "no results" - and the empty state
+  /// replaces the paginated list, so no further page is ever requested and
+  /// the expense is unreachable.
+  ///
+  /// Keep paging while a filter is on until it matches something, or the
+  /// server runs out of rows.
+  Future<void> _ensureFilterMatch() async {
+    if (_categoryFilter == 'All') {
+      return;
+    }
+    while (mounted && !_done && !_loading) {
+      if (_rows.any(_isVisible)) {
+        return;
+      }
+      final pageBefore = _page;
+      await _loadMore();
+      if (_page == pageBefore) {
+        // No progress - the request failed. Stop rather than spin.
+        return;
+      }
+    }
+  }
+
   Future<void> _scanAndReload() async {
     if (_loading) {
       return;
@@ -212,161 +256,182 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
           AppSpacing.space5,
           MediaQuery.of(context).viewInsets.bottom + AppSpacing.space6,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.symmetric(vertical: AppSpacing.space2),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(AppRadius.xs),
-                ),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.space2),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(AppRadius.m),
-                  ),
-                  child: Icon(
-                    isOcr
-                        ? Icons.document_scanner_rounded
-                        : Icons.edit_note_rounded,
-                    color: AppColors.primary,
-                    size: 28,
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.space3),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        e['vendor'] ?? 'Unknown Vendor',
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: -0.5,
-                            ),
-                      ),
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.calendar_today_rounded,
-                            size: 14,
-                            color: AppColors.muted,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            dateStr,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(fontWeight: FontWeight.w600),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.symmetric(
+                    vertical: AppSpacing.space2,
                   ),
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(AppRadius.pill),
-                    border: Border.all(
-                      color: AppColors.primary.withValues(alpha: 0.2),
-                    ),
+                    color: AppColors.primary.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(AppRadius.xs),
                   ),
-                  child: Text(
-                    isOcr ? 'OCR' : 'Manual',
-                    style: const TextStyle(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.space4),
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.space4),
-              decoration: BoxDecoration(
-                color: Theme.of(context).dividerColor.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(AppRadius.l),
-                border: Border.all(
-                  color: Theme.of(context).dividerColor.withValues(alpha: 0.2),
                 ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              const SizedBox(height: AppSpacing.space2),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Total Amount',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 16,
-                        ),
-                      ),
-                      Text(
-                        '₱${amount.toStringAsFixed(2)}',
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                    ],
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(AppRadius.m),
+                    ),
+                    child: Icon(
+                      isOcr
+                          ? Icons.document_scanner_rounded
+                          : Icons.edit_note_rounded,
+                      color: AppColors.primary,
+                      size: 28,
+                    ),
                   ),
-                  Padding(
+                  const SizedBox(width: AppSpacing.space3),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          e['vendor'] ?? 'Unknown Vendor',
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.5,
+                              ),
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.calendar_today_rounded,
+                              size: 14,
+                              color: AppColors.muted,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              dateStr,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
                     padding: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.space3,
+                      horizontal: 12,
+                      vertical: 6,
                     ),
-                    child: Divider(
-                      height: 1,
-                      color: Theme.of(
-                        context,
-                      ).dividerColor.withValues(alpha: 0.4),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                      border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: Text(
+                      isOcr ? 'OCR' : 'Manual',
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
-                  _detailRow('Category', e['category'] ?? 'Other'),
-                  const SizedBox(height: 12),
-                  _detailRow(
-                    'Location Code',
-                    (e['location'] as Map<String, dynamic>?)?['code'] ?? 'N/A',
-                  ),
-                  if (e['note'] != null &&
-                      e['note'].toString().trim().isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    _detailRow('Note', e['note'].toString()),
-                  ],
                 ],
               ),
-            ),
-            const SizedBox(height: AppSpacing.space5),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(52),
+              const SizedBox(height: AppSpacing.space4),
+              // The note can be 500 characters (the API caps it there) and the
+              // vendor 120. Without a scroll view the details box grows past
+              // the sheet, the note is cut off, and the Close button is pushed
+              // off the bottom - the sheet can then only be dismissed by
+              // tapping outside it.
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Container(
+                    padding: const EdgeInsets.all(AppSpacing.space4),
+                    decoration: BoxDecoration(
+                      color: Theme.of(
+                        context,
+                      ).dividerColor.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(AppRadius.l),
+                      border: Border.all(
+                        color: Theme.of(
+                          context,
+                        ).dividerColor.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Total Amount',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                              ),
+                            ),
+                            Text(
+                              '₱${amount.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: AppSpacing.space3,
+                          ),
+                          child: Divider(
+                            height: 1,
+                            color: Theme.of(
+                              context,
+                            ).dividerColor.withValues(alpha: 0.4),
+                          ),
+                        ),
+                        _detailRow('Category', e['category'] ?? 'Other'),
+                        const SizedBox(height: 12),
+                        _detailRow(
+                          'Location Code',
+                          (e['location'] as Map<String, dynamic>?)?['code'] ??
+                              'N/A',
+                        ),
+                        if (e['note'] != null &&
+                            e['note'].toString().trim().isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          _detailRow('Note', e['note'].toString()),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
               ),
-              onPressed: () => Navigator.pop(sheetContext),
-              child: const Text('Close'),
-            ),
-          ],
+              const SizedBox(height: AppSpacing.space5),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(52),
+                ),
+                onPressed: () => Navigator.pop(sheetContext),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -439,23 +504,7 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filtered = _rows.where((e) {
-      if (!_matches(e, _search)) {
-        return false;
-      }
-      if (_categoryFilter == 'OCR' && e['source'] != 'OCR') {
-        return false;
-      }
-      if (_categoryFilter == 'Manual' && e['source'] == 'OCR') {
-        return false;
-      }
-      if (!['All', 'OCR', 'Manual'].contains(_categoryFilter)) {
-        if (e['category'] != _categoryFilter) {
-          return false;
-        }
-      }
-      return true;
-    }).toList();
+    final filtered = _rows.where(_isVisible).toList();
 
     final hasResults = filtered.isNotEmpty;
     final surfaceColor = Theme.of(context).colorScheme.surface;
@@ -530,23 +579,35 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
                                 : Icons.receipt_long,
                             title: _search.isNotEmpty
                                 ? 'No expenses match "$_search"'
-                                : 'No expenses yet',
+                                : (_categoryFilter != 'All'
+                                      ? 'No $_categoryFilter expenses yet'
+                                      : 'No expenses yet'),
                             subtitle: _search.isNotEmpty
                                 ? 'Try a different vendor, category, or amount.'
-                                : 'Snap a receipt and CartIQ will fill in the details.',
+                                : (_categoryFilter != 'All'
+                                      ? 'Try another filter to see the rest of your expenses.'
+                                      : 'Snap a receipt and CartIQ will fill in the details.'),
                             actionLabel: _search.isNotEmpty
                                 ? 'Clear search'
-                                : 'Scan a receipt',
+                                : (_categoryFilter != 'All'
+                                      ? 'Show all expenses'
+                                      : 'Scan a receipt'),
                             actionIcon: _search.isNotEmpty
                                 ? Icons.close
-                                : Icons.camera_alt_rounded,
+                                : (_categoryFilter != 'All'
+                                      ? Icons.filter_alt_off_rounded
+                                      : Icons.camera_alt_rounded),
                             onAction: _search.isNotEmpty
                                 ? () => setState(() {
                                     _search = '';
                                     _searchCtrl.clear();
                                     _searching = false;
                                   })
-                                : () => _scanAndReload(),
+                                : (_categoryFilter != 'All'
+                                      ? () => setState(() {
+                                          _categoryFilter = 'All';
+                                        })
+                                      : () => _scanAndReload()),
                           ),
                       ],
                     )
@@ -933,6 +994,10 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
                           onSelected: (_) {
                             Haptics.select();
                             setState(() => _categoryFilter = filter);
+                            // The chip filters the loaded rows only, so pull
+                            // more pages in until it matches or the list runs
+                            // out.
+                            _ensureFilterMatch();
                           },
                         );
                       },

@@ -80,7 +80,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       return true;
     }
     final lq = q.toLowerCase();
-    final total = ' ${((order['total'] ?? 0) as num).toStringAsFixed(0)}';
+    final total = '₱${((order['total'] ?? 0) as num).toStringAsFixed(0)}';
     if (total.toLowerCase().contains(lq)) {
       return true;
     }
@@ -95,6 +95,28 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
     return false;
   }
+
+  /// The payment-method chips filter the rows that are already loaded. Kept
+  /// as its own predicate so the list and the "keep paging" helper below
+  /// cannot drift apart.
+  bool _passesFilter(Map<String, dynamic> o) {
+    final isVoided = (o['status'] ?? 'PAID').toString() == 'VOID';
+    final payMethod = o['paymentMethod'] == 'GCASH' ? 'GCash' : 'Cash';
+
+    if (_categoryFilter == 'Voided') {
+      return isVoided;
+    }
+    if (_categoryFilter == 'Cash') {
+      return payMethod == 'Cash' && !isVoided;
+    }
+    if (_categoryFilter == 'GCash') {
+      return payMethod == 'GCash' && !isVoided;
+    }
+    return true;
+  }
+
+  bool _isVisible(Map<String, dynamic> o) =>
+      _matches(o, _search) && _passesFilter(o);
 
   void _fail(String message) {
     if (!mounted) {
@@ -171,6 +193,31 @@ class _HistoryScreenState extends State<HistoryScreen> {
     } finally {
       if (mounted && seq == _requestSeq) {
         setState(() => _loading = false);
+      }
+    }
+  }
+
+  /// The filter chips filter the rows that are already loaded, so a match that
+  /// lives on page 2 would look like "no results" - and the empty state
+  /// replaces the paginated list, so no further page is ever requested and the
+  /// row is unreachable.
+  ///
+  /// Keep paging while a filter is on until it matches something, or the
+  /// server runs out of rows. Without this, a cart whose newest 10 sales are
+  /// all cash could never see its GCash sales at all.
+  Future<void> _ensureFilterMatch() async {
+    if (_categoryFilter == 'All') {
+      return;
+    }
+    while (mounted && !_done && !_loading) {
+      if (_rows.any(_isVisible)) {
+        return;
+      }
+      final pageBefore = _page;
+      await _loadMore();
+      if (_page == pageBefore) {
+        // No progress - the request failed. Stop rather than spin.
+        return;
       }
     }
   }
@@ -904,24 +951,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filtered = _rows.where((o) {
-      if (!_matches(o, _search)) {
-        return false;
-      }
-      final isVoided = (o['status'] ?? 'PAID').toString() == 'VOID';
-      final payMethod = o['paymentMethod'] == 'GCASH' ? 'GCash' : 'Cash';
-
-      if (_categoryFilter == 'Voided' && !isVoided) {
-        return false;
-      }
-      if (_categoryFilter == 'Cash' && (payMethod != 'Cash' || isVoided)) {
-        return false;
-      }
-      if (_categoryFilter == 'GCash' && (payMethod != 'GCash' || isVoided)) {
-        return false;
-      }
-      return true;
-    }).toList();
+    final filtered = _rows.where(_isVisible).toList();
 
     final hasResults = filtered.isNotEmpty;
     final surfaceColor = Theme.of(context).colorScheme.surface;
@@ -941,15 +971,22 @@ class _HistoryScreenState extends State<HistoryScreen> {
           .where((o) => (o['status'] ?? 'PAID').toString() != 'VOID')
           .toList();
       final voidedCount = entry.value.length - payable.length;
+      // A voided sale is not revenue, so the day total counts payable rows
+      // only. But with the "Voided" chip on, the group holds voided rows
+      // only - and "0 sales / ₱0" next to a ₱120 voided sale reads as broken.
+      // In that case report the voided rows on their own and show no peso
+      // figure, because there is no revenue to report.
+      final voidedOnly = payable.isEmpty && voidedCount > 0;
       final dayTotal = payable.fold<double>(
         0,
         (s, o) => s + ((o['total'] ?? 0) as num).toDouble(),
       );
       rows.add((
         _friendlyDate(entry.key),
-        payable.length,
+        voidedOnly ? voidedCount : payable.length,
         dayTotal,
         voidedCount,
+        voidedOnly,
       ));
       rows.addAll(entry.value);
     }
@@ -1006,29 +1043,44 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             icon: _search.isNotEmpty
                                 ? Icons.search_off_rounded
                                 : Icons.receipt_long_rounded,
+                            // With a chip on, the history is not empty - the
+                            // filter just matched nothing. Saying "no sales
+                            // recorded yet" there is simply wrong.
                             title: _search.isNotEmpty
                                 ? 'No sales match "$_search"'
-                                : 'No sales recorded yet',
+                                : (_categoryFilter != 'All'
+                                      ? 'No $_categoryFilter sales yet'
+                                      : 'No sales recorded yet'),
                             subtitle: _search.isNotEmpty
                                 ? 'Try a different product, flavor, or amount.'
-                                : (widget.onNewSale != null
-                                      ? 'Record a sale on the POS tab to see it appear here.'
-                                      : null),
+                                : (_categoryFilter != 'All'
+                                      ? 'Try another filter to see the rest of your sales.'
+                                      : (widget.onNewSale != null
+                                            ? 'Record a sale on the POS tab to see it appear here.'
+                                            : null)),
                             actionLabel: _search.isNotEmpty
                                 ? 'Clear search'
-                                : (widget.onNewSale != null
-                                      ? 'Open POS'
-                                      : null),
+                                : (_categoryFilter != 'All'
+                                      ? 'Show all sales'
+                                      : (widget.onNewSale != null
+                                            ? 'Open POS'
+                                            : null)),
                             actionIcon: _search.isNotEmpty
                                 ? Icons.close
-                                : Icons.point_of_sale_rounded,
+                                : (_categoryFilter != 'All'
+                                      ? Icons.filter_alt_off_rounded
+                                      : Icons.point_of_sale_rounded),
                             onAction: _search.isNotEmpty
                                 ? () => setState(() {
                                     _search = '';
                                     _searchCtrl.clear();
                                     _searching = false;
                                   })
-                                : widget.onNewSale,
+                                : (_categoryFilter != 'All'
+                                      ? () => setState(() {
+                                          _categoryFilter = 'All';
+                                        })
+                                      : widget.onNewSale),
                           ),
                       ],
                     )
@@ -1062,8 +1114,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           }
 
                           final row = rows[i];
-                          if (row is (String, int, double, int)) {
-                            final (dateLabel, count, total, voided) = row;
+                          if (row is (String, int, double, int, bool)) {
+                            final (dateLabel, count, total, voided, voidedOnly) =
+                                row;
                             return Padding(
                               padding: const EdgeInsets.only(
                                 top: AppSpacing.space3,
@@ -1071,11 +1124,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               ),
                               child: SectionHeader(
                                 title: dateLabel,
-                                eyebrow: voided > 0
-                                    ? '$count sale${count != 1 ? 's' : ''}   $voided voided'
-                                    : '$count sale${count != 1 ? 's' : ''}',
+                                eyebrow: voidedOnly
+                                    ? '$count voided'
+                                    : (voided > 0
+                                          ? '$count sale${count != 1 ? 's' : ''}   $voided voided'
+                                          : '$count sale${count != 1 ? 's' : ''}'),
                                 trailing: Text(
-                                  '₱${total.toStringAsFixed(0)}',
+                                  voidedOnly ? '—' : '₱${total.toStringAsFixed(0)}',
                                   style: Theme.of(context).textTheme.labelSmall
                                       ?.copyWith(
                                         fontWeight: FontWeight.w800,
@@ -1419,6 +1474,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           onSelected: (_) {
                             Haptics.select();
                             setState(() => _categoryFilter = filter);
+                            // The chip filters the loaded rows only, so pull
+                            // more pages in until it matches or the history
+                            // runs out.
+                            _ensureFilterMatch();
                           },
                         );
                       },
@@ -1599,7 +1658,7 @@ class _VoidReasonSheetState extends State<_VoidReasonSheet> {
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size.fromHeight(52),
                   ),
-                  onPressed: () => Navigator.pop(context, false),
+                  onPressed: () => Navigator.pop(context),
                   child: const Text('Cancel'),
                 ),
               ),
@@ -1884,7 +1943,7 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size.fromHeight(52),
                   ),
-                  onPressed: () => Navigator.pop(context, false),
+                  onPressed: () => Navigator.pop(context),
                   child: const Text('Cancel'),
                 ),
               ),
