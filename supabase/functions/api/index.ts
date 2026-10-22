@@ -87,7 +87,16 @@ function toApiPath(url) {
   let path = url.pathname;
   if (path.startsWith(prefix)) path = path.slice(prefix.length);
   if (!path.startsWith("/")) path = "/" + path;
-  path = path.replace(/^\/api(?=\/|$)/, "");
+  // Strip the API mount, EVERY time it appears.
+  //
+  // The runtime keeps the function name as the first segment, so a request to
+  // /functions/v1/api/auth/me arrives as /api/auth/me - one /api to remove.
+  // But /functions/v1/api/api/auth/me arrives as /api/api/auth/me, and a
+  // single strip leaves /api/auth/me, which matches no route and 404s. That is
+  // what every doubled path did before this, and /health hid it: isHealthPath
+  // matches with endsWith("/health"), so the doubled health URL answered 200
+  // while every other doubled URL was a 404.
+  path = path.replace(/^(?:\/api)+(?=\/|$)/, "");
   if (path === "") path = "/";
   return path + url.search;
 }
