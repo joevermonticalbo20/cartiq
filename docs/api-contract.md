@@ -1,10 +1,20 @@
-# CartIQ API Contract (Phase 0 baseline)
+# CartIQ API Contract
 
-Base URL: `http://127.0.0.1:4000/api` (localhost-only during development)
-Auth: short-lived JWT (15min) from `POST /api/auth/login` + rotating 30d refresh
-(`POST /api/auth/refresh`, revoke via `POST /api/auth/logout`). All day
-boundaries are Asia/Manila. Alert dedupe is by structured `dedupeKey`
-(`low:<locationId>:<itemId>` / `unknown:<locationId>:<uid>`), not message text.
+Base URLs:
+
+  - local      `http://127.0.0.1:4000/api` - the Express copy in `api/`, emulator-backed
+  - production `https://ezynbxzarxozzmwqdjxs.supabase.co/functions/v1/api` -
+    the Deno Edge Function in `supabase/functions/api/`
+
+Both serve the same routes. `node scripts/check_api_parity.mjs` reads the
+routes out of both and out of the callers (web/src, mobile/lib) and fails CI
+when an endpoint an app calls is missing from either copy - so local dev and
+production cannot drift apart silently.
+
+`GET /health` reports which build is live: `build`/`commit` are the deployed
+commit SHA and `builtAt` is the deploy time, stamped by the deploy workflow.
+Compare them with `git rev-parse HEAD` instead of assuming the last push is
+what is running.
 
 ## Phase 0 - implemented
 
@@ -18,7 +28,7 @@ boundaries are Asia/Manila. Alert dedupe is by structured `dedupeKey`
 | `/auth/verify-reset-code` | POST | `{email, code}` — confirms a code WITHOUT consuming it (redemption still once-only in reset); wrong guesses share the same 5-attempt cap + `reset:` rate budget | `{valid:true}` |
 | `/auth/gmail-status` | GET | OWNER-only diagnostics: secret presence booleans + live Gmail token-exchange check, never secret values | `{configured, present:{...}, exchange:"ok"\|"failed"\|"skipped", error?}` |
 | `/auth/me` | GET | Bearer token | `{user}` |
-| `/health` | GET | - | `{ok, service, version, uptimeSec, db, time}` — 503 when the DB is unreachable. |
+| `/health` | GET | No auth. `isHealthPath` matches any path ending in `/health`, so `/health` and `/api/health` both answer. | `{ok, service, via, version, build, commit, builtAt, uptimeSec, checks:{db,env}, time, latencyMs}` - `build`/`commit` are the deployed commit SHA; 503 when the DB is unreachable. |
 | `/secure-ping` | GET | Bearer token | `{pong, user}` |
 
 ## Phase 1 - core platform (IMPLEMENTED)
@@ -31,7 +41,6 @@ boundaries are Asia/Manila. Alert dedupe is by structured `dedupeKey`
 | `/inventory` / `/inventory?code=` | GET | Grouped per location; each item gains computed `status`: `ok` / `low` (≤ threshold) / `critical` (≤ threshold/2), plus `isOutOfStock` (`true` when stock ≤ 0). |
 | `/inventory/items` | POST | Add a stock row `{locationCode\|locationId, name*, unit?, stock? 0-100000, threshold? 0-100000, source?}` — 404 unknown cart, 409 duplicate name, 201 `{item, locationCode}`. Extra `category` field is ignored (no backing field). |
 | `/inventory/adjustments` | POST | Manual count correction `{inventoryItemId, newStock 0-100000, reason}` (auth required; reason required for STAFF); creates an alert if the result is below threshold. |
-| `/inventory/adjustments` | POST | Manual count correction `{inventoryItemId, newStock, reason}` (auth required); creates an alert if the result is below threshold. |
 | `/inventory/items/:id` | PATCH | Threshold update `{threshold 0-100000}` — apply target for threshold calibration. |
 | `/inventory/names` | GET | Distinct stock item names (+ most common unit) across carts — feeds the Products recipe picker (deduction matches by exact name). |
 
@@ -76,7 +85,7 @@ Channel mapping: `LPG_TANK` → `LPG Tank` row, `CHEESE_BIN` → `Cheese Powder`
 | `/staff/on-shift` | GET | Latest event per person per cart today; `IN` = currently on shift; unregistered cards flagged. Includes last 20 events. |
 | `/readings/recent?code&channel&limit` | GET | Ascending series for dashboard charts. |
 
-Test: `node scripts/phase2_test.mjs` against a running API (11 checks).
+Test: `node api/scripts/phase2_test.mjs` against a running API (14 checks).
 
 ## Phase 3 - analytics (IMPLEMENTED)
 
@@ -85,7 +94,7 @@ with clamped weekday seasonal factors; backtested sMAPE (symmetric MAPE,
 bounded 0-200 by construction — classic MAPE explodes on low-volume days);
 reorder point = avg daily demand x lead time + z(1.65) x sigma x sqrt(lead).
 `MIN_DAYS_FOR_FORECAST = 14` - items below that report `data_sufficient:false`
-with a reason (cold-start honesty). Demo history: `node scripts/seed_history.mjs`.
+Demo history: `node api/scripts/seed_history.mjs`.
 
 | Endpoint | Method | Notes |
 |---|---|---|
@@ -99,7 +108,7 @@ with a reason (cold-start honesty). Demo history: `node scripts/seed_history.mjs
 | `/inventory/items/:id` | PATCH | `{threshold}` (non-negative) - apply target for threshold calibration. |
 | `/analytics/staff-performance?days=28` | GET | Per-staff rollup: orders, total_sales, avg_ticket, shifts_in/out, shifts_completed. Sorted by total_sales desc. |
 
-Test: `node scripts/phase3_test.mjs` (19 checks incl. seasonality detection).
+Test: `node api/scripts/phase3_test.mjs` (19 checks incl. seasonality detection).
 
 ## Phase 4 - OCR expenses & Excel (IMPLEMENTED)
 
@@ -115,7 +124,7 @@ import with mandatory preview + row-level validation before commit (OWNER only).
 | `/export/:dataset?month=YYYY-MM` | GET | `sales` (line items + summary sheets), `inventory`, `expenses`, `shifts` as streamed .xlsx downloads. |
 | `/import/products?dry_run=` | POST | Multipart `file` (5MB, max 2000 rows, 20/hour/IP). Columns: name*, category, basePrice*, flavors ("A;B"). Returns `{rows_total, valid_count, errors[{row,reason}]}`; commit blocked until zero errors; auto-creates missing flavors. |
 
-Tests: `node scripts/phase4_test.mjs` (20 checks incl. import round-trip).
+Tests: `node api/scripts/phase4_test.mjs` (18 checks incl. import round-trip).
 
 ## Phase 5 - platform hardening & UI revamp (IMPLEMENTED)
 
@@ -138,4 +147,40 @@ Sales, Inventory, Staff & Shifts, Analytics, Expenses, Data Hub, Settings),
 nested routes with per-module URLs, toast notifications, confirm dialogs,
 skeleton loaders, table filters and client pagination against the meta
 envelope.
-Test: `node scripts/phase5_test.mjs` (23 checks).
+Test: `node api/scripts/phase5_test.mjs` (33 checks).
+
+
+## Phase 6-9 - after the pilot (IMPLEMENTED)
+
+Endpoints added after the Phase 5 rewrite. Same auth model: Bearer JWT unless a row says otherwise.
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `/auth/my-rfid` | GET | Self-service RFID: `{rfidUid}` (`null` when unbound). |
+| `/auth/my-rfid/claim` | POST | Register a tag: `{locationCode?, event?}` -> 201 `{claim}`. STAFF may only register on their own cart (403); OWNER has no cart and must pass `locationCode` (400). `event` is `IN`/`OUT` to clock on or off with the tap, or omitted to enrol the card only. |
+| `/auth/my-rfid/claim/:claimId` | GET | Poll a claim: `{claim}`. Unknown and someone else's claim both answer 404, so a claim id cannot be used to probe other people's registrations. |
+| `/auth/my-rfid` | DELETE | Unbind your own tag: `{rfidUid:null, removed}`. Emits `rfid:unbound`. Reassigning somebody else's tag stays on `PATCH /auth/staff/:id`. |
+| `/events/ticket` | POST | Bearer -> `{ticket, expiresAt}` (60s, at most 1000 live). `EventSource` cannot send headers, so the stream uses a short ticket instead of putting the JWT in a URL. |
+| `/events` | GET | SSE stream, `?ticket=` from the call above (Bearer also accepted). Sends `connected`, then order/alert/restock/RFID events, with a `: heartbeat` every 25s. |
+| `/analytics/profit?days=30&code=` | GET | OWNER. Revenue against expenses: `{revenue, total_expenses, gross_profit, margin_pct, order_count, expense_count, expenses_by_category[], daily_profit[]}`. |
+| `/devices` | POST | OWNER `{deviceId*, cart?}` -> 201 `{device, deviceToken}`. The token is shown once and stored hashed. |
+| `/devices/:id` | PATCH | OWNER `{cart?, active?}` - reassign the cart (empty or null clears it) and/or enable-disable the node. |
+| `/devices/:id` | DELETE | OWNER -> `{deleted:true}`. Readings and shifts keep the device id as a plain string, so history survives. |
+| `/alerts/:id/ack` | PATCH | Acknowledge an alert and record who (`ackedBy`, `ackedByName`) and when (`ackedAt`) -> `{alert}`. Different from `/read`, which only hides it. |
+| `/inventory/items/:id` | DELETE | OWNER. 409 while the row is SENSOR-managed or referenced by recipe rows; else `{deleted:true}`. |
+
+Integration scripts, run with `node api/scripts/<name>.mjs` against a seeded API or the emulator:
+
+| Script | Covers | Checks |
+|---|---|---|
+| `phase2_test.mjs` | IoT readings + shifts | 14 |
+| `phase3_test.mjs` | analytics + forecasting | 19 |
+| `phase4_test.mjs` | OCR expenses + Excel export/import | 18 |
+| `phase5_test.mjs` | paging, shifts, devices, staff admin | 33 |
+| `phase6_test.mjs` | expense categories end-to-end | 10 |
+| `phase7_test.mjs` | order VOID workflow + staff alert ack | 21 |
+| `phase8_test.mjs` | cart provisioning + product catalog management | 53 |
+| `phase9_low_stock_quota.mjs` | LOW_STOCK dedupe under load (free-tier read budget) | 12 |
+| `test_authz_fix.mjs` | logout, 15min token, VOID restore, alert dedupeKey, cart_id mismatch, Manila boundaries | 24 |
+
+Unit tests: `cd api && npm test` (`node --test test/*.test.js`).
