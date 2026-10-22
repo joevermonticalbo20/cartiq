@@ -1,0 +1,32 @@
+# Deploy Firestore indexes and security rules.
+#
+# These were also manual, and manual is the worst place for them: CI cannot
+# catch a missing composite index, because the Firestore emulator creates
+# indexes automatically. So an index that was added to firestore.indexes.json
+# but never deployed passes every test and then fails in production with
+# "The query requires an index". The restock-requests query hit exactly that.
+name: Deploy Firestore config
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "firestore.indexes.json"
+      - "firestore.rules"
+      - ".github/workflows/deploy-firestore.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+      PROJECT_ID: cartiq-8e46f
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy indexes and rules
+        uses: firebase-tools/action@v13
+        with:
+          args: deploy --only firestore:indexes,firestore:rules --project $PROJECT_ID

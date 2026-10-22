@@ -43,3 +43,6 @@ api/prisma/dev.db
 api/prisma/dev.db-journal
 *.db
 *.db-journal
+
+# Supabase CLI cache (the CLI writes its version stamp here)
+supabase/.temp/

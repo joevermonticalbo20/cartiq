@@ -1,0 +1,67 @@
+# Deploy the web dashboard to Firebase Hosting.
+#
+# This used to be a manual step: someone had to remember to build with
+# VITE_API_BASE and run `firebase deploy --only hosting`. Nothing failed when
+# it was forgotten - the site just silently stayed behind main, and the next
+# person to look at it had no way to tell.
+#
+# The build below bakes VITE_API_BASE into the bundle. Building without it
+# points the live site at "/api", which on static hosting is the SPA
+# fallback, and login fails with a confusing network error. The guard step
+# refuses to deploy a bundle that does not contain the API base.
+name: Deploy Hosting
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "firebase.json"
+      - ".firebaserc"
+      - ".github/workflows/deploy-hosting.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+      PROJECT_ID: cartiq-8e46f
+      # The dashboard API the built bundle calls. Vite bakes this into
+      # web/dist at build time.
+      VITE_API_BASE: https://ezynbxzarxozzmwqdjxs.supabase.co/functions/v1/api
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+        working-directory: web
+
+      - name: Lint and test
+        run: npm run lint && npm run test
+        working-directory: web
+
+      - name: Build
+        run: npm run build
+        working-directory: web
+
+      - name: Verify the API base was baked in
+        run: |
+          if ! grep -rqF "$VITE_API_BASE" dist/assets; then
+            echo "::error::VITE_API_BASE is not in the built bundle - the site would deploy unable to log in. Refusing."
+            exit 1
+          fi
+          echo "VITE_API_BASE is baked into the bundle."
+
+      - name: Deploy to Firebase Hosting
+        uses: firebase-tools/action@v13
+        with:
+          args: deploy --only hosting --project $PROJECT_ID
