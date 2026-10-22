@@ -63,7 +63,7 @@ describe("auth interceptor refresh flow", () => {
   });
 
   it("retries once with a fresh token after silent refresh", async () => {
-    const { setupAuthInterceptor } = await loadApi();
+    const { setupAuthInterceptor, API_BASE } = await loadApi();
     setupAuthInterceptor(navigate);
     const store = useBackingStore({
       cartiq_token: "expired-access",
@@ -76,7 +76,10 @@ describe("auth interceptor refresh flow", () => {
     const result = await inst.h.responseError(fail401());
 
     expect(inst.h.postMock).toHaveBeenCalledTimes(1);
-    expect(inst.h.postMock).toHaveBeenCalledWith("/api/auth/refresh", {
+    // Built from API_BASE, not hardcoded: the base is "/api" in dev but the
+    // production build bakes in the Supabase function URL, and this test used
+    // to fail the moment VITE_API_BASE was set.
+    expect(inst.h.postMock).toHaveBeenCalledWith(`${API_BASE}/auth/refresh`, {
       refreshToken: "stored-refresh",
     });
     expect(store.cartiq_token).toBe("new-access");
