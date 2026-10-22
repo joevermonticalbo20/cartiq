@@ -1041,7 +1041,7 @@ async function handleRefresh(req, origin) {
   }
   try {
     await fsDeleteByName(record._name);
-  } catch (e) {
+  } catch (_e) {
     return jsonRes(origin, { error: "Session already refreshed - please use the latest tokens" }, 401);
   }
   const user = await fsGet("users", record.userId);
@@ -1455,7 +1455,7 @@ function emptyOrderMeta(page, pageSize) {
   return { total: 0, page, pageSize, totalPages: 1 };
 }
 
-async function handleListOrders(req, origin, url) {
+async function handleListOrders(_req, origin, url) {
   const params = url.searchParams;
   const location_code = params.get("location_code");
   const date = params.get("date");
@@ -1488,7 +1488,7 @@ async function handleListOrders(req, origin, url) {
     c.staff = staff ? { name: staff.name } : null;
     return c;
   });
-  const last = slice[slice.length - 1];
+  const _last = slice[slice.length - 1];
   return jsonRes(origin, {
     data,
     meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
@@ -1660,7 +1660,7 @@ function deviceOnline(lastSeenAt) {
   return Date.now() - t < 5 * 60 * 1000;
 }
 
-async function handleListLocations(origin) {
+async function handleListLocations(_origin) {
   const [locations, items, devices] = await Promise.all([
     fsListAll("locations"),
     fsListAll("inventoryItems"),
@@ -1688,7 +1688,7 @@ async function handleListLocations(origin) {
   };
 }
 
-async function handleCreateLocation(req, origin) {
+async function handleCreateLocation(req, _origin) {
   const body = await req.json().catch(() => null);
   const { code, name, address, seedInventory = true } = body || {};
   const cartCode = String(code ?? "").trim().toUpperCase();
@@ -1745,7 +1745,7 @@ async function handleCreateLocation(req, origin) {
   };
 }
 
-async function handlePatchLocation(req, origin, id) {
+async function handlePatchLocation(req, _origin, id) {
   const body = await req.json().catch(() => null);
   const { name, address, status } = body || {};
   if (name === undefined && address === undefined && status === undefined) {
@@ -2336,7 +2336,7 @@ async function handleAlertReadOne(id) {
   return { status: 200, body: { alert: cleanDoc(await fsGet("alerts", alert.id)) } };
 }
 
-async function handleAlertAck(req, id, user) {
+async function handleAlertAck(_req, id, user) {
   const alert = await fsGet("alerts", id);
   if (!alert) return { status: 404, body: { error: "Alert not found" } };
   await fsPatch("alerts", alert.id, {
@@ -3027,7 +3027,7 @@ async function authDevice(req) {
   return { device: null, error: { status: 401, body: { error: "Unknown or inactive device" } } };
 }
 
-async function handleIotReadings(req, origin, device) {
+async function handleIotReadings(req, _origin, device) {
   const body = await req.json().catch(() => null);
   const rows = asArray(body, "readings");
   if (!rows || rows.length === 0) {
@@ -3215,7 +3215,7 @@ async function bindClaimedTag({ rawUid, locationId }) {
   };
 }
 
-async function handleDeviceShifts(req, origin, device) {
+async function handleDeviceShifts(req, _origin, device) {
   const body = await req.json().catch(() => null);
   const rows = asArray(body, "events");
   if (!rows || rows.length === 0) {
@@ -3451,7 +3451,7 @@ async function handleDeleteShift(id) {
 
 async function handleOnShift() {
   const start = manilaDayStart(0);
-  let shifts = await fsRunQuery("shifts", {
+  const shifts = await fsRunQuery("shifts", {
     filters: [{ field: "ts", op: "GREATER_THAN_OR_EQUAL", value: start }],
     orderBy: [{ field: "ts", dir: "ASCENDING" }],
     limit: 5000,
@@ -3513,7 +3513,7 @@ async function handleShiftsHistory(url) {
     c.location = loc ? { code: loc.code, name: loc.name } : null;
     return c;
   });
-  const last = slice[slice.length - 1];
+  const _last = slice[slice.length - 1];
   return {
     status: 200,
     body: {
@@ -4167,7 +4167,7 @@ async function handleTrends(url) {
   const location = await getLocationNative(params.get("code"));
   const since = manilaDayStart(days - 1);
   const orders = await ordersSince(since, location ? location.id : null, "PAID");
-  const [locations, users] = await Promise.all([fsListAll("locations"), fsListAll("users")]);
+  const locations = await fsListAll("locations");
   const locById = new Map(locations.map((l) => [l.id, l]));
   const byWeekday = Array.from({ length: 7 }, (_, i) => ({
     dow: i, label: DOW_LABELS[i], total_sales: 0, orders: 0,
@@ -4956,7 +4956,7 @@ async function handleExport(origin, inUrl, dataset) {
         { field: "date", op: "LESS_THAN", value: range.end },
       ]
       : [];
-    let rows = await fsRunQuery("expenses", {
+    const rows = await fsRunQuery("expenses", {
       filters: rangeFilters,
       orderBy: [{ field: "date", dir: "DESCENDING" }],
       limit: MAX_EXPORT_ROWS + 1,
@@ -4996,7 +4996,7 @@ async function handleExport(origin, inUrl, dataset) {
         { field: "ts", op: "LESS_THAN", value: range.end },
       ]
       : [];
-    let rows = await fsRunQuery("shifts", {
+    const rows = await fsRunQuery("shifts", {
       filters: rangeFilters,
       orderBy: [{ field: "ts", dir: "DESCENDING" }],
       limit: MAX_EXPORT_ROWS + 1,
@@ -5107,7 +5107,7 @@ async function parseMultipartFile(req, maxBytes) {
   return { error: 'Attach an .xlsx file in the "file" field' };
 }
 
-async function handleImportProducts(req, origin, inUrl) {
+async function handleImportProducts(req, _origin, inUrl) {
   let XLSX;
   try {
     XLSX = await xlsxReadLib();
@@ -5724,13 +5724,13 @@ async function handlePatchStaff(req, id, me) {
 // routes are for the account owner; reassigning somebody else's tag stays on
 // PATCH /auth/staff/:id.
 
-async function handleMyRfid(req, origin, user) {
+async function handleMyRfid(_req, origin, user) {
   return jsonRes(origin, {
     rfidUid: user.rfidUid ? normalizeRfidUid(user.rfidUid) : null,
   });
 }
 
-async function handleMyRfidUnbind(req, origin, user) {
+async function handleMyRfidUnbind(_req, origin, user) {
   const previous = user.rfidUid ? normalizeRfidUid(user.rfidUid) : null;
   if (!previous) return jsonRes(origin, { rfidUid: null, removed: false });
   await fsPatch("users", user.id, { rfidUid: null });
@@ -5783,7 +5783,7 @@ async function handleRfidClaimOpen(req, origin, user) {
   return jsonRes(origin, { claim: claimView(claim) }, 201);
 }
 
-async function handleRfidClaimStatus(req, origin, user, path) {
+async function handleRfidClaimStatus(_req, origin, user, path) {
   const claimId = decodeURIComponent(path.slice("/auth/my-rfid/claim/".length));
   const claim = await getClaim(claimId);
   // Unknown and someone-else's claim are answered identically so a claim id
@@ -5830,7 +5830,7 @@ async function pruneTickets() {
   }
 }
 
-async function handleEventTicket(req, user) {
+async function handleEventTicket(_req, user) {
   await pruneTickets().catch(() => {});
   const ticket = randomHexToken(32);
   const exp = new Date(Date.now() + TICKET_TTL_MS);
@@ -5859,16 +5859,16 @@ function sseEncode(event, data) {
 
 async function handleEventStream(req, origin, inUrl) {
   const ticket = inUrl.searchParams.get("ticket");
-  let userId = null;
+  let _userId = null;
   if (ticket) {
     const rec = await ticketUser(ticket);
     if (!rec) return jsonRes(origin, { error: "Invalid or expired stream ticket" }, 401);
-    userId = rec.userId;
+    _userId = rec.userId;
   } else {
     // Fall back to Bearer (mirrors sseAuth trying requireAuth).
     const auth = await authUser(req);
     if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
-    userId = auth.user.id;
+    _userId = auth.user.id;
   }
 
   const [locations, users] = await Promise.all([
@@ -6001,11 +6001,16 @@ async function handleHealth(origin) {
     service: "cartiq-api",
     via: "supabase-edge",
     version: "0.1.0",
-    // Build marker: bump whenever a change here needs verifying in
-    // production. A green deploy workflow does NOT prove the running code
-    // is the committed code, so this is the only reliable way to confirm
-    // which build is actually serving traffic.
-    build: "ratelimit-voidwarn-2026-10-05",
+    // Build marker: which build is actually serving traffic.
+    //
+    // A green deploy workflow does NOT prove the running code is the
+    // committed code, so /health is the only reliable way to confirm it.
+    // DEPLOY_SHA is stamped by deploy-functions.yml from GITHUB_SHA on every
+    // deploy; the literal is the fallback for a function that was deployed
+    // before the stamp existed, and says so plainly rather than pretending.
+    build: env("DEPLOY_SHA") || "unverified-no-deploy-sha",
+    commit: env("DEPLOY_SHA") || "",
+    builtAt: env("DEPLOYED_AT") || "",
     uptimeSec: 0,
     checks: {
       db: { status: db ? "ok" : "fail" },

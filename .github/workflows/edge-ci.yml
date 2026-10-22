@@ -1,0 +1,54 @@
+# CI for the PRODUCTION backend.
+#
+# The API that actually serves traffic is supabase/functions/api/index.ts
+# (a Deno Edge Function). It used to have NO checks at all: api-ci.yml tests
+# api/ - the Express copy used for local development - and the deploy
+# workflow shipped whatever was on main. So an Edge-only change reached
+# production untested, which is exactly what 69b7f78 and 82e6c45 were.
+#
+# Two gates here:
+#   deno check  - the function parses and its types are consistent
+#   parity      - every endpoint the apps call exists in BOTH API copies,
+#                 so the local dev server and production cannot drift apart
+name: Edge Function CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "supabase/**"
+      - "api/**"
+      - "web/src/**"
+      - "mobile/lib/**"
+      - "scripts/check_api_parity.mjs"
+      - ".github/workflows/edge-ci.yml"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "supabase/**"
+      - "api/**"
+      - "web/src/**"
+      - "mobile/lib/**"
+      - "scripts/check_api_parity.mjs"
+      - ".github/workflows/edge-ci.yml"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: deno check
+        # --no-remote: the function talks to Firestore over REST and pulls
+        # nothing at build time, so this must not need the network.
+        run: deno check --no-remote supabase/functions/api/index.ts
+
+      - name: deno lint
+        run: deno lint supabase/functions/api/
+
+      - name: API parity between the Express copy and the Edge function
+        run: node scripts/check_api_parity.mjs

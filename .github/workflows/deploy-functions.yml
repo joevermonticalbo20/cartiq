@@ -30,4 +30,17 @@ jobs:
       # --no-verify-jwt keeps the dashboard behavior (our own CartIQ JWT
       # guards every route; the Supabase gateway check stays OFF).
       # No function name = deploy everything under supabase/functions/.
+      #
+      # Stamp the commit SHA and the deploy time into the function's secrets
+      # first, so /health can report WHICH build is actually serving traffic.
+      # The old build marker was a hand-edited literal that sat at
+      # "ratelimit-voidwarn-2026-10-05" for weeks while newer code ran -
+      # which made it useless for exactly the job it was there for.
+      - name: Stamp the build marker
+        run: |
+          supabase secrets set \
+            DEPLOY_SHA="${GITHUB_SHA}" \
+            DEPLOYED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --project-ref $PROJECT_REF --yes
+
       - run: supabase functions deploy --project-ref $PROJECT_REF --no-verify-jwt
