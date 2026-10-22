@@ -45,38 +45,43 @@ async function main() {
   const staffTok = staffLogin.data?.token;
   check("staff login", Boolean(staffTok));
 
-  // ---- change password ----
+  // ---- change password (email code is mandatory) ----
   const wrongCur = await req("/auth/change-password", {
     method: "POST",
     token: staffTok,
-    body: { currentPassword: "nope", newPassword: "newpass456" },
+    body: { currentPassword: "nope", newPassword: "newpass456", code: "000000" },
   });
   check("change-password rejects wrong current", wrongCur.status === 401);
 
   const shortPw = await req("/auth/change-password", {
     method: "POST",
     token: staffTok,
-    body: { currentPassword: "staff123", newPassword: "123" },
+    body: { currentPassword: "staff123", newPassword: "123", code: "000000" },
   });
   check("change-password enforces min length", shortPw.status === 400);
 
-  const changed = await req("/auth/change-password", {
+  const noCode = await req("/auth/change-password", {
     method: "POST",
     token: staffTok,
-    body: { currentPassword: "staff123", newPassword: "staff456" },
+    body: { currentPassword: "staff123", newPassword: "newpass456" },
   });
-  check("password changed", changed.data?.updated === true);
-  const relogin = await req("/auth/login", {
+  check("change-password requires the email code",
+        noCode.status === 400 && /6-digit code/.test(noCode.data?.error ?? ""));
+
+  const placeholderOtp = await req("/auth/change-password/otp", {
     method: "POST",
-    body: { username: "staff01", password: "staff456" },
+    token: staffTok,
+    body: {},
   });
-  check("login works with new password", relogin.status === 200);
-  // restore for other suites
-  await req("/auth/change-password", {
+  check("OTP send refuses a placeholder recovery email",
+        placeholderOtp.status === 400 &&
+        /recovery email/i.test(placeholderOtp.data?.error ?? ""));
+
+  const stillLogin = await req("/auth/login", {
     method: "POST",
-    token: relogin.data?.token ?? staffTok,
-    body: { currentPassword: "staff456", newPassword: "staff123" },
+    body: { username: "staff01", password: "staff123" },
   });
+  check("rejected change leaves the old password valid", stillLogin.status === 200);
 
   // ---- staff management ----
   const forbidden = await req("/auth/staff", { token: staffTok });
@@ -131,7 +136,7 @@ async function main() {
   const list = await req("/auth/staff", { token: tok });
   check("staff list includes locations & rfid fields",
         Array.isArray(list.data?.data) && list.data.data.length >= 5 &&
-        "rfidUid" in list.data.data[0]);
+        "rfidUid" in list.data.data[0] && "email" in list.data.data[0]);
   const listed = list.data.data.find((u) => u.id === newId);
   check("created staff shows CART-02 assignment", listed?.location?.code === "CART-02");
 

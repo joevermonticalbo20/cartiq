@@ -23,13 +23,27 @@ what is running.
 | `/auth/login` | POST | `{username, password}` — **Express: 20/15min per IP. Production Edge Function: 20/15min per username + 60/15min per IP** (the username tier is IP-independent, so rotating source IPs cannot buy extra guesses; the per-IP tier still catches username spraying, and shared campus NATs don't lock the whole team out) | `{token(15min), refreshToken(30d), user}`, or `429 {error}` when limited |
 | `/auth/refresh` | POST | `{refreshToken}` (60/15min/IP, rotation, rejects disabled accounts) | `{token, refreshToken, user}` |
 | `/auth/logout` | POST | `{refreshToken?}` idempotent | `{loggedOut:true}` |
-| `/auth/forgot-password` | POST | `{email}` — Gmail OTP (6-digit, 10-min, single-use). Generic success whether or not the address is registered (5/hr per IP+email; silent 60s resend cooldown) | `{success:true, message}` |
+| `/auth/forgot-password` | POST | `{email}` — emails a 6-digit OTP (10-min, single-use). Generic success whether or not the address is registered (5/hr per IP+email; silent 60s resend cooldown). A stored `@cartiq.local` placeholder is not deliverable; the owner must set a real inbox in Settings | `{success:true, message}` |
 | `/auth/reset-password` | POST | `{email, code, newPassword 6-72}` — identical `Invalid or expired code.` for every failure mode; success sets the password + revokes all sessions (20/hr per IP, 5 code attempts max) | `{updated:true, sessionsRevoked:true}` |
 | `/auth/verify-reset-code` | POST | `{email, code}` — confirms a code WITHOUT consuming it (redemption still once-only in reset); wrong guesses share the same 5-attempt cap + `reset:` rate budget | `{valid:true}` |
-| `/auth/gmail-status` | GET | OWNER-only diagnostics: secret presence booleans + live Gmail token-exchange check, never secret values | `{configured, present:{...}, exchange:"ok"\|"failed"\|"skipped", error?}` |
+| `/auth/change-password/otp` | POST | Bearer token. Sends a separate 6-digit `change` code to the signed-in account's real recovery email (10-min, 60s resend cooldown). Returns 400 with an add-email hint when the profile has no real inbox | `{sent:true, email:"o***@example.com", expiresInMinutes:10, message}` or `{sent:true, cooldown:true, retryAfterMs, ...}` |
+| `/auth/change-password` | POST | Bearer `{currentPassword, newPassword 6-72, code}` — the email code is mandatory second factor. Omitting `code` returns an app-update hint for older builds. Success revokes every session + all outstanding codes | `{updated:true, sessionsRevoked:true}` |
+| `/auth/me` | PATCH | Bearer `{email, currentPassword}` — edits your own recovery email. The current password is required; `@cartiq.local` placeholders are rejected; changing it invalidates codes sent to the old address | `{user}` |
+| `/auth/gmail-status` | GET | OWNER-only alias diagnostics: provider, secret presence booleans + live Gmail token-exchange check, never secret values | `{provider, allowed, configured, present:{...}, exchange:"ok"\|"failed"\|"skipped", error?}` |
+| `/auth/email-status` | GET | Provider-neutral alias of `/auth/gmail-status` | same response |
 | `/auth/me` | GET | Bearer token | `{user}` |
 | `/health` | GET | No auth. `isHealthPath` matches any path ending in `/health`, so `/health` and `/api/health` both answer. | `{ok, service, via, version, build, commit, builtAt, uptimeSec, checks:{db,env}, time, latencyMs}` - `build`/`commit` are the deployed commit SHA; 503 when the DB is unreachable. |
 | `/secure-ping` | GET | Bearer token | `{pong, user}` |
+
+Email OTP policy: 6 digits, 10-minute TTL, single use, 5 wrong attempts, 60-second
+resend cooldown, SHA-256 hash only. Reset and change codes live in the same
+`passwordResets` collection and are isolated by `purpose`; documents written
+before the field existed count as `reset`. A signed-in change needs BOTH the
+current password and a `change` code. A profile with a `@cartiq.local`
+placeholder shows it in the UI but the Gmail sender skips it; the owner must set
+a real recovery address first. The web/mobile apps from before this change have
+no code field, so `/auth/change-password` returns the update hint instead of
+silently changing the password.
 
 ## Phase 1 - core platform (IMPLEMENTED)
 
@@ -124,7 +138,7 @@ import with mandatory preview + row-level validation before commit (OWNER only).
 | `/export/:dataset?month=YYYY-MM` | GET | `sales` (line items + summary sheets), `inventory`, `expenses`, `shifts` as streamed .xlsx downloads. |
 | `/import/products?dry_run=` | POST | Multipart `file` (5MB, max 2000 rows, 20/hour/IP). Columns: name*, category, basePrice*, flavors ("A;B"). Returns `{rows_total, valid_count, errors[{row,reason}]}`; commit blocked until zero errors; auto-creates missing flavors. |
 
-Tests: `node api/scripts/phase4_test.mjs` (18 checks incl. import round-trip).
+Tests: `node api/scripts/phase4_test.mjs` (20 checks incl. import round-trip).
 
 ## Phase 5 - platform hardening & UI revamp (IMPLEMENTED)
 
@@ -137,17 +151,17 @@ envelope `{ data:[...], meta:{ total, page, pageSize, totalPages } }`.
 | `/shifts/:id` | PATCH | OWNER user-JWT. Correct a row: `{event?, locationCode?, ts?}` (at least one; staff identity immutable) → `{shift}`. Powers Edit Shift Log. |
 | `/shifts/:id` | DELETE | OWNER user-JWT. Remove a mis-logged row → `{deleted:true}`. |
 | `/devices` | GET | OWNER-only IoT registry: device_id, cart, active, last_seen_at, computed `online` (<5 min heartbeat). |
-| `/auth/change-password` | POST | Self-service: verifies current password, min 6 new chars. |
-| `/auth/staff` | GET | OWNER-only staff list incl. location, rfidUid, active. |
-| `/auth/staff` | POST | OWNER creates STAFF account (unique username, optional RFID UID + cart + Gmail for password reset). |
-| `/auth/staff/:id` | PATCH | OWNER enables/disables account, resets password, reassigns cart/RFID/email (unique Gmail, empty clears). Disabled accounts are rejected at login. |
+| `/auth/change-password` | POST | Self-service: verifies current password + the 6-digit code emailed to the recovery address, min 6 new chars; success revokes all sessions/codes. |
+| `/auth/staff` | GET | OWNER-only staff list incl. location, rfidUid, active, recovery email. |
+| `/auth/staff` | POST | OWNER creates STAFF account (unique username, optional RFID UID + cart + recovery email for password reset). |
+| `/auth/staff/:id` | PATCH | OWNER enables/disables account, resets password, reassigns cart/RFID/email (unique address, empty clears). Disabled accounts are rejected at login. A password reset revokes sessions + codes; an email change revokes codes. Your OWN password/email must go through Settings (`/auth/change-password`, `PATCH /auth/me`) so the email code/current password is enforced. |
 
 Web UI rebuilt as a multi-page app shell: collapsible sidebar (Dashboard,
 Sales, Inventory, Staff & Shifts, Analytics, Expenses, Data Hub, Settings),
 nested routes with per-module URLs, toast notifications, confirm dialogs,
 skeleton loaders, table filters and client pagination against the meta
 envelope.
-Test: `node api/scripts/phase5_test.mjs` (33 checks).
+Test: `node api/scripts/phase5_test.mjs` (34 checks).
 
 
 ## Phase 6-9 - after the pilot (IMPLEMENTED)
@@ -175,12 +189,12 @@ Integration scripts, run with `node api/scripts/<name>.mjs` against a seeded API
 |---|---|---|
 | `phase2_test.mjs` | IoT readings + shifts | 14 |
 | `phase3_test.mjs` | analytics + forecasting | 19 |
-| `phase4_test.mjs` | OCR expenses + Excel export/import | 18 |
-| `phase5_test.mjs` | paging, shifts, devices, staff admin | 33 |
-| `phase6_test.mjs` | expense categories end-to-end | 10 |
+| `phase4_test.mjs` | OCR expenses + Excel export/import | 20 |
+| `phase5_test.mjs` | paging, shifts, devices, staff admin | 34 |
+| `phase6_test.mjs` | expense categories end-to-end | 13 |
 | `phase7_test.mjs` | order VOID workflow + staff alert ack | 21 |
 | `phase8_test.mjs` | cart provisioning + product catalog management | 53 |
-| `phase9_low_stock_quota.mjs` | LOW_STOCK dedupe under load (free-tier read budget) | 12 |
+| `phase9_low_stock_quota.mjs` | LOW_STOCK dedupe under load (free-tier read budget) | 11 |
 | `test_authz_fix.mjs` | logout, 15min token, VOID restore, alert dedupeKey, cart_id mismatch, Manila boundaries | 24 |
 
 Unit tests: `cd api && npm test` (`node --test test/*.test.js`).

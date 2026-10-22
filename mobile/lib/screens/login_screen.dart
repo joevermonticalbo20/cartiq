@@ -239,6 +239,7 @@ class _LoginScreenState extends State<LoginScreen> {
     String? notice;
     var busy = false;
     var showPw = false;
+    var closed = false;
 
     try {
       await showModalBottomSheet<void>(
@@ -254,7 +255,7 @@ class _LoginScreenState extends State<LoginScreen> {
               if (busy) return;
               final email = emailCtrl.text.trim();
               if (email.isEmpty || !email.contains('@')) {
-                setSheetState(() => error = 'Enter a valid Gmail address.');
+                setSheetState(() => error = 'Enter a valid email address.');
                 return;
               }
               setSheetState(() {
@@ -263,6 +264,7 @@ class _LoginScreenState extends State<LoginScreen> {
               });
               try {
                 final data = await api.forgotPassword(email);
+                if (closed || !sheetContext.mounted) return;
                 setSheetState(() {
                   busy = false;
                   notice =
@@ -273,6 +275,36 @@ class _LoginScreenState extends State<LoginScreen> {
                 await Haptics.success();
               } on ApiException catch (e) {
                 await Haptics.error();
+                if (closed || !sheetContext.mounted) return;
+                setSheetState(() {
+                  busy = false;
+                  error = e.message;
+                });
+              }
+            }
+
+            Future<void> verifyCode(String candidate) async {
+              if (busy) return;
+              setSheetState(() {
+                busy = true;
+                error = null;
+              });
+              try {
+                await api.verifyResetCode(
+                  email: emailCtrl.text.trim(),
+                  code: candidate,
+                );
+                if (closed || !sheetContext.mounted) return;
+                code = candidate;
+                setSheetState(() {
+                  busy = false;
+                  step = 'password';
+                  error = null;
+                });
+                await Haptics.success();
+              } on ApiException catch (e) {
+                await Haptics.error();
+                if (closed || !sheetContext.mounted) return;
                 setSheetState(() {
                   busy = false;
                   error = e.message;
@@ -318,6 +350,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   );
               } on ApiException catch (e) {
                 await Haptics.error();
+                if (closed || !sheetContext.mounted) return;
                 setSheetState(() {
                   busy = false;
                   error = e.message;
@@ -337,7 +370,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: AppSpacing.space2),
                   Text(
-                    'Enter the Gmail address saved on your account. We\'ll send a 6-digit code (expires in 10 minutes).',
+                    'Enter the recovery email saved on your account. We\'ll send a 6-digit code (expires in 10 minutes).',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: AppSpacing.space4),
@@ -345,7 +378,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     controller: emailCtrl,
                     keyboardType: TextInputType.emailAddress,
                     decoration: const InputDecoration(
-                      labelText: 'Gmail address',
+                      labelText: 'Email address',
                       prefixIcon: Icon(Icons.mail_outline),
                     ),
                     onSubmitted: (_) => sendCode(),
@@ -372,16 +405,20 @@ class _LoginScreenState extends State<LoginScreen> {
                 ],
               );
             } else if (step == 'code') {
-              body = PinPad(
-                title: 'Reset code',
-                errorText: error,
-                onComplete: (c) {
-                  code = c;
-                  setSheetState(() {
-                    step = 'password';
-                    error = null;
-                  });
-                },
+              body = Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (busy)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: AppSpacing.space2),
+                      child: LinearProgressIndicator(minHeight: 2),
+                    ),
+                  PinPad(
+                    title: 'Reset code',
+                    errorText: error,
+                    onComplete: verifyCode,
+                  ),
+                ],
               );
             } else {
               body = Column(
@@ -481,6 +518,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } finally {
+      closed = true;
       emailCtrl.dispose();
       pwCtrl.dispose();
       pw2Ctrl.dispose();

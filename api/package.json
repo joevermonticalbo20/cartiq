@@ -15,6 +15,7 @@
     "start": "node src/server.js",
     "test": "node --test test/*.test.js",
     "db:seed": "node scripts/seed_firestore.mjs",
+    "email:check": "node scripts/email_check.mjs",
     "recipes:check": "node scripts/ensure_recipes.mjs",
     "recipes:apply": "node scripts/ensure_recipes.mjs --apply",
     "emulators": "firebase emulators:start --only firestore"

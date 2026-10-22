@@ -319,6 +319,23 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  /// Change the signed-in account's recovery email. The current password is
+  /// required so a stolen session cannot redirect password recovery.
+  Future<Map<String, dynamic>> updateProfile(
+    String token, {
+    required String email,
+    required String currentPassword,
+  }) async {
+    final res = await _send(
+      () => _http.patch(
+        _uri('/auth/me'),
+        headers: _headers(token: token),
+        body: jsonEncode({'email': email, 'currentPassword': currentPassword}),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
   /// Exchange a refresh token for a fresh access + rotated refresh token.
   Future<Map<String, dynamic>> refresh(String refreshToken) async {
     final res = await _send(
@@ -331,12 +348,27 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
-  /// Change the account password. Server revokes all sessions on success,
-  /// so the caller must re-login immediately after.
+  /// Email a 6-digit password-change code to the signed-in account.
+  /// Fails when the account still has only a placeholder recovery email.
+  Future<Map<String, dynamic>> requestChangePasswordCode(String token) async {
+    final res = await _send(
+      () => _http.post(
+        _uri('/auth/change-password/otp'),
+        headers: _headers(token: token),
+        body: jsonEncode(const <String, dynamic>{}),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  /// Change the account password. The email code is the second factor and is
+  /// mandatory; the server revokes all sessions on success, so the caller must
+  /// re-login immediately after.
   Future<Map<String, dynamic>> changePassword(
     String token, {
     required String currentPassword,
     required String newPassword,
+    required String code,
   }) async {
     final res = await _send(
       () => _http.post(
@@ -345,6 +377,7 @@ class ApiClient {
         body: jsonEncode({
           'currentPassword': currentPassword,
           'newPassword': newPassword,
+          'code': code,
         }),
       ),
     );
@@ -415,7 +448,7 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
-  /// Request a Gmail OTP for password reset. Always succeeds with the same
+  /// Request an email OTP for password reset. Always succeeds with the same
   /// generic message (the server never reveals whether the email is known).
   Future<Map<String, dynamic>> forgotPassword(String email) async {
     final res = await _send(
@@ -423,6 +456,22 @@ class ApiClient {
         _uri('/auth/forgot-password'),
         headers: _headers(),
         body: jsonEncode({'email': email}),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  /// Check the reset code before asking for a new password, so a typo does not
+  /// throw away the code or show a misleading password screen.
+  Future<Map<String, dynamic>> verifyResetCode({
+    required String email,
+    required String code,
+  }) async {
+    final res = await _send(
+      () => _http.post(
+        _uri('/auth/verify-reset-code'),
+        headers: _headers(),
+        body: jsonEncode({'email': email, 'code': code}),
       ),
     );
     return jsonDecode(res.body) as Map<String, dynamic>;

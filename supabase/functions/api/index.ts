@@ -5231,8 +5231,16 @@ const OTP_LENGTH = 6;
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_MAX_ATTEMPTS = 5;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+const OTP_PURPOSE_RESET = "reset";
+const OTP_PURPOSE_CHANGE = "change";
 const FORGOT_GENERIC_MESSAGE = "If an account exists for this email, a reset code was sent.";
 const RESET_INVALID_MESSAGE = "Invalid or expired code.";
+const CHANGE_INVALID_MESSAGE = "Invalid or expired code.";
+const APP_UPDATE_REQUIRED_MESSAGE =
+  "Enter the 6-digit code sent to your recovery email. If your CartIQ app has no code field, update to the latest version.";
+const RECOVERY_EMAIL_REQUIRED_MESSAGE =
+  "Add a real recovery email in Settings before changing your password.";
+const PLACEHOLDER_EMAIL_DOMAIN = "cartiq.local";
 
 function normalizeEmailAddr(v) {
   return String(v ?? "").trim().toLowerCase();
@@ -5260,6 +5268,25 @@ function otpEqualsHex(aHex, bHex) {
   let diff = 0;
   for (let i = 0; i < aHex.length; i++) diff |= aHex.charCodeAt(i) ^ bHex.charCodeAt(i);
   return diff === 0;
+}
+
+/** Legacy rows have no purpose and must keep behaving as resets. */
+function otpPurpose(rec) {
+  return rec?.purpose === OTP_PURPOSE_CHANGE ? OTP_PURPOSE_CHANGE : OTP_PURPOSE_RESET;
+}
+
+function isPlaceholderEmail(v) {
+  return normalizeEmailAddr(v).endsWith(`@${PLACEHOLDER_EMAIL_DOMAIN}`);
+}
+
+function maskEmail(v) {
+  const email = normalizeEmailAddr(v);
+  const at = email.lastIndexOf("@");
+  if (at <= 0) return "";
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  const shown = local.slice(0, Math.min(2, local.length));
+  return `${shown}${"*".repeat(Math.max(3, local.length - shown.length))}@${domain}`;
 }
 
 // ---------- per-isolate public-endpoint rate limiting ----------
@@ -5351,9 +5378,43 @@ function resetEmailContent(code) {
   };
 }
 
+function changeEmailContent(code) {
+  return {
+    subject: "CartIQ password change code",
+    text:
+      `Your CartIQ password change code is:\n\n${code}\n\n` +
+      `It expires in 10 minutes and can only be used once.\n` +
+      `If you didn't ask to change your password, your password was NOT changed.\n` +
+      `You can ignore this email.\n\n` +
+      `— CartIQ (Pota Fries Operations)`,
+  };
+}
+
+function otpEmailContent(code, purpose = OTP_PURPOSE_RESET) {
+  return purpose === OTP_PURPOSE_CHANGE
+    ? changeEmailContent(code)
+    : resetEmailContent(code);
+}
+
+async function sendOtpEmailEdge({ to, code, purpose = OTP_PURPOSE_RESET }) {
+  const { subject, text } = otpEmailContent(code, purpose);
+  if (isPlaceholderEmail(to)) {
+    console.warn(
+      `[mail:gmail] skipped placeholder recipient ${maskEmail(to)} - set a real recovery email`,
+    );
+    return { sent: false, placeholder: true };
+  }
+  await sendGmailEdge({ to, subject, text });
+  return { sent: true };
+}
+
 async function sendGmailEdge({ to, subject, text }) {
   const { from } = gmailSecrets();
   if (!from) throw new Error("Gmail is not configured (missing GMAIL_FROM)");
+  // Header values must never contain a line break (the body may).
+  if (/[\r\n]/.test(String(to)) || /[\r\n]/.test(String(subject)) || /[\r\n]/.test(from)) {
+    throw new Error("Invalid email header value");
+  }
   const token = await gmailAccessToken();
   const lines = [
     `From: ${from}`,
@@ -5388,13 +5449,25 @@ async function handleGmailStatus() {
     from: !!s.from,
   };
   if (!present.clientId || !present.clientSecret || !present.refreshToken) {
-    return { configured: false, present, exchange: "skipped" };
+    return { provider: "gmail", allowed: true, configured: false, present, exchange: "skipped" };
+  }
+  if (!present.from) {
+    return {
+      provider: "gmail",
+      allowed: true,
+      configured: false,
+      present,
+      exchange: "skipped",
+      error: "GMAIL_FROM is missing",
+    };
   }
   try {
     await gmailAccessToken();
-    return { configured: true, present, exchange: "ok" };
+    return { provider: "gmail", allowed: true, configured: true, present, exchange: "ok" };
   } catch (e) {
     return {
+      provider: "gmail",
+      allowed: true,
       configured: false,
       present,
       exchange: "failed",
@@ -5406,9 +5479,9 @@ async function handleGmailStatus() {
 /** Newest unused OTP doc for a user. Dead ones (expired / attempt-capped)
  *  are cleaned up and yield null. Shared by verify + reset so both paths
  *  enforce identical policy. */
-async function findLiveOtp(userId) {
+async function findLiveOtp(userId, purpose = OTP_PURPOSE_RESET) {
   const records = await fsQueryEqual("passwordResets", "userId", userId, 100);
-  const rec = records.filter((r) => !r.used)
+  const rec = records.filter((r) => !r.used && otpPurpose(r) === purpose)
     .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0];
   if (!rec) return null;
   if (!(rec.expiresAt instanceof Date) || Date.now() > rec.expiresAt.getTime()) {
@@ -5432,6 +5505,20 @@ async function punishWrongOtp(rec) {
   }
 }
 
+async function deleteUserSessions(userId) {
+  const sessions = await fsQueryEqual("refreshTokens", "userId", userId, 10000);
+  for (const s of sessions) {
+    await fsDeleteByName(s._name).catch(() => {});
+  }
+}
+
+async function deleteUserOtps(userId) {
+  const records = await fsQueryEqual("passwordResets", "userId", userId, 100);
+  for (const r of records) {
+    if (!r.used) await fsDeleteByName(r._name).catch(() => {});
+  }
+}
+
 async function handleForgotPassword(req, origin) {  const body = await req.json().catch(() => null);
   const email = normalizeEmailAddr(body?.email);
   if (!email || !validEmailAddr(email)) {
@@ -5445,7 +5532,9 @@ async function handleForgotPassword(req, origin) {  const body = await req.json(
     const existing = await fsQueryEqual("passwordResets", "userId", user.id, 100);
     const unused = existing.filter((r) => !r.used)
       .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-    const fresh = unused[0];
+    // Only a recent RESET code starts the cooldown. A just-issued change
+    // code should not silently block the forgot flow.
+    const fresh = unused.find((r) => otpPurpose(r) === OTP_PURPOSE_RESET);
     const cooling = fresh &&
       Date.now() - new Date(fresh.createdAt || 0).getTime() < OTP_RESEND_COOLDOWN_MS;
     if (!cooling) {
@@ -5453,6 +5542,8 @@ async function handleForgotPassword(req, origin) {  const body = await req.json(
       const code = generateOtpCode();
       await fsCreate("passwordResets", null, {
         userId: user.id,
+        email,
+        purpose: OTP_PURPOSE_RESET,
         tokenHash: await sha256Hex(code),
         expiresAt: new Date(Date.now() + OTP_TTL_MS),
         used: false,
@@ -5460,8 +5551,7 @@ async function handleForgotPassword(req, origin) {  const body = await req.json(
         createdAt: new Date(),
       });
       try {
-        const { subject, text } = resetEmailContent(code);
-        await sendGmailEdge({ to: email, subject, text });
+        await sendOtpEmailEdge({ to: email, code, purpose: OTP_PURPOSE_RESET });
       } catch (e) {
         console.error(`[api:forgot-password] email delivery failed for user #${user.id}:`, String((e && e.message) || e));
       }
@@ -5485,7 +5575,7 @@ async function handleResetPassword(req, origin) {
   }
   const user = await fsQueryEqual("users", "email", email, 1).then((r) => r[0] || null);
   if (!user || user.active === false) return fail();
-  const rec = await findLiveOtp(user.id);
+  const rec = await findLiveOtp(user.id, OTP_PURPOSE_RESET);
   if (!rec) return fail();
   if (!otpEqualsHex(await sha256Hex(code), rec.tokenHash)) {
     await punishWrongOtp(rec);
@@ -5517,7 +5607,7 @@ async function handleVerifyResetCode(req, origin) {
   if (!email || !validEmailAddr(email) || !/^\d{6}$/.test(code)) return fail();
   const user = await fsQueryEqual("users", "email", email, 1).then((r) => r[0] || null);
   if (!user || user.active === false) return fail();
-  const rec = await findLiveOtp(user.id);
+  const rec = await findLiveOtp(user.id, OTP_PURPOSE_RESET);
   if (!rec) return fail();
   if (!otpEqualsHex(await sha256Hex(code), rec.tokenHash)) {
     await punishWrongOtp(rec);
@@ -5528,9 +5618,107 @@ async function handleVerifyResetCode(req, origin) {
 }
 
 // ---------- staff + password (mirror the rest of api/src/routes/auth.js) ----------
+async function handlePatchMe(req, origin, user) {
+  if (!edgeRateAllowed(`profile:${clientIp(req)}|${user.id}`, 10, 15 * 60 * 1000)) {
+    return jsonRes(origin, { error: "Too many attempts - please try again later" }, 429);
+  }
+  const body = await req.json().catch(() => null);
+  const { email, currentPassword } = body || {};
+  if (!currentPassword) {
+    return jsonRes(origin, { error: "currentPassword is required" }, 400);
+  }
+  const bl = await bcryptLib();
+  if (!(await bl.compare(String(currentPassword), user.passwordHash))) {
+    return jsonRes(origin, { error: "Current password is incorrect" }, 401);
+  }
+  const cleanEmail = normalizeEmailAddr(email);
+  if (!cleanEmail || !validEmailAddr(cleanEmail)) {
+    return jsonRes(origin, { error: "A valid email address is required" }, 400);
+  }
+  if (isPlaceholderEmail(cleanEmail)) {
+    return jsonRes(origin, { error: "Enter a real email address, not a placeholder" }, 400);
+  }
+  if (cleanEmail === normalizeEmailAddr(user.email)) {
+    return jsonRes(origin, { user: await publicUser(user) }, 200);
+  }
+  const taken = await fsQueryEqual("users", "email", cleanEmail, 1);
+  if (taken.some((u) => Number(u.id) !== Number(user.id))) {
+    return jsonRes(origin, { error: "Email already registered" }, 409);
+  }
+  await fsPatch("users", user.id, { email: cleanEmail });
+  // A code sent to the old address must not still be redeemable after the
+  // account points recovery somewhere else.
+  await deleteUserOtps(user.id);
+  const updated = await fsGet("users", user.id);
+  console.log(`[api:profile] recovery email updated for user #${user.id}`);
+  return jsonRes(origin, { user: await publicUser(updated) }, 200);
+}
+
+async function handleChangePasswordOtp(req, user) {
+  if (!edgeRateAllowed(`changeotp:${clientIp(req)}|${user.id}`, 10, 60 * 60 * 1000)) {
+    return { status: 429, body: { error: "Too many code requests - please try again later" } };
+  }
+  const email = normalizeEmailAddr(user.email);
+  if (!email || !validEmailAddr(email) || isPlaceholderEmail(email)) {
+    return { status: 400, body: { error: RECOVERY_EMAIL_REQUIRED_MESSAGE } };
+  }
+  const records = await fsQueryEqual("passwordResets", "userId", user.id, 100);
+  const unused = records.filter((r) => !r.used);
+  const freshChange = unused
+    .filter((r) => otpPurpose(r) === OTP_PURPOSE_CHANGE)
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0];
+  if (freshChange) {
+    const age = Date.now() - new Date(freshChange.createdAt || 0).getTime();
+    if (age < OTP_RESEND_COOLDOWN_MS) {
+      return {
+        status: 200,
+        body: {
+          sent: true,
+          cooldown: true,
+          retryAfterMs: OTP_RESEND_COOLDOWN_MS - age,
+          email: maskEmail(email),
+          message: "A code was sent recently. Check your inbox.",
+        },
+      };
+    }
+  }
+  for (const r of unused) await fsDeleteByName(r._name).catch(() => {});
+  const code = generateOtpCode();
+  const rec = await fsCreate("passwordResets", null, {
+    userId: user.id,
+    email,
+    purpose: OTP_PURPOSE_CHANGE,
+    tokenHash: await sha256Hex(code),
+    expiresAt: new Date(Date.now() + OTP_TTL_MS),
+    used: false,
+    attempts: 0,
+    createdAt: new Date(),
+  });
+  try {
+    await sendOtpEmailEdge({ to: email, code, purpose: OTP_PURPOSE_CHANGE });
+  } catch (e) {
+    if (rec?._name) await fsDeleteByName(rec._name).catch(() => {});
+    console.error(`[api:change-password-otp] email delivery failed for user #${user.id}:`, String((e && e.message) || e));
+    return { status: 503, body: { error: "Email delivery is not available right now. Please try again later." } };
+  }
+  return {
+    status: 200,
+    body: {
+      sent: true,
+      email: maskEmail(email),
+      expiresInMinutes: 10,
+      message: "A 6-digit code was sent to your recovery email.",
+    },
+  };
+}
+
 async function handleChangePassword(req, user) {
+  if (!edgeRateAllowed(`changepw:${clientIp(req)}|${user.id}`, 10, 15 * 60 * 1000)) {
+    return { status: 429, body: { error: "Too many attempts - please try again later" } };
+  }
   const body = await req.json().catch(() => null);
   const { currentPassword, newPassword } = body || {};
+  const code = String(body?.code ?? "").trim();
   if (
     !currentPassword || !newPassword ||
     String(newPassword).length < 6 ||
@@ -5538,17 +5726,25 @@ async function handleChangePassword(req, user) {
   ) {
     return { status: 400, body: { error: "currentPassword and newPassword (6-72 chars) are required" } };
   }
+  if (!code) return { status: 400, body: { error: APP_UPDATE_REQUIRED_MESSAGE } };
+  if (!/^\d{6}$/.test(code)) return { status: 400, body: { error: CHANGE_INVALID_MESSAGE } };
   const full = await fsGet("users", user.id);
   if (!full) return { status: 404, body: { error: "User not found" } };
   const bl = await bcryptLib();
   if (!(await bl.compare(String(currentPassword), full.passwordHash))) {
     return { status: 401, body: { error: "Current password is incorrect" } };
   }
-  await fsPatch("users", full.id, { passwordHash: await bl.hash(String(newPassword), 10) });
-  const sessions = await fsQueryEqual("refreshTokens", "userId", full.id, 10000);
-  for (const s of sessions) {
-    await fsDeleteByName(s._name).catch(() => {});
+  const rec = await findLiveOtp(full.id, OTP_PURPOSE_CHANGE);
+  const fail = () => ({ status: 400, body: { error: CHANGE_INVALID_MESSAGE } });
+  if (!rec) return fail();
+  if (!otpEqualsHex(await sha256Hex(code), rec.tokenHash)) {
+    await punishWrongOtp(rec);
+    return fail();
   }
+  await fsDeleteByName(rec._name).catch(() => {});
+  await fsPatch("users", full.id, { passwordHash: await bl.hash(String(newPassword), 10) });
+  await deleteUserSessions(full.id);
+  await deleteUserOtps(full.id);
   return { status: 200, body: { updated: true, sessionsRevoked: true } };
 }
 
@@ -5659,6 +5855,11 @@ async function handlePatchStaff(req, id, me) {
   if (active !== undefined) data.active = Boolean(active);
   if (name !== undefined && String(name).trim()) data.name = String(name).trim();
   if (password !== undefined) {
+    // Resetting staff is intentionally OTP-free. Changing your OWN password
+    // is not: that path must use Settings + the recovery-email code.
+    if (Number(id) === Number(me.id)) {
+      return { status: 400, body: { error: "Use Settings > Change password; your own change needs the email code" } };
+    }
     if (String(password).length < 6) {
       return { status: 400, body: { error: "password min 6 chars" } };
     }
@@ -5698,6 +5899,11 @@ async function handlePatchStaff(req, id, me) {
     }
   }
   if (email !== undefined) {
+    // Own email changes go through Settings, where the current password is
+    // required. This route is for resetting OTHER staff.
+    if (Number(id) === Number(me.id)) {
+      return { status: 400, body: { error: "Use Settings > Recovery email; your own change needs your current password" } };
+    }
     if (email === null || String(email).trim() === "") {
       data.email = null;
     } else {
@@ -5714,11 +5920,18 @@ async function handlePatchStaff(req, id, me) {
   }
   if (Object.keys(data).length > 0) await fsPatch("users", user.id, data);
   const updated = await fsGet("users", user.id);
+  if (data.passwordHash) {
+    // An admin reset must end every existing session, otherwise a stolen
+    // refresh token survives the reset.
+    await deleteUserSessions(user.id);
+    await deleteUserOtps(user.id);
+  }
+  if (data.email !== undefined) {
+    // Codes sent to the old address must not survive a recovery-email swap.
+    await deleteUserOtps(user.id);
+  }
   if (data.active === false) {
-    const sessions = await fsQueryEqual("refreshTokens", "userId", user.id, 10000);
-    for (const s of sessions) {
-      await fsDeleteByName(s._name).catch(() => {});
-    }
+    await deleteUserSessions(user.id);
   }
   return {
     status: 200,
@@ -6055,6 +6268,11 @@ Deno.serve(async (req) => {
       if (req.method === "POST" && path === "/auth/reset-password") return await handleResetPassword(req, origin);
       if (req.method === "POST" && path === "/auth/verify-reset-code") return await handleVerifyResetCode(req, origin);
       if (req.method === "GET" && path === "/auth/me") return await handleMe(req, origin);
+      if (req.method === "PATCH" && path === "/auth/me") {
+        const auth = await authUser(req);
+        if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
+        return await handlePatchMe(req, origin, auth.user);
+      }
       // --- RFID self-service (mirrors api/src/routes/auth.js) ---
       if (path.startsWith("/auth/my-rfid")) {
         const auth = await authUser(req);
@@ -6079,16 +6297,20 @@ Deno.serve(async (req) => {
         const payload = await verifyHS256(header.slice(7), jwtSecret());
         return jsonRes(origin, { pong: true, user: { ...payload, locationId: auth.user.locationId ?? null } }, 200);
       }
-      if (req.method === "GET" && path === "/auth/gmail-status") {
+      if (req.method === "GET" && (path === "/auth/gmail-status" || path === "/auth/email-status")) {
         const auth = await authUser(req);
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
         const ownErr = requireOwner(auth.user);
         if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
         return jsonRes(origin, await handleGmailStatus(), 200);
       }
-      if (path === "/auth/change-password" || path === "/auth/staff" || path.startsWith("/auth/staff/")) {
+      if (path === "/auth/change-password" || path === "/auth/change-password/otp" || path === "/auth/staff" || path.startsWith("/auth/staff/")) {
         const auth = await authUser(req);
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
+        if (req.method === "POST" && path === "/auth/change-password/otp") {
+          const out = await handleChangePasswordOtp(req, auth.user);
+          return jsonRes(origin, out.body, out.status);
+        }
         if (req.method === "POST" && path === "/auth/change-password") {
           const out = await handleChangePassword(req, auth.user);
           return jsonRes(origin, out.body, out.status);
@@ -6388,8 +6610,10 @@ Deno.serve(async (req) => {
     } else if (
       (req.method === "POST" && (path === "/auth/login" || path === "/auth/refresh" || path === "/auth/logout" ||
         path === "/auth/forgot-password" || path === "/auth/reset-password" ||
-        path === "/auth/verify-reset-code")) ||
-      (req.method === "GET" && path === "/auth/me")
+        path === "/auth/verify-reset-code" || path === "/auth/change-password" ||
+        path === "/auth/change-password/otp")) ||
+      (req.method === "PATCH" && path === "/auth/me") ||
+      (req.method === "GET" && (path === "/auth/me" || path === "/auth/gmail-status" || path === "/auth/email-status"))
     ) {
       // Firestore secrets missing: native auth unavailable.
       return jsonRes(origin, { error: "Database unavailable" }, 503);

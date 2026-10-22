@@ -12,42 +12,70 @@
 //      select the Gmail API v1 `gmail.send` scope, authorize the sender
 //      account, exchange for a refresh token.
 //   4. Store the four values as env vars (local .env) / Supabase secrets.
-//      The refresh token never expires unless revoked in the Google account.
+//      Publish the OAuth consent screen to "In production" BEFORE generating
+//      the token: a token issued while the app is in "Testing" expires after
+//      7 days. Google also expires a refresh token after six months without
+//      use, so deploy-functions.yml exchanges it monthly as a keepalive.
 //
 // Env: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, GMAIL_FROM.
+// EMAIL_PROVIDER=console prints codes locally (never allowed in production).
+
+import {
+  OTP_PURPOSE_CHANGE,
+  OTP_PURPOSE_RESET,
+  isPlaceholderEmail,
+  maskEmail,
+} from "./password_reset.js";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
 
 let _cached = null; // { token, expMs }
 
-function gmailEnv() {
-  const get = (k) =>
-    typeof process !== "undefined" && process.env ? process.env[k] ?? "" : "";
-  // Deno/Edge reads Deno.env instead (see the mirrored sender in index.ts).
+function envValue(key) {
+  // Deno/Edge reads Deno.env; Node reads process.env. The Deno branch is kept
+  // for the unit-test seam even though production Edge has its own mirror.
   try {
     if (typeof Deno !== "undefined" && Deno.env) {
-      return {
-        clientId: Deno.env.get("GMAIL_CLIENT_ID") ?? "",
-        clientSecret: Deno.env.get("GMAIL_CLIENT_SECRET") ?? "",
-        refreshToken: Deno.env.get("GMAIL_REFRESH_TOKEN") ?? "",
-        from: Deno.env.get("GMAIL_FROM") ?? "",
-      };
+      return Deno.env.get(key) ?? "";
     }
   } catch {
-    // Deno.env denied -> fall through to process.env (unit tests).
+    // Deno.env denied -> fall through to process.env.
   }
+  return typeof process !== "undefined" && process.env
+    ? process.env[key] ?? ""
+    : "";
+}
+
+function gmailEnv() {
   return {
-    clientId: get("GMAIL_CLIENT_ID"),
-    clientSecret: get("GMAIL_CLIENT_SECRET"),
-    refreshToken: get("GMAIL_REFRESH_TOKEN"),
-    from: get("GMAIL_FROM"),
+    clientId: envValue("GMAIL_CLIENT_ID"),
+    clientSecret: envValue("GMAIL_CLIENT_SECRET"),
+    refreshToken: envValue("GMAIL_REFRESH_TOKEN"),
+    from: envValue("GMAIL_FROM"),
   };
 }
 
 export function gmailConfigured() {
   const { clientId, clientSecret, refreshToken, from } = gmailEnv();
   return Boolean(clientId && clientSecret && refreshToken && from);
+}
+
+/**
+ * "gmail" (HTTPS API) or "console" (local/offline; prints the code).
+ * An explicit EMAIL_PROVIDER wins; otherwise use Gmail when configured,
+ * falling back to console for a fresh local checkout.
+ */
+export function emailProvider() {
+  const explicit = envValue("EMAIL_PROVIDER").trim().toLowerCase();
+  if (explicit) return explicit;
+  return gmailConfigured() ? "gmail" : "console";
+}
+
+export function emailProviderAllowed(provider = emailProvider()) {
+  if (provider === "gmail") return true;
+  if (provider === "console") return envValue("NODE_ENV") !== "production";
+  return false;
 }
 
 function base64Url(bytes) {
@@ -104,6 +132,14 @@ export async function gmailStatus() {
   if (!present.clientId || !present.clientSecret || !present.refreshToken) {
     return { configured: false, present, exchange: "skipped" };
   }
+  if (!present.from) {
+    return {
+      configured: false,
+      present,
+      exchange: "skipped",
+      error: "GMAIL_FROM is missing",
+    };
+  }
   try {
     await getAccessToken();
     return { configured: true, present, exchange: "ok" };
@@ -125,6 +161,10 @@ export async function gmailStatus() {
 export async function sendGmail({ to, subject, text }) {
   const { from } = gmailEnv();
   if (!from) throw new Error("Gmail is not configured (missing GMAIL_FROM)");
+  // Header values must never contain a line break (the body may).
+  if (/[\r\n]/.test(String(to)) || /[\r\n]/.test(String(subject)) || /[\r\n]/.test(from)) {
+    throw new Error("Invalid email header value");
+  }
   const token = await getAccessToken();
   const raw = [
     `From: ${from}`,
@@ -164,5 +204,71 @@ export function resetEmailContent(code) {
       `It expires in 10 minutes and can only be used once.\n` +
       `If you didn't ask for this, you can ignore this email.\n\n` +
       `— CartIQ (Pota Fries Operations)`,
+  };
+}
+
+/** Subject + body for a signed-in password change. */
+export function changeEmailContent(code) {
+  return {
+    subject: "CartIQ password change code",
+    text:
+      `Your CartIQ password change code is:\n\n${code}\n\n` +
+      `It expires in 10 minutes and can only be used once.\n` +
+      `If you didn't ask to change your password, your password was NOT changed.\n` +
+      `You can ignore this email.\n\n` +
+      `— CartIQ (Pota Fries Operations)`,
+  };
+}
+
+export function otpEmailContent(code, purpose = OTP_PURPOSE_RESET) {
+  return purpose === OTP_PURPOSE_CHANGE
+    ? changeEmailContent(code)
+    : resetEmailContent(code);
+}
+
+/**
+ * Deliver an OTP through the configured provider.
+ * - console: logs the full message (local/offline only)
+ * - gmail: sends through the Gmail HTTPS API; placeholder addresses are
+ *   skipped because .local is not deliverable and must not hit Gmail.
+ */
+export async function sendOtpEmail({
+  to,
+  code,
+  purpose = OTP_PURPOSE_RESET,
+}) {
+  const provider = emailProvider();
+  if (!emailProviderAllowed(provider)) {
+    throw new Error(
+      provider === "console"
+        ? "EMAIL_PROVIDER=console is disabled in production"
+        : `Unknown EMAIL_PROVIDER "${provider}"`,
+    );
+  }
+  const { subject, text } = otpEmailContent(code, purpose);
+  if (provider === "console") {
+    console.log(
+      `[mail:console] To: ${to}\nSubject: ${subject}\n\n${text}\n`,
+    );
+    return { provider, sent: false, logged: true };
+  }
+  if (!to) throw new Error("OTP recipient is missing");
+  if (isPlaceholderEmail(to)) {
+    console.warn(
+      `[mail:gmail] skipped placeholder recipient ${maskEmail(to)} - set a real recovery email`,
+    );
+    return { provider, sent: false, placeholder: true };
+  }
+  await sendGmail({ to, subject, text });
+  return { provider, sent: true };
+}
+
+/** Diagnostics for the owner endpoint: provider + Gmail token exchange. */
+export async function emailStatus() {
+  const provider = emailProvider();
+  return {
+    provider,
+    allowed: emailProviderAllowed(provider),
+    ...(await gmailStatus()),
   };
 }

@@ -1,0 +1,46 @@
+# Keep the Gmail API refresh token alive.
+#
+# Google expires a refresh token after six months without use. Password OTPs
+# use it sporadically, so a quiet stall could otherwise break recovery without
+# warning. This monthly token exchange counts as use and changes nothing else.
+#
+# Requires the same four Actions secrets as deploy-functions.yml:
+# GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, GMAIL_FROM.
+# It never prints the token or the access token it receives.
+
+name: Gmail Token Keepalive
+
+on:
+  schedule:
+    # 03:17 UTC on the first day of every month (off the top of the hour).
+    - cron: "17 3 1 * *"
+  workflow_dispatch:
+
+jobs:
+  exchange:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Exchange the refresh token
+        env:
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+          GMAIL_FROM: ${{ secrets.GMAIL_FROM }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GMAIL_CLIENT_ID:-}" ] || [ -z "${GMAIL_CLIENT_SECRET:-}" ] || [ -z "${GMAIL_REFRESH_TOKEN:-}" ]; then
+            echo "::warning::Gmail OAuth secrets are incomplete; keepalive skipped."
+            exit 0
+          fi
+          status=$(curl -sS -o /tmp/gmail-token.json -w '%{http_code}' \
+            -X POST https://oauth2.googleapis.com/token \
+            --data-urlencode "client_id=$GMAIL_CLIENT_ID" \
+            --data-urlencode "client_secret=$GMAIL_CLIENT_SECRET" \
+            --data-urlencode "refresh_token=$GMAIL_REFRESH_TOKEN" \
+            --data-urlencode "grant_type=refresh_token")
+          if [ "$status" != "200" ]; then
+            echo "::error::Gmail refresh-token exchange failed (HTTP $status). Re-run the OAuth setup and update the Actions secrets."
+            # Never print the response: it may contain token material.
+            exit 1
+          fi
+          echo "Gmail refresh token exchanged successfully; it will not expire from inactivity this month."

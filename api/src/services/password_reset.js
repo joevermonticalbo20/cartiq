@@ -16,11 +16,27 @@ export const OTP_MAX_ATTEMPTS = 5;
 // avoids leaking account existence through 429s).
 export const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 
+// Two OTP purposes share passwordResets. Legacy documents were all resets,
+// so a missing purpose must keep working as "reset" forever.
+export const OTP_PURPOSE_RESET = "reset";
+export const OTP_PURPOSE_CHANGE = "change";
+
 // Generic responses: identical whether or not the email maps to an account,
 // so the endpoints can't be used to enumerate registered emails.
 export const FORGOT_GENERIC_MESSAGE =
   "If an account exists for this email, a reset code was sent.";
 export const RESET_INVALID_MESSAGE = "Invalid or expired code.";
+export const CHANGE_INVALID_MESSAGE = "Invalid or expired code.";
+export const APP_UPDATE_REQUIRED_MESSAGE =
+  "Enter the 6-digit code sent to your recovery email. If your CartIQ app has no code field, update to the latest version.";
+export const RECOVERY_EMAIL_REQUIRED_MESSAGE =
+  "Add a real recovery email in Settings before changing your password.";
+
+// Profiles without a real email still need a visible, editable placeholder.
+// It is deliberately non-deliverable: Gmail refuses .local recipients, so the
+// sender skips it instead of burning an API call. The UI renders the same
+// value for a null email and badges it as a placeholder.
+export const PLACEHOLDER_EMAIL_DOMAIN = "cartiq.local";
 
 /** Normalize an email for storage/lookup (trim + lowercase). */
 export function normalizeEmail(value) {
@@ -55,4 +71,35 @@ export function otpMatches(code, storedHash) {
   }
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
+}
+
+/** Purpose of a persisted OTP; legacy rows (no field) are resets. */
+export function otpPurpose(record) {
+  return record?.purpose === OTP_PURPOSE_CHANGE
+    ? OTP_PURPOSE_CHANGE
+    : OTP_PURPOSE_RESET;
+}
+
+/** A visible but non-deliverable recovery address, e.g. staff01@cartiq.local. */
+export function placeholderEmailFor(username) {
+  const local = String(username ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, "");
+  return `${local || "staff"}@${PLACEHOLDER_EMAIL_DOMAIN}`;
+}
+
+export function isPlaceholderEmail(value) {
+  return normalizeEmail(value).endsWith(`@${PLACEHOLDER_EMAIL_DOMAIN}`);
+}
+
+/** j***@gmail.com - enough for the user to recognise the inbox. */
+export function maskEmail(value) {
+  const email = normalizeEmail(value);
+  const at = email.lastIndexOf("@");
+  if (at <= 0) return "";
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  const shown = local.slice(0, Math.min(2, local.length));
+  return `${shown}${"*".repeat(Math.max(3, local.length - shown.length))}@${domain}`;
 }

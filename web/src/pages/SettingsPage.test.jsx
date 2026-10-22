@@ -67,6 +67,45 @@ describe("SettingsPage profile states", () => {
     expect(screen.queryByText("Owner")).toBeNull();
   });
 
+  it("shows a placeholder recovery email and saves a real one", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/auth/me") {
+        return Promise.resolve({
+          data: { user: { name: "Owner", username: "owner", role: "OWNER", email: null } },
+        });
+      }
+      return emptyOk(url);
+    });
+    api.patch.mockResolvedValue({
+      data: {
+        user: {
+          name: "Owner",
+          username: "owner",
+          role: "OWNER",
+          email: "owner@example.com",
+        },
+      },
+    });
+    renderPage();
+    expect(await screen.findByText("owner@cartiq.local")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Edit recovery email"));
+    const dialog = await screen.findByRole("dialog", { name: "Recovery email" });
+    fireEvent.change(within(dialog).getByLabelText("Email address"), {
+      target: { value: "owner@example.com" },
+    });
+    fireEvent.change(within(dialog).getByLabelText(/Current password/), {
+      target: { value: "oldpass123" },
+    });
+    fireEvent.click(within(dialog).getByText("Save email"));
+    await vi.waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith("/auth/me", {
+        email: "owner@example.com",
+        currentPassword: "oldpass123",
+      }),
+    );
+    expect(await screen.findByText("owner@example.com")).toBeInTheDocument();
+  });
+
   it("retry reloads the profile after a failure", async () => {
     let meCalls = 0;
     api.get.mockImplementation((url) => {
@@ -89,9 +128,28 @@ describe("SettingsPage password change", () => {
     vi.clearAllMocks();
   });
 
-  it("logs out and redirects to login after a successful change", async () => {
-    api.get.mockImplementation(emptyOk);
+  it("logs out and redirects to login after a code-confirmed change", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/auth/me") {
+        return Promise.resolve({
+          data: {
+            user: {
+              name: "Owner",
+              username: "owner",
+              role: "OWNER",
+              email: "owner@example.com",
+            },
+          },
+        });
+      }
+      return emptyOk(url);
+    });
     api.post.mockImplementation((url) => {
+      if (url === "/auth/change-password/otp") {
+        return Promise.resolve({
+          data: { sent: true, email: "o***@example.com", message: "Code sent." },
+        });
+      }
       if (url === "/auth/change-password") return Promise.resolve({ data: { updated: true } });
       return Promise.resolve({ data: {} });
     });
@@ -107,11 +165,25 @@ describe("SettingsPage password change", () => {
         </ToastProvider>
       </MemoryRouter>
     );
+    expect(await screen.findByText("owner@example.com")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/Current password/i), { target: { value: "oldpass123" } });
+    const sendButton = screen.getByRole("button", { name: "Send code" });
+    expect(sendButton).not.toBeDisabled();
+    fireEvent.click(sendButton);
+    await vi.waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith("/auth/change-password/otp", {}),
+    );
+    expect(await screen.findByText(/Sent to o\*\*\*@example.com/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("6-digit code"), { target: { value: "482916" } });
     fireEvent.change(screen.getByLabelText(/New password \(min 8 chars\)/i), { target: { value: "newpass123" } });
     fireEvent.change(screen.getByLabelText(/Confirm new password/i), { target: { value: "newpass123" } });
     fireEvent.click(screen.getByText("Update password"));
     expect(await screen.findByText("Login screen")).toBeInTheDocument();
+    expect(api.post).toHaveBeenCalledWith("/auth/change-password", {
+      currentPassword: "oldpass123",
+      newPassword: "newpass123",
+      code: "482916",
+    });
     // Session clear goes through the shared helper (both storages).
     expect(clearSession).toHaveBeenCalled();
   });

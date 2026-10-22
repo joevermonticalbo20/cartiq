@@ -15,9 +15,9 @@ errors/loading pass complete, pending hardware pilot and faculty approval.
 
 | Component | Path | Stack | Status |
 |---|---|---|---|
-| REST API | `api/` (local dev + CI reference) + `supabase/functions/api/` (production) | Node.js 24, Express 5 (local) / Deno Edge Function (prod), Firestore (Spark free tier), typed JWT (access/refresh) + rotating refresh + revocation, staff cart scoping, login + endpoint rate limiting, ExcelJS, Bonjour/mDNS advertise (local only) | done, tested (91 unit + phase2-9 + authz in CI), **live on Supabase** |
-| Web admin dashboard | `web/` | React 19, Vite, React Router, Axios | done, builds (lint 0 errors, 268 tests), **live on Firebase Hosting** |
-| Mobile POS app | `mobile/` | Flutter (Android/Windows), offline-first sqflite queue, ML Kit OCR, shared-prod API default | done, analyzes clean, 196 tests; release APK in `mobile/build/app/outputs/flutter-apk/` |
+| REST API | `api/` (local dev + CI reference) + `supabase/functions/api/` (production) | Node.js 24, Express 5 (local) / Deno Edge Function (prod), Firestore (Spark free tier), typed JWT (access/refresh) + rotating refresh + revocation, staff cart scoping, login + endpoint rate limiting, ExcelJS, Bonjour/mDNS advertise (local only) | done, tested (103 unit + phase2-9 + authz in CI), **live on Supabase** |
+| Web admin dashboard | `web/` | React 19, Vite, React Router, Axios | done, builds (lint 0 errors, 269 tests), **live on Firebase Hosting** |
+| Mobile POS app | `mobile/` | Flutter (Android/Windows), offline-first sqflite queue, ML Kit OCR, shared-prod API default | done, analyzes clean, 201 tests; release APK in `mobile/build/app/outputs/flutter-apk/` |
 | ESP32 IoT node | `iot/` | Arduino C++ firmware + **Node simulator** (`iot/simulator.mjs`) | code complete; hardware pending |
 
 Live URLs: web dashboard `https://cartiq-8e46f.web.app` · API
@@ -31,7 +31,7 @@ a checked-in reference with the same keys and safe placeholder values:
 
 | Folder | Copy | Purpose |
 |---|---|---|
-| `api/` | `api/.env.example` → `api/.env` | Emulator host (dev) or project + service-account key (prod), JWT secrets, `HOST`/`PORT`, `CORS_ORIGINS` |
+| `api/` | `api/.env.example` → `api/.env` | Emulator host (dev) or project + service-account key (prod), JWT secrets, `HOST`/`PORT`, `CORS_ORIGINS`, optional Gmail OTP credentials / `EMAIL_PROVIDER=console` |
 | `web/` | `web/.env.example` → `web/.env` | Only needed to override `VITE_API_BASE` (default `/api` works for local dev; prod URL is baked at build time) |
 | `mobile/` | `mobile/.env.example` (reference only) | Values to pass via `--dart-define=API_BASE_URL=...` or the in-app Server row — Flutter reads no `.env` file |
 | `iot/firmware/` | `config.example.h` → `config.h` | Wi-Fi credentials, API URL, device token, cart IDs (all local-only) |
@@ -60,8 +60,14 @@ Local dev only: api/ (Express, npm run dev) + Firestore emulator.
   into the function's secrets, so `/health` reports which build is actually
   serving traffic - check `build` and `builtAt` there. Function secrets
   (JWT_SECRET, JWT_REFRESH_SECRET, FIREBASE_SERVICE_ACCOUNT_JSON,
-  FIREBASE_PROJECT_ID, CORS_ORIGINS) live in the Supabase dashboard, never
-  in git.
+  FIREBASE_PROJECT_ID, CORS_ORIGINS, GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET,
+  GMAIL_REFRESH_TOKEN, GMAIL_FROM) live in the Supabase dashboard, never in
+  git. The deploy workflow syncs the four Gmail values from GitHub Actions
+  secrets when all four exist; otherwise it warns and leaves existing Supabase
+  secrets untouched. `.github/workflows/gmail-keepalive.yml` exchanges the
+  refresh token monthly so Google does not expire it after six idle months.
+  Gmail API standard use is free and needs no billing account (Edge Functions
+  cannot open SMTP ports, so the HTTPS API is deliberate).
 * **Database:** seeded once (`npm run db:seed` against prod). Never run `seed_history` on prod;
   demo history stays on the emulator. Rules (`firestore.rules`) deny direct client access -
   everything goes through the API. Indexes and rules deploy on push too
@@ -72,11 +78,59 @@ Local dev only: api/ (Express, npm run dev) + Firestore emulator.
 * **Free-tier notes:** Supabase Edge Functions (no sleep; SSE streams poll
   Firestore per connection and reconnect automatically); Firestore reads are
   uncached for correctness (Spark 50k/day quota — dashboard polls every 60s).
+* **Email OTP check:** `cd api && npm run email:check` prints the provider and
+  whether the Gmail token exchange works (never secrets); add
+  `-- --send you@example.com` to deliver a real test code. Locally
+  `EMAIL_PROVIDER=console` prints the code instead.
+
+## Gmail OTP setup (one time)
+
+Password reset and signed-in password changes send a 6-digit code through the
+Gmail API. Standard Gmail API use is free and does **not** need a billing
+account. SMTP is not an option on Supabase Edge Functions because they cannot
+open ports 25/465/587, so do not switch this to nodemailer.
+
+1. In Google Cloud Console create/select a project and enable **Gmail API**.
+2. Configure the **OAuth consent screen** (External). Add the sender Gmail
+   address as a test user, then **publish the app to "In production" before
+   generating the refresh token**. A token created while the app is still in
+   "Testing" expires after 7 days.
+3. Create an OAuth client of type **Web application** and add
+   `https://developers.google.com/oauthplayground` under **Authorized
+   redirect URIs** (the Playground uses that exact callback; a Desktop-app
+   client does not match it). Copy its client ID and client secret.
+4. Open <https://developers.google.com/oauthplayground>, use the gear icon to
+   enter your own client ID/secret, authorize the scope
+   `https://www.googleapis.com/auth/gmail.send` with the sender account, then
+   exchange the authorization code for a **refresh token**.
+5. Set these four GitHub Actions secrets:
+   `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`,
+   `GMAIL_FROM` (the sender address, optionally `CartIQ <you@gmail.com>`).
+   The deploy workflow copies them into Supabase only when all four are
+   present; incomplete sets leave existing Supabase secrets alone and warn.
+   For a manual deploy, set the same values with `supabase secrets set`.
+   If you add them after the Edge function is already live, run the
+   **Deploy Edge Functions** workflow manually once (Actions -> Deploy Edge
+   Functions -> Run workflow); a web-only push will not sync them.
+6. Verify locally before relying on production:
+   `cd api && npm run email:check`, then
+   `npm run email:check -- --send you@example.com`. This prints only provider /
+   presence / token-exchange status, never a secret. Once deployed, the owner
+   can also call `GET /auth/email-status`.
+7. Keep the refresh token alive. Google expires an unused token after six
+   months; `.github/workflows/gmail-keepalive.yml` exchanges it monthly. If the
+   sender changes its Google password or revokes access, generate a new token.
+
+`GMAIL_FROM` must be the account that authorized the token (or an alias it is
+allowed to send as). `@cartiq.local` placeholder addresses are shown in the UI
+but deliberately skipped by the sender - set a real recovery inbox first.
 
 ## Quickstart (local development)
 
 ```bash
 # 0) Firestore emulator (terminal 0, repo root - free, no credentials/quota)
+#    Firebase tools require Java 21+. If `java -version` is older, point
+#    JAVA_HOME at a JDK 21 install before starting (or install one).
 firebase emulators:start --only firestore   # 127.0.0.1:8080
 
 # 1) API  (terminal 1)
@@ -84,6 +138,8 @@ cd api
 npm install
 npm run db:seed        # users, locations, products, recipes, IoT device tokens (Firestore)
 npm run dev            # http://127.0.0.1:4000/api/health
+                       # .env.emulator sets EMAIL_PROVIDER=console: password
+                       # reset/change codes print in this terminal, no internet
 
 # 2) Web dashboard  (terminal 2)
 cd web && npm install && npm run dev   # http://localhost:5173
@@ -112,10 +168,18 @@ cd api && node scripts/seed_history.mjs 21 --clean   # wipes old hist-% rows fir
 
 ## Seeded accounts
 
-| Username | Password | Role |
-|---|---|---|
-| `owner` | `owner123` | OWNER - full dashboard access |
-| `staff01..03` | `staff123` | STAFF - POS at CART-01..03 |
+| Username | Password | Role | Recovery email (placeholder) |
+|---|---|---|---|
+| `owner` | `owner123` | OWNER - full dashboard access | `owner@cartiq.local` |
+| `staff01..03` | `staff123` | STAFF - POS at CART-01..03 | `staff01@cartiq.local` … |
+
+A `@cartiq.local` address is visible in every profile but is **not
+deliverable**. It exists so demo/offline accounts still show a recovery email;
+the owner must set a real inbox in Settings (web or mobile) before reset email
+can leave the machine. In local console mode a reset code is also printed for a
+placeholder address, but signed-in password changes require a real-format
+recovery address first (any valid address works offline; the code prints in
+the API window).
 
 Device tokens (printed by seed, hashed in DB): `dev-CART-01-potafries`, etc.
 
@@ -217,12 +281,19 @@ IPv4 address (e.g. `192.168.100.217`). The API must be running with
   (`POST /auth/refresh`, `refreshTokens` collection) + `POST /auth/logout`
   revocation. Tokens carry `type: access|refresh` claims (HS256-pinned) so a
   refresh can never pass as API auth; rotation races return 401, not 404.
-  Password change and staff disable revoke **all** refresh tokens; disabled
-  accounts fail `requireAuth` within ~60s (cached). STAFF writes are scoped
-  to their assigned cart (`POST /orders`, `/inventory/adjustments`,
-  `/expenses` → 403 outside it; OWNERs bypass). Usernames trim on login;
-  passwords capped at 72 bytes (bcrypt limit); self-deactivation blocked.
-  Refresh rejects disabled accounts.
+  Changing a signed-in password now needs a 6-digit code emailed to the
+  account's recovery email (`POST /auth/change-password/otp`, then
+  `POST /auth/change-password` with `code`). Password change and staff
+  disable revoke **all** refresh tokens; a staff password reset or recovery
+  email swap also invalidates outstanding codes. Recovery email itself is
+  editable with `PATCH /auth/me` and the current password, so a stolen
+  session cannot quietly redirect recovery. Disabled accounts fail
+  `requireAuth` within ~60s (cached). STAFF writes are scoped to their
+  assigned cart (`POST /orders`, `/inventory/adjustments`, `/expenses` → 403
+  outside it; OWNERs bypass). Usernames trim on login; passwords capped at
+  72 bytes (bcrypt limit); self-deactivation blocked. Refresh rejects
+  disabled accounts. Old app builds that omit the code get a clear
+  "update to the latest version" message.
 
   **Rate limiting — two different stories (read this before trusting it):**
 
@@ -233,6 +304,8 @@ IPv4 address (e.g. `192.168.100.217`). The API must be running with
   | `/auth/login` | 20 / 15 min **per username** + 60 / 15 min per IP |
   | `/auth/forgot-password` | 5 / hr per IP+email |
   | `/auth/reset-password`, `/auth/verify-reset-code` | 20 / hr per IP |
+  | `/auth/change-password/otp` | 10 / hr per IP+account |
+  | `/auth/change-password`, `PATCH /auth/me` | 10 / 15 min per IP+account |
 
   The login guard keys on username *as well as* IP on purpose: staff sharing
   one campus NAT egress IP each keep their own budget, and an attacker
@@ -241,9 +314,9 @@ IPv4 address (e.g. `192.168.100.217`). The API must be running with
   The `api/` Express app additionally mounts `/auth/refresh` 60/15min,
   `/orders` 120/min, `/iot`+`/shifts` 300/min, `/events/ticket` 60/min,
   `/export` 30/hr, `/analytics`+`/reorders` 120/min, `/expenses` 60/min,
-  `/auth/change-password` 10/hr, `/import` and `/locations` 20/hr — **these
-  are NOT enforced in production yet.** Only the login and OTP guards above
-  have been ported. Treat the remainder as a to-do, not a guarantee.
+  `/import` and `/locations` 20/hr — **these are NOT enforced in production
+  yet.** Only the login and OTP/account guards above have been ported. Treat
+  the remainder as a to-do, not a guarantee.
 
   All limiters are in-memory and per-process/isolate, so counters reset on
   restart and multiply across instances — do not scale past one instance
@@ -286,19 +359,20 @@ Automated suites (API must be running):
 node scripts/phase2_test.mjs   # IoT pipeline - 14 checks
 node scripts/phase3_test.mjs   # analytics     - 19 checks (needs seed_history first)
 node scripts/phase4_test.mjs   # OCR + Excel   - 20 checks
-node scripts/phase5_test.mjs   # hardening     - 33 checks (pagination/staff/password/devices/shifts)
+node scripts/phase5_test.mjs   # hardening     - 34 checks (pagination/staff/password/devices/shifts)
 node scripts/phase6_test.mjs   # categories    - 13 checks (expense buckets)
 node scripts/phase7_test.mjs   # void workflow + ack + idempotency race - 21 checks
-node scripts/phase8_test.mjs   # carts + products catalog - 33 checks
-node scripts/test_authz_fix.mjs # logout/revoke, 15min tokens, VOID restore, devices, scoping - 21 checks
-node --test test/*.test.js     # api unit tests (run inside api/) - 30 checks
+node scripts/phase8_test.mjs   # carts + products catalog - 53 checks
+node scripts/phase9_low_stock_quota.mjs # low-stock dedupe under load - 11 checks
+node scripts/test_authz_fix.mjs # logout/revoke, 15min tokens, VOID restore, devices, scoping - 24 checks
+node --test test/*.test.js     # api unit tests (run inside api/) - 103 checks
 flutter analyze                # mobile static analysis
-flutter test                   # mobile unit tests - 67 checks (URL normalize, cart, receipt parser, sync, money/text input)
-cd web && npm run lint && npm run test && npm run build  # web lint + 268 tests + production build
+flutter test                   # mobile tests - 201 checks (URL normalize, cart, receipt parser, sync, money/text input)
+cd web && npm run lint && npm run test && npm run build  # web lint + 269 tests + production build
 ```
 
-Regression totals: **153 phase checks + 21 authz checks + 30 api unit +
-196 mobile + 268 web**, all runnable in CI (`api-ci.yml` runs the full
+Regression totals: **185 phase checks + 24 authz checks + 103 api unit +
+201 mobile + 269 web**, all runnable in CI (`api-ci.yml` runs the full
 emulator-backed integration job: Java 21 → emulator → seed + 21-day
 history → API → every suite). Run phase suites against the emulator only —
 never prod; they write test data. (`@google-cloud/firestore` is pinned as a
@@ -379,7 +453,7 @@ React+Vite setup:
   crash on one screen doesn't take the app down.
 - **Quick cart switcher** on the dashboard — shows each cart with its
   current low-stock count, links to the Inventory page.
-- **Vitest test suite** — `npm run test` (268 unit tests covering error mapping, ErrorBox, by-flavor Products, api utils,
+- **Vitest test suite** - `npm run test` (269 unit tests covering error mapping, ErrorBox, by-flavor Products, api utils,
   money/text/qty input rules, DataTable, Select, ConfirmDialog, Pagination,
   EmptyState, PasswordStrengthMeter, Settings/DataHub flows, and custom
   hooks); `npm run lint`

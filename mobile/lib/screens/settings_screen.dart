@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../app_version.dart';
@@ -111,41 +112,40 @@ class SettingsScreenState extends State<SettingsScreen> {
   }
 
   /// Clock in or out by tapping the card on the cart reader.
-///
-/// The dialog is the same one card enrolment uses; only the requested shift
-/// differs. The toast reports what the server actually wrote, so it can never
-/// say "Time in" for a shift the log does not have.
-Future<void> _clockFlow(AuthState auth, String event) async {
-  if (auth.offlineMode || auth.token == null) {
+  ///
+  /// The dialog is the same one card enrolment uses; only the requested shift
+  /// differs. The toast reports what the server actually wrote, so it can never
+  /// say "Time in" for a shift the log does not have.
+  Future<void> _clockFlow(AuthState auth, String event) async {
+    if (auth.offlineMode || auth.token == null) {
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Needs internet to clock in or out.',
+        isSuccess: false,
+      );
+      return;
+    }
+    final isIn = event == 'IN';
+    final result = await RfidClaimDialog.show(
+      context,
+      token: auth.token!,
+      registration: auth.rfidRegistration,
+      event: event,
+      title: isIn ? 'Tap to time in' : 'Tap to time out',
+      message: isIn
+          ? 'Tap your staff card on the reader to start your shift.'
+          : 'Tap your staff card on the reader to end your shift.',
+    );
+    if (!mounted || result == null) return;
+    final ok = result is RfidBound;
+    await Haptics.success();
+    if (!mounted) return;
     AppMessenger.showGlassToast(
       context: context,
-      message: 'Needs internet to clock in or out.',
-      isSuccess: false,
+      message: RfidRegistrationService.describe(result, event: event),
+      isSuccess: ok,
     );
-    return;
   }
-  final isIn = event == 'IN';
-  final result = await RfidClaimDialog.show(
-    context,
-    token: auth.token!,
-    registration: auth.rfidRegistration,
-    event: event,
-    title: isIn ? 'Tap to time in' : 'Tap to time out',
-    message: isIn
-        ? 'Tap your staff card on the reader to start your shift.'
-        : 'Tap your staff card on the reader to end your shift.',
-  );
-  if (!mounted || result == null) return;
-  final ok = result is RfidBound;
-  await Haptics.success();
-  if (!mounted) return;
-  AppMessenger.showGlassToast(
-    context: context,
-    message: RfidRegistrationService.describe(result, event: event),
-    isSuccess: ok,
-  );
-}
-
 
   /// RFID card management, and the permanent way back in for anyone who skipped
   /// the post-login prompt.
@@ -170,11 +170,7 @@ Future<void> _clockFlow(AuthState auth, String event) async {
         message: 'Card ${auth.rfidUid} is registered to this account.',
         choices: const [
           AppChoice(value: 'replace', label: 'Tap a different card'),
-          AppChoice(
-            value: 'remove',
-            label: 'Remove this card',
-            danger: true,
-          ),
+          AppChoice(value: 'remove', label: 'Remove this card', danger: true),
         ],
       );
       if (!mounted || action == null) return;
@@ -300,42 +296,47 @@ Future<void> _clockFlow(AuthState auth, String event) async {
     );
   }
 
-  Future<void> _changePasswordFlow(AuthState auth) async {
-    final current = TextEditingController();
-    final next = TextEditingController();
-    final confirm = TextEditingController();
+  Future<void> _editEmailFlow(AuthState auth) async {
+    final email = TextEditingController(
+      text: auth.hasRealEmail ? auth.email : '',
+    );
+    final password = TextEditingController();
     var obscure = true;
     String? error;
     var pending = false;
-    final ok = await showDialog<bool>(
+    var closed = false;
+    final saved = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Change password'),
+          title: const Text('Recovery email'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Text(
+                'Reset codes and password-change codes are sent here. Use an inbox you can open on this phone.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: AppSpacing.space3),
               TextField(
-                controller: current,
+                controller: email,
+                keyboardType: TextInputType.emailAddress,
+                autofillHints: const [AutofillHints.email],
+                decoration: InputDecoration(
+                  labelText: 'Email address',
+                  hintText: auth.displayEmail,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.space3),
+              TextField(
+                controller: password,
                 obscureText: obscure,
                 decoration: const InputDecoration(
                   labelText: 'Current password',
+                  helperText:
+                      'Required so a stolen session cannot redirect recovery',
                 ),
-              ),
-              const SizedBox(height: AppSpacing.space3),
-              TextField(
-                controller: next,
-                obscureText: obscure,
-                decoration: const InputDecoration(labelText: 'New password'),
-              ),
-              const SizedBox(height: AppSpacing.space3),
-              TextField(
-                controller: confirm,
-                obscureText: obscure,
-                decoration: const InputDecoration(
-                  labelText: 'Confirm new password',
-                ),
-                onSubmitted: (_) => Navigator.pop(dialogContext, true),
               ),
               if (error != null) ...[
                 const SizedBox(height: AppSpacing.space2),
@@ -354,16 +355,27 @@ Future<void> _clockFlow(AuthState auth, String event) async {
               child: Text(obscure ? 'Show' : 'Hide'),
             ),
             TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
+              onPressed: pending
+                  ? null
+                  : () => Navigator.pop(dialogContext, false),
               child: const Text('Cancel'),
             ),
             FilledButton(
               onPressed: pending
                   ? null
                   : () async {
-                      if (next.text != confirm.text) {
+                      final cleanEmail = email.text.trim().toLowerCase();
+                      if (!cleanEmail.contains('@') ||
+                          cleanEmail.endsWith('@cartiq.local')) {
                         setDialogState(
-                          () => error = 'New passwords do not match.',
+                          () => error =
+                              'Enter a real email address, not a placeholder.',
+                        );
+                        return;
+                      }
+                      if (password.text.isEmpty) {
+                        setDialogState(
+                          () => error = 'Enter your current password.',
                         );
                         return;
                       }
@@ -372,17 +384,15 @@ Future<void> _clockFlow(AuthState auth, String event) async {
                         error = null;
                       });
                       try {
-                        final token = auth.token;
-                        if (token == null) throw ApiException('Signed out');
-                        await auth.api.changePassword(
-                          token,
-                          currentPassword: current.text,
-                          newPassword: next.text,
+                        await auth.updateEmail(
+                          email: cleanEmail,
+                          currentPassword: password.text,
                         );
                         if (dialogContext.mounted) {
                           Navigator.pop(dialogContext, true);
                         }
                       } on ApiException catch (e) {
+                        if (closed || !dialogContext.mounted) return;
                         setDialogState(() {
                           pending = false;
                           error = e.message;
@@ -395,10 +405,213 @@ Future<void> _clockFlow(AuthState auth, String event) async {
         ),
       ),
     );
+    closed = true;
+    email.dispose();
+    password.dispose();
+    if (saved == true && mounted) {
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Recovery email updated.',
+        isSuccess: true,
+      );
+      await Haptics.success();
+    }
+  }
+
+  Future<void> _changePasswordFlow(AuthState auth) async {
+    final current = TextEditingController();
+    final code = TextEditingController();
+    final next = TextEditingController();
+    final confirm = TextEditingController();
+    var obscure = true;
+    String? error;
+    String? notice;
+    var codeSent = false;
+    var sending = false;
+    var pending = false;
+    var closed = false;
+    var changed = false;
+
+    // The builder below calls sendCode from a button; this variable lets the
+    // async helper update the dialog after the first frame.
+    late StateSetter setDialogState;
+
+    Future<void> sendCode() async {
+      if (sending || closed) return;
+      setDialogState(() {
+        sending = true;
+        error = null;
+      });
+      try {
+        final token = auth.token;
+        if (token == null) throw ApiException('Signed out');
+        final data = await auth.api.requestChangePasswordCode(token);
+        if (closed) return;
+        setDialogState(() {
+          sending = false;
+          codeSent = true;
+          final masked = data['email'] as String?;
+          notice = masked != null && masked.isNotEmpty
+              ? 'Code sent to $masked.'
+              : ((data['message'] as String?) ??
+                    'A 6-digit code was sent to your recovery email.');
+        });
+        await Haptics.success();
+      } on ApiException catch (e) {
+        if (closed) return;
+        setDialogState(() {
+          sending = false;
+          error = e.message;
+        });
+        await Haptics.error();
+      }
+    }
+
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) {
+          setDialogState = setState;
+          final canSend = auth.hasRealEmail && !sending;
+          return AlertDialog(
+            title: const Text('Change password'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: current,
+                    obscureText: obscure,
+                    decoration: const InputDecoration(
+                      labelText: 'Current password',
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.space3),
+                  TextField(
+                    controller: code,
+                    keyboardType: TextInputType.number,
+                    maxLength: 6,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: const InputDecoration(
+                      labelText: 'Email code',
+                      counterText: '',
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.space2),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          auth.hasRealEmail
+                              ? 'Code goes to ${auth.displayEmail}'
+                              : 'Add a recovery email first.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: canSend ? sendCode : null,
+                        child: Text(sending ? 'Sending...' : 'Send code'),
+                      ),
+                    ],
+                  ),
+                  if (notice != null) ...[
+                    Text(notice!, style: Theme.of(context).textTheme.bodySmall),
+                  ],
+                  const SizedBox(height: AppSpacing.space3),
+                  TextField(
+                    controller: next,
+                    obscureText: obscure,
+                    decoration: const InputDecoration(
+                      labelText: 'New password',
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.space3),
+                  TextField(
+                    controller: confirm,
+                    obscureText: obscure,
+                    decoration: const InputDecoration(
+                      labelText: 'Confirm new password',
+                    ),
+                  ),
+                  if (error != null) ...[
+                    const SizedBox(height: AppSpacing.space2),
+                    Text(
+                      error!,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: AppColors.danger),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => setDialogState(() => obscure = !obscure),
+                child: Text(obscure ? 'Show' : 'Hide'),
+              ),
+              TextButton(
+                onPressed: pending
+                    ? null
+                    : () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: pending
+                    ? null
+                    : () async {
+                        if (next.text != confirm.text) {
+                          setDialogState(
+                            () => error = 'New passwords do not match.',
+                          );
+                          return;
+                        }
+                        if (!codeSent || code.text.trim().length != 6) {
+                          setDialogState(
+                            () => error =
+                                'Send the 6-digit code and enter it from your email.',
+                          );
+                          return;
+                        }
+                        setDialogState(() {
+                          pending = true;
+                          error = null;
+                        });
+                        try {
+                          final token = auth.token;
+                          if (token == null) throw ApiException('Signed out');
+                          await auth.api.changePassword(
+                            token,
+                            currentPassword: current.text,
+                            newPassword: next.text,
+                            code: code.text.trim(),
+                          );
+                          changed = true;
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext, true);
+                          }
+                        } on ApiException catch (e) {
+                          if (closed || !dialogContext.mounted) return;
+                          setDialogState(() {
+                            pending = false;
+                            error = e.message;
+                          });
+                        }
+                      },
+                child: Text(pending ? 'Saving...' : 'Save'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    closed = true;
     current.dispose();
+    code.dispose();
     next.dispose();
     confirm.dispose();
-    if (ok == true && mounted) {
+    if ((ok == true || changed) && mounted) {
       // Toast BEFORE signOut: AppMessenger inserts into the ROOT overlay
       // synchronously, so it survives the swap back to LoginScreen. Showing it
       // after the await would hit a disposed context and silently vanish.
@@ -555,7 +768,9 @@ Future<void> _clockFlow(AuthState auth, String event) async {
                   _PremiumTile(
                     icon: Icons.contactless_outlined,
                     iconColor: auth.hasRfidCard ? AppColors.ok : AppColors.info,
-                    title: auth.hasRfidCard ? 'RFID card' : 'Register RFID card',
+                    title: auth.hasRfidCard
+                        ? 'RFID card'
+                        : 'Register RFID card',
                     subtitle: auth.hasRfidCard
                         ? auth.rfidUid
                         : 'Tap a card on the cart reader',
@@ -577,10 +792,25 @@ Future<void> _clockFlow(AuthState auth, String event) async {
                     const SizedBox(height: AppSpacing.space2),
                   ],
                   _PremiumTile(
+                    icon: Icons.mail_outline_rounded,
+                    iconColor: auth.hasRealEmail
+                        ? AppColors.ok
+                        : AppColors.warn,
+                    title: 'Recovery email',
+                    subtitle: auth.displayEmail,
+                    trailing: auth.hasRealEmail
+                        ? null
+                        : const AppBadge(
+                            label: 'Placeholder',
+                            variant: AppBadgeVariant.warn,
+                          ),
+                    onTap: () => _editEmailFlow(auth),
+                  ),
+                  _PremiumTile(
                     icon: Icons.password_outlined,
                     iconColor: AppColors.info,
                     title: 'Change password',
-                    subtitle: 'Needs internet',
+                    subtitle: 'Email code required',
                     onTap: () => _changePasswordFlow(auth),
                   ),
                   _PremiumTile(
@@ -866,6 +1096,17 @@ class _AccountCard extends StatelessWidget {
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: AppColors.muted,
                           fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        auth.displayEmail,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: auth.hasRealEmail
+                              ? AppColors.muted
+                              : AppColors.warn,
                         ),
                       ),
                     ],
@@ -1305,6 +1546,7 @@ class _SyncSection extends StatelessWidget {
     );
   }
 }
+
 /// The Time in / Time out pair. Sits directly under the card tile because the
 /// two are one task: register once, then clock in every day.
 class _TimeRow extends StatelessWidget {

@@ -23,9 +23,9 @@ class AuthState extends ChangeNotifier {
   bool offlineMode = false;
 
   AuthState({ApiClient? apiClient, KeyValueStore? secureStorage})
-      : api = apiClient ?? ApiClient(),
-        storage = secureStorage ??
-            const SecureStoreAdapter(FlutterSecureStorage()) {
+    : api = apiClient ?? ApiClient(),
+      storage =
+          secureStorage ?? const SecureStoreAdapter(FlutterSecureStorage()) {
     pin = OfflinePinService(storage);
   }
 
@@ -49,7 +49,9 @@ class AuthState extends ChangeNotifier {
       await storage.write(key: 'cartiq_profile', value: jsonEncode(user));
     }
     await storage.write(
-        key: 'cartiq_last_online', value: DateTime.now().toIso8601String());
+      key: 'cartiq_last_online',
+      value: DateTime.now().toIso8601String(),
+    );
   }
 
   Future<void> _restoreCachedProfile() async {
@@ -148,36 +150,54 @@ class AuthState extends ChangeNotifier {
   /// is shown. Never throws — returns the specific reason when ineligible.
   Future<PinEligibility> checkOfflineEligibility() async {
     if (token == null || refreshToken == null) {
-      return const PinEligibility(false, 'noSession',
-          'No saved session on this device. Sign in online first.');
+      return const PinEligibility(
+        false,
+        'noSession',
+        'No saved session on this device. Sign in online first.',
+      );
     }
     final profile = await _readCachedProfile();
     final role = profile?['role'] as String?;
     if (role != 'STAFF') {
-      return const PinEligibility(false, 'notStaff',
-          'Offline login is for staff accounts. Owners need internet.');
+      return const PinEligibility(
+        false,
+        'notStaff',
+        'Offline login is for staff accounts. Owners need internet.',
+      );
     }
     final last = await lastOnline;
     if (last == null ||
         DateTime.now().difference(last) > OfflinePinService.maxOfflineAge) {
-      return const PinEligibility(false, 'expired',
-          'Session needs online verification. Please connect to the internet.');
+      return const PinEligibility(
+        false,
+        'expired',
+        'Session needs online verification. Please connect to the internet.',
+      );
     }
     final username = profile?['username'] as String?;
     if (username == null || username.isEmpty) {
-      return const PinEligibility(false, 'noProfile',
-          'No saved profile on this device. Sign in online first.');
+      return const PinEligibility(
+        false,
+        'noProfile',
+        'No saved profile on this device. Sign in online first.',
+      );
     }
     final storedUser = await pin.pinUsername;
     if (!(await pin.hasPin) || storedUser != username) {
-      return const PinEligibility(false, 'noPin',
-          'No offline PIN for this account on this device. Set it in Settings while online.');
+      return const PinEligibility(
+        false,
+        'noPin',
+        'No offline PIN for this account on this device. Set it in Settings while online.',
+      );
     }
     final until = await pin.lockedUntil();
     if (until != null && DateTime.now().isBefore(until)) {
-      return PinEligibility(false, 'locked',
-          'Too many wrong attempts. Try again later.',
-          lockedUntil: until);
+      return PinEligibility(
+        false,
+        'locked',
+        'Too many wrong attempts. Try again later.',
+        lockedUntil: until,
+      );
     }
     return const PinEligibility(true, 'ready', 'Ready');
   }
@@ -186,25 +206,33 @@ class AuthState extends ChangeNotifier {
   /// restores the cached profile. Throws [PinException] when not eligible.
   Future<void> unlockOffline(String pinCode) async {
     if (token == null || refreshToken == null) {
-      throw const PinException('noSession',
-          'No saved session on this device. Sign in online first.');
+      throw const PinException(
+        'noSession',
+        'No saved session on this device. Sign in online first.',
+      );
     }
     await _restoreCachedProfile();
     final role = user?['role'] as String?;
     if (role != 'STAFF') {
       throw const PinException(
-          'notStaff', 'Offline login is for staff accounts.');
+        'notStaff',
+        'Offline login is for staff accounts.',
+      );
     }
     final last = await lastOnline;
     if (last == null ||
         DateTime.now().difference(last) > OfflinePinService.maxOfflineAge) {
       throw const PinException(
-          'expired', 'Please connect to the internet to verify your account.');
+        'expired',
+        'Please connect to the internet to verify your account.',
+      );
     }
     final username = user?['username'] as String?;
     if (username == null || username.isEmpty) {
-      throw const PinException('noProfile',
-          'No saved profile on this device. Sign in online first.');
+      throw const PinException(
+        'noProfile',
+        'No saved profile on this device. Sign in online first.',
+      );
     }
     await pin.verifyPin(username: username, pin: pinCode);
     offlineMode = true;
@@ -294,6 +322,40 @@ class AuthState extends ChangeNotifier {
   String get roleDisplay => user?['role'] as String? ?? 'STAFF';
   String? get locationCode =>
       (user?['location'] as Map<String, dynamic>?)?['code'] as String?;
+
+  /// Stored recovery email, or null when the profile still has a placeholder.
+  String? get email {
+    final value = (user?['email'] as String?)?.trim();
+    return (value == null || value.isEmpty) ? null : value;
+  }
+
+  bool get hasRealEmail =>
+      email != null && !email!.toLowerCase().endsWith('@cartiq.local');
+
+  /// Visible placeholder for a profile that has not set a real inbox yet.
+  String get displayEmail =>
+      hasRealEmail ? email! : '${user?['username'] ?? 'staff'}@cartiq.local';
+
+  /// Update the recovery email. Needs the current password and a live session;
+  /// the caller surfaces the ApiException text when it fails.
+  Future<void> updateEmail({
+    required String email,
+    required String currentPassword,
+  }) async {
+    final activeToken = token;
+    if (activeToken == null) {
+      throw const ApiException('Sign in again to update your email.');
+    }
+    final data = await api.updateProfile(
+      activeToken,
+      email: email,
+      currentPassword: currentPassword,
+    );
+    final updated = data['user'];
+    if (updated is Map<String, dynamic>) user = updated;
+    await _persistSession();
+    notifyListeners();
+  }
 
   /// One-time post-login nudge: STAFF, online session, no PIN yet, never
   /// prompted on this device. The UI calls [markPinPromptShown] when it

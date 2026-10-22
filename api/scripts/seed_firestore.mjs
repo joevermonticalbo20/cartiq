@@ -29,19 +29,29 @@ async function main() {
   const cart03 = await upsertLocation("CART-03", { name: "Central Elementary School Canteen", address: "Central Elementary School, Sta. Cruz, Laguna" });
 
   // Users (upsert keeps the existing passwordHash, like the Prisma seed)
+  // Placeholder recovery emails: visible in every demo profile and usable for
+  // offline password-reset testing (EMAIL_PROVIDER=console prints the code).
+  // They are deliberately non-deliverable; production owners must replace them
+  // with a real inbox in Settings before relying on password recovery.
   const users = [
-    { name: "John Louie Bornillo", username: "owner", password: "owner123", role: "OWNER", locationId: null, rfidUid: null },
-    { name: "Stall Staff 1", username: "staff01", password: "staff123", role: "STAFF", locationId: cart01.id, rfidUid: "04A2B3C4" },
-    { name: "Stall Staff 2", username: "staff02", password: "staff123", role: "STAFF", locationId: cart02.id, rfidUid: "05B3C4D5" },
-    { name: "Stall Staff 3", username: "staff03", password: "staff123", role: "STAFF", locationId: cart03.id, rfidUid: "06C4D5E6" },
+    { name: "John Louie Bornillo", username: "owner", password: "owner123", role: "OWNER", locationId: null, rfidUid: null, email: "owner@cartiq.local" },
+    { name: "Stall Staff 1", username: "staff01", password: "staff123", role: "STAFF", locationId: cart01.id, rfidUid: "04A2B3C4", email: "staff01@cartiq.local" },
+    { name: "Stall Staff 2", username: "staff02", password: "staff123", role: "STAFF", locationId: cart02.id, rfidUid: "05B3C4D5", email: "staff02@cartiq.local" },
+    { name: "Stall Staff 3", username: "staff03", password: "staff123", role: "STAFF", locationId: cart03.id, rfidUid: "06C4D5E6", email: "staff03@cartiq.local" },
   ];
   for (const u of users) {
     const { password, ...userData } = u;
     const existing = await db.users.findUnique({ where: { username: userData.username } });
     if (existing) {
+      // Never replace a real recovery inbox with the demo placeholder. A
+      // production re-seed must not silently break password recovery.
+      const realEmail =
+        existing.email && !String(existing.email).toLowerCase().endsWith("@cartiq.local")
+          ? existing.email
+          : userData.email;
       await db.users.update({
         where: { id: existing.id },
-        data: { name: userData.name, role: userData.role, locationId: userData.locationId, rfidUid: userData.rfidUid },
+        data: { name: userData.name, role: userData.role, locationId: userData.locationId, rfidUid: userData.rfidUid, email: realEmail },
       });
     } else {
       await db.users.create({ data: { ...userData, passwordHash: hash(password) } });

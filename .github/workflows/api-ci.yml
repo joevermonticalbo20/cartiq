@@ -40,7 +40,7 @@ jobs:
         run: |
           node --check src/server.js
           node --check src/firestore.js
-          for f in src/middleware/*.js src/routes/*.js src/services/*.js scripts/seed_firestore.mjs scripts/seed_history.mjs; do node --check "$f"; done
+          for f in src/middleware/*.js src/routes/*.js src/services/*.js scripts/seed_firestore.mjs scripts/seed_history.mjs scripts/email_check.mjs; do node --check "$f"; done
 
   # Full regression: Firestore emulator + seeded API + every phase suite.
   # This is the job that would have caught the stock/IDOR/auth regressions

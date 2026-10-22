@@ -239,6 +239,92 @@ void main() {
     });
   });
 
+  group('email OTP account flows', () {
+    test(
+      'verifyResetCode posts the address and code before the password step',
+      () async {
+        http.Request? seen;
+        final client = _clientWith((req) async {
+          seen = req;
+          return http.Response('{"valid":true}', 200);
+        });
+        final data = await client.verifyResetCode(
+          email: 's@gmail.com',
+          code: '482916',
+        );
+        expect(seen!.method, 'POST');
+        expect(seen!.url.path, endsWith('/auth/verify-reset-code'));
+        expect(jsonDecode(seen!.body), {
+          'email': 's@gmail.com',
+          'code': '482916',
+        });
+        expect(data['valid'], isTrue);
+      },
+    );
+
+    test('requestChangePasswordCode uses the bearer session', () async {
+      http.Request? seen;
+      final client = _clientWith((req) async {
+        seen = req;
+        return http.Response(
+          '{"sent":true,"email":"s***@gmail.com","expiresInMinutes":10}',
+          200,
+        );
+      });
+      final data = await client.requestChangePasswordCode('access-token');
+      expect(seen!.method, 'POST');
+      expect(seen!.url.path, endsWith('/auth/change-password/otp'));
+      expect(seen!.headers['authorization'], 'Bearer access-token');
+      expect(data['sent'], isTrue);
+    });
+
+    test('changePassword sends current, new, and the email code', () async {
+      http.Request? seen;
+      final client = _clientWith((req) async {
+        seen = req;
+        return http.Response('{"updated":true,"sessionsRevoked":true}', 200);
+      });
+      await client.changePassword(
+        'access-token',
+        currentPassword: 'oldpass1',
+        newPassword: 'newpass12',
+        code: '482916',
+      );
+      expect(seen!.url.path, endsWith('/auth/change-password'));
+      expect(jsonDecode(seen!.body), {
+        'currentPassword': 'oldpass1',
+        'newPassword': 'newpass12',
+        'code': '482916',
+      });
+    });
+
+    test(
+      'updateProfile PATCHes the recovery email with the password',
+      () async {
+        http.Request? seen;
+        final client = _clientWith((req) async {
+          seen = req;
+          return http.Response(
+            '{"user":{"id":2,"username":"staff01","email":"new@example.com"}}',
+            200,
+          );
+        });
+        final data = await client.updateProfile(
+          'access-token',
+          email: 'new@example.com',
+          currentPassword: 'oldpass1',
+        );
+        expect(seen!.method, 'PATCH');
+        expect(seen!.url.path, endsWith('/auth/me'));
+        expect(jsonDecode(seen!.body), {
+          'email': 'new@example.com',
+          'currentPassword': 'oldpass1',
+        });
+        expect((data['user'] as Map)['email'], 'new@example.com');
+      },
+    );
+  });
+
   group('normalizeApiBaseUrl', () {
     test('bare LAN IP gets http scheme and /api suffix', () {
       expect(normalizeApiBaseUrl('192.168.1.5'), 'http://192.168.1.5/api');

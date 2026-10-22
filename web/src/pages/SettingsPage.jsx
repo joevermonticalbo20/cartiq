@@ -28,7 +28,18 @@ export default function SettingsPage() {
   const [ownerError, setOwnerError] = useState([]);
   const [isLoadingOwner, setIsLoadingOwner] = useState(true);
 
-  const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
+  const [pw, setPw] = useState({ current: "", next: "", confirm: "", code: "" });
+  const [pwCodeSent, setPwCodeSent] = useState(false);
+  const [pwCodeEmail, setPwCodeEmail] = useState("");
+  const [pwCodeCooldown, setPwCodeCooldown] = useState(0);
+  const [isSendingPwCode, setIsSendingPwCode] = useState(false);
+
+  const [emailEditing, setEmailEditing] = useState(false);
+  const [emailEditClosing, setEmailEditClosing] = useState(false);
+  const [emailForm, setEmailForm] = useState({ email: "", currentPassword: "" });
+  const [emailError, setEmailError] = useState("");
+  const [isSavingEmail, setIsSavingEmail] = useState(false);
+  const [showEmailPw, setShowEmailPw] = useState(false);
 
   const [devices, setDevices] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -117,6 +128,10 @@ export default function SettingsPage() {
     setStaffEditClosing(true);
     setTimeout(() => { setStaffEditing(null); setStaffEditClosing(false); }, 150);
   }
+  function closeEmailModal() {
+    setEmailEditClosing(true);
+    setTimeout(() => { setEmailEditing(false); setEmailEditClosing(false); }, 150);
+  }
   function closeDeviceAddModal() {
     setDeviceAddClosing(true);
     setTimeout(() => { setDeviceAddOpen(false); setDeviceAddClosing(false); }, 150);
@@ -139,6 +154,7 @@ export default function SettingsPage() {
     addOpen || addClosing || 
     resetting || resetClosing || 
     Boolean(disabling) || 
+    emailEditing || emailEditClosing ||
     staffEditing || staffEditClosing ||
     deviceAddOpen || deviceAddClosing ||
     deviceEditing || deviceEditClosing ||
@@ -154,6 +170,15 @@ export default function SettingsPage() {
     else document.body.style.overflow = "";
     return () => { document.body.style.overflow = ""; };
   }, [isAnyModalOpen]);
+
+  useEffect(() => {
+    if (pwCodeCooldown <= 0) return undefined;
+    const timer = setTimeout(
+      () => setPwCodeCooldown((seconds) => Math.max(0, seconds - 1)),
+      1000,
+    );
+    return () => clearTimeout(timer);
+  }, [pwCodeCooldown]);
 
   function reloadStaff() {
     // A card is registered from the POS app at the cart, so this list goes
@@ -212,6 +237,79 @@ export default function SettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOwner]);
 
+  const isPlaceholderEmail = (value) =>
+    !value || String(value).toLowerCase().endsWith("@cartiq.local");
+  const hasRealEmail = Boolean(profile?.email && !isPlaceholderEmail(profile.email));
+  const displayEmail = hasRealEmail
+    ? profile.email
+    : `${profile?.username ?? "staff"}@cartiq.local`;
+
+  function openEmailModal() {
+    setEmailForm({
+      email: hasRealEmail ? profile.email : "",
+      currentPassword: "",
+    });
+    setEmailError("");
+    setShowEmailPw(false);
+    setEmailEditing(true);
+  }
+
+  async function saveEmail(e) {
+    e.preventDefault();
+    const cleanEmail = emailForm.email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes("@") || cleanEmail.endsWith("@cartiq.local")) {
+      setEmailError("Enter a real email address, not a placeholder.");
+      return;
+    }
+    if (!emailForm.currentPassword) {
+      setEmailError("Enter your current password to confirm this change.");
+      return;
+    }
+    setEmailError("");
+    setIsSavingEmail(true);
+    try {
+      const { data } = await api.patch("/auth/me", {
+        email: cleanEmail,
+        currentPassword: emailForm.currentPassword,
+      });
+      setProfile(data?.user ?? profile);
+      // Codes sent to the old inbox were just invalidated server-side.
+      setPwCodeSent(false);
+      setPwCodeEmail("");
+      setPwCodeCooldown(0);
+      toast("Recovery email updated", "success");
+      closeEmailModal();
+    } catch (err) {
+      setEmailError(getFriendlyError(err, "Could not update your email - try again."));
+    } finally {
+      setIsSavingEmail(false);
+    }
+  }
+
+  async function sendPwCode() {
+    if (isSendingPwCode || pwCodeCooldown > 0) return;
+    if (!hasRealEmail) {
+      setPwError("Add a recovery email in your profile before changing your password.");
+      return;
+    }
+    setPwError("");
+    setIsSendingPwCode(true);
+    try {
+      const { data } = await api.post("/auth/change-password/otp", {});
+      setPwCodeSent(true);
+      setPwCodeEmail(data?.email ?? "");
+      const seconds = data?.cooldown
+        ? Math.ceil((data.retryAfterMs ?? 60000) / 1000)
+        : 60;
+      setPwCodeCooldown(Math.max(0, seconds));
+      toast(data?.message ?? "Code sent - check your email.", "success");
+    } catch (err) {
+      setPwError(getFriendlyError(err, "Could not send the code - try again."));
+    } finally {
+      setIsSendingPwCode(false);
+    }
+  }
+
   async function changePassword(e) {
     e.preventDefault();
     if (pw.next !== pw.confirm) {
@@ -222,6 +320,14 @@ export default function SettingsPage() {
       setPwError("New password must be at least 8 characters.");
       return;
     }
+    if (!pwCodeSent) {
+      setPwError("Send a 6-digit code to your recovery email first.");
+      return;
+    }
+    if (!/^\d{6}$/.test(pw.code.trim())) {
+      setPwError("Enter the 6-digit code from your email.");
+      return;
+    }
     setPwError("");
     if (isChanging) return;
 
@@ -230,6 +336,7 @@ export default function SettingsPage() {
       await api.post("/auth/change-password", {
         currentPassword: pw.current,
         newPassword: pw.next,
+        code: pw.code.trim(),
       });
       clearSession();
       toast("Password updated - please log in again", "success");
@@ -582,9 +689,19 @@ export default function SettingsPage() {
                   <span className="muted text-sm">Role</span>
                   <Badge variant="brand">{profile.role}</Badge>
                 </div>
-                <div className="flex items-center justify-between" style={{ padding: "14px 0" }}>
+                <div className="flex items-center justify-between" style={{ padding: "14px 0", borderTop: "1px solid var(--border)" }}>
                   <span className="muted text-sm">Cart assignment</span>
                   <span className="text-right">{profile.location ? `${profile.location.code} - ${profile.location.name}` : "All carts"}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2" style={{ padding: "14px 0", borderTop: "1px solid var(--border)" }}>
+                  <span className="muted text-sm">Recovery email</span>
+                  <div className="flex items-center justify-end gap-2" style={{ minWidth: 0 }}>
+                    <span className="text-right" style={{ overflowWrap: "anywhere" }}>{displayEmail}</span>
+                    {!hasRealEmail && <Badge variant="warn">Placeholder</Badge>}
+                    <button type="button" className="ghost small-btn" onClick={openEmailModal} title="Edit recovery email">
+                      <Edit2 size={13} /> Edit
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -623,7 +740,49 @@ export default function SettingsPage() {
                     </button>
                   </div>
                 </label>
-                
+
+                <div className="field">
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Recovery code</span>
+                    <button
+                      type="button"
+                      className="ghost small-btn"
+                      onClick={sendPwCode}
+                      disabled={isSendingPwCode || pwCodeCooldown > 0 || !hasRealEmail}
+                    >
+                      {isSendingPwCode
+                        ? "Sending..."
+                        : pwCodeCooldown > 0
+                          ? `Resend in ${pwCodeCooldown}s`
+                          : pwCodeSent
+                            ? "Resend code"
+                            : "Send code"}
+                    </button>
+                  </div>
+                  <input
+                    value={pw.code}
+                    onChange={(e) => setPw({ ...pw, code: e.target.value.replace(/\D/g, "").slice(0, 6) })}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    placeholder="6-digit code"
+                    maxLength={6}
+                    style={{ height: "36px" }}
+                  />
+                  <p className="muted small" style={{ margin: 0 }}>
+                    {pwCodeSent
+                      ? `Sent to ${pwCodeEmail || displayEmail}. It expires in 10 minutes.`
+                      : "We'll email a 6-digit code before the password can change."}
+                  </p>
+                  {!hasRealEmail && (
+                    <p className="muted small" style={{ margin: 0 }}>
+                      Your recovery email is a placeholder.{" "}
+                      <button type="button" className="ghost small-btn" onClick={openEmailModal}>
+                        Add a real email
+                      </button>
+                    </p>
+                  )}
+                </div>
+
                 <label className="field">
                   New password (min 8 chars)
                   <div style={{ position: "relative" }}>
@@ -686,7 +845,7 @@ export default function SettingsPage() {
                   </div>
                 </label>
                 
-                <button type="submit" className="self-start mt-2" disabled={isChanging}>
+                <button type="submit" className="self-start mt-2" disabled={isChanging || !pwCodeSent}>
                   <KeyRound size={15} /> {isChanging ? "Updating..." : "Update password"}
                 </button>
                 
@@ -819,9 +978,10 @@ export default function SettingsPage() {
                       <tr>
                         <th>Name</th>
                         <th style={{ width: 160 }}>Username</th>
-                        <th style={{ width: 120 }}>Cart</th>
-                        <th style={{ width: 140 }}>RFID UID</th>
-                        <th style={{ width: 120 }}>Status</th>
+                        <th style={{ width: 200 }}>Recovery email</th>
+                        <th style={{ width: 110 }}>Cart</th>
+                        <th style={{ width: 130 }}>RFID UID</th>
+                        <th style={{ width: 110 }}>Status</th>
                         <th className="t-center" style={{ width: 220 }}>Actions</th>
                       </tr>
                     </thead>
@@ -830,6 +990,14 @@ export default function SettingsPage() {
                         <tr key={s.id} className={!s.active ? "row-disabled" : undefined}>
                           <td><strong>{s.name}</strong></td>
                           <td>{s.username}</td>
+                          <td className="muted small" style={{ overflowWrap: "anywhere" }}>
+                            {s.email && !String(s.email).toLowerCase().endsWith("@cartiq.local")
+                              ? s.email
+                              : `${s.username}@cartiq.local`}
+                            {(!s.email || String(s.email).toLowerCase().endsWith("@cartiq.local")) && (
+                              <> <Badge variant="warn">Placeholder</Badge></>
+                            )}
+                          </td>
                           <td>{s.location ? s.location.code : "-"}</td>
                           <td className="muted small">{s.rfidUid ?? "-"}</td>
                           <td>
@@ -958,6 +1126,75 @@ export default function SettingsPage() {
 
         {/* --- MODALS --- */}
         
+        {/* RECOVERY EMAIL MODAL */}
+        {(emailEditing || emailEditClosing) && (
+          <div
+            className={`modal-backdrop ${emailEditClosing ? "is-closing" : ""}`}
+            onClick={closeEmailModal}
+          >
+            <div
+              className={`modal ${emailEditClosing ? "is-closing" : ""}`}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Recovery email"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3>Recovery email</h3>
+              <p className="muted small">
+                Password reset codes and password-change codes are sent here.
+                Use an inbox you can open on this device.
+              </p>
+              <form onSubmit={saveEmail} className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
+                <label className="field">
+                  Email address
+                  <input
+                    type="email"
+                    required
+                    autoComplete="email"
+                    placeholder={`${profile?.username ?? "staff"}@cartiq.local`}
+                    value={emailForm.email}
+                    onChange={(e) => setEmailForm({ ...emailForm, email: e.target.value })}
+                    style={{ height: "36px" }}
+                  />
+                </label>
+                <label className="field">
+                  Current password
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type={showEmailPw ? "text" : "password"}
+                      required
+                      autoComplete="current-password"
+                      value={emailForm.currentPassword}
+                      onChange={(e) => setEmailForm({ ...emailForm, currentPassword: e.target.value })}
+                      style={{ height: "36px", width: "100%", paddingRight: "36px" }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowEmailPw((visible) => !visible)}
+                      style={toggleBtnStyle}
+                      aria-label={showEmailPw ? "Hide password" : "Show password"}
+                    >
+                      {showEmailPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  <span className="muted small">Required so a stolen session cannot redirect your recovery.</span>
+                </label>
+                {emailError && (
+                  <p className="error-box" role="alert" style={{ margin: 0 }}>{emailError}</p>
+                )}
+                <div className="flex items-center justify-end gap-2" style={{ marginTop: "var(--space-2)" }}>
+                  <button type="button" className="ghost" onClick={closeEmailModal} disabled={isSavingEmail}>
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={isSavingEmail}>
+                    {isSavingEmail ? "Saving..." : "Save email"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {/* ADD STAFF MODAL */}
         {(addOpen || addClosing) && (
           <div className={`modal-backdrop ${addClosing ? "is-closing" : ""}`}>
@@ -1026,10 +1263,10 @@ export default function SettingsPage() {
                   />
                 </label>
                 <label className="field">
-                  Gmail (optional - enables password reset)
+                  Recovery email (optional - enables password reset)
                   <input
                     type="email"
-                    placeholder="staff@gmail.com"
+                    placeholder="staff@example.com"
                     value={newStaff.email}
                     onChange={(e) => setNewStaff({ ...newStaff, email: e.target.value })}
                     autoComplete="email"
@@ -1093,10 +1330,10 @@ export default function SettingsPage() {
                   />
                 </label>
                 <label className="field">
-                  Gmail (optional - enables password reset)
+                  Recovery email (optional - enables password reset)
                   <input
                     type="email"
-                    placeholder="staff@gmail.com"
+                    placeholder={`${staffEditing?.username ?? "staff"}@cartiq.local`}
                     value={staffEditing?.email || ""}
                     onChange={(e) => setStaffEditing({ ...staffEditing, email: e.target.value })}
                     autoComplete="email"

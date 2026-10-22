@@ -28,7 +28,8 @@ class _FakeStore implements KeyValueStore {
 }
 
 class _FakeApi extends ApiClient {
-  _FakeApi({KeyValueStore? store}) : super(secureStorage: store ?? _FakeStore());
+  _FakeApi({KeyValueStore? store})
+    : super(secureStorage: store ?? _FakeStore());
 }
 
 class _FakeQueue implements OfflineQueue {
@@ -48,11 +49,8 @@ class _FakeQueue implements OfflineQueue {
   Future<int> get count async => 0;
 }
 
-Widget _settingsHarness(AuthState auth) {  final sync = SyncService(
-    api: auth.api,
-    auth: auth,
-    queue: _FakeQueue(),
-  );
+Widget _settingsHarness(AuthState auth) {
+  final sync = SyncService(api: auth.api, auth: auth, queue: _FakeQueue());
   return MultiProvider(
     providers: [
       ChangeNotifierProvider.value(value: auth),
@@ -69,9 +67,7 @@ void main() {
       String? got;
       await tester.pumpWidget(
         MaterialApp(
-          home: Scaffold(
-            body: PinPad(onComplete: (pin) => got = pin),
-          ),
+          home: Scaffold(body: PinPad(onComplete: (pin) => got = pin)),
         ),
       );
       for (final d in '482916'.split('')) {
@@ -116,15 +112,39 @@ void main() {
       expect(find.text('Offline PIN'), findsWidgets);
       expect(find.text('Appearance'), findsOneWidget);
       expect(find.text('S1'), findsOneWidget);
+      expect(find.text('staff01@cartiq.local'), findsWidgets);
+      await tester.scrollUntilVisible(find.text('Recovery email'), 200);
+      expect(find.text('Recovery email'), findsOneWidget);
+      expect(find.text('Placeholder'), findsWidgets);
       await tester.scrollUntilVisible(find.text('Session'), 300);
       await tester.pumpAndSettle();
       expect(find.text('Session'), findsOneWidget);
-      await tester.scrollUntilVisible(
-        find.text('Change password'),
-        200,
-      );
+      await tester.scrollUntilVisible(find.text('Change password'), 200);
       expect(find.text('Change password'), findsOneWidget);
       expect(find.text('Log out'), findsOneWidget);
+    });
+
+    testWidgets('a real recovery email replaces the placeholder', (
+      tester,
+    ) async {
+      final store = _FakeStore();
+      final auth = AuthState(
+        apiClient: _FakeApi(store: store),
+        secureStorage: store,
+      );
+      auth.user = {
+        'name': 'S1',
+        'username': 'staff01',
+        'role': 'STAFF',
+        'email': 'staff01@example.com',
+      };
+      await tester.pumpWidget(_settingsHarness(auth));
+      await tester.pumpAndSettle();
+
+      expect(find.text('staff01@example.com'), findsWidgets);
+      expect(find.text('Placeholder'), findsNothing);
+      await tester.scrollUntilVisible(find.text('Change password'), 200);
+      expect(find.text('Email code required'), findsOneWidget);
     });
 
     testWidgets('owner sees staff-only explainer, no setup', (tester) async {
@@ -133,11 +153,7 @@ void main() {
         apiClient: _FakeApi(store: store),
         secureStorage: store,
       );
-      auth.user = {
-        'name': 'O',
-        'username': 'owner',
-        'role': 'OWNER',
-      };
+      auth.user = {'name': 'O', 'username': 'owner', 'role': 'OWNER'};
       await tester.pumpWidget(_settingsHarness(auth));
       await tester.pumpAndSettle();
 
@@ -151,11 +167,7 @@ void main() {
         apiClient: _FakeApi(store: store),
         secureStorage: store,
       );
-      auth.user = {
-        'name': 'S1',
-        'username': 'staff01',
-        'role': 'STAFF',
-      };
+      auth.user = {'name': 'S1', 'username': 'staff01', 'role': 'STAFF'};
       await tester.pumpWidget(_settingsHarness(auth));
       await tester.pumpAndSettle();
 
@@ -168,11 +180,7 @@ void main() {
         apiClient: _FakeApi(store: store),
         secureStorage: store,
       );
-      auth.user = {
-        'name': 'S1',
-        'username': 'staff01',
-        'role': 'STAFF',
-      };
+      auth.user = {'name': 'S1', 'username': 'staff01', 'role': 'STAFF'};
       await tester.pumpWidget(_settingsHarness(auth));
       await tester.pumpAndSettle();
 

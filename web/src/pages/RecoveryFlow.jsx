@@ -7,7 +7,7 @@ import ErrorBox from "../components/ErrorBox.jsx";
 const CODE_LEN = 6;
 
 /**
- * Account recovery flow: email -> 6-digit Gmail OTP -> new password.
+ * Account recovery flow: email -> 6-digit email OTP -> new password.
  * Three explicit steps with a STEP X OF 3 pill, back links, and a
  * verify-before-password gate: POST /auth/verify-reset-code confirms the
  * code without consuming it, POST /auth/reset-password redeems it. All

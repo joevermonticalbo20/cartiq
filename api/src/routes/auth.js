@@ -10,13 +10,21 @@ import {
   generateOtp,
   hashOtp,
   otpMatches,
+  otpPurpose,
+  isPlaceholderEmail,
+  maskEmail,
   OTP_TTL_MS,
   OTP_MAX_ATTEMPTS,
   OTP_RESEND_COOLDOWN_MS,
+  OTP_PURPOSE_RESET,
+  OTP_PURPOSE_CHANGE,
   FORGOT_GENERIC_MESSAGE,
   RESET_INVALID_MESSAGE,
+  CHANGE_INVALID_MESSAGE,
+  APP_UPDATE_REQUIRED_MESSAGE,
+  RECOVERY_EMAIL_REQUIRED_MESSAGE,
 } from "../services/password_reset.js";
-import { sendGmail, resetEmailContent, gmailStatus } from "../services/gmail.js";
+import { emailStatus, sendOtpEmail } from "../services/gmail.js";
 import { cleanRfidUid, normalizeRfidUid } from "../services/rfid.js";
 import { openClaim, getClaim, claimView } from "../services/rfid_claims.js";
 import { emit } from "./events.js";
@@ -48,6 +56,22 @@ const resetLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 20,
   message: { error: "Too many reset attempts - please try again later" },
+});
+
+// Authenticated password/profile checks: keyed on IP + account so one shared
+// cart network cannot exhaust another account's budget. The 60s OTP cooldown
+// is separate and enforced against the latest record.
+const changeOtpLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  keyGenerator: (req) => `${req.ip ?? ""}|${req.user?.sub ?? ""}`,
+  message: { error: "Too many code requests - please try again later" },
+});
+const passwordCheckLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  keyGenerator: (req) => `${req.ip ?? ""}|${req.user?.sub ?? ""}`,
+  message: { error: "Too many attempts - please try again later" },
 });
 
 const router = Router();
@@ -122,6 +146,52 @@ router.get("/me", requireAuth, async (req, res, next) => {
     });
     if (!user) return res.status(404).json({ error: "User not found" });
     return res.json({ user: publicUser(user) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// PATCH /auth/me { email, currentPassword } - change your own recovery email.
+// The current password is required so a stolen session cannot silently point
+// recovery at another inbox. Placeholder addresses are not accepted here.
+router.patch("/me", requireAuth, passwordCheckLimiter, async (req, res, next) => {
+  try {
+    const { email, currentPassword } = req.body ?? {};
+    if (!currentPassword) {
+      return res.status(400).json({ error: "currentPassword is required" });
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.sub },
+      include: { location: true },
+    });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    if (!(await bcrypt.compare(String(currentPassword), user.passwordHash))) {
+      return res.status(401).json({ error: "Current password is incorrect" });
+    }
+    const cleanEmail = normalizeEmail(email);
+    if (!cleanEmail || !validEmail(cleanEmail)) {
+      return res.status(400).json({ error: "A valid email address is required" });
+    }
+    if (isPlaceholderEmail(cleanEmail)) {
+      return res.status(400).json({ error: "Enter a real email address, not a placeholder" });
+    }
+    if (cleanEmail === normalizeEmail(user.email)) {
+      return res.json({ user: publicUser(user) });
+    }
+    const taken = await prisma.user.findFirst({
+      where: { email: cleanEmail, id: { not: user.id } },
+    });
+    if (taken) return res.status(409).json({ error: "Email already registered" });
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: { email: cleanEmail },
+      include: { location: true },
+    });
+    // A code sent to the old address must not still be redeemable after the
+    // account points recovery somewhere else.
+    await prisma.passwordReset.deleteMany({ where: { userId: user.id } });
+    console.log(`[api:profile] recovery email updated for user #${user.id}`);
+    return res.json({ user: publicUser(updated) });
   } catch (err) {
     return next(err);
   }
@@ -348,7 +418,9 @@ router.post("/forgot-password", forgotLimiter, async (req, res, next) => {
       const unused = existing
         .filter((r) => !r.used)
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      const fresh = unused[0];
+      // Only a recent RESET code starts the cooldown. A just-issued change
+      // code should not silently block the forgot flow.
+      const fresh = unused.find((r) => otpPurpose(r) === OTP_PURPOSE_RESET);
       const coolingDown =
         fresh && Date.now() - new Date(fresh.createdAt).getTime() < OTP_RESEND_COOLDOWN_MS;
       if (!coolingDown) {
@@ -359,13 +431,14 @@ router.post("/forgot-password", forgotLimiter, async (req, res, next) => {
         await prisma.passwordReset.create({
           data: {
             userId: user.id,
+            email,
+            purpose: OTP_PURPOSE_RESET,
             tokenHash: hashOtp(code),
             expiresAt: new Date(Date.now() + OTP_TTL_MS),
           },
         });
         try {
-          const { subject, text } = resetEmailContent(code);
-          await sendGmail({ to: email, subject, text });
+          await sendOtpEmail({ to: email, code, purpose: OTP_PURPOSE_RESET });
         } catch (err) {
           // Delivery failure must not reveal anything: log server-side and
           // keep the generic response. The unsent code simply expires.
@@ -405,7 +478,7 @@ router.post("/reset-password", resetLimiter, async (req, res, next) => {
       where: { userId: user.id },
     });
     const rec = records
-      .filter((r) => !r.used)
+      .filter((r) => !r.used && otpPurpose(r) === OTP_PURPOSE_RESET)
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
     if (!rec) return fail();
     if (new Date() > new Date(rec.expiresAt)) {
@@ -466,7 +539,7 @@ router.post("/verify-reset-code", resetLimiter, async (req, res, next) => {
       where: { userId: user.id },
     });
     const rec = records
-      .filter((r) => !r.used)
+      .filter((r) => !r.used && otpPurpose(r) === OTP_PURPOSE_RESET)
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
     if (!rec) return fail();
     if (new Date() > new Date(rec.expiresAt)) {
@@ -495,20 +568,106 @@ router.post("/verify-reset-code", resetLimiter, async (req, res, next) => {
   }
 });
 
-// GET /auth/gmail-status (OWNER) - diagnostics for the Gmail OTP sender.
-// Reports presence booleans + a live token-exchange check, never secret
-// values. Use this first when reset emails don't arrive.
+// GET /auth/gmail-status (OWNER) - diagnostics for the OTP sender.
+// Reports the provider, presence booleans, and a live Gmail token-exchange
+// check, never secret values. Use this first when reset emails don't arrive.
 router.get("/gmail-status", requireAuth, requireRole("OWNER"), async (_req, res, next) => {
   try {
-    return res.json(await gmailStatus());
+    return res.json(await emailStatus());
   } catch (err) {
     return next(err);
   }
 });
 
-router.post("/change-password", requireAuth, async (req, res, next) => {
+// Provider-neutral alias for the same diagnostics.
+router.get("/email-status", requireAuth, requireRole("OWNER"), async (_req, res, next) => {
+  try {
+    return res.json(await emailStatus());
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /auth/change-password/otp (Bearer) - send the second-factor code to
+// the signed-in account's recovery email. Unlike forgot-password this is
+// authenticated, so it can say plainly when no real email is on file.
+router.post("/change-password/otp", requireAuth, changeOtpLimiter, async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const email = normalizeEmail(user.email);
+    if (!email || !validEmail(email) || isPlaceholderEmail(email)) {
+      return res.status(400).json({ error: RECOVERY_EMAIL_REQUIRED_MESSAGE });
+    }
+
+    const records = await prisma.passwordReset.findMany({
+      where: { userId: user.id },
+    });
+    const unused = records.filter((r) => !r.used);
+    const freshChange = unused
+      .filter((r) => otpPurpose(r) === OTP_PURPOSE_CHANGE)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+    if (
+      freshChange &&
+      Date.now() - new Date(freshChange.createdAt).getTime() < OTP_RESEND_COOLDOWN_MS
+    ) {
+      const retryAfterMs =
+        OTP_RESEND_COOLDOWN_MS -
+        (Date.now() - new Date(freshChange.createdAt).getTime());
+      return res.json({
+        sent: true,
+        cooldown: true,
+        retryAfterMs,
+        email: maskEmail(email),
+        message: "A code was sent recently. Check your inbox.",
+      });
+    }
+
+    // One live OTP per account: a new change code also invalidates any reset
+    // code, matching the single-active-code rule of the forgot flow.
+    for (const r of unused) {
+      await prisma.passwordReset.delete({ where: { id: r.id } });
+    }
+    const code = generateOtp();
+    const rec = await prisma.passwordReset.create({
+      data: {
+        userId: user.id,
+        email,
+        purpose: OTP_PURPOSE_CHANGE,
+        tokenHash: hashOtp(code),
+        expiresAt: new Date(Date.now() + OTP_TTL_MS),
+      },
+    });
+    try {
+      await sendOtpEmail({ to: email, code, purpose: OTP_PURPOSE_CHANGE });
+    } catch (err) {
+      // The user is authenticated and expects delivery: unlike forgot-password
+      // we can report the failure instead of pretending success. Remove the
+      // unusable code so a later retry is not blocked by the cooldown.
+      await prisma.passwordReset.delete({ where: { id: rec.id } }).catch(() => {});
+      console.error(`[api:change-password-otp] email delivery failed for user #${user.id}:`, err.message);
+      return res.status(503).json({
+        error: "Email delivery is not available right now. Please try again later.",
+      });
+    }
+    return res.json({
+      sent: true,
+      email: maskEmail(email),
+      expiresInMinutes: 10,
+      message: "A 6-digit code was sent to your recovery email.",
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /auth/change-password { currentPassword, newPassword, code }.
+// The code is the second factor: a signed-in session alone is not enough to
+// replace the password. Old app builds omit it; they get a clear update hint.
+router.post("/change-password", requireAuth, passwordCheckLimiter, async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body ?? {};
+    const code = String(req.body?.code ?? "").trim();
     // bcrypt truncates past 72 bytes: reject long passwords instead of
     // silently weakening them.
     if (
@@ -519,11 +678,46 @@ router.post("/change-password", requireAuth, async (req, res, next) => {
     ) {
       return res.status(400).json({ error: "currentPassword and newPassword (6-72 chars) are required" });
     }
+    if (!code) {
+      return res.status(400).json({ error: APP_UPDATE_REQUIRED_MESSAGE });
+    }
+    if (!/^\d{6}$/.test(code)) {
+      return res.status(400).json({ error: CHANGE_INVALID_MESSAGE });
+    }
     const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
     if (!user) return res.status(404).json({ error: "User not found" });
     if (!(await bcrypt.compare(currentPassword, user.passwordHash))) {
       return res.status(401).json({ error: "Current password is incorrect" });
     }
+    const records = await prisma.passwordReset.findMany({
+      where: { userId: user.id },
+    });
+    const rec = records
+      .filter((r) => !r.used && otpPurpose(r) === OTP_PURPOSE_CHANGE)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+    const fail = () => res.status(400).json({ error: CHANGE_INVALID_MESSAGE });
+    if (!rec) return fail();
+    if (new Date() > new Date(rec.expiresAt)) {
+      await prisma.passwordReset.delete({ where: { id: rec.id } });
+      return fail();
+    }
+    if ((rec.attempts ?? 0) >= OTP_MAX_ATTEMPTS) {
+      await prisma.passwordReset.delete({ where: { id: rec.id } });
+      return fail();
+    }
+    if (!otpMatches(code, rec.tokenHash)) {
+      const attempts = (rec.attempts ?? 0) + 1;
+      if (attempts >= OTP_MAX_ATTEMPTS) {
+        await prisma.passwordReset.delete({ where: { id: rec.id } });
+      } else {
+        await prisma.passwordReset.update({
+          where: { id: rec.id },
+          data: { attempts },
+        });
+      }
+      return fail();
+    }
+    await prisma.passwordReset.delete({ where: { id: rec.id } });
     await prisma.user.update({
       where: { id: user.id },
       data: { passwordHash: await bcrypt.hash(newPassword, 10) },
@@ -532,6 +726,12 @@ router.post("/change-password", requireAuth, async (req, res, next) => {
     // password. Note the current access JWT stays valid up to 15m; clients
     // should drop local tokens and re-login immediately after this call.
     await prisma.refreshToken.deleteMany({ where: { userId: user.id } });
+    const leftovers = await prisma.passwordReset.findMany({
+      where: { userId: user.id },
+    });
+    for (const r of leftovers.filter((x) => !x.used)) {
+      await prisma.passwordReset.delete({ where: { id: r.id } });
+    }
     return res.json({ updated: true, sessionsRevoked: true });
   } catch (err) {
     return next(err);
@@ -643,6 +843,13 @@ router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, n
     if (active !== undefined) data.active = Boolean(active);
     if (name !== undefined && String(name).trim()) data.name = String(name).trim();
     if (password !== undefined) {
+      // The owner route is for resetting staff. Changing your OWN password
+      // must go through Settings so the recovery-email OTP is required.
+      if (Number(req.params.id) === req.user.sub) {
+        return res.status(400).json({
+          error: "Use Settings > Change password; your own change needs the email code",
+        });
+      }
       if (String(password).length < 6) {
         return res.status(400).json({ error: "password min 6 chars" });
       }
@@ -678,6 +885,13 @@ router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, n
       }
     }
     if (email !== undefined) {
+      // Own email changes go through Settings, where the current password is
+      // required. This route is for resetting OTHER staff.
+      if (Number(req.params.id) === req.user.sub) {
+        return res.status(400).json({
+          error: "Use Settings > Recovery email; your own change needs your current password",
+        });
+      }
       if (email === null || String(email).trim() === "") {
         data.email = null;
       } else {
@@ -694,6 +908,16 @@ router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, n
     }
 
     const updated = await prisma.user.update({ where: { id: user.id }, data });
+    if (data.passwordHash) {
+      // An admin reset must end every existing session, otherwise a stolen
+      // refresh token survives the reset.
+      await prisma.refreshToken.deleteMany({ where: { userId: user.id } });
+      await prisma.passwordReset.deleteMany({ where: { userId: user.id } });
+    }
+    if (data.email !== undefined) {
+      // Codes sent to the old address must not survive a recovery-email swap.
+      await prisma.passwordReset.deleteMany({ where: { userId: user.id } });
+    }
     if (data.active === false) {
       // Disabled accounts lose API access via requireAuth, but their refresh
       // tokens must also die so no new access token can be minted.

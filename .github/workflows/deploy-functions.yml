@@ -48,4 +48,32 @@ jobs:
             DEPLOYED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --project-ref $PROJECT_REF --yes
 
+      # Gmail API OTP delivery needs these four secrets. They are free (Gmail
+      # API standard quota) and do not require a billing account. The step is
+      # skipped with a warning until all four are added under
+      # Settings -> Secrets and variables -> Actions, so a fork/local deploy
+      # still succeeds without email configured.
+      - name: Sync Gmail OTP secrets
+        env:
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+          GMAIL_FROM: ${{ secrets.GMAIL_FROM }}
+        run: |
+          set -euo pipefail
+          args=()
+          for name in GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN GMAIL_FROM; do
+            value="${!name:-}"
+            if [ -z "$value" ]; then
+              echo "::warning::$name is not set in GitHub Actions; production OTP email will not work until it is."
+            else
+              args+=("$name=$value")
+            fi
+          done
+          if [ ${#args[@]} -eq 4 ]; then
+            supabase secrets set "${args[@]}" --project-ref "$PROJECT_REF" --yes
+          else
+            echo "Skipped syncing incomplete Gmail credentials; existing Supabase secrets were left untouched."
+          fi
+
       - run: supabase functions deploy --project-ref $PROJECT_REF --no-verify-jwt
