@@ -1,11 +1,13 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../services/data_refresh.dart';
 import '../theme.dart';
+import '../utils/haptics.dart';
 import '../utils/manila_time.dart';
 import '../utils/text_input.dart';
 import '../widgets/app_badge.dart';
@@ -25,12 +27,20 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
   List<Map<String, dynamic>> _items = [];
   Map<int, Map<String, dynamic>> _requestsByItem = {};
   String? _selectedCode;
+
   String _search = '';
   bool _searching = false;
   final _searchController = TextEditingController();
+
+  // Scroll-hiding filters state
+  bool _showFilters = true;
+  String _categoryFilter = 'All';
+  final List<String> _filters = ['All', 'Low Stock', 'Out of Stock', 'Pending'];
+
   String? _error;
   String? _restockError;
   DateTime? _lastSynced;
+
   bool _loading = true;
   bool _submittingRequest = false;
 
@@ -67,8 +77,10 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
         _error = null;
       });
     }
+
     final auth = context.read<AuthState>();
     var token = auth.token;
+
     if (token == null) {
       if (mounted) {
         setState(() {
@@ -78,6 +90,7 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
       }
       return;
     }
+
     try {
       List<dynamic> data;
       try {
@@ -97,10 +110,12 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
           locationCode: locationCode ?? auth.locationCode,
         );
       }
+
       final locations = data.cast<Map<String, dynamic>>();
 
       List<dynamic> requests = [];
       String? restockError;
+
       try {
         requests = await auth.api.restockRequests(
           token,
@@ -130,6 +145,7 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
       final locationOptions = locationCode != null && _locations.length > 1
           ? _locations
           : locations;
+
       final selected =
           locations.any((location) => location['code'] == requestedCode)
           ? requestedCode
@@ -160,6 +176,7 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
         _error = null;
         _restockError = restockError;
       });
+
       if (notifyPos) _dataRefresh?.bump('inventory');
     } catch (error) {
       if (!mounted) return;
@@ -187,6 +204,7 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
   ({String label, AppBadgeVariant variant}) _status(Map<String, dynamic> item) {
     final stock = item['stock'] is num ? item['stock'] as num : 0;
     final threshold = item['threshold'] is num ? item['threshold'] as num : 0;
+
     if (item['isOutOfStock'] == true || stock <= 0) {
       return (label: 'Out of Stock', variant: AppBadgeVariant.danger);
     }
@@ -204,6 +222,7 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
   }) async {
     var urgency = 'normal';
     final noteController = TextEditingController();
+
     final confirmed = await showAppConfirm(
       context,
       title: allLowStock ? 'Request all low-stock items' : 'Request restock',
@@ -245,10 +264,12 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
         ),
       ),
     );
+
     if (!confirmed) {
       noteController.dispose();
       return;
     }
+
     if (!TextInputRules.isValidNote(noteController.text)) {
       noteController.dispose();
       if (mounted) {
@@ -262,22 +283,28 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
       }
       return;
     }
+
     final note = TextInputRules.sanitize(noteController.text).trim();
     noteController.dispose();
+
     if (_submittingRequest || !mounted) return;
     setState(() => _submittingRequest = true);
+
     try {
       final auth = context.read<AuthState>();
       final token = auth.token;
       if (token == null) {
         throw ApiException('Session expired. Please log in again.');
       }
+
       final payload = <String, dynamic>{'urgency': urgency, 'notes': note};
+
       if (allLowStock) {
         payload['allLowStock'] = true;
       } else {
         payload['ingredientId'] = item?['id'];
       }
+
       try {
         await auth.api.createRestockRequest(token, payload);
       } on ApiException catch (error) {
@@ -288,6 +315,7 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
         }
         await auth.api.createRestockRequest(auth.token!, payload);
       }
+
       await _loadInventory();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -349,7 +377,20 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
   Widget build(BuildContext context) {
     final visibleItems = _items.where((item) {
       final name = (item['name'] as String? ?? '').toLowerCase();
-      return name.contains(_search.trim().toLowerCase());
+      final matchesSearch = name.contains(_search.trim().toLowerCase());
+      if (!matchesSearch) return false;
+
+      final status = _status(item);
+      final request = item['id'] is num
+          ? _requestsByItem[(item['id'] as num).toInt()]
+          : null;
+      final pending = request != null;
+
+      if (_categoryFilter == 'Low Stock') return status.label == 'Low Stock';
+      if (_categoryFilter == 'Out of Stock')
+        return status.label == 'Out of Stock';
+      if (_categoryFilter == 'Pending') return pending;
+      return true; // 'All'
     }).toList();
 
     final syncedAt = _lastSynced == null
@@ -368,186 +409,311 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
     });
 
     final topPadding = MediaQuery.of(context).padding.top + 90;
+    final bottomPadding =
+        MediaQuery.of(context).padding.bottom + AppSpacing.space6;
 
     return Scaffold(
       extendBody: true,
       body: Stack(
         children: [
-          RefreshIndicator(
-            onRefresh: () => _loadInventory(notifyPos: true),
-            child: LayoutBuilder(
-              builder: (context, constraints) => ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: EdgeInsets.fromLTRB(
-                  AppSpacing.space4,
-                  topPadding,
-                  AppSpacing.space4,
-                  AppSpacing
-                      .space6, // TINANGGAL ANG 120, Pinalitan ng normal padding
-                ),
-                children: [
-                  if (_error != null && !_loading)
-                    SizedBox(
-                      height:
-                          (constraints.maxHeight -
-                                  topPadding -
-                                  AppSpacing.space6) // IN-UPDATE DIN DITO
-                              .clamp(0.0, double.infinity)
-                              .toDouble(),
-                      child: Column(
-                        children: [
-                          Text(
-                            'Last synced: $syncedAt',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                          _locationSelector(),
-                          const SizedBox(height: AppSpacing.space3),
-                          Expanded(
-                            child: AppUnavailableState(
-                              message: _error!,
-                              onRetry: _loadInventory,
+          NotificationListener<UserScrollNotification>(
+            onNotification: (notification) {
+              final direction = notification.direction;
+              if (direction == ScrollDirection.reverse) {
+                if (_showFilters) setState(() => _showFilters = false);
+              } else if (direction == ScrollDirection.forward) {
+                if (!_showFilters) setState(() => _showFilters = true);
+              }
+              return false;
+            },
+            child: RefreshIndicator(
+              onRefresh: () => _loadInventory(notifyPos: true),
+              child: LayoutBuilder(
+                builder: (context, constraints) => ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: EdgeInsets.fromLTRB(
+                    AppSpacing.space4,
+                    topPadding +
+                        54, // Allows space for filters below glass header
+                    AppSpacing.space4,
+                    bottomPadding,
+                  ),
+                  children: [
+                    if (_error != null && !_loading)
+                      SizedBox(
+                        height:
+                            (constraints.maxHeight -
+                                    topPadding -
+                                    54 -
+                                    bottomPadding)
+                                .clamp(0.0, double.infinity)
+                                .toDouble(),
+                        child: Column(
+                          children: [
+                            Text(
+                              'Last synced: $syncedAt',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            _locationSelector(),
+                            const SizedBox(height: AppSpacing.space3),
+                            Expanded(
+                              child: AppUnavailableState(
+                                message: _error!,
+                                onRetry: _loadInventory,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else ...[
+                      Text(
+                        'Last synced: $syncedAt',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      _locationSelector(),
+                      const SizedBox(height: AppSpacing.space3),
+
+                      if (_loading)
+                        const AppSkeleton(rows: 5)
+                      else ...[
+                        if (_restockError != null) ...[
+                          Container(
+                            margin: const EdgeInsets.only(
+                              bottom: AppSpacing.space3,
+                            ),
+                            padding: const EdgeInsets.all(AppSpacing.space3),
+                            decoration: BoxDecoration(
+                              color: AppColors.warnBg,
+                              borderRadius: BorderRadius.circular(AppRadius.m),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(
+                                  Icons.info_outline_rounded,
+                                  color: AppColors.warn,
+                                ),
+                                const SizedBox(width: AppSpacing.space2),
+                                Expanded(
+                                  child: Text(
+                                    _restockError!,
+                                    style: const TextStyle(
+                                      color: AppColors.warn,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
-                      ),
-                    )
-                  else ...[
-                    Text(
-                      'Last synced: $syncedAt',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    _locationSelector(),
-                    const SizedBox(height: AppSpacing.space3),
 
-                    if (_loading)
-                      const AppSkeleton(rows: 5)
-                    else ...[
-                      if (_restockError != null) ...[
-                        Container(
-                          margin: const EdgeInsets.only(
-                            bottom: AppSpacing.space3,
-                          ),
-                          padding: const EdgeInsets.all(AppSpacing.space3),
-                          decoration: BoxDecoration(
-                            color: AppColors.warnBg,
-                            borderRadius: BorderRadius.circular(AppRadius.m),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(
-                                Icons.info_outline_rounded,
-                                color: AppColors.warn,
+                        if (_locations.isEmpty)
+                          const AppEmptyState(
+                            icon: Icons.inventory_2_outlined,
+                            title: 'No stock locations',
+                            subtitle:
+                                'No active carts have inventory to display.',
+                          )
+                        else if (visibleItems.isEmpty)
+                          AppEmptyState(
+                            icon: _search.isNotEmpty
+                                ? Icons.search_off_rounded
+                                : Icons.inventory_2_outlined,
+                            title: _search.isNotEmpty
+                                ? 'No ingredients match'
+                                : 'No $_categoryFilter ingredients',
+                            subtitle: _search.isNotEmpty
+                                ? 'Try a different ingredient name.'
+                                : 'No ingredients match the selected filter.',
+                            compact: true,
+                          )
+                        else
+                          ...visibleItems.map((item) {
+                            final status = _status(item);
+                            final request = item['id'] is num
+                                ? _requestsByItem[(item['id'] as num).toInt()]
+                                : null;
+                            final pending = request != null;
+                            final needsRestock = status.label != 'In Stock';
+
+                            return Container(
+                              margin: const EdgeInsets.only(
+                                bottom: AppSpacing.space3,
                               ),
-                              const SizedBox(width: AppSpacing.space2),
-                              Expanded(
-                                child: Text(
-                                  _restockError!,
-                                  style: const TextStyle(color: AppColors.warn),
+                              clipBehavior: Clip.antiAlias,
+                              decoration: BoxDecoration(
+                                color: Theme.of(context).colorScheme.surface,
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.l,
+                                ),
+                                boxShadow: AppShadow.sm(),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.all(
+                                  AppSpacing.space4,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Container(
+                                          width: 48,
+                                          height: 48,
+                                          decoration: BoxDecoration(
+                                            color:
+                                                status.variant ==
+                                                    AppBadgeVariant.danger
+                                                ? AppColors.danger.withValues(
+                                                    alpha: 0.1,
+                                                  )
+                                                : status.variant ==
+                                                      AppBadgeVariant.warn
+                                                ? AppColors.warn.withValues(
+                                                    alpha: 0.1,
+                                                  )
+                                                : AppColors.primary.withValues(
+                                                    alpha: 0.1,
+                                                  ),
+                                            borderRadius: BorderRadius.circular(
+                                              AppRadius.m,
+                                            ),
+                                          ),
+                                          child: Icon(
+                                            Icons.inventory_2_rounded,
+                                            color:
+                                                status.variant ==
+                                                    AppBadgeVariant.danger
+                                                ? AppColors.danger
+                                                : status.variant ==
+                                                      AppBadgeVariant.warn
+                                                ? AppColors.warn
+                                                : AppColors.primary,
+                                          ),
+                                        ),
+                                        const SizedBox(
+                                          width: AppSpacing.space3,
+                                        ),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                item['name'] as String? ??
+                                                    'Unnamed ingredient',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w800,
+                                                  fontSize: 16,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Wrap(
+                                                crossAxisAlignment:
+                                                    WrapCrossAlignment.center,
+                                                spacing: 8,
+                                                children: [
+                                                  Text(
+                                                    '${_formatStock(item['stock'])} ${item['unit'] ?? ''}'
+                                                        .trim(),
+                                                    style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                      fontSize: 14,
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    '•',
+                                                    style: TextStyle(
+                                                      color: Theme.of(
+                                                        context,
+                                                      ).dividerColor,
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    'Threshold: ${_formatStock(item['threshold'])} ${item['unit'] ?? ''}'
+                                                        .trim(),
+                                                    style: Theme.of(
+                                                      context,
+                                                    ).textTheme.bodySmall,
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(
+                                          width: AppSpacing.space2,
+                                        ),
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.end,
+                                          children: [
+                                            AppBadge(
+                                              label: status.label,
+                                              variant: status.variant,
+                                            ),
+                                            if (pending) ...[
+                                              const SizedBox(height: 6),
+                                              const AppBadge(
+                                                label: 'Pending',
+                                                variant: AppBadgeVariant.info,
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: AppSpacing.space3),
+                                    const Divider(height: 1),
+                                    const SizedBox(height: AppSpacing.space3),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: OutlinedButton.icon(
+                                            onPressed:
+                                                pending || _submittingRequest
+                                                ? null
+                                                : () => _requestRestock(
+                                                    item: item,
+                                                  ),
+                                            icon: Icon(
+                                              pending
+                                                  ? Icons
+                                                        .check_circle_outline_rounded
+                                                  : Icons
+                                                        .add_shopping_cart_rounded,
+                                              size: 18,
+                                            ),
+                                            label: Text(
+                                              pending
+                                                  ? 'Restock Requested'
+                                                  : 'Request Restock',
+                                            ),
+                                            style: needsRestock && !pending
+                                                ? OutlinedButton.styleFrom(
+                                                    foregroundColor:
+                                                        AppColors.danger,
+                                                    side: const BorderSide(
+                                                      color: AppColors.danger,
+                                                    ),
+                                                  )
+                                                : null,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ],
-                          ),
-                        ),
+                            );
+                          }),
                       ],
-                      if (_locations.isEmpty)
-                        const AppEmptyState(
-                          icon: Icons.inventory_2_outlined,
-                          title: 'No stock locations',
-                          subtitle:
-                              'No active carts have inventory to display.',
-                        )
-                      else if (visibleItems.isEmpty)
-                        AppEmptyState(
-                          icon: Icons.search_off_rounded,
-                          title: 'No ingredients match',
-                          subtitle: _search.isEmpty
-                              ? 'No ingredients are recorded for this cart.'
-                              : 'Try a different ingredient name.',
-                          compact: true,
-                        )
-                      else
-                        ...visibleItems.map((item) {
-                          final status = _status(item);
-                          final request = item['id'] is num
-                              ? _requestsByItem[(item['id'] as num).toInt()]
-                              : null;
-                          final pending = request != null;
-                          final needsRestock = status.label != 'In Stock';
-
-                          return Card(
-                            margin: const EdgeInsets.only(
-                              bottom: AppSpacing.space2,
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(AppSpacing.space2),
-                              child: Column(
-                                children: [
-                                  ListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    leading: const CircleAvatar(
-                                      child: Icon(Icons.inventory_2_outlined),
-                                    ),
-                                    title: Text(
-                                      item['name'] as String? ??
-                                          'Unnamed ingredient',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    subtitle: Text(
-                                      '${_formatStock(item['stock'])} ${item['unit'] ?? ''}'
-                                          .trim(),
-                                    ),
-                                    trailing: AppBadge(
-                                      label: status.label,
-                                      variant: status.variant,
-                                    ),
-                                  ),
-                                  Row(
-                                    children: [
-                                      if (pending)
-                                        AppBadge(
-                                          label: 'Request Pending',
-                                          variant: AppBadgeVariant.info,
-                                        ),
-                                      const Spacer(),
-                                      OutlinedButton.icon(
-                                        onPressed: pending || _submittingRequest
-                                            ? null
-                                            : () => _requestRestock(item: item),
-                                        icon: Icon(
-                                          Icons.add_shopping_cart_rounded,
-                                          size: 16,
-                                          color: needsRestock
-                                              ? AppColors.danger
-                                              : null,
-                                        ),
-                                        label: Text(
-                                          pending
-                                              ? 'Request Pending'
-                                              : 'Request Restock',
-                                        ),
-                                        style: needsRestock && !pending
-                                            ? OutlinedButton.styleFrom(
-                                                foregroundColor:
-                                                    AppColors.danger,
-                                                side: const BorderSide(
-                                                  color: AppColors.danger,
-                                                ),
-                                              )
-                                            : null,
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }),
                     ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
@@ -555,159 +721,206 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
             top: 0,
             left: 0,
             right: 0,
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.space4,
-                  vertical: AppSpacing.space3,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _GlassPillContainer(
-                        child: Row(
-                          children: [
-                            // BAGONG BACK BUTTON
-                            const SizedBox(width: 4),
-                            IconButton(
-                              icon: const Icon(
-                                Icons.arrow_back_rounded,
-                                size: 20,
-                              ),
-                              tooltip: 'Back',
-                              onPressed: () => Navigator.pop(context),
-                            ),
-                            Expanded(
-                              child: AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 250),
-                                child: _searching
-                                    ? TextField(
-                                        key: const ValueKey('searchField'),
-                                        controller: _searchController,
-                                        autofocus: true,
-                                        decoration: InputDecoration(
-                                          hintText: 'Search ingredients...',
-                                          border: InputBorder.none,
-                                          enabledBorder: InputBorder.none,
-                                          focusedBorder: InputBorder.none,
-                                          fillColor: Colors.transparent,
-                                          filled: true,
-                                          isDense: true,
-                                          contentPadding:
-                                              const EdgeInsets.fromLTRB(
-                                                4,
-                                                14,
-                                                20,
-                                                14,
-                                              ),
-                                          hintStyle: TextStyle(
-                                            color: Theme.of(
-                                              context,
-                                            ).textTheme.bodySmall?.color,
-                                          ),
-                                        ),
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.titleMedium,
-                                        onChanged: (value) => setState(
-                                          () => _search = value.trim(),
-                                        ),
-                                      )
-                                    : Container(
-                                        key: const ValueKey('titleText'),
-                                        width: double.infinity,
-                                        padding: const EdgeInsets.fromLTRB(
-                                          4,
-                                          14,
-                                          20,
-                                          14,
-                                        ),
-                                        child: Text(
-                                          'Live Stock',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleLarge
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.w800,
-                                                letterSpacing: -0.5,
-                                              ),
-                                        ),
-                                      ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.space4,
+                      vertical: AppSpacing.space3,
                     ),
-                    const SizedBox(width: AppSpacing.space2),
-                    _GlassPillContainer(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 4,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: _searching
-                              ? [
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.close_rounded,
-                                      size: 20,
-                                    ),
-                                    tooltip: 'Close search',
-                                    onPressed: () {
-                                      setState(() {
-                                        _searching = false;
-                                        _search = '';
-                                        _searchController.clear();
-                                      });
-                                    },
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _GlassPillContainer(
+                            child: Row(
+                              children: [
+                                const SizedBox(width: 4),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.arrow_back_rounded,
+                                    size: 20,
                                   ),
-                                ]
-                              : [
-                                  if (hasUnrequestedLowStock)
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.playlist_add_check_rounded,
-                                        size: 20,
-                                      ),
-                                      color: AppColors.danger,
-                                      tooltip: 'Request all low-stock items',
-                                      onPressed:
-                                          (_loading || _submittingRequest)
-                                          ? null
-                                          : () => _requestRestock(
-                                              allLowStock: true,
+                                  tooltip: 'Back',
+                                  onPressed: () => Navigator.pop(context),
+                                ),
+                                Expanded(
+                                  child: AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 250),
+                                    child: _searching
+                                        ? TextField(
+                                            key: const ValueKey('searchField'),
+                                            controller: _searchController,
+                                            autofocus: true,
+                                            decoration: InputDecoration(
+                                              hintText: 'Search ingredients...',
+                                              border: InputBorder.none,
+                                              enabledBorder: InputBorder.none,
+                                              focusedBorder: InputBorder.none,
+                                              fillColor: Colors.transparent,
+                                              filled: true,
+                                              isDense: true,
+                                              contentPadding:
+                                                  const EdgeInsets.fromLTRB(
+                                                    4,
+                                                    14,
+                                                    20,
+                                                    14,
+                                                  ),
+                                              hintStyle: TextStyle(
+                                                color: Theme.of(
+                                                  context,
+                                                ).textTheme.bodySmall?.color,
+                                              ),
                                             ),
-                                    ),
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.sync_rounded,
-                                      size: 20,
-                                    ),
-                                    tooltip: 'Refresh stock',
-                                    onPressed: _loading
-                                        ? null
-                                        : () => _loadInventory(notifyPos: true),
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.titleMedium,
+                                            onChanged: (value) => setState(
+                                              () => _search = value.trim(),
+                                            ),
+                                          )
+                                        : Container(
+                                            key: const ValueKey('titleText'),
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.fromLTRB(
+                                              4,
+                                              14,
+                                              20,
+                                              14,
+                                            ),
+                                            child: Text(
+                                              'Live Stock',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleLarge
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w800,
+                                                    letterSpacing: -0.5,
+                                                  ),
+                                            ),
+                                          ),
                                   ),
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.search_rounded,
-                                      size: 20,
-                                    ),
-                                    tooltip: 'Search ingredients',
-                                    onPressed: () =>
-                                        setState(() => _searching = true),
-                                  ),
-                                ],
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: AppSpacing.space2),
+                        _GlassPillContainer(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 4,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: _searching
+                                  ? [
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.close_rounded,
+                                          size: 20,
+                                        ),
+                                        tooltip: 'Close search',
+                                        onPressed: () {
+                                          setState(() {
+                                            _searching = false;
+                                            _search = '';
+                                            _searchController.clear();
+                                          });
+                                        },
+                                      ),
+                                    ]
+                                  : [
+                                      if (hasUnrequestedLowStock)
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.playlist_add_check_rounded,
+                                            size: 20,
+                                          ),
+                                          color: AppColors.danger,
+                                          tooltip:
+                                              'Request all low-stock items',
+                                          onPressed:
+                                              (_loading || _submittingRequest)
+                                              ? null
+                                              : () => _requestRestock(
+                                                  allLowStock: true,
+                                                ),
+                                        ),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.sync_rounded,
+                                          size: 20,
+                                        ),
+                                        tooltip: 'Refresh stock',
+                                        onPressed: _loading
+                                            ? null
+                                            : () => _loadInventory(
+                                                notifyPos: true,
+                                              ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.search_rounded,
+                                          size: 20,
+                                        ),
+                                        tooltip: 'Search ingredients',
+                                        onPressed: () =>
+                                            setState(() => _searching = true),
+                                      ),
+                                    ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
+                // AUTO-HIDE FILTER PILLS
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeInOut,
+                  height: _showFilters ? 50.0 : 0.0,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 200),
+                    opacity: _showFilters ? 1.0 : 0.0,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.space4,
+                      ),
+                      itemCount: _filters.length,
+                      separatorBuilder: (_, _) =>
+                          const SizedBox(width: AppSpacing.space2),
+                      itemBuilder: (context, index) {
+                        final filter = _filters[index];
+                        final selected = _categoryFilter == filter;
+                        return FilterChip(
+                          label: Text(filter),
+                          selected: selected,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.pill),
+                          ),
+                          showCheckmark: false,
+                          selectedColor: AppColors.primary,
+                          labelStyle: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: selected ? Colors.white : AppColors.muted,
+                          ),
+                          onSelected: (_) {
+                            Haptics.select();
+                            setState(() => _categoryFilter = filter);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -718,7 +931,6 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
 
 class _GlassPillContainer extends StatelessWidget {
   const _GlassPillContainer({required this.child});
-
   final Widget child;
 
   @override
