@@ -36,7 +36,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 20px 20px 8px; /* Inadjust para hindi masyadong malaki ang espasyo */
+  padding: 20px 20px 8px;
   overflow: hidden;
   white-space: nowrap;
   flex-shrink: 0;
@@ -56,20 +56,19 @@
 
 .side-nav {
   flex: 1;
-  padding: 8px 12px; /* Binawasan ang padding */
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
-  overflow-y: hidden; /* Tinanggal na ang scrollbar */
+  overflow-y: hidden;
 }
 
-/* Bagong Category Header para sa Sidebar */
 .nav-group-label {
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
-  margin: 12px 16px 4px; /* Binawasan ang margin para mas malapit sa nav items */
+  margin: 12px 16px 4px;
   opacity: 0.7;
 }
 
@@ -78,9 +77,9 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 16px; /* Binawasan ang vertical padding */
-  margin: 1px 4px; /* Hinigpitan ang space in between items */
-  border-radius: 14px; /* Rounded pill look */
+  padding: 10px 16px;
+  margin: 1px 4px;
+  border-radius: 14px;
   color: var(--text-muted);
   font-weight: 600;
   white-space: nowrap;
@@ -93,7 +92,6 @@
   color: var(--text);
 }
 
-/* INO-MODIFIED: Solid background active state na may shadow */
 .nav-item.active {
   background: var(--primary);
   color: #fff;
@@ -106,7 +104,6 @@
   padding: 12px;
 }
 
-/* INO-MODIFIED: Adjust ang main area para ma-accommodate ang floating margin ng sidebar */
 .main-area {
   flex: 1;
   margin-left: calc(var(--sidebar-w) + 32px);
@@ -117,7 +114,6 @@
 }
 .main-area.collapsed { margin-left: calc(var(--sidebar-collapsed) + 32px); }
 
-/* INO-MODIFIED: Clean, borderless Topbar */
 .topbar {
   height: 84px;
   background: transparent;
@@ -136,14 +132,12 @@
 .topbar-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .topbar-title { font-size: var(--fs-xl); font-weight: 800; white-space: nowrap; color: var(--text); }
 
-/* INO-MODIFIED: User profile cluster and circular buttons */
 .user-chip {
   display: flex;
   align-items: center;
   gap: 14px;
 }
 
-/* Circular icon buttons sa topbar */
 .user-chip button.icon-only {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -160,190 +154,237 @@
 
 .user-chip button.icon-only:hover { background: var(--surface-alt); }
 
-/* Unread-order bell: relative so the count bubble can sit on the icon. */
 .user-chip button.notif-btn { position: relative; }
-
 .notif-wrap { position: relative; display: inline-flex; }
 
+/* ============================================================
+   INO-MODIFIED: Refined, Smaller, Softer Notification Center
+   ============================================================ */
 .notif-panel {
   position: absolute;
-  top: calc(100% + 10px);
+  top: calc(100% + 12px);
   right: 0;
-  width: 330px;
-  max-height: 420px;
-  overflow-y: auto;
+  width: 340px; /* Reduced width */
+  height: 420px; /* Reduced height */
+  display: flex;
+  flex-direction: column;
   background: var(--surface);
+  border-radius: 20px;
+  /* Softer shadow, removed the overpowering 6px ring */
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 
+              0 2px 8px rgba(0, 0, 0, 0.04);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
   z-index: 60;
-  animation: notif-in 0.14s ease-out;
+  animation: notif-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: top right;
+  overflow: hidden;
+}
+
+.notif-panel.is-closing {
+  animation: notif-out 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes notif-in {
-  from { opacity: 0; transform: translateY(-6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(-10px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+@keyframes notif-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(-8px) scale(0.96); }
+}
+
+/* Header */
 .notif-panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
+  padding: 16px 16px 12px; /* Tighter padding */
   background: var(--surface);
+  z-index: 2;
 }
 
-.notif-head-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.notif-icon-btn {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: none;
-  border-radius: 7px;
-  background: none;
+/* Strict reset to prevent global red button styles from bleeding in */
+.notif-see-all {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
   color: var(--text-muted);
   cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: none; /* override global button */
+  min-height: auto;
 }
-.notif-icon-btn:hover { background: var(--surface-alt); color: var(--text); }
-.notif-icon-btn[aria-pressed="true"] { color: var(--primary); }
+.notif-see-all:hover:not(:disabled) {
+  background: var(--surface-alt);
+  color: var(--text);
+  box-shadow: none;
+  transform: none;
+}
 
-.notif-clear {
-  background: none;
+.notif-clear-icon {
+  background: transparent;
   border: none;
-  padding: 2px 4px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--primary);
-  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px;
   border-radius: 6px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: all 0.2s ease;
+  box-shadow: none; /* override global button */
+  min-height: auto;
 }
-.notif-clear:hover { background: var(--primary-soft); }
+.notif-clear-icon:hover:not(:disabled) {
+  background: var(--surface-alt);
+  color: var(--text); /* Neutral instead of bright red */
+  box-shadow: none;
+  transform: none;
+}
+
+/* Tabs (Segmented Control) */
+.notif-tabs-wrapper {
+  padding: 0 16px 12px;
+}
+
+.notif-tabs {
+  display: flex;
+  background: var(--surface-alt);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.notif-tab-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 6px 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: none; /* override global button */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: auto;
+}
+
+.notif-tab-btn:hover:not(:disabled) {
+  color: var(--text);
+  box-shadow: none;
+  transform: none;
+  background: transparent;
+}
+
+.notif-tab-btn.active {
+  background: var(--surface);
+  color: var(--text);
+  /* Very soft highlight instead of heavy shadow */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06); 
+}
+.notif-tab-btn.active:hover:not(:disabled) {
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+/* List Container */
+.notif-list-container {
+  flex: 1;
+  overflow-y: auto;
+  position: relative;
+}
 
 .notif-empty {
   margin: 0;
-  padding: 22px 14px;
+  padding: 32px 16px;
   text-align: center;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .notif-list {
   list-style: none;
   margin: 0;
-  padding: 6px;
+  padding: 0 16px 16px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
 }
 
-/* Row is a <button>, so it inherits the global button skin (red fill + glow)
-   from buttons.css. Everything that skin sets must be reset here, otherwise a
-   press paints the whole row solid red. The hover rule below repeats the
-   :not(:disabled) so it outranks `button:hover:not(:disabled)`. */
+/* Individual Item */
 .notif-item {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  width: 100%;
-  padding: 9px 10px;
-  border: none;
-  border-radius: 10px;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.notif-item:last-child {
+  border-bottom: none;
+}
+
+.notif-icon-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
   background: transparent;
-  box-shadow: none;
-  text-align: left;
-  color: var(--text);
-  font-weight: 400;
-  font-size: 13px;
-  cursor: pointer;
-  transform: none;
-}
-.notif-request { cursor: default; }
-
-/* Selectors repeat the .ghost class so they outrank `button.ghost:hover`
-   (0,3,1) and cannot be repainted by the global skin. */
-.notif-item.ghost:hover:not(:disabled),
-.notif-item.ghost:active:not(:disabled) {
-  background: var(--surface-alt);
-  border-color: transparent;
-  box-shadow: none;
-  transform: none;
-  color: var(--text);
 }
 
-/* Keyboard focus only: a quiet ring, never a fill. */
-.notif-item.ghost:focus-visible {
-  outline: 2px solid var(--border-strong);
-  outline-offset: -2px;
-  background: var(--surface-alt);
-  box-shadow: none;
-}
-
-.notif-item-icon {
-  flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--primary-soft);
-  color: var(--primary);
-}
-
-.notif-item-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.notif-content {
+  flex: 1;
   min-width: 0;
-  flex: 1 1 auto;
 }
 
-.notif-item-title {
+.notif-title-row {
   display: flex;
-  align-items: baseline;
   justify-content: space-between;
+  align-items: flex-start;
   gap: 8px;
-  font-size: 13px;
+  margin-bottom: 4px;
 }
 
-.notif-item-total { font-weight: 700; white-space: nowrap; }
+.notif-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
 
-.notif-item-meta {
-  font-size: 11.5px;
+.notif-unread-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--primary); 
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.notif-time {
+  font-size: 10px;
   color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.notif-badge {
-  position: absolute;
-  top: -3px;
-  right: -3px;
-  min-width: 19px;
-  height: 19px;
-  padding: 0 5px;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  background: var(--primary);
-  color: #fff;
+.notif-desc {
   font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  border: 2px solid var(--surface);
-  pointer-events: none;
-  white-space: nowrap;
+  color: var(--text-muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .user-profile-wrapper {
@@ -407,13 +448,13 @@
 
 /* 1. I-center ang logo at alisin ang left/right padding */
 .sidebar.collapsed .side-logo {
-  padding: 20px 0 8px; /* Inadjust para pumantay sa bagong side-logo spacing */
+  padding: 20px 0 8px;
   justify-content: center;
 }
 
 /* 2. I-center ang buong navigation groups */
 .sidebar.collapsed .side-nav {
-  padding: 8px 0; /* Inadjust mula 12px 0 */
+  padding: 8px 0;
 }
 
 .sidebar.collapsed .nav-group {
@@ -426,7 +467,7 @@
 .sidebar.collapsed .nav-item {
   padding: 0;
   justify-content: center;
-  margin: 2px 0; /* Binawasan mula 4px 0 */
+  margin: 2px 0;
   width: 44px;
   height: 44px;
   border-radius: 14px;

@@ -15,13 +15,12 @@ import ExpensesPage from "./pages/ExpensesPage.jsx";
 import DataPage from "./pages/DataPage.jsx";
 import ProductsPage from "./pages/ProductsPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
+import NotificationsPage from "./pages/NotificationsPage.jsx"; 
 
 function RequireAuth({ children }) {
   const token = readSessionToken();
   const refresh = readRefreshToken();
-  // Expired access alone is not a logout: the interceptor will silently
-  // refresh on the first 401. Only redirect when there is no session at all
-  // (no access AND no refresh), or access is expired AND no refresh to recover.
+
   if (!token && !refresh) return <Navigate to="/login" replace />;
   if (token && isTokenExpired(token) && !refresh) {
     localStorage.removeItem("cartiq_token");
@@ -60,7 +59,9 @@ export default function App() {
             <Route path="/products" element={<ProductsPage />} />
             <Route path="/data" element={<DataPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/notifications" element={<NotificationsPage />} />
           </Route>
+
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route
             path="*"
