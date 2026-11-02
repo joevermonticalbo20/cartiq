@@ -69,8 +69,11 @@ function corsHeaders(origin) {
   };
 }
 
-function jsonRes(origin, obj, status) {
-  return Response.json(obj, { status: status || 200, headers: corsHeaders(origin) });
+function jsonRes(origin, obj, status, extraHeaders) {
+  return Response.json(obj, {
+    status: status || 200,
+    headers: { ...corsHeaders(origin), ...(extraHeaders || {}) },
+  });
 }
 
 /** 404 shape mirrors Express notFound (method + path + correlationId). */
@@ -995,6 +998,88 @@ async function authUser(req) {
   return { user, error: null };
 }
 
+// ---------- login lockout (mirror api/src/services/login_lockout.js) ----------
+// Five failed passwords are allowed. The fifth arms a five-minute lock; every
+// attempt during it - even a correct password - gets 429 with the remaining
+// seconds. A successful login clears the state, and an expired lock starts a
+// fresh five-attempt cycle.
+const LOGIN_MAX_FAILED_ATTEMPTS = 5;
+const LOGIN_LOCK_MS = 5 * 60 * 1000;
+const LOGIN_FAILURE_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_IP_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_IP_MAX_ATTEMPTS = 60;
+
+async function loginAttemptKey(username) {
+  const bytes = new TextEncoder().encode(String(username ?? "").trim().toLowerCase());
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function lockRemainingMs(state, now = Date.now()) {
+  const lockedUntil = Number(state?.lockedUntilMs ?? 0);
+  return Number.isFinite(lockedUntil) && lockedUntil > now ? lockedUntil - now : 0;
+}
+
+function retryAfterSeconds(remainingMs) {
+  const ms = Math.max(0, Number(remainingMs) || 0);
+  return ms > 0 ? Math.max(1, Math.ceil(ms / 1000)) : 0;
+}
+
+function registerLoginFailure(state, now = Date.now()) {
+  const lockedUntil = Number(state?.lockedUntilMs ?? 0);
+  if (Number.isFinite(lockedUntil) && lockedUntil > now) {
+    return {
+      failedCount: Math.max(0, Number(state?.failedCount) || 0),
+      lastFailedAtMs: Number(state?.lastFailedAtMs) || now,
+      lockedUntilMs: lockedUntil,
+      locked: true,
+      attemptsRemaining: 0,
+    };
+  }
+  const lastFailedAt = Number(state?.lastFailedAtMs ?? 0);
+  const lockExpired = lockedUntil > 0 && lockedUntil <= now;
+  const inWindow =
+    lastFailedAt > 0 && now - lastFailedAt < LOGIN_FAILURE_WINDOW_MS;
+  const previous =
+    lockExpired || !inWindow ? 0 : Math.max(0, Number(state?.failedCount) || 0);
+  const failedCount = previous + 1;
+  const locked = failedCount >= LOGIN_MAX_FAILED_ATTEMPTS;
+  return {
+    failedCount,
+    lastFailedAtMs: now,
+    lockedUntilMs: locked ? now + LOGIN_LOCK_MS : 0,
+    locked,
+    attemptsRemaining: Math.max(0, LOGIN_MAX_FAILED_ATTEMPTS - failedCount),
+  };
+}
+
+function formatRetryAfter(seconds) {
+  const safe = Math.max(0, Math.ceil(Number(seconds) || 0));
+  const mins = Math.floor(safe / 60);
+  const secs = safe % 60;
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
+function loginLockMessage(seconds) {
+  return `Too many failed attempts. Wait ${formatRetryAfter(seconds)} and try again.`;
+}
+
+async function recordLoginFailure(username, now) {
+  const key = await loginAttemptKey(username);
+  return withRetry(async () => {
+    const current = await fsGet("loginAttempts", key);
+    const next = registerLoginFailure(current, now);
+    if (current) {
+      await fsCommit([updateWrite("loginAttempts", key, next, current._updateTime)]);
+    } else {
+      await fsCommit([createWrite("loginAttempts", key, next)]);
+    }
+    return next;
+  }, 4);
+}
+
 async function handleLogin(req, origin) {
   const body = await req.json().catch(() => null);
   const username = body ? body.username : undefined;
@@ -1003,26 +1088,70 @@ async function handleLogin(req, origin) {
     return jsonRes(origin, { error: "username and password are required" }, 400);
   }
   const cleanUsername = String(username).trim();
-  // Abuse guard BEFORE the Firestore read and bcrypt compare, so a
-  // rate-limited attempt costs one map lookup instead of a DB read plus a
-  // hash comparison - otherwise the endpoint doubles as a quota burner
-  // against the Spark read quota.
-  if (!loginRateAllowed(req, cleanUsername)) {
+  const now = Date.now();
+
+  // Coarse per-IP spray guard BEFORE the Firestore read, so a host that
+  // keeps hammering a blocked or random username cannot burn the Spark read
+  // quota. The persistent per-username lock below is the real credential
+  // guard; this tier only stops username spraying.
+  if (!loginIpAllowed(req)) {
     return jsonRes(
       origin,
-      { error: "Too many login attempts - please try again in 15 minutes" },
+      {
+        error: "Too many login attempts - please try again in 15 minutes",
+        code: "LOGIN_RATE_LIMITED",
+      },
       429,
     );
   }
+
+  // The lock applies even when the password is correct. It is stored in
+  // Firestore so a cold start, another isolate, or another device cannot
+  // reset the five-minute wait.
+  const attemptKey = await loginAttemptKey(cleanUsername);
+  const attemptState = await fsGet("loginAttempts", attemptKey);
+  const remainingMs = lockRemainingMs(attemptState, now);
+  if (remainingMs > 0) {
+    const wait = retryAfterSeconds(remainingMs);
+    return jsonRes(
+      origin,
+      {
+        error: loginLockMessage(wait),
+        code: "LOGIN_LOCKED",
+        retryAfterSeconds: wait,
+        lockedUntil: new Date(Number(attemptState.lockedUntilMs)).toISOString(),
+      },
+      429,
+      { "retry-after": String(wait) },
+    );
+  }
+
+  const rejectCredentials = async () => {
+    const next = await recordLoginFailure(cleanUsername, now);
+    const payload: Record<string, unknown> = {
+      error: "Invalid credentials",
+      attemptsRemaining: next.attemptsRemaining,
+    };
+    if (next.locked && next.lockedUntilMs > now) {
+      payload.retryAfterSeconds = retryAfterSeconds(next.lockedUntilMs - now);
+      payload.lockedUntil = new Date(next.lockedUntilMs).toISOString();
+    }
+    return jsonRes(origin, payload, 401);
+  };
+
   const found = await fsQueryEqual("users", "username", cleanUsername, 1);
   const user = found[0] || null;
   if (!user || user.active === false) {
-    return jsonRes(origin, { error: "Invalid credentials" }, 401);
+    return rejectCredentials();
   }
   const bl = await bcryptLib();
   if (!(await bl.compare(String(password), user.passwordHash))) {
-    return jsonRes(origin, { error: "Invalid credentials" }, 401);
+    return rejectCredentials();
   }
+
+  // Successful login clears the run. Delete is idempotent and best-effort:
+  // a cleanup failure must never block a valid sign-in.
+  await fsFetch(fsFullName("loginAttempts", attemptKey), { method: "DELETE" }).catch(() => {});
   return jsonRes(origin, await mintSession(user), 200);
 }
 
@@ -5315,21 +5444,14 @@ function clientIp(req) {
 }
 
 // ---------- login abuse guard ----------
-// Mirrors the Express loginLimiter (api/src/routes/auth.js:25) with one
-// deliberate change: two tiers instead of a single per-IP bucket.
-//   per-username  20 / 15 min -> stops distributed guessing of ONE account
-//   per-IP        60 / 15 min -> stops one host spraying MANY usernames
-// Keying on username also means staff sharing one campus NAT egress IP each
-// keep their own budget, instead of one typo-prone login locking out the
-// whole team - which a plain per-IP copy of Express would have caused.
-// Mirrors the key shape already used by the forgot-password limiter.
-function loginRateAllowed(req, username) {
-  const ip = clientIp(req);
-  const user = String(username).trim().toLowerCase();
-  return (
-    edgeRateAllowed(`login:u:${user}`, 20, 15 * 60 * 1000) &&
-    edgeRateAllowed(`login:ip:${ip}`, 60, 15 * 60 * 1000)
-  );
+// Coarse per-IP spray guard only. The per-username credential guard is the
+// persistent five-failure lock in handleLogin, which survives isolate
+// restarts and is shared by every device. Keeping this tier IP-only means
+// staff sharing one campus NAT each keep their own lockout budget instead of
+// one typo-prone login locking out the whole team. It runs before the
+// per-username Firestore read to protect the Spark read quota.
+function loginIpAllowed(req) {
+  return edgeRateAllowed(`login:ip:${clientIp(req) || "unknown"}`, LOGIN_IP_MAX_ATTEMPTS, LOGIN_IP_WINDOW_MS);
 }
 
 // ---------- Gmail API sender (mirror api/src/services/gmail.js) ----------

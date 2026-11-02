@@ -25,19 +25,66 @@ import {
   RECOVERY_EMAIL_REQUIRED_MESSAGE,
 } from "../services/password_reset.js";
 import { emailStatus, sendOtpEmail } from "../services/gmail.js";
+import {
+  LOGIN_IP_MAX_ATTEMPTS,
+  LOGIN_IP_WINDOW_MS,
+  formatRetryAfter,
+  lockRemainingMs,
+  loginAttemptKey,
+  loginLockMessage,
+  normalizeLoginUsername,
+  registerLoginFailure,
+  retryAfterSeconds,
+} from "../services/login_lockout.js";
 import { cleanRfidUid, normalizeRfidUid } from "../services/rfid.js";
 import { openClaim, getClaim, claimView } from "../services/rfid_claims.js";
 import { emit } from "./events.js";
 
-// Rate limiter: 20 attempts per 15 min per IP. High enough that the
-// project's own regression suite (~10 logins back-to-back from one dev
-// machine) and typo-prone staff logins don't trip it, low enough that
-// password guessing stays impractical (~80/hr/IP).
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  message: { error: "Too many login attempts - please try again in 15 minutes" },
-});
+// Coarse per-IP spray guard, mirroring the Edge function. The real
+// credential guard is the persistent per-username lock in
+// services/login_lockout.js (5 failures -> 5-minute wait). This map only
+// stops one host trying many different accounts and runs before the
+// per-username Firestore read.
+const loginIpWindows = new Map();
+function loginIpAllowed(ip, now = Date.now()) {
+  const key = ip || "unknown";
+  let rec = loginIpWindows.get(key);
+  if (!rec || rec.resetAtMs <= now) {
+    rec = { count: 0, resetAtMs: now + LOGIN_IP_WINDOW_MS };
+    loginIpWindows.set(key, rec);
+  }
+  if (loginIpWindows.size > 2000 && Math.random() < 0.01) {
+    for (const [k, v] of loginIpWindows) {
+      if (v.resetAtMs <= now) loginIpWindows.delete(k);
+    }
+  }
+  if (rec.count >= LOGIN_IP_MAX_ATTEMPTS) {
+    return {
+      allowed: false,
+      retryAfterSeconds: retryAfterSeconds(rec.resetAtMs - now),
+    };
+  }
+  rec.count++;
+  return { allowed: true, retryAfterSeconds: 0 };
+}
+
+function loginAttemptRef(username) {
+  return prisma.collection("loginAttempts").doc(loginAttemptKey(username));
+}
+
+async function recordLoginFailure(username, now) {
+  // Firestore transaction: parallel wrong passwords cannot all read the same
+  // count and slip past the limit. runTransaction retries on contention.
+  return prisma.runTransaction(async (tx) => {
+    const current = await tx.getDoc(
+      "loginAttempts",
+      loginAttemptKey(username)
+    );
+    const next = registerLoginFailure(current, now);
+    tx.setDoc("loginAttempts", loginAttemptKey(username), next);
+    return next;
+  });
+}
 
 // Forgot-password: 5 requests/hour per IP+email. Keyed on both so one actor
 // can't burn the quota for someone else's address from a shared network,
@@ -92,26 +139,77 @@ function publicUser(user) {
   };
 }
 
-router.post("/login", loginLimiter, async (req, res, next) => {
+router.post("/login", async (req, res, next) => {
   try {
     const { username, password } = req.body ?? {};
     if (!username || !password) {
       return res.status(400).json({ error: "username and password are required" });
     }
     // Usernames are matched trimmed (the POS keyboard may add spaces).
-    const cleanUsername = String(username).trim();
+    const cleanUsername = normalizeLoginUsername(username);
+    const now = Date.now();
+
+    // Coarse per-IP spray guard BEFORE the Firestore read, so a host that
+    // keeps hammering a blocked or random username cannot burn the Spark
+    // read quota. The persistent per-username lock below is the real
+    // credential guard; this tier only stops username spraying.
+    const ipCheck = loginIpAllowed(req.ip, now);
+    if (!ipCheck.allowed) {
+      res.set("Retry-After", String(ipCheck.retryAfterSeconds));
+      return res.status(429).json({
+        error: `Too many login attempts. Wait ${formatRetryAfter(ipCheck.retryAfterSeconds)} and try again.`,
+        code: "LOGIN_RATE_LIMITED",
+        retryAfterSeconds: ipCheck.retryAfterSeconds,
+      });
+    }
+
+    // The lock applies even when the password is correct. It is stored in
+    // Firestore so a cold start, another Edge isolate, or another device
+    // cannot reset the five-minute wait.
+    const attemptSnap = await loginAttemptRef(cleanUsername).get();
+    const attemptState = attemptSnap.exists ? attemptSnap.data() : null;
+    const remainingMs = lockRemainingMs(attemptState, now);
+    if (remainingMs > 0) {
+      const wait = retryAfterSeconds(remainingMs);
+      res.set("Retry-After", String(wait));
+      return res.status(429).json({
+        error: loginLockMessage(wait),
+        code: "LOGIN_LOCKED",
+        retryAfterSeconds: wait,
+        lockedUntil: new Date(Number(attemptState.lockedUntilMs)).toISOString(),
+      });
+    }
+
+    // One message for every credential failure: distinct "disabled account"
+    // vs "bad password" responses let attackers enumerate accounts.
+    const rejectCredentials = async () => {
+      const next = await recordLoginFailure(cleanUsername, now);
+      const body = {
+        error: "Invalid credentials",
+        attemptsRemaining: next.attemptsRemaining,
+      };
+      if (next.locked && next.lockedUntilMs > now) {
+        body.retryAfterSeconds = retryAfterSeconds(next.lockedUntilMs - now);
+        body.lockedUntil = new Date(next.lockedUntilMs).toISOString();
+      }
+      return res.status(401).json(body);
+    };
+
     const user = await prisma.user.findUnique({
       where: { username: cleanUsername },
       include: { location: true },
     });
-    // One message for every failure: distinct "disabled account" vs
-    // "bad password" responses let attackers enumerate accounts.
     if (!user || user.active === false) {
-      return res.status(401).json({ error: "Invalid credentials" });
+      return rejectCredentials();
     }
     if (!(await bcrypt.compare(password, user.passwordHash))) {
-      return res.status(401).json({ error: "Invalid credentials" });
+      return rejectCredentials();
     }
+
+    // Successful login clears the run. Delete is idempotent and best-effort:
+    // a cleanup failure must never block a valid sign-in.
+    await loginAttemptRef(cleanUsername).delete().catch(() => {});
+
     const accessToken = jwt.sign(
       { sub: user.id, username: user.username, role: user.role, name: user.name, type: "access" },
       process.env.JWT_SECRET,

@@ -14,11 +14,18 @@ class ApiException implements Exception {
   final int? statusCode;
   final String? code;
   final String? flavorName;
+  // Login lockout metadata from the API. Null on every other error.
+  final int? retryAfterSeconds;
+  final DateTime? lockedUntil;
+  final int? attemptsRemaining;
   const ApiException(
     this.message, {
     this.statusCode,
     this.code,
     this.flavorName,
+    this.retryAfterSeconds,
+    this.lockedUntil,
+    this.attemptsRemaining,
   });
 
   @override
@@ -200,6 +207,7 @@ class ApiClient {
   Future<http.Response> _send(
     Future<http.Response> Function() action, {
     bool preserveUnauthorizedMessage = false,
+    bool preserveRateLimitMessage = false,
   }) async {
     try {
       final res = await action().timeout(const Duration(seconds: 8));
@@ -248,6 +256,16 @@ class ApiClient {
         final flavorName = flavorValue is String && flavorValue.isNotEmpty
             ? flavorValue
             : null;
+        final retryValue = body?['retryAfterSeconds'];
+        final retryAfterSeconds = retryValue is num ? retryValue.ceil() : null;
+        final lockedUntilValue = body?['lockedUntil'];
+        final lockedUntil = lockedUntilValue is String
+            ? DateTime.tryParse(lockedUntilValue)
+            : null;
+        final attemptsValue = body?['attemptsRemaining'];
+        final attemptsRemaining = attemptsValue is num
+            ? attemptsValue.toInt()
+            : null;
 
         if (res.statusCode == 401 && !preserveUnauthorizedMessage) {
           throw ApiException(
@@ -274,7 +292,14 @@ class ApiClient {
           throw ApiException(conflictMessage, statusCode: 409, code: code);
         }
         if (res.statusCode == 429) {
-          throw ApiException(rateLimitedMessage, statusCode: 429);
+          throw ApiException(
+            preserveRateLimitMessage ? serverMessage : rateLimitedMessage,
+            statusCode: 429,
+            code: code,
+            retryAfterSeconds: retryAfterSeconds,
+            lockedUntil: lockedUntil,
+            attemptsRemaining: attemptsRemaining,
+          );
         }
         if (res.statusCode == 500 ||
             res.statusCode == 502 ||
@@ -285,6 +310,9 @@ class ApiClient {
           serverMessage,
           statusCode: res.statusCode,
           code: code,
+          retryAfterSeconds: retryAfterSeconds,
+          lockedUntil: lockedUntil,
+          attemptsRemaining: attemptsRemaining,
         );
       }
       return res;
@@ -308,6 +336,7 @@ class ApiClient {
         body: jsonEncode({'username': username, 'password': password}),
       ),
       preserveUnauthorizedMessage: true,
+      preserveRateLimitMessage: true,
     );
     return jsonDecode(res.body) as Map<String, dynamic>;
   }

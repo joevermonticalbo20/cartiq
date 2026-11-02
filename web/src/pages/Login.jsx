@@ -1,8 +1,13 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, User, Lock, ArrowRight, Shield, Zap } from "lucide-react";
 import api, { writeSession } from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
+import {
+  attemptsRemainingFromError,
+  formatLockCountdown,
+  lockoutSecondsFromError,
+} from "../utils/loginLockout.js";
 import ErrorBox from "../components/ErrorBox.jsx";
 import RecoveryFlow from "./RecoveryFlow.jsx";
 
@@ -65,10 +70,50 @@ export default function Login() {
   const [mode, setMode] = useState("login");
   const [userFocused, setUserFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
+  // Server lockout is per username. Track which username it belongs to so
+  // another staff member can sign in on the same shared device.
+  const [lockoutUntilMs, setLockoutUntilMs] = useState(null);
+  const [lockoutSeconds, setLockoutSeconds] = useState(0);
+  const [lockoutUsername, setLockoutUsername] = useState("");
   const passwordRef = useRef(null);
+
+  useEffect(() => {
+    if (!lockoutUntilMs) return undefined;
+    const tick = () => {
+      const remaining = Math.max(
+        0,
+        Math.ceil((lockoutUntilMs - Date.now()) / 1000)
+      );
+      setLockoutSeconds(remaining);
+      if (remaining <= 0) {
+        setLockoutUntilMs(null);
+        setLockoutUsername("");
+      }
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [lockoutUntilMs]);
+
+  function clearLockout() {
+    setLockoutUntilMs(null);
+    setLockoutSeconds(0);
+    setLockoutUsername("");
+  }
+
+  const lockedForThisUser =
+    lockoutSeconds > 0 &&
+    lockoutUsername !== "" &&
+    lockoutUsername === username.trim();
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (lockedForThisUser) {
+      setLoginError(
+        `Too many failed attempts. Wait ${formatLockCountdown(lockoutSeconds)} and try again.`
+      );
+      return;
+    }
     setLoading(true);
     setLoginError("");
     try {
@@ -80,7 +125,29 @@ export default function Login() {
       });
       navigate("/dashboard");
     } catch (err) {
-      setLoginError(getFriendlyError(err, "We couldn't sign you in. Check your username and password, then try again."));
+      const status = err?.status ?? err?.response?.status ?? null;
+      const retryAfter = lockoutSecondsFromError(err);
+      const attemptsLeft = attemptsRemainingFromError(err);
+
+      if (status === 429 && retryAfter > 0) {
+        // The server owns the 5-minute policy; the browser only counts down
+        // the seconds it returned, so a reload or another tab stays honest.
+        setLockoutUntilMs(Date.now() + retryAfter * 1000);
+        setLockoutSeconds(retryAfter);
+        setLockoutUsername(username.trim());
+        setLoginError("");
+      } else {
+        let message = getFriendlyError(
+          err,
+          "We couldn't sign you in. Check your username and password, then try again."
+        );
+        if (attemptsLeft === 0) {
+          message += " The next attempt will be blocked for 5 minutes.";
+        } else if (attemptsLeft !== null) {
+          message += ` ${attemptsLeft} attempt${attemptsLeft === 1 ? "" : "s"} left before a 5-minute lock.`;
+        }
+        setLoginError(message);
+      }
       passwordRef.current?.focus();
     } finally {
       setLoading(false);
@@ -129,7 +196,14 @@ export default function Login() {
                   name="username"
                   type="text"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={(e) => {
+                    setUsername(e.target.value);
+                    // A lock belongs to the account, not the device. Switching
+                    // usernames lets the next staff member try immediately.
+                    if (lockoutUsername && e.target.value.trim() !== lockoutUsername) {
+                      clearLockout();
+                    }
+                  }}
                   onFocus={() => setUserFocused(true)}
                   onBlur={() => setUserFocused(false)}
                   placeholder="admin"
@@ -175,11 +249,19 @@ export default function Login() {
             )}
 
             <ErrorBox
-              message={loginError}
+              message={
+                lockedForThisUser
+                  ? `Too many failed attempts. Wait ${formatLockCountdown(lockoutSeconds)} and try again.`
+                  : loginError
+              }
               style={{ marginBottom: "var(--space-3)" }}
             />
 
-            <button type="submit" className="login-submit-btn" disabled={loading}>
+            <button
+              type="submit"
+              className="login-submit-btn"
+              disabled={loading || lockedForThisUser}
+            >
               <span className="btn-content">
                 {loading ? (
                   <>

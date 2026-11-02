@@ -8,7 +8,8 @@ vi.mock("../api.js", () => ({
 }));
 
 vi.mock("../utils/errors.js", () => ({
-  getFriendlyError: (err, fallback) => err?.message || fallback,
+  getFriendlyError: (err, fallback) =>
+    err?.response?.data?.error || err?.data?.error || err?.message || fallback,
 }));
 
 import api, { writeSession } from "../api.js";
@@ -73,6 +74,43 @@ describe("Login remember-me row", () => {
         remember: false,
       });
     });
+  });
+
+  it("shows remaining attempts before the lock", async () => {
+    api.post.mockRejectedValueOnce({
+      response: {
+        status: 401,
+        data: { error: "Invalid credentials", attemptsRemaining: 2 },
+      },
+    });
+    renderPage();
+    fillLogin();
+    fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("2 attempts left before a 5-minute lock.");
+    expect(screen.getByRole("button", { name: /sign in/i })).not.toBeDisabled();
+  });
+
+  it("disables sign-in and counts down during a 429 lock", async () => {
+    api.post.mockRejectedValueOnce({
+      response: {
+        status: 429,
+        data: {
+          error: "Too many failed attempts. Wait 5:00 and try again.",
+          retryAfterSeconds: 300,
+        },
+      },
+    });
+    renderPage();
+    fillLogin();
+    fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Too many failed attempts. Wait 5:00 and try again."
+    );
+    expect(screen.getByRole("button", { name: /sign in/i })).toBeDisabled();
   });
 
   it("swaps the form side to recovery inline (no navigation)", async () => {

@@ -218,6 +218,31 @@ void main() {
       });
     });
 
+    test(
+      'login 429 keeps the lockout message and countdown metadata',
+      () async {
+        final client = _clientWith(
+          (_) async => http.Response(
+            '{"error":"Too many failed attempts. Wait 5:00 and try again.",'
+            '"code":"LOGIN_LOCKED","retryAfterSeconds":300,'
+            '"lockedUntil":"2026-11-02T12:05:00Z"}',
+            429,
+          ),
+        );
+
+        await expectLater(
+          client.login('owner', 'wrong-password'),
+          throwsA(
+            isA<ApiException>()
+                .having((e) => e.statusCode, 'status', 429)
+                .having((e) => e.message, 'message', contains('Wait 5:00'))
+                .having((e) => e.retryAfterSeconds, 'retryAfterSeconds', 300)
+                .having((e) => e.lockedUntil, 'lockedUntil', isNotNull),
+          ),
+        );
+      },
+    );
+
     test('invalid code surfaces the generic server message', () async {
       final client = _clientWith(
         (_) async => http.Response('{"error":"Invalid or expired code."}', 400),

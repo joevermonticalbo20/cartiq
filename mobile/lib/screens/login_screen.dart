@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -29,15 +30,74 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _scanning = false;
   String? _error;
 
+  // Server lockout is per username. Keep the countdown local so "wait 4:59"
+  // ticks without another request; switching usernames releases this screen.
+  DateTime? _lockoutUntil;
+  String? _lockoutUsername;
+  int _lockoutSeconds = 0;
+  Timer? _lockoutTimer;
+
   String? _serverMsg;
   bool? _serverOk;
 
   @override
   void dispose() {
+    _lockoutTimer?.cancel();
     _username.dispose();
     _password.dispose();
     _serverController.dispose();
     super.dispose();
+  }
+
+  int _secondsLeft(DateTime until) {
+    final ms = until.difference(DateTime.now()).inMilliseconds;
+    return ms <= 0 ? 0 : (ms / 1000).ceil();
+  }
+
+  String _countdown(int seconds) =>
+      '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, "0")}';
+
+  void _clearLockout() {
+    _lockoutTimer?.cancel();
+    _lockoutTimer = null;
+    setState(() {
+      _lockoutUntil = null;
+      _lockoutUsername = null;
+      _lockoutSeconds = 0;
+      _error = null;
+    });
+  }
+
+  void _startLockout(ApiException error) {
+    final until =
+        error.lockedUntil ??
+        (error.retryAfterSeconds != null
+            ? DateTime.now().add(Duration(seconds: error.retryAfterSeconds!))
+            : null);
+    if (until == null) return;
+    _lockoutTimer?.cancel();
+    final seconds = _secondsLeft(until);
+    setState(() {
+      _lockoutUntil = until;
+      _lockoutUsername = _username.text.trim();
+      _lockoutSeconds = seconds;
+    });
+    _lockoutTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      final left = _secondsLeft(until);
+      setState(() => _lockoutSeconds = left);
+      if (left <= 0) {
+        timer.cancel();
+        _lockoutTimer = null;
+        setState(() {
+          _lockoutUntil = null;
+          _lockoutUsername = null;
+        });
+      }
+    });
   }
 
   Future<void> _rescanServer() async {
@@ -107,6 +167,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_lockoutUntil != null &&
+        _lockoutUsername == _username.text.trim() &&
+        _secondsLeft(_lockoutUntil!) > 0) {
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -120,7 +185,24 @@ class _LoginScreenState extends State<LoginScreen> {
       await Haptics.success();
     } on ApiException catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.message);
+      final lockStarted =
+          e.statusCode == 429 &&
+          (e.retryAfterSeconds != null || e.lockedUntil != null);
+      if (lockStarted) _startLockout(e);
+      var message = e.message;
+      final attemptsLeft = e.attemptsRemaining;
+      if (e.statusCode == 401 && attemptsLeft != null) {
+        if (attemptsLeft == 0) {
+          message = '$message The next attempt will be blocked for 5 minutes.';
+        } else {
+          message =
+              '$message $attemptsLeft attempt${attemptsLeft == 1 ? "" : "s"} '
+              'left before a 5-minute lock.';
+        }
+      }
+      // While counting down, the live builder text is the only message;
+      // keeping the server's snapshot here would freeze at "Wait 5:00".
+      setState(() => _error = lockStarted ? null : message);
       await Haptics.error();
     } catch (e) {
       if (!mounted) return;
@@ -527,6 +609,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final locked =
+        _lockoutUntil != null &&
+        _lockoutUsername == _username.text.trim() &&
+        _lockoutSeconds > 0;
+    final errorText = locked
+        ? 'Too many failed attempts. Wait ${_countdown(_lockoutSeconds)} '
+              'and try again.'
+        : _error;
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Stack(
@@ -604,6 +694,14 @@ class _LoginScreenState extends State<LoginScreen> {
                               decoration: const InputDecoration(
                                 prefixIcon: Icon(Icons.person_outline),
                               ),
+                              onChanged: (value) {
+                                // A lock belongs to the account, not the
+                                // device. Another staff member can try now.
+                                if (_lockoutUsername != null &&
+                                    value.trim() != _lockoutUsername) {
+                                  _clearLockout();
+                                }
+                              },
                               validator: (v) => (v == null || v.trim().isEmpty)
                                   ? 'Enter username'
                                   : null,
@@ -642,17 +740,17 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ? 'Enter password'
                                   : null,
                               onFieldSubmitted: (_) =>
-                                  _loading ? null : _submit(),
+                                  (_loading || locked) ? null : _submit(),
                             ),
 
                             const SizedBox(height: 24),
-                            if (_error != null)
+                            if (errorText != null)
                               Padding(
                                 padding: const EdgeInsets.only(
                                   bottom: AppSpacing.space3,
                                 ),
                                 child: Text(
-                                  _error!,
+                                  errorText,
                                   style: const TextStyle(
                                     color: AppColors.danger,
                                   ),
@@ -661,7 +759,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
 
                             FilledButton(
-                              onPressed: _loading ? null : _submit,
+                              onPressed: (_loading || locked) ? null : _submit,
                               style: FilledButton.styleFrom(
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 16,
