@@ -5503,6 +5503,7 @@ function otpEmailHtml(code, title, subtitle, securityMsg) {
   .header { background: linear-gradient(135deg, #e73631 0%, #c62828 100%); padding: 32px 24px; text-align: center; }
   .brand { font-size: 28px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; margin: 0; }
   .brand-sub { font-size: 13px; color: rgba(255,255,255,0.8); margin-top: 4px; }
+  .logo-img { width: 56px; height: 56px; border-radius: 12px; margin-bottom: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
   .body { padding: 32px 24px; }
   .title { font-size: 20px; font-weight: 700; color: #1a1a1a; text-align: center; margin: 0 0 8px; }
   .subtitle { font-size: 15px; color: #555; text-align: center; margin: 0 0 24px; line-height: 1.5; }
@@ -5519,6 +5520,7 @@ function otpEmailHtml(code, title, subtitle, securityMsg) {
   <div class="wrapper">
     <div class="card">
       <div class="header">
+        <img src="https://cartiq-8e46f.web.app/logo.png" alt="CartIQ Logo" width="56" height="56" class="logo-img" />
         <p class="brand">CartIQ</p>
         <p class="brand-sub">Pota Fries Operations</p>
       </div>
