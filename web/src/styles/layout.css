@@ -102,6 +102,8 @@
 
 .side-foot {
   padding: 12px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .main-area {
@@ -473,11 +475,11 @@
   border-radius: 14px;
 }
 
-/* 4. I-center ang menu button sa ibaba */
+/* 4. I-center ang menu button sa ibaba - parehong posisyon open o collapsed */
 .sidebar.collapsed .side-foot {
-  padding: 12px 0 24px;
+  padding: 12px;
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
 }
 
 /* 5. Tanggalin ang default border ng ghost button para mas malinis */

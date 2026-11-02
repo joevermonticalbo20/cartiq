@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Boxes,
+  ChevronLeft,
+  ChevronRight,
   FileSpreadsheet,
   LayoutDashboard,
   LogOut,
@@ -182,8 +184,7 @@ export default function Layout() {
 
         <div className="side-foot">
           <button className="ghost nav-item" onClick={toggleSidebar} title="Toggle sidebar">
-            <Menu size={19} />
-            {showLabels && <span>Collapse</span>}
+            {collapsed ? <ChevronRight size={19} /> : <ChevronLeft size={19} />}
           </button>
         </div>
       </aside>
