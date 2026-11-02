@@ -36,21 +36,24 @@ export default function NotificationsPage() {
   const [expandedId, setExpandedId] = useState(null); 
 
   useEffect(() => {
-    fetchAlerts();
+    let active = true;
+    api.get("/alerts?page=1&pageSize=100")
+      .then((res) => {
+        if (!active) return;
+        setAlerts(res.data?.data || []);
+        setError("");
+      })
+      .catch((err) => {
+        if (!active) return;
+        setError(getFriendlyError(err, "Failed to load notifications."));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
-
-  async function fetchAlerts() {
-    setLoading(true);
-    try {
-      const res = await api.get("/alerts?page=1&pageSize=100");
-      setAlerts(res.data?.data || []);
-      setError("");
-    } catch (err) {
-      setError(getFriendlyError(err, "Failed to load notifications."));
-    } finally {
-      setLoading(false);
-    }
-  }
 
   const filteredAlerts = useMemo(() => {
     if (filter === "ALL") return alerts;
@@ -129,7 +132,7 @@ export default function NotificationsPage() {
             }}>
               <Bell size={48} className="muted" style={{ opacity: 0.5, marginBottom: "16px" }} />
               <strong style={{ fontSize: "16px", color: "var(--text)" }}>No notifications found</strong>
-              <span className="muted" style={{ marginTop: "4px" }}>You don't have any notifications for "{filter}".</span>
+              <span className="muted" style={{ marginTop: "4px" }}>You don&apos;t have any notifications for &quot;{filter}&quot;.</span>
             </div>
 
           ) : (

@@ -387,8 +387,9 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
       final pending = request != null;
 
       if (_categoryFilter == 'Low Stock') return status.label == 'Low Stock';
-      if (_categoryFilter == 'Out of Stock')
+      if (_categoryFilter == 'Out of Stock') {
         return status.label == 'Out of Stock';
+      }
       if (_categoryFilter == 'Pending') return pending;
       return true; // 'All'
     }).toList();

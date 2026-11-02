@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Bell, Check, PackageSearch, ReceiptText, AlertTriangle, Info } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import api from "../api.js";
 import { useLiveEvent } from "../hooks/useLiveStream.js";
 
@@ -25,7 +25,20 @@ export default function NotificationBell() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchAlerts();
+    let active = true;
+    api.get("/alerts?page=1&pageSize=30")
+      .then((res) => {
+        if (!active) return;
+        const data = res.data?.data || [];
+        setAlerts(data);
+        setUnreadCount(data.filter(a => a.status === "unread").length);
+      })
+      .catch(() => {
+        // Background fetch, ignore errors
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const closePanel = () => {
@@ -60,17 +73,6 @@ export default function NotificationBell() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  async function fetchAlerts() {
-    try {
-      const res = await api.get("/alerts?page=1&pageSize=30");
-      const data = res.data?.data || [];
-      setAlerts(data);
-      setUnreadCount(data.filter(a => a.status === "unread").length);
-    } catch {
-      // Background fetch, ignore errors
-    }
-  }
-
   useLiveEvent("alert:new", (newAlert) => {
     setAlerts(prev => [newAlert, ...prev].slice(0, 30));
     setUnreadCount(prev => prev + 1);
@@ -78,7 +80,7 @@ export default function NotificationBell() {
 
   async function markAllAsRead() {
     try {
-      await api.patch("/alerts/read-all");
+      await api.patch("/alerts/read");
       setAlerts(alerts.map(a => ({ ...a, status: "read" })));
       setUnreadCount(0);
     } catch {
