@@ -158,7 +158,7 @@ export async function gmailStatus() {
  * Throws on misconfiguration or API failure — callers (forgot-password)
  * catch, log server-side, and still return the generic success response.
  */
-export async function sendGmail({ to, subject, text }) {
+export async function sendGmail({ to, subject, text, html }) {
   const { from } = gmailEnv();
   if (!from) throw new Error("Gmail is not configured (missing GMAIL_FROM)");
   // Header values must never contain a line break (the body may).
@@ -166,14 +166,33 @@ export async function sendGmail({ to, subject, text }) {
     throw new Error("Invalid email header value");
   }
   const token = await getAccessToken();
-  const raw = [
-    `From: ${from}`,
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    `Content-Type: text/plain; charset="UTF-8"`,
-    "",
-    text,
-  ].join("\r\n");
+  const boundary = html ? "cartiq_" + Math.random().toString(36).slice(2) : null;
+  const raw = html
+    ? [
+        `From: ${from}`,
+        `To: ${to}`,
+        `Subject: ${subject}`,
+        `MIME-Version: 1.0`,
+        `Content-Type: multipart/alternative; boundary="${boundary}"`,
+        "",
+        `--${boundary}`,
+        `Content-Type: text/plain; charset="UTF-8"`,
+        "",
+        text,
+        `--${boundary}`,
+        `Content-Type: text/html; charset="UTF-8"`,
+        "",
+        html,
+        `--${boundary}--`,
+      ].join("\\r\\n")
+    : [
+        `From: ${from}`,
+        `To: ${to}`,
+        `Subject: ${subject}`,
+        `Content-Type: text/plain; charset="UTF-8"`,
+        "",
+        text,
+      ].join("\\r\\n");
   const encoded = base64Url(new TextEncoder().encode(raw));
   const res = await fetch(SEND_URL, {
     method: "POST",
@@ -195,15 +214,75 @@ export async function sendGmail({ to, subject, text }) {
   return true;
 }
 
+/** Build a beautiful HTML email for an OTP code. */
+function otpEmailHtml(code, title, subtitle, securityMsg) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${title}</title>
+<style>
+  body { margin: 0; padding: 0; background-color: #f4f4f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+  .wrapper { width: 100%; padding: 40px 16px; box-sizing: border-box; }
+  .card { max-width: 480px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.06); }
+  .header { background: linear-gradient(135deg, #e73631 0%, #c62828 100%); padding: 32px 24px; text-align: center; }
+  .brand { font-size: 28px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; margin: 0; }
+  .brand-sub { font-size: 13px; color: rgba(255,255,255,0.8); margin-top: 4px; }
+  .body { padding: 32px 24px; }
+  .title { font-size: 20px; font-weight: 700; color: #1a1a1a; text-align: center; margin: 0 0 8px; }
+  .subtitle { font-size: 15px; color: #555; text-align: center; margin: 0 0 24px; line-height: 1.5; }
+  .code-container { background: #fafafa; border: 2px dashed #e73631; border-radius: 12px; padding: 24px 16px; text-align: center; margin: 24px 0; }
+  .code { font-size: 40px; font-weight: 800; letter-spacing: 10px; color: #e73631; font-family: 'Courier New', Courier, monospace; margin: 0; }
+  .expiry { font-size: 13px; color: #888; margin-top: 8px; }
+  .security-box { background: #fff8f8; border: 1px solid #ffe0e0; border-radius: 8px; padding: 14px 16px; margin-top: 24px; }
+  .security-box p { font-size: 13px; color: #666; margin: 0; line-height: 1.5; }
+  .footer { text-align: center; padding: 20px 24px; border-top: 1px solid #f0f0f0; }
+  .footer p { font-size: 12px; color: #999; margin: 0; }
+</style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="card">
+      <div class="header">
+        <p class="brand">CartIQ</p>
+        <p class="brand-sub">Pota Fries Operations</p>
+      </div>
+      <div class="body">
+        <h1 class="title">${title}</h1>
+        <p class="subtitle">${subtitle}</p>
+        <div class="code-container">
+          <p class="code">${code}</p>
+          <p class="expiry">Expires in 10 minutes</p>
+        </div>
+        <div class="security-box">
+          <p>${securityMsg}</p>
+        </div>
+      </div>
+      <div class="footer">
+        <p>&copy; CartIQ &mdash; Pota Fries Operations</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
 /** Subject + body for a password-reset OTP. Kept here so both runtimes agree. */
 export function resetEmailContent(code) {
   return {
     subject: "CartIQ password reset code",
     text:
-      `Your CartIQ password reset code is:\n\n${code}\n\n` +
-      `It expires in 10 minutes and can only be used once.\n` +
-      `If you didn't ask for this, you can ignore this email.\n\n` +
-      `— CartIQ (Pota Fries Operations)`,
+      `Your CartIQ password reset code is:\\n\\n${code}\\n\\n` +
+      `It expires in 10 minutes and can only be used once.\\n` +
+      `If you didn't ask for this, you can ignore this email.\\n\\n` +
+      `- CartIQ (Pota Fries Operations)`,
+    html: otpEmailHtml(
+      code,
+      "Password Reset Code",
+      "Use this code to reset your password. It expires in 10 minutes and can only be used once.",
+      "🔒 If you didn't request this code, you can safely ignore this email. Your password won't change.",
+    ),
   };
 }
 
@@ -216,7 +295,13 @@ export function changeEmailContent(code) {
       `It expires in 10 minutes and can only be used once.\n` +
       `If you didn't ask to change your password, your password was NOT changed.\n` +
       `You can ignore this email.\n\n` +
-      `— CartIQ (Pota Fries Operations)`,
+      `- CartIQ (Pota Fries Operations)`,
+    html: otpEmailHtml(
+      code,
+      "Password Change Code",
+      "Use this code to change your password. It expires in 10 minutes and can only be used once.",
+      "🔒 If you didn't request this code, your password was NOT changed. You can safely ignore this email.",
+    ),
   };
 }
 
@@ -245,7 +330,7 @@ export async function sendOtpEmail({
         : `Unknown EMAIL_PROVIDER "${provider}"`,
     );
   }
-  const { subject, text } = otpEmailContent(code, purpose);
+  const { subject, text, html } = otpEmailContent(code, purpose);
   if (provider === "console") {
     console.log(
       `[mail:console] To: ${to}\nSubject: ${subject}\n\n${text}\n`,
@@ -259,7 +344,7 @@ export async function sendOtpEmail({
     );
     return { provider, sent: false, placeholder: true };
   }
-  await sendGmail({ to, subject, text });
+  await sendGmail({ to, subject, text, html });
   return { provider, sent: true };
 }
 
