@@ -733,10 +733,9 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                                     i,
                                   ) {
                                     final product = products[i];
-                                    final flavorCount =
-                                        product['flavors'] is List
-                                        ? (product['flavors'] as List).length
-                                        : 0;
+                                    final hasOptions =
+                                        product['flavors'] is List &&
+                                        (product['flavors'] as List).isNotEmpty;
                                     final inCartQty = cart.items
                                         .where(
                                           (it) =>
@@ -746,11 +745,15 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
                                     return PosProductCard(
                                       product: product,
-                                      flavorCount: flavorCount,
                                       inCartQty: inCartQty,
                                       onTap: () => _openItemSheet(product),
-                                      onQuickAdd: flavorCount == 0
-                                          ? () {
+                                      // [+] on a sized/flavored product opens
+                                      // the picker (never a silent default
+                                      // size); a flavorless product (dips)
+                                      // adds straight to the cart.
+                                      onQuickAdd: hasOptions
+                                          ? () => _openItemSheet(product)
+                                          : () {
                                               _addToCart(product);
                                               AppMessenger.showGlassToast(
                                                 context: context,
@@ -758,8 +761,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                                                     'Added: ${product['name']}',
                                                 isSuccess: true,
                                               );
-                                            }
-                                          : null,
+                                            },
                                     );
                                   }, childCount: products.length),
                                 ),

@@ -19,20 +19,40 @@ Map<String, dynamic> _product() => {
 
 void main() {
   group('PosProductCard', () {
-    testWidgets('renders name, price and flavor count', (tester) async {
+    testWidgets('renders name, price and a + action (no flavs badge)', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _wrap(
           PosProductCard(
             product: _product(),
-            flavorCount: 2,
             inCartQty: 0,
             onTap: () {},
+            onQuickAdd: () {},
           ),
         ),
       );
       expect(find.text('Cheese Fries'), findsOneWidget);
       expect(find.text('₱59'), findsOneWidget);
-      expect(find.text('2 flavs'), findsOneWidget);
+      expect(find.byIcon(Icons.add), findsOneWidget);
+      // The old "N flavs" badge mislabeled sizes; it must not come back.
+      expect(find.textContaining('flav'), findsNothing);
+    });
+
+    testWidgets('+ on a sized/flavored product runs its action', (tester) async {
+      var tapped = false;
+      await tester.pumpWidget(
+        _wrap(
+          PosProductCard(
+            product: _product(),
+            inCartQty: 0,
+            onTap: () {},
+            onQuickAdd: () => tapped = true,
+          ),
+        ),
+      );
+      await tester.tap(find.byIcon(Icons.add));
+      expect(tapped, isTrue);
     });
 
     testWidgets('shows cart badge when in cart', (tester) async {
@@ -40,7 +60,6 @@ void main() {
         _wrap(
           PosProductCard(
             product: _product(),
-            flavorCount: 2,
             inCartQty: 3,
             onTap: () {},
           ),
@@ -66,7 +85,6 @@ void main() {
           _wrap(
             PosProductCard(
               product: product,
-              flavorCount: 2,
               inCartQty: 0,
               onTap: () => taps++,
             ),
@@ -90,7 +108,6 @@ void main() {
           _wrap(
             PosProductCard(
               product: product,
-              flavorCount: 2,
               inCartQty: 0,
               onTap: () => taps++,
             ),
@@ -118,7 +135,6 @@ void main() {
                 {'name': 'BBQ', 'isAvailable': true, 'availableServings': 12},
               ],
             },
-            flavorCount: 2,
             inCartQty: 0,
             onTap: () {},
           ),
@@ -133,7 +149,6 @@ void main() {
         _wrap(
           PosProductCard(
             product: {'name': 'Plain', 'basePrice': 49},
-            flavorCount: 0,
             inCartQty: 0,
             onTap: () {},
             onQuickAdd: () => tapped = true,
@@ -158,7 +173,6 @@ void main() {
             body: Builder(
               builder: (context) => PosProductCard(
                 product: _product(),
-                flavorCount: 2,
                 inCartQty: 0,
                 onTap: () => showModalBottomSheet<void>(
                   context: context,

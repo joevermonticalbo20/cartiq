@@ -7,17 +7,23 @@ import '../utils/haptics.dart';
 ///
 /// Calls [onComplete] with the 6 digits (no validation here — the caller
 /// verifies). Shows [errorText] with a shake when set. Haptic tap per digit.
+///
+/// [showDigits] switches the progress row from privacy dots (PINs) to six
+/// number boxes with the typed digits visible — used for the password-reset
+/// code, which is read off an email and should not look like a password.
 class PinPad extends StatefulWidget {
   const PinPad({
     super.key,
     required this.onComplete,
     this.errorText,
     this.title = 'Enter PIN',
+    this.showDigits = false,
   });
 
   final ValueChanged<String> onComplete;
   final String? errorText;
   final String title;
+  final bool showDigits;
 
   @override
   State<PinPad> createState() => _PinPadState();
@@ -91,24 +97,64 @@ class _PinPadState extends State<PinPad> with SingleTickerProviderStateMixin {
         children: [
           Text(widget.title, style: textTheme.titleLarge),
           const SizedBox(height: AppSpacing.space4),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(6, (i) {
-              final filled = i < _digits.length;
-              return Container(
-                width: 16,
-                height: 16,
-                margin: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.space2),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: filled
-                      ? AppColors.primary
-                      : Theme.of(context).dividerColor.withValues(alpha: 0.4),
-                ),
-              );
-            }),
-          ),
+          if (widget.showDigits)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(6, (i) {
+                final filled = i < _digits.length;
+                final active = i == _digits.length;
+                final scheme = Theme.of(context).colorScheme;
+                return Container(
+                  width: 44,
+                  height: 54,
+                  margin: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.space1),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: filled
+                        ? scheme.surfaceContainerHighest
+                        : scheme.surface,
+                    borderRadius: BorderRadius.circular(AppRadius.m),
+                    border: Border.all(
+                      color: filled || active
+                          ? AppColors.primary
+                          : Theme.of(context)
+                              .dividerColor
+                              .withValues(alpha: 0.5),
+                      width: filled || active ? 2 : 1,
+                    ),
+                  ),
+                  child: Text(
+                    filled ? _digits[i] : '',
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                );
+              }),
+            )
+          else
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(6, (i) {
+                final filled = i < _digits.length;
+                return Container(
+                  width: 16,
+                  height: 16,
+                  margin: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.space2),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: filled
+                        ? AppColors.primary
+                        : Theme.of(context)
+                            .dividerColor
+                            .withValues(alpha: 0.4),
+                  ),
+                );
+              }),
+            ),
           if (widget.errorText != null) ...[
             const SizedBox(height: AppSpacing.space3),
             Text(

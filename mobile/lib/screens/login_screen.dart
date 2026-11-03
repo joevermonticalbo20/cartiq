@@ -7,7 +7,9 @@ import '../services/auth_state.dart';
 import '../services/offline_pin.dart';
 import '../theme.dart';
 import '../utils/haptics.dart';
+import '../utils/password_strength.dart';
 import '../widgets/app_badge.dart';
+import '../widgets/password_strength_meter.dart';
 import '../widgets/pin_pad.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -336,8 +338,11 @@ class _LoginScreenState extends State<LoginScreen> {
             Future<void> sendCode() async {
               if (busy) return;
               final email = emailCtrl.text.trim();
-              if (email.isEmpty || !email.contains('@')) {
-                setSheetState(() => error = 'Enter a valid email address.');
+              if (!isValidEmail(email)) {
+                setSheetState(
+                  () => error =
+                      'Enter a valid email address (e.g. name@gmail.com).',
+                );
                 return;
               }
               setSheetState(() {
@@ -396,14 +401,16 @@ class _LoginScreenState extends State<LoginScreen> {
 
             Future<void> redeem() async {
               if (busy || code == null) return;
-              if (pwCtrl.text != pw2Ctrl.text) {
-                setSheetState(() => error = 'New passwords do not match.');
+              if (!evaluatePassword(pwCtrl.text).meetsGood) {
+                setSheetState(
+                  () => error =
+                      'Use at least 8 characters with upper and lower case, '
+                      'a number, and a special character.',
+                );
                 return;
               }
-              if (pwCtrl.text.length < 6) {
-                setSheetState(
-                  () => error = 'New password must be at least 6 characters.',
-                );
+              if (pwCtrl.text != pw2Ctrl.text) {
+                setSheetState(() => error = 'New passwords do not match.');
                 return;
               }
               final messenger = ScaffoldMessenger.of(loginContext);
@@ -496,8 +503,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: LinearProgressIndicator(minHeight: 2),
                     ),
                   PinPad(
-                    title: 'Reset code',
+                    title: 'Enter the 6-digit code',
                     errorText: error,
+                    // The code is read off an email, not a secret the user
+                    // chose: show the digits instead of password-style dots.
+                    showDigits: true,
                     onComplete: verifyCode,
                   ),
                 ],
@@ -518,8 +528,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   TextField(
                     controller: pwCtrl,
                     obscureText: !showPw,
+                    // Rebuild so the strength meter tracks every keystroke.
+                    onChanged: (_) => setSheetState(() {}),
                     decoration: InputDecoration(
-                      labelText: 'New password (min 6)',
+                      labelText: 'New password',
                       prefixIcon: const Icon(Icons.lock_outline),
                       suffixIcon: IconButton(
                         icon: Icon(
@@ -531,16 +543,33 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: AppSpacing.space2),
+                  PasswordStrengthMeter(value: pwCtrl.text),
                   const SizedBox(height: AppSpacing.space3),
                   TextField(
                     controller: pw2Ctrl,
                     obscureText: !showPw,
+                    onChanged: (_) => setSheetState(() {}),
                     decoration: const InputDecoration(
                       labelText: 'Confirm new password',
                       prefixIcon: Icon(Icons.lock_outline),
                     ),
                     onSubmitted: (_) => redeem(),
                   ),
+                  const SizedBox(height: AppSpacing.space2),
+                  if (pw2Ctrl.text.isNotEmpty)
+                    Text(
+                      pwCtrl.text == pw2Ctrl.text
+                          ? 'Passwords match.'
+                          : 'Passwords do not match yet.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: pwCtrl.text == pw2Ctrl.text
+                            ? AppColors.ok
+                            : AppColors.warn,
+                      ),
+                    ),
                   if (error != null) ...[
                     const SizedBox(height: AppSpacing.space2),
                     Text(

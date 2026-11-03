@@ -465,4 +465,93 @@ void main() {
       );
     });
   });
+
+  // Field report: "even when I enter the PIN for the offline session, it is
+  // not recording it." An offline cold start used to sail straight into the
+  // shell, so the device PIN was never asked. The gate below arms on an
+  // unverified start and is cleared by a successful unlock (or any online
+  // verification).
+  group('Offline cold-start PIN gate', () {
+    Future<(AuthState, FakeStore)> coldStart({
+      bool pin = true,
+      String role = 'STAFF',
+      String? lastOnline,
+      Object? meOutcome,
+    }) async {
+      final store = FakeStore();
+      store.values['cartiq_token'] = 'tok';
+      store.values['cartiq_refresh_token'] = 'ref';
+      store.values['cartiq_profile'] =
+          '{"name":"S1","username":"staff01","role":"$role","location":{"code":"CART-01"}}';
+      store.values['cartiq_last_online'] =
+          lastOnline ?? DateTime.now().toIso8601String();
+      final api = FakeApi(store: store)
+        ..meOutcome = meOutcome ?? ApiException('no network');
+      final auth = AuthState(apiClient: api, secureStorage: store);
+      if (pin) {
+        await auth.pin.setupPin(username: 'staff01', pin: '123456');
+      }
+      await auth.restoreSession();
+      return (auth, store);
+    }
+
+    test('offline start with a PIN arms the gate', () async {
+      final (auth, _) = await coldStart();
+      expect(auth.isLoggedIn, isTrue);
+      expect(auth.offlineUnlockRequired, isTrue);
+    });
+
+    test('offline start without a PIN does NOT arm (cannot demand one)', () async {
+      final (auth, _) = await coldStart(pin: false);
+      expect(auth.offlineUnlockRequired, isFalse);
+    });
+
+    test('online verification arms nothing', () async {
+      final (auth, _) = await coldStart(
+        meOutcome: {
+          'user': {'username': 'staff01', 'role': 'STAFF'},
+        },
+      );
+      expect(auth.offlineUnlockRequired, isFalse);
+    });
+
+    test('owner accounts are never gated (offline login is staff-only)', () async {
+      final (auth, _) = await coldStart(role: 'OWNER');
+      expect(auth.offlineUnlockRequired, isFalse);
+    });
+
+    test('a stale offline window does not arm (PIN could not unlock it)', () async {
+      final (auth, _) = await coldStart(
+        lastOnline:
+            DateTime.now().subtract(const Duration(days: 8)).toIso8601String(),
+      );
+      expect(auth.offlineUnlockRequired, isFalse);
+    });
+
+    test('a successful PIN unlock records the offline session', () async {
+      final (auth, _) = await coldStart();
+      expect(auth.offlineUnlockRequired, isTrue);
+
+      await auth.unlockOffline('123456');
+
+      expect(auth.offlineMode, isTrue);
+      expect(auth.offlineUnlockRequired, isFalse);
+    });
+
+    test('a wrong PIN keeps the gate armed', () async {
+      final (auth, _) = await coldStart();
+      await expectLater(
+        auth.unlockOffline('000000'),
+        throwsA(isA<PinException>()),
+      );
+      expect(auth.offlineUnlockRequired, isTrue);
+      expect(auth.offlineMode, isFalse);
+    });
+
+    test('signOut clears the gate', () async {
+      final (auth, _) = await coldStart();
+      await auth.signOut();
+      expect(auth.offlineUnlockRequired, isFalse);
+    });
+  });
 }

@@ -14,6 +14,7 @@ import 'state/theme_controller.dart';
 import 'theme.dart';
 import 'utils/haptics.dart';
 import 'widgets/brand_hero.dart';
+import 'widgets/offline_lock_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -279,6 +280,12 @@ class _CartIQAppState extends State<CartIQApp> {
   /// per transition rather than on every rebuild.
   bool? _syncRunning;
 
+  /// User chose "Sign in with password instead" on the offline lock screen.
+  /// Once the session is verified or unlocked offline this is irrelevant:
+  /// the lock screen only shows while [AuthState.offlineUnlockRequired] is
+  /// true and the app is not already in offline mode.
+  bool _showLoginInstead = false;
+
   @override
   void initState() {
     super.initState();
@@ -350,9 +357,19 @@ class _CartIQAppState extends State<CartIQApp> {
                   if (snap.hasError) {
                     return LoginScreen();
                   }
-                  return auth.isLoggedIn
-                      ? const RootShell()
-                      : const LoginScreen();
+                  if (!auth.isLoggedIn) return const LoginScreen();
+                  // Offline cold start with a device PIN: unlock with the
+                  // PIN before the POS opens (or fall back to the full login
+                  // screen; the cached session stays until an online sign-in).
+                  if (auth.offlineUnlockRequired && !auth.offlineMode) {
+                    return _showLoginInstead
+                        ? const LoginScreen()
+                        : OfflineLockScreen(
+                            onUsePassword: () =>
+                                setState(() => _showLoginInstead = true),
+                          );
+                  }
+                  return const RootShell();
                 },
               ),
             ),

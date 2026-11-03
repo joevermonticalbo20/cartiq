@@ -22,6 +22,12 @@ class AuthState extends ChangeNotifier {
   /// True when the session was unlocked offline via PIN (queue-only mode).
   bool offlineMode = false;
 
+  /// Cold start could not verify the session online and this device holds a
+  /// PIN for the cached account: the app must ask for that PIN before the
+  /// POS opens. Without this gate an offline cold start went straight into
+  /// the shell and the PIN was never used — the bug reported from the field.
+  bool offlineUnlockRequired = false;
+
   AuthState({ApiClient? apiClient, KeyValueStore? secureStorage})
     : api = apiClient ?? ApiClient(),
       storage =
@@ -79,6 +85,7 @@ class AuthState extends ChangeNotifier {
       try {
         final data = await api.me(token!);
         user = data['user'] as Map<String, dynamic>?;
+        offlineUnlockRequired = false;
         await _persistSession();
       } on ApiException catch (e) {
         // Only drop on explicit server rejection (401/403) — NOT on
@@ -97,14 +104,42 @@ class AuthState extends ChangeNotifier {
               await signOut();
             } else {
               await _restoreCachedProfile();
+              await _armOfflineUnlock();
             }
           }
         } else {
           await _restoreCachedProfile();
+          await _armOfflineUnlock();
         }
       }
     }
     notifyListeners();
+  }
+
+  /// Ask for the device PIN before the shell opens when this run could not
+  /// verify the session online and a working PIN exists for the cached
+  /// STAFF account. Only arms while the offline window is still fresh, so a
+  /// stale session behaves exactly as before (never a lockout it cannot
+  /// resolve without internet).
+  Future<void> _armOfflineUnlock() async {
+    offlineUnlockRequired = false;
+    try {
+      if (!await pin.hasPin) return;
+      final last = await lastOnline;
+      if (last == null ||
+          DateTime.now().difference(last) > OfflinePinService.maxOfflineAge) {
+        return;
+      }
+      final profile = await _readCachedProfile();
+      final username =
+          (user?['username'] ?? profile?['username']) as String?;
+      final role = (user?['role'] ?? profile?['role']) as String?;
+      final storedUser = await pin.pinUsername;
+      offlineUnlockRequired =
+          role == 'STAFF' && storedUser != null && storedUser == username;
+    } catch (_) {
+      offlineUnlockRequired = false;
+    }
   }
 
   /// Attempt to obtain a fresh access token from the stored refresh token.
@@ -127,7 +162,11 @@ class AuthState extends ChangeNotifier {
   Future<bool> refreshSession() async {
     try {
       final recovered = await _tryRefresh();
-      if (recovered) notifyListeners();
+      if (recovered) {
+        // A successful refresh verifies the session: no PIN gate needed.
+        offlineUnlockRequired = false;
+        notifyListeners();
+      }
       return recovered;
     } on ApiException catch (e) {
       // Offline: keep everything as-is; the sync layer retries later.
@@ -236,6 +275,7 @@ class AuthState extends ChangeNotifier {
     }
     await pin.verifyPin(username: username, pin: pinCode);
     offlineMode = true;
+    offlineUnlockRequired = false;
     notifyListeners();
   }
 
@@ -245,6 +285,7 @@ class AuthState extends ChangeNotifier {
     refreshToken = data['refreshToken'] as String?;
     user = data['user'] as Map<String, dynamic>?;
     offlineMode = false;
+    offlineUnlockRequired = false;
     await _persistSession();
     // A different user takes over this device: their PIN setup starts over.
     final pinnedUser = await pin.pinUsername;
@@ -291,6 +332,7 @@ class AuthState extends ChangeNotifier {
     refreshToken = null;
     user = null;
     offlineMode = false;
+    offlineUnlockRequired = false;
     for (final k in [
       'cartiq_token',
       'cartiq_refresh_token',

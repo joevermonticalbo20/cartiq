@@ -3,11 +3,16 @@ import '../theme.dart';
 import 'app_badge.dart';
 
 /// Product tile na naka-design specifically para sa 2x2 Grid.
+///
+/// Every card shows a [+] action: a flavorless product (a dip) adds straight
+/// to the cart, and an option product (sizes / flavors) opens its picker —
+/// never a silent default size, so the charged price is always the chosen
+/// one. The old "N flavs" badge is gone: for the fries those options are
+/// sizes, and the count read wrong.
 class PosProductCard extends StatelessWidget {
   const PosProductCard({
     super.key,
     required this.product,
-    required this.flavorCount,
     required this.inCartQty,
     required this.onTap,
     this.onLongPress,
@@ -15,7 +20,6 @@ class PosProductCard extends StatelessWidget {
   });
 
   final Map<String, dynamic> product;
-  final int flavorCount;
   final int inCartQty;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
@@ -180,7 +184,7 @@ class PosProductCard extends StatelessWidget {
                   ),
                   const SizedBox(height: AppSpacing.space2),
 
-                  // BOTTOM ROW: Price at Action Button (Flavors / Quick Add)
+                  // BOTTOM ROW: Price at Action Button (Quick Add / Pick Size)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     crossAxisAlignment: CrossAxisAlignment.end,
@@ -192,26 +196,7 @@ class PosProductCard extends StatelessWidget {
                           fontWeight: FontWeight.w900,
                         ),
                       ),
-                      if (flavorCount > 0)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            '$flavorCount flavs',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        )
-                      else if (onQuickAdd != null && !unavailable)
+                      if (onQuickAdd != null && !unavailable)
                         InkWell(
                           onTap: onQuickAdd,
                           borderRadius: BorderRadius.circular(AppRadius.xs),
