@@ -718,16 +718,18 @@ export default function SettingsPage() {
                 <Skeleton rows={4} height={36} />
               </div>
             ) : (
-              <form onSubmit={changePassword} className="flex flex-col gap-3">
+              <form onSubmit={changePassword} className="flex flex-col gap-4">
+                {/* Current password */}
                 <label className="field">
-                  Current password
-                  <div style={{ position: "relative" }}>
+                  <span className="field-label">Current password</span>
+                  <div className="input-wrapper">
                     <input
                       type={showPw.current ? "text" : "password"}
                       value={pw.current}
                       onChange={(e) => setPw({ ...pw, current: e.target.value })}
                       required
                       autoComplete="current-password"
+                      placeholder="Enter current password"
                       style={{ height: "36px", width: "100%", paddingRight: "36px" }}
                     />
                     <button
@@ -741,14 +743,16 @@ export default function SettingsPage() {
                   </div>
                 </label>
 
+                {/* Recovery code */}
                 <div className="field">
-                  <div className="flex items-center justify-between gap-2">
-                    <span>Recovery code</span>
+                  <div className="flex items-center justify-between gap-2" style={{ marginBottom: "6px" }}>
+                    <span className="field-label" style={{ margin: 0 }}>Recovery code</span>
                     <button
                       type="button"
                       className="ghost small-btn"
                       onClick={sendPwCode}
                       disabled={isSendingPwCode || pwCodeCooldown > 0 || !hasRealEmail}
+                      style={{ fontSize: "12px" }}
                     >
                       {isSendingPwCode
                         ? "Sending..."
@@ -759,22 +763,29 @@ export default function SettingsPage() {
                             : "Send code"}
                     </button>
                   </div>
-                  <input
-                    value={pw.code}
-                    onChange={(e) => setPw({ ...pw, code: e.target.value.replace(/\D/g, "").slice(0, 6) })}
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    placeholder="6-digit code"
-                    maxLength={6}
-                    style={{ height: "36px" }}
-                  />
-                  <p className="muted small" style={{ margin: 0 }}>
-                    {pwCodeSent
-                      ? `Sent to ${pwCodeEmail || displayEmail}. It expires in 10 minutes.`
-                      : "We'll email a 6-digit code before the password can change."}
-                  </p>
+                  <div className="input-wrapper">
+                    <input
+                      value={pw.code}
+                      onChange={(e) => setPw({ ...pw, code: e.target.value.replace(/\D/g, "").slice(0, 6) })}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      placeholder="6-digit code"
+                      maxLength={6}
+                      style={{ height: "36px", width: "100%", paddingRight: "12px", textAlign: "center", letterSpacing: "4px", fontWeight: 700, fontSize: "16px" }}
+                    />
+                  </div>
+                  {pwCodeSent ? (
+                    <p className="muted small" style={{ margin: "6px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
+                      <span style={{ color: "var(--success, #22c55e)" }}>✓</span>
+                      Sent to {pwCodeEmail || displayEmail}. Expires in 10 minutes.
+                    </p>
+                  ) : (
+                    <p className="muted small" style={{ margin: "6px 0 0" }}>
+                      We&apos;ll email a 6-digit code before the password can change.
+                    </p>
+                  )}
                   {!hasRealEmail && (
-                    <p className="muted small" style={{ margin: 0 }}>
+                    <p className="muted small" style={{ margin: "4px 0 0" }}>
                       Your recovery email is a placeholder.{" "}
                       <button type="button" className="ghost small-btn" onClick={openEmailModal}>
                         Add a real email
@@ -783,9 +794,13 @@ export default function SettingsPage() {
                   )}
                 </div>
 
+                {/* Divider */}
+                <div style={{ height: "1px", background: "var(--border)", margin: "4px 0" }} />
+
+                {/* New password */}
                 <label className="field">
-                  New password (min 8 chars)
-                  <div style={{ position: "relative" }}>
+                  <span className="field-label">New password</span>
+                  <div className="input-wrapper">
                     <input
                       type={showPw.next ? "text" : "password"}
                       value={pw.next}
@@ -798,6 +813,7 @@ export default function SettingsPage() {
                       required
                       minLength={8}
                       autoComplete="new-password"
+                      placeholder="At least 8 characters"
                       style={{ height: "36px", width: "100%", paddingRight: "36px" }}
                     />
                     <button
@@ -811,10 +827,10 @@ export default function SettingsPage() {
                   </div>
                   <PasswordStrengthMeter value={pw.next} minLevel="good" />
                 </label>
-                
+
                 <label className="field">
-                  Confirm new password
-                  <div style={{ position: "relative" }}>
+                  <span className="field-label">Confirm new password</span>
+                  <div className="input-wrapper">
                     <input
                       type={showPw.confirm ? "text" : "password"}
                       value={pw.confirm}
@@ -832,6 +848,7 @@ export default function SettingsPage() {
                       }}
                       required
                       autoComplete="new-password"
+                      placeholder="Re-enter new password"
                       style={{ height: "36px", width: "100%", paddingRight: "36px" }}
                     />
                     <button
@@ -844,12 +861,13 @@ export default function SettingsPage() {
                     </button>
                   </div>
                 </label>
-                
-                <button type="submit" className="self-start mt-2" disabled={isChanging || !pwCodeSent}>
-                  <KeyRound size={15} /> {isChanging ? "Updating..." : "Update password"}
-                </button>
-                
-                {pwError && <p className="error-box" role="alert" style={{ marginTop: "var(--space-2)" }}>{pwError}</p>}
+
+                <div className="flex items-center gap-3" style={{ marginTop: "var(--space-2)" }}>
+                  <button type="submit" className="login-submit-btn" disabled={isChanging || !pwCodeSent} style={{ width: "auto", minWidth: "160px" }}>
+                    <KeyRound size={15} /> {isChanging ? "Updating..." : "Update password"}
+                  </button>
+                  {pwError && <p className="error-box" role="alert" style={{ margin: 0, flex: 1 }}>{pwError}</p>}
+                </div>
               </form>
             )}
           </section>

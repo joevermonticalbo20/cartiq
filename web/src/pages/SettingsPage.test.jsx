@@ -175,7 +175,7 @@ describe("SettingsPage password change", () => {
     );
     expect(await screen.findByText(/Sent to o\*\*\*@example.com/i)).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText("6-digit code"), { target: { value: "482916" } });
-    fireEvent.change(screen.getByLabelText(/New password \(min 8 chars\)/i), { target: { value: "newpass123" } });
+    fireEvent.change(screen.getByPlaceholderText("At least 8 characters"), { target: { value: "newpass123" } });
     fireEvent.change(screen.getByLabelText(/Confirm new password/i), { target: { value: "newpass123" } });
     fireEvent.click(screen.getByText("Update password"));
     expect(await screen.findByText("Login screen")).toBeInTheDocument();
