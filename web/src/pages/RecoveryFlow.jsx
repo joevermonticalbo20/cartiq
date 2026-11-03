@@ -3,6 +3,7 @@ import { ArrowLeft, Mail, ShieldCheck, Lock } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import ErrorBox from "../components/ErrorBox.jsx";
+import PasswordStrengthMeter, { evaluatePassword } from "../components/PasswordStrengthMeter.jsx";
 
 const CODE_LEN = 6;
 
@@ -99,6 +100,8 @@ export default function RecoveryFlow({ onExitToLogin }) {
     try {
       await api.post("/auth/verify-reset-code", { email: sentTo, code });
       setVerified(true);
+      // Auto-advance to the password step once the code is verified.
+      setStep(3);
     } catch (err) {
       setVerified(false);
       setError(getFriendlyError(err, "Couldn't verify the code - try again."));
@@ -111,6 +114,11 @@ export default function RecoveryFlow({ onExitToLogin }) {
     e.preventDefault();
     if (pw !== pw2) {
       setError("New passwords do not match.");
+      return;
+    }
+    const { level } = evaluatePassword(pw);
+    if (!["good", "strong"].includes(level)) {
+      setError("Password must be at least 'Good' strength (8+ chars, upper/lower, number, special).");
       return;
     }
     if (busy) return;
@@ -214,11 +222,7 @@ export default function RecoveryFlow({ onExitToLogin }) {
               ))}
             </div>
             <ErrorBox message={error} style={{ marginBottom: "var(--space-3)" }} />
-            {verified ? (
-              <button type="button" className="login-submit-btn" onClick={() => { setError(""); setStep(3); }}>
-                <span className="btn-content">Continue</span>
-              </button>
-            ) : (
+            {!verified && (
               <button type="submit" className="login-submit-btn" disabled={busy}>
                 <span className="btn-content">{busy ? "Verifying..." : "Verify Code"}</span>
               </button>
@@ -265,6 +269,7 @@ export default function RecoveryFlow({ onExitToLogin }) {
                   autoComplete="new-password"
                 />
               </div>
+              <PasswordStrengthMeter value={pw} minLevel="good" />
             </div>
             <div className="input-group">
               <label htmlFor="recovery-pw2" className="field-label">Confirm New Password</label>

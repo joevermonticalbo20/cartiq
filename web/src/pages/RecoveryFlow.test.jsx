@@ -74,11 +74,6 @@ describe("RecoveryFlow 3-step flow", () => {
 
     fillCode("482916");
     fireEvent.click(screen.getByRole("button", { name: "Verify Code" }));
-    expect(
-      await screen.findByText("Code verified! You can now reset your password.")
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(await screen.findByText("STEP 3 OF 3")).toBeInTheDocument();
     expect(screen.getByText("New Password")).toBeInTheDocument();
   });
@@ -147,12 +142,10 @@ describe("RecoveryFlow 3-step flow", () => {
     await screen.findByText("Check Email");
     fillCode("482916");
     fireEvent.click(screen.getByRole("button", { name: "Verify Code" }));
-    await screen.findByText("Code verified! You can now reset your password.");
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await screen.findByText("New Password");
 
     fireEvent.change(screen.getByLabelText("Create New Password"), {
-      target: { value: "newpass12" },
+      target: { value: "NewPass12!" },
     });
     fireEvent.change(screen.getByLabelText("Confirm New Password"), {
       target: { value: "different" },
@@ -165,14 +158,14 @@ describe("RecoveryFlow 3-step flow", () => {
     );
 
     fireEvent.change(screen.getByLabelText("Confirm New Password"), {
-      target: { value: "newpass12" },
+      target: { value: "NewPass12!" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Reset Password" }));
     expect(await screen.findByText("Password updated")).toBeInTheDocument();
     expect(api.post).toHaveBeenCalledWith("/auth/reset-password", {
       email: "staff@gmail.com",
       code: "482916",
-      newPassword: "newpass12",
+      newPassword: "NewPass12!",
     });
   });
 
