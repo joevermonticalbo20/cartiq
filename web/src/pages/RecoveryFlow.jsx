@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Mail, ShieldCheck, Lock } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, Mail, ShieldCheck, Lock } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import ErrorBox from "../components/ErrorBox.jsx";
@@ -27,6 +27,8 @@ export default function RecoveryFlow({ onExitToLogin }) {
   const [verified, setVerified] = useState(false);
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [showPw2, setShowPw2] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
@@ -259,7 +261,7 @@ export default function RecoveryFlow({ onExitToLogin }) {
                 <Lock size={20} className="input-icon" />
                 <input
                   id="recovery-pw"
-                  type="password"
+                  type={showPw ? "text" : "password"}
                   required
                   minLength={8}
                   autoFocus
@@ -268,6 +270,14 @@ export default function RecoveryFlow({ onExitToLogin }) {
                   placeholder="Create New Password"
                   autoComplete="new-password"
                 />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  onClick={() => setShowPw((s) => !s)}
+                  aria-label={showPw ? "Hide password" : "Show password"}
+                >
+                  {showPw ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
               </div>
               <PasswordStrengthMeter value={pw} minLevel="good" />
             </div>
@@ -277,13 +287,21 @@ export default function RecoveryFlow({ onExitToLogin }) {
                 <Lock size={20} className="input-icon" />
                 <input
                   id="recovery-pw2"
-                  type="password"
+                  type={showPw2 ? "text" : "password"}
                   required
                   value={pw2}
                   onChange={(e) => setPw2(e.target.value)}
                   placeholder="Confirm New Password"
                   autoComplete="new-password"
                 />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  onClick={() => setShowPw2((s) => !s)}
+                  aria-label={showPw2 ? "Hide password" : "Show password"}
+                >
+                  {showPw2 ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
               </div>
             </div>
             <ErrorBox message={error} style={{ marginBottom: "var(--space-3)" }} />
