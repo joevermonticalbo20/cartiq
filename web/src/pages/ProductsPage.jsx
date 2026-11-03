@@ -1013,6 +1013,7 @@ export default function ProductsPage() {
                   {
                     key: "name",
                     label: "Name",
+                    width: 200,
                     render: (p) => (
                       <span className="flex flex-wrap items-center gap-1">
                         {p.imageUrl && (
@@ -1049,27 +1050,27 @@ export default function ProductsPage() {
                   {
                     key: "category",
                     label: "Category",
-                    width: 120,
+                    width: 100,
                     render: (p) => <span className="muted">{p.category}</span>,
                   },
                   {
                     key: "basePrice",
                     label: "Base Price",
-                    width: 100,
+                    width: 86,
                     align: "right",
                     render: (p) => <span className="muted">P{Number(p.basePrice ?? 0).toLocaleString()}</span>,
                   },
                   {
                     key: "markupPrice",
                     label: "Markup",
-                    width: 100,
+                    width: 86,
                     align: "right",
                     render: (p) => <span className="muted">P{Number(p.markupPrice ?? 0).toLocaleString()}</span>,
                   },
                   {
                     key: "sellingPrice",
                     label: "Selling Price",
-                    width: 110,
+                    width: 96,
                     align: "right",
                     render: (p) => <strong>P{Number(p.sellingPrice ?? p.basePrice ?? 0).toLocaleString()}</strong>,
                   },
@@ -1079,8 +1080,13 @@ export default function ProductsPage() {
                     // (Medium / Large / XL 40 / XL 50), so the column name
                     // says both instead of calling them only flavors.
                     label: "Sizes / Flavors",
+                    // Fixed min width + clipping: without it a squeezed
+                    // column let badges poke into the Used in cell (the
+                    // overlap reported from the field). The table scrolls
+                    // horizontally instead.
+                    width: 230,
                     render: (p) => (
-                      <span className="flex flex-wrap gap-1">
+                      <span className="flex flex-wrap gap-1" style={{ overflow: "hidden", maxWidth: "100%" }}>
                         {(p.flavors ?? []).map((f) => (
                           <Badge
                             key={f.id}
