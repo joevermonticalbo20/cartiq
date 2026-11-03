@@ -27,6 +27,26 @@ class PosProductCard extends StatelessWidget {
             (item['availableServings'] as num) <= 0);
   }
 
+  /// Product photo when the catalog has one, else null so the caller can
+  /// fall back to the fastfood icon. A broken/offline URL never crashes the
+  /// grid: errorBuilder renders the same icon as a product without a photo.
+  Widget? _photo() {
+    final raw = product['imageUrl'];
+    final url = raw is String ? raw.trim() : '';
+    if (url.isEmpty) return null;
+    return Image.network(
+      url,
+      width: 44,
+      height: 44,
+      fit: BoxFit.cover,
+      errorBuilder: (_, _, _) => const Icon(
+        Icons.fastfood_rounded,
+        size: 22,
+        color: AppColors.primary,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final flavors = product['flavors'] is List
@@ -88,12 +108,14 @@ class PosProductCard extends StatelessWidget {
                           color: AppColors.primary.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(AppRadius.s),
                         ),
+                        clipBehavior: Clip.antiAlias,
                         alignment: Alignment.center,
-                        child: const Icon(
-                          Icons.fastfood_rounded,
-                          size: 22,
-                          color: AppColors.primary,
-                        ),
+                        child: _photo() ??
+                            const Icon(
+                              Icons.fastfood_rounded,
+                              size: 22,
+                              color: AppColors.primary,
+                            ),
                       ),
                       if (inCartQty > 0)
                         Container(

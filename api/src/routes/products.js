@@ -157,6 +157,7 @@ router.get("/products", requireAuth, async (_req, res, next) => {
           basePrice: p.basePrice,
           // Missing on pre-archive docs means active (backwards compatible).
           active: p.active !== false,
+          imageUrl: p.imageUrl ?? null,
           flavorPrices,
           flavors: (p.flavors ?? []).map((f) => ({
             id: f.id,
@@ -185,14 +186,14 @@ router.get("/products", requireAuth, async (_req, res, next) => {
 
 // POST /api/products (OWNER) — add a catalog product, optionally with
 // per-flavor rows.
-// Body: { name*, category?, basePrice*, flavorIds?[], flavors?[] }
+// Body: { name*, category?, basePrice*, flavorIds?[], flavors?[], imageUrl? }
 // flavors[] entries: { flavorId? | name?, unitPrice?, recipes?[] } where
 // recipes[] = { itemName*, amountPerUnit* }. Unknown flavor names are
 // auto-created (same as the Excel import). unitPrice is absolute per flavor
 // and defaults to basePrice; recipes are optional (warn, don't block).
 router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const { name, category, basePrice, flavorIds, flavors } = req.body ?? {};
+    const { name, category, basePrice, flavorIds, flavors, imageUrl } = req.body ?? {};
     if (!validProductName(name)) {
       return res.status(400).json({ error: "name needs at least 2 letters (max 120 characters)" });
     }
@@ -262,6 +263,9 @@ router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, nex
         basePrice: price,
         ...(ids.length ? { flavorIds: ids } : {}),
         ...(Object.keys(flavorPrices).length ? { flavorPrices } : {}),
+        ...(imageUrl !== undefined && imageUrl !== null && String(imageUrl).trim() !== ""
+          ? { imageUrl: String(imageUrl).trim() }
+          : {}),
       },
       include: { flavors: true },
     });
@@ -307,7 +311,7 @@ router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, nex
 // recipe rows is rejected with 409 (delete the rows first).
 router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const { category, basePrice, active, addFlavorIds, removeFlavorIds, flavorPrices, addRecipes, removeRecipes } = req.body ?? {};
+    const { category, basePrice, active, addFlavorIds, removeFlavorIds, flavorPrices, addRecipes, removeRecipes, imageUrl } = req.body ?? {};
     if (
       category === undefined &&
       basePrice === undefined &&
@@ -316,9 +320,10 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
       removeFlavorIds === undefined &&
       flavorPrices === undefined &&
       addRecipes === undefined &&
-      removeRecipes === undefined
+      removeRecipes === undefined &&
+      imageUrl === undefined
     ) {
-      return res.status(400).json({ error: "provide category, basePrice, active, flavorIds, flavorPrices, or recipes" });
+      return res.status(400).json({ error: "provide category, basePrice, active, flavorIds, flavorPrices, recipes, or imageUrl" });
     }
     const existing = await prisma.product.findUnique({
       where: { id: Number(req.params.id) },
@@ -341,6 +346,14 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
         return res.status(400).json({ error: "basePrice must be a positive number" });
       }
       data.basePrice = price;
+    }
+    // Product image: absolute URL or null to clear. Empty string clears too.
+    if (imageUrl !== undefined) {
+      if (imageUrl === null || String(imageUrl).trim() === "") {
+        data.imageUrl = null;
+      } else {
+        data.imageUrl = String(imageUrl).trim();
+      }
     }
     const current = new Set(existing.flavorIds ?? existing.flavors.map((f) => f.id));
     if (addFlavorIds !== undefined || removeFlavorIds !== undefined) {

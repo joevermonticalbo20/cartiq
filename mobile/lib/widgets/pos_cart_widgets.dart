@@ -207,18 +207,28 @@ class PosFlavorPicker extends StatelessWidget {
     );
   }
 
+  /// Whole pesos print bare (P20), centavos keep two decimals (P20.50).
+  String _priceLabel(num value) {
+    final v = value.toDouble();
+    return v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(2);
+  }
+
   Widget _flavorChip(BuildContext context, Map<String, dynamic> flavor) {
     final name = flavor['name'] as String;
     final unavailable = _unavailable(flavor);
     final servings = flavor['availableServings'];
+    // Price makes size options readable (Medium P20 / Large P30 / XL P40)
+    // and shows custom flavor prices; omitted when the catalog is old.
+    final unitPrice = flavor['unitPrice'];
+    final priceSuffix = unitPrice is num ? ' • ₱${_priceLabel(unitPrice)}' : '';
 
     return ChoiceChip(
       label: Text(
         unavailable
-            ? '$name • Out of Stock'
+            ? '$name$priceSuffix • Out of Stock'
             : servings is num && servings <= 10
-            ? '$name • ${servings.toInt()} left'
-            : name,
+            ? '$name$priceSuffix • ${servings.toInt()} left'
+            : '$name$priceSuffix',
       ),
       selected: selectedQuantities.containsKey(name),
       showCheckmark: false,

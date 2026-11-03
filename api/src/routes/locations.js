@@ -18,6 +18,11 @@ const INVENTORY_TEMPLATE = [
   { name: "Sinigang Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
   { name: "Fries (frozen packs)", unit: "packs", stock: 12, threshold: 4, source: "MANUAL" },
   { name: "Pouches", unit: "pcs", stock: 150, threshold: 50, source: "MANUAL" },
+  // Size-based pouches for the Pota Fries menu: sales deduct the pouch that
+  // matches the chosen size (Medium / Large / XL) via the product recipes.
+  { name: "Pouch Medium", unit: "pcs", stock: 150, threshold: 50, source: "MANUAL" },
+  { name: "Pouch Large", unit: "pcs", stock: 150, threshold: 50, source: "MANUAL" },
+  { name: "Pouch XL", unit: "pcs", stock: 150, threshold: 50, source: "MANUAL" },
 ];
 
 function countLetters(s) {

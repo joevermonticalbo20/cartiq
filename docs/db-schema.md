@@ -46,6 +46,7 @@ erDiagram
         string name UK
         float basePrice
         map flavorPrices "optional per-flavor absolute price overrides, keyed by flavor name; missing = basePrice"
+        string imageUrl "optional absolute photo URL shown on POS cards; null = icon fallback"
     }
     INVENTORY_ITEM {
         int id PK

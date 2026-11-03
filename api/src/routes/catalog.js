@@ -36,8 +36,14 @@ router.get("/catalog", requireAuth, async (req, res, next) => {
     const inventoryByName = new Map(inventory.map((item) => [item.name, item]));
     const products = all.filter((p) => p.active !== false);
     const catalog = products.map((product) => {
+      // Per-flavor absolute price (POS size/price options): the Products UI
+      // stores overrides in flavorPrices; missing names fall back to the
+      // product base price, exactly like the management list.
+      const flavorPrices = product.flavorPrices ?? {};
       const flavors = (product.flavors ?? []).map((flavor) => ({
         ...flavor,
+        unitPrice: Number(flavorPrices[flavor.name] ?? product.basePrice),
+        hasCustomPrice: flavorPrices[flavor.name] !== undefined,
         ...recipeAvailability(product.name, flavor.name, maps, inventoryByName),
       }));
       const options = flavors.length

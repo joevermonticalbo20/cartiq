@@ -1272,10 +1272,18 @@ async function handleCatalog(req, origin) {
     .sort(byName)
     .map((p) => {
       const ids = new Set(p.flavorIds || []);
+      // Per-flavor absolute price (POS size/price options): overrides live
+      // in flavorPrices; missing names fall back to the base price.
+      const flavorPrices = p.flavorPrices || {};
       const fl = cleanFlavors
         .filter((f) => ids.has(f.id))
         .sort(byName)
-        .map((f) => ({ ...f, ...availability(p.name, f.name) }));
+        .map((f) => ({
+          ...f,
+          unitPrice: Number(flavorPrices[f.name] ?? p.basePrice),
+          hasCustomPrice: flavorPrices[f.name] !== undefined,
+          ...availability(p.name, f.name),
+        }));
       const c = cleanDoc(p);
       delete c.flavorIds;
       c.flavors = fl;
@@ -1744,6 +1752,11 @@ const INVENTORY_TEMPLATE = [
   { name: "Sinigang Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
   { name: "Fries (frozen packs)", unit: "packs", stock: 12, threshold: 4, source: "MANUAL" },
   { name: "Pouches", unit: "pcs", stock: 150, threshold: 50, source: "MANUAL" },
+  // Size-based pouches for the Pota Fries menu: sales deduct the pouch that
+  // matches the chosen size (Medium / Large / XL) via the product recipes.
+  { name: "Pouch Medium", unit: "pcs", stock: 150, threshold: 50, source: "MANUAL" },
+  { name: "Pouch Large", unit: "pcs", stock: 150, threshold: 50, source: "MANUAL" },
+  { name: "Pouch XL", unit: "pcs", stock: 150, threshold: 50, source: "MANUAL" },
 ];
 
 function countLetters(s) {
@@ -2684,6 +2697,7 @@ function attachFlavors(product, flavors, maps, orders, invNames) {
     basePrice: product.basePrice,
     // Missing on pre-archive docs means active (backwards compatible).
     active: product.active !== false,
+    imageUrl: product.imageUrl ?? null,
     flavorPrices,
     flavors: linked.map((f) => ({
       id: f.id,
@@ -2717,7 +2731,7 @@ async function handleListProducts() {
 
 async function handleCreateProduct(req) {
   const body = await req.json().catch(() => null);
-  const { name, category, basePrice, flavorIds, flavors } = body || {};
+  const { name, category, basePrice, flavorIds, flavors, imageUrl } = body || {};
   if (!validProductName(name)) {
     return { status: 400, body: { error: "name needs at least 2 letters (max 120 characters)" } };
   }
@@ -2788,6 +2802,9 @@ async function handleCreateProduct(req) {
     basePrice: price,
     ...(ids.length ? { flavorIds: ids } : {}),
     ...(Object.keys(flavorPrices).length ? { flavorPrices } : {}),
+    ...(imageUrl !== undefined && imageUrl !== null && String(imageUrl).trim() !== ""
+      ? { imageUrl: String(imageUrl).trim() }
+      : {}),
   };
   writes.push(createWrite("products", doc.id, doc));
   try {
@@ -2828,13 +2845,14 @@ async function handleCreateProduct(req) {
 
 async function handlePatchProduct(req, id) {
   const body = await req.json().catch(() => null);
-  const { category, basePrice, active, addFlavorIds, removeFlavorIds, flavorPrices, addRecipes, removeRecipes } = body || {};
+  const { category, basePrice, active, addFlavorIds, removeFlavorIds, flavorPrices, addRecipes, removeRecipes, imageUrl } = body || {};
   if (
     category === undefined && basePrice === undefined && active === undefined &&
     addFlavorIds === undefined && removeFlavorIds === undefined &&
-    flavorPrices === undefined && addRecipes === undefined && removeRecipes === undefined
+    flavorPrices === undefined && addRecipes === undefined && removeRecipes === undefined &&
+    imageUrl === undefined
   ) {
-    return { status: 400, body: { error: "provide category, basePrice, active, flavorIds, flavorPrices, or recipes" } };
+    return { status: 400, body: { error: "provide category, basePrice, active, flavorIds, flavorPrices, recipes, or imageUrl" } };
   }
   const existing = await fsGet("products", id);
   if (!existing) return { status: 404, body: { error: "Product not found" } };
@@ -2854,6 +2872,12 @@ async function handlePatchProduct(req, id) {
       return { status: 400, body: { error: "basePrice must be a positive number" } };
     }
     data.basePrice = price;
+  }
+  // Product image: absolute URL or null to clear. Empty string clears too.
+  if (imageUrl !== undefined) {
+    data.imageUrl = imageUrl === null || String(imageUrl).trim() === ""
+      ? null
+      : String(imageUrl).trim();
   }
   const allFlavors = await fsListAll("flavors");
   const byId = new Map(allFlavors.map((f) => [Number(f.id), f]));

@@ -280,12 +280,18 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     }
 
     for (final entry in selection.entries) {
+      // Per-flavor price from the catalog (size/price options like Medium
+      // P20 / Large P30 / XL P40). Older cached catalogs have no unitPrice,
+      // so fall back to the product base price.
       final flavor = flavors.firstWhere((item) => item['name'] == entry.key);
       final stock = flavor['availableServings'];
+      final unitPrice = flavor['unitPrice'];
       cart.add(
         product['name'] as String,
         entry.key,
-        (product['basePrice'] as num).toDouble(),
+        unitPrice is num
+            ? unitPrice.toDouble()
+            : (product['basePrice'] as num).toDouble(),
         qty: entry.value,
         maxQty: stock is num ? stock.toInt() : null,
       );

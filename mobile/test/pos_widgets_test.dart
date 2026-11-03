@@ -214,6 +214,45 @@ void main() {
       expect(find.text('BBQ'), findsOneWidget);
     });
 
+    testWidgets('flavor chips show their price when the catalog has one', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          PosFlavorPicker(
+            flavors: const [
+              {
+                'name': 'Medium',
+                'unitPrice': 20,
+                'isAvailable': true,
+                'availableServings': 40,
+              },
+              {
+                'name': 'Large',
+                'unitPrice': 30,
+                'isAvailable': true,
+                'availableServings': 9,
+              },
+              {
+                'name': 'XL',
+                'unitPrice': 40,
+                'isAvailable': true,
+                'availableServings': 3,
+              },
+            ],
+            selectedQuantities: const {},
+            onToggle: (_) {},
+            onQuantityChanged: (_, _) {},
+            onQuickAdd: (_, _) {},
+          ),
+        ),
+      );
+
+      expect(find.text('Medium • ₱20'), findsOneWidget);
+      expect(find.text('Large • ₱30 • 9 left'), findsOneWidget);
+      expect(find.text('XL • ₱40 • 3 left'), findsOneWidget);
+    });
+
     testWidgets('depleted flavors are disabled in the picker', (
       tester,
     ) async {

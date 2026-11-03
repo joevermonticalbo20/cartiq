@@ -79,7 +79,7 @@ export default function ProductsPage() {
   const [addClosing, setAddClosing] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState("");
-  const [newProduct, setNewProduct] = useState({ name: "", category: "Fries", basePrice: "", markupPrice: "", sellingPrice: "" });
+  const [newProduct, setNewProduct] = useState({ name: "", category: "Fries", basePrice: "", markupPrice: "", sellingPrice: "", imageUrl: "" });
   
   const [addFlavorRows, setAddFlavorRows] = useState([]);
   const [addRowErrors, setAddRowErrors] = useState({});
@@ -543,6 +543,7 @@ export default function ProductsPage() {
         basePrice: bp,
         markupPrice: mp,
         sellingPrice: sp,
+        imageUrl: newProduct.imageUrl.trim() || null,
         flavors: checked.payload,
       });
       toast(
@@ -550,7 +551,7 @@ export default function ProductsPage() {
         "success"
       );
       closeAddModal();
-      setNewProduct({ name: "", category: "Fries", basePrice: "", markupPrice: "", sellingPrice: "" });
+      setNewProduct({ name: "", category: "Fries", basePrice: "", markupPrice: "", sellingPrice: "", imageUrl: "" });
       setAddFlavorRows([]);
       setAddRowErrors({});
       setFlavorDraft("");
@@ -625,6 +626,9 @@ export default function ProductsPage() {
       }
     }
 
+    const nextImage = String(editing.imageUrl ?? "").trim();
+    const imageChanged = nextImage !== String(editing._imageUrl ?? "").trim();
+
     if (
       (editing.category || "Fries") === (editing._category || "Fries") &&
       bp === Number(editing._basePrice) &&
@@ -632,6 +636,7 @@ export default function ProductsPage() {
       sp === Number(editing._sellingPrice) &&
       sameLinks &&
       !pricesChanged &&
+      !imageChanged &&
       addRecipes.length === 0
     ) {
       toast("No changes — nothing to update on this product.", "info");
@@ -647,6 +652,7 @@ export default function ProductsPage() {
         markupPrice: mp,
         sellingPrice: sp,
       };
+      if (imageChanged) body.imageUrl = nextImage || null;
       
       const adds = nextIds.filter((id) => !origIds.includes(id));
       const removes = origIds.filter((id) => !nextIds.includes(id));
@@ -671,6 +677,7 @@ export default function ProductsPage() {
       
       if ((editing.category || "Fries") !== (editing._category || "Fries")) details.push("category updated");
       if (sp !== Number(editing._sellingPrice)) details.push(`selling price P${Number(editing._sellingPrice)} ➔ P${sp}`);
+      if (imageChanged) details.push(nextImage ? "image updated" : "image removed");
 
       toast(
         `Product "${editing.name}" updated${details.length ? ` (${details.join("; ")})` : ""}`,
@@ -757,6 +764,7 @@ export default function ProductsPage() {
       basePrice: String(p.basePrice ?? ""),
       markupPrice: String(Math.max(0, sellingPriceSnapshot - basePriceSnapshot)),
       sellingPrice: String(sellingPriceSnapshot),
+      imageUrl: p.imageUrl ?? "",
       flavorRows: (p.flavors ?? []).map((f) => newFlavorRowState({
         flavorId: f.id,
         unitPrice: f.hasCustomPrice ? String(prices[f.name] ?? f.unitPrice ?? "") : "",
@@ -777,6 +785,7 @@ export default function ProductsPage() {
       _basePrice: basePriceSnapshot,
       _markupPrice: Math.max(0, sellingPriceSnapshot - basePriceSnapshot),
       _sellingPrice: sellingPriceSnapshot,
+      _imageUrl: p.imageUrl ?? "",
       _flavorIds: (p.flavors ?? []).map((f) => f.id),
       _flavorPrices: prices,
       rowErrors: {},
@@ -866,6 +875,16 @@ export default function ProductsPage() {
                     label: "Name",
                     render: (p) => (
                       <span className="flex flex-wrap items-center gap-1">
+                        {p.imageUrl && (
+                          <img
+                            src={p.imageUrl}
+                            alt=""
+                            width={28}
+                            height={28}
+                            loading="lazy"
+                            style={{ width: 28, height: 28, borderRadius: 8, objectFit: "cover", flex: "0 0 auto" }}
+                          />
+                        )}
                         <strong>{p.name}</strong>
                         {p.active === false && <Badge variant="neutral">Archived</Badge>}
                       </span>
@@ -1028,6 +1047,17 @@ export default function ProductsPage() {
                   </label>
                 </div>
 
+                <label className="field">
+                  Product Image URL <span className="muted small">(optional)</span>
+                  <input
+                    type="url"
+                    maxLength={500}
+                    placeholder="https://... image shown on the POS product card"
+                    value={newProduct.imageUrl}
+                    onChange={(e) => setNewProduct({ ...newProduct, imageUrl: e.target.value })}
+                  />
+                </label>
+
                 {/* PRICING GRID */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "20px" }}>
                   <label className="field">
@@ -1110,6 +1140,17 @@ export default function ProductsPage() {
                     maxLength={60}
                     value={editing?.category || ""}
                     onChange={(e) => setEditing({ ...editing, category: e.target.value })}
+                  />
+                </label>
+
+                <label className="field">
+                  Product Image URL <span className="muted small">(optional)</span>
+                  <input
+                    type="url"
+                    maxLength={500}
+                    placeholder="https://... image shown on the POS product card"
+                    value={editing?.imageUrl ?? ""}
+                    onChange={(e) => setEditing({ ...editing, imageUrl: e.target.value })}
                   />
                 </label>
 
