@@ -53,7 +53,7 @@ export default function PasswordStrengthMeter({ value = "", minLevel = null }) {
         <span className="pw-strength-label" aria-live="polite">
           {LEVEL_LABEL[level]}
         </span>
-        {minLevel && !meetsMin && (
+        {minLevel && showChecks && !meetsMin && (
           <span className="pw-strength-warn" role="status">
             Min strength required: {minLevel}
           </span>

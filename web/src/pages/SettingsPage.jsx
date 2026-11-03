@@ -1,6 +1,22 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
-import { KeyRound, Plus, RefreshCw, Eye, EyeOff, Edit2, Trash2, Cpu, ShoppingCart, Users } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Cpu,
+  Edit2,
+  Eye,
+  EyeOff,
+  Info,
+  KeyRound,
+  Lock,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  ShoppingCart,
+  Trash2,
+  Users,
+} from "lucide-react";
 
 import api, { clearSession } from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
@@ -708,165 +724,227 @@ export default function SettingsPage() {
           </section>
 
           {/* CHANGE PASSWORD PANEL */}
-          <section className="panel" style={{ padding: "var(--space-5)" }}>
-            <h3 className="section-title" style={{ padding: 0, borderBottom: "none", marginBottom: "var(--space-4)" }}>
-              Change password
-            </h3>
-            
+          <section className="panel settings-pw" style={{ padding: "var(--space-5)" }}>
+            <div className="settings-pw-head">
+              <span className="settings-pw-icon" aria-hidden="true">
+                <ShieldCheck size={21} />
+              </span>
+              <div>
+                <h3 className="settings-pw-title">Change password</h3>
+                <p className="settings-pw-sub">
+                  Verify it&apos;s you, then choose a new password. You&apos;ll be signed out afterward.
+                </p>
+              </div>
+            </div>
+
             {!profile && !profileError ? (
               <div className="flex flex-col gap-3">
                 <Skeleton rows={4} height={36} />
               </div>
             ) : (
-              <form onSubmit={changePassword} className="flex flex-col gap-4">
-                {/* Current password */}
-                <label className="field">
-                  <span className="field-label">Current password</span>
-                  <div className="input-wrapper">
-                    <input
-                      type={showPw.current ? "text" : "password"}
-                      value={pw.current}
-                      onChange={(e) => setPw({ ...pw, current: e.target.value })}
-                      required
-                      autoComplete="current-password"
-                      placeholder="Enter current password"
-                      style={{ height: "36px", width: "100%", paddingRight: "36px" }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPw({ ...showPw, current: !showPw.current })}
-                      style={toggleBtnStyle}
-                      aria-label={showPw.current ? "Hide password" : "Show password"}
-                    >
-                      {showPw.current ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
+              <form onSubmit={changePassword} className="settings-pw-form">
+                {/* STEP 1 - VERIFY IDENTITY */}
+                <div className="settings-pw-section">
+                  <div className="settings-pw-section-head">
+                    <span className="settings-pw-step" aria-hidden="true">1</span>
+                    <div>
+                      <h4 className="settings-pw-section-title">Verify your identity</h4>
+                      <p className="settings-pw-section-sub">
+                        Use your current password and a one-time code from your recovery email.
+                      </p>
+                    </div>
                   </div>
-                </label>
 
-                {/* Recovery code */}
-                <div className="field">
-                  <div className="flex items-center justify-between gap-2" style={{ marginBottom: "6px" }}>
-                    <span className="field-label" style={{ margin: 0 }}>Recovery code</span>
-                    <button
-                      type="button"
-                      className="ghost small-btn"
-                      onClick={sendPwCode}
-                      disabled={isSendingPwCode || pwCodeCooldown > 0 || !hasRealEmail}
-                      style={{ fontSize: "12px" }}
-                    >
-                      {isSendingPwCode
-                        ? "Sending..."
-                        : pwCodeCooldown > 0
-                          ? `Resend in ${pwCodeCooldown}s`
-                          : pwCodeSent
-                            ? "Resend code"
-                            : "Send code"}
-                    </button>
+                  <div className="settings-pw-grid">
+                    <div className="settings-pw-field">
+                      <label className="settings-pw-label" htmlFor="settings-pw-current">
+                        Current password
+                      </label>
+                      <div className="settings-pw-input">
+                        <Lock size={16} className="settings-pw-input-icon" aria-hidden="true" />
+                        <input
+                          id="settings-pw-current"
+                          type={showPw.current ? "text" : "password"}
+                          value={pw.current}
+                          onChange={(e) => setPw({ ...pw, current: e.target.value })}
+                          required
+                          autoComplete="current-password"
+                          placeholder="Enter current password"
+                        />
+                        <button
+                          type="button"
+                          className="settings-pw-eye"
+                          onClick={() => setShowPw({ ...showPw, current: !showPw.current })}
+                          aria-label={showPw.current ? "Hide password" : "Show password"}
+                        >
+                          {showPw.current ? <EyeOff size={17} /> : <Eye size={17} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="settings-pw-field">
+                      <div className="settings-pw-label-row">
+                        <label className="settings-pw-label" htmlFor="settings-pw-code">
+                          Recovery code
+                        </label>
+                        <button
+                          type="button"
+                          className="settings-pw-send"
+                          onClick={sendPwCode}
+                          disabled={isSendingPwCode || pwCodeCooldown > 0 || !hasRealEmail}
+                        >
+                          {isSendingPwCode
+                            ? "Sending..."
+                            : pwCodeCooldown > 0
+                              ? `Resend in ${pwCodeCooldown}s`
+                              : pwCodeSent
+                                ? "Resend code"
+                                : "Send code"}
+                        </button>
+                      </div>
+                      <div className="settings-pw-input settings-pw-code-input">
+                        <input
+                          id="settings-pw-code"
+                          value={pw.code}
+                          onChange={(e) => setPw({ ...pw, code: e.target.value.replace(/\D/g, "").slice(0, 6) })}
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          placeholder="6-digit code"
+                          maxLength={6}
+                          aria-describedby="settings-pw-code-hint"
+                        />
+                      </div>
+                      {pwCodeSent ? (
+                        <p className="settings-pw-hint is-sent" id="settings-pw-code-hint">
+                          <CheckCircle2 size={13} aria-hidden="true" />
+                          Sent to {pwCodeEmail || displayEmail}. It expires in 10 minutes.
+                        </p>
+                      ) : (
+                        <p className="settings-pw-hint" id="settings-pw-code-hint">
+                          <Info size={13} aria-hidden="true" />
+                          We&apos;ll email a 6-digit code before the password can change.
+                        </p>
+                      )}
+                      {!hasRealEmail && (
+                        <div className="settings-pw-alert" role="status">
+                          <span className="settings-pw-alert-text">
+                            <AlertCircle size={14} aria-hidden="true" />
+                            Your recovery email is a placeholder.
+                          </span>
+                          <button type="button" className="settings-pw-alert-btn" onClick={openEmailModal}>
+                            Add email
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="input-wrapper">
-                    <input
-                      value={pw.code}
-                      onChange={(e) => setPw({ ...pw, code: e.target.value.replace(/\D/g, "").slice(0, 6) })}
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      placeholder="6-digit code"
-                      maxLength={6}
-                      style={{ height: "36px", width: "100%", paddingRight: "12px", textAlign: "center", letterSpacing: "4px", fontWeight: 700, fontSize: "16px" }}
-                    />
-                  </div>
-                  {pwCodeSent ? (
-                    <p className="muted small" style={{ margin: "6px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
-                      <span style={{ color: "var(--success, #22c55e)" }}>✓</span>
-                      Sent to {pwCodeEmail || displayEmail}. Expires in 10 minutes.
-                    </p>
-                  ) : (
-                    <p className="muted small" style={{ margin: "6px 0 0" }}>
-                      We&apos;ll email a 6-digit code before the password can change.
-                    </p>
-                  )}
-                  {!hasRealEmail && (
-                    <p className="muted small" style={{ margin: "4px 0 0" }}>
-                      Your recovery email is a placeholder.{" "}
-                      <button type="button" className="ghost small-btn" onClick={openEmailModal}>
-                        Add a real email
-                      </button>
-                    </p>
-                  )}
                 </div>
 
-                {/* Divider */}
-                <div style={{ height: "1px", background: "var(--border)", margin: "4px 0" }} />
-
-                {/* New password */}
-                <label className="field">
-                  <span className="field-label">New password</span>
-                  <div className="input-wrapper">
-                    <input
-                      type={showPw.next ? "text" : "password"}
-                      value={pw.next}
-                      onChange={(e) => {
-                        setPw({ ...pw, next: e.target.value });
-                        if (pwError.includes("match") && pw.confirm === e.target.value) {
-                          setPwError("");
-                        }
-                      }}
-                      required
-                      minLength={8}
-                      autoComplete="new-password"
-                      placeholder="At least 8 characters"
-                      style={{ height: "36px", width: "100%", paddingRight: "36px" }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPw({ ...showPw, next: !showPw.next })}
-                      style={toggleBtnStyle}
-                      aria-label={showPw.next ? "Hide password" : "Show password"}
-                    >
-                      {showPw.next ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
+                {/* STEP 2 - NEW PASSWORD */}
+                <div className="settings-pw-section">
+                  <div className="settings-pw-section-head">
+                    <span className="settings-pw-step" aria-hidden="true">2</span>
+                    <div>
+                      <h4 className="settings-pw-section-title">Choose a new password</h4>
+                      <p className="settings-pw-section-sub">
+                        Use 8+ characters with uppercase, lowercase, a number, and a symbol.
+                      </p>
+                    </div>
                   </div>
-                  <PasswordStrengthMeter value={pw.next} minLevel="good" />
-                </label>
 
-                <label className="field">
-                  <span className="field-label">Confirm new password</span>
-                  <div className="input-wrapper">
-                    <input
-                      type={showPw.confirm ? "text" : "password"}
-                      value={pw.confirm}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setPw({ ...pw, confirm: val });
-                        if (pwError.includes("match") && pw.next === val) {
-                          setPwError("");
-                        }
-                      }}
-                      onBlur={() => {
-                        if (pw.confirm && pw.confirm !== pw.next) {
-                          setPwError("New passwords do not match - check the confirmation field.");
-                        }
-                      }}
-                      required
-                      autoComplete="new-password"
-                      placeholder="Re-enter new password"
-                      style={{ height: "36px", width: "100%", paddingRight: "36px" }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPw({ ...showPw, confirm: !showPw.confirm })}
-                      style={toggleBtnStyle}
-                      aria-label={showPw.confirm ? "Hide password" : "Show password"}
-                    >
-                      {showPw.confirm ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
+                  <div className="settings-pw-grid">
+                    <div className="settings-pw-field">
+                      <label className="settings-pw-label" htmlFor="settings-pw-next">
+                        New password
+                      </label>
+                      <div className="settings-pw-input">
+                        <KeyRound size={16} className="settings-pw-input-icon" aria-hidden="true" />
+                        <input
+                          id="settings-pw-next"
+                          type={showPw.next ? "text" : "password"}
+                          value={pw.next}
+                          onChange={(e) => {
+                            setPw({ ...pw, next: e.target.value });
+                            if (pwError.includes("match") && pw.confirm === e.target.value) {
+                              setPwError("");
+                            }
+                          }}
+                          required
+                          minLength={8}
+                          autoComplete="new-password"
+                          placeholder="At least 8 characters"
+                          aria-describedby="settings-pw-strength"
+                        />
+                        <button
+                          type="button"
+                          className="settings-pw-eye"
+                          onClick={() => setShowPw({ ...showPw, next: !showPw.next })}
+                          aria-label={showPw.next ? "Hide password" : "Show password"}
+                        >
+                          {showPw.next ? <EyeOff size={17} /> : <Eye size={17} />}
+                        </button>
+                      </div>
+                      <div id="settings-pw-strength">
+                        <PasswordStrengthMeter value={pw.next} minLevel="good" />
+                      </div>
+                    </div>
+
+                    <div className="settings-pw-field">
+                      <label className="settings-pw-label" htmlFor="settings-pw-confirm">
+                        Confirm new password
+                      </label>
+                      <div className="settings-pw-input">
+                        <KeyRound size={16} className="settings-pw-input-icon" aria-hidden="true" />
+                        <input
+                          id="settings-pw-confirm"
+                          type={showPw.confirm ? "text" : "password"}
+                          value={pw.confirm}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setPw({ ...pw, confirm: val });
+                            if (pwError.includes("match") && pw.next === val) {
+                              setPwError("");
+                            }
+                          }}
+                          required
+                          autoComplete="new-password"
+                          placeholder="Re-enter new password"
+                        />
+                        <button
+                          type="button"
+                          className="settings-pw-eye"
+                          onClick={() => setShowPw({ ...showPw, confirm: !showPw.confirm })}
+                          aria-label={showPw.confirm ? "Hide password" : "Show password"}
+                        >
+                          {showPw.confirm ? <EyeOff size={17} /> : <Eye size={17} />}
+                        </button>
+                      </div>
+                      {pw.confirm && pw.next === pw.confirm ? (
+                        <p className="settings-pw-hint is-sent" role="status">
+                          <CheckCircle2 size={13} aria-hidden="true" /> Passwords match.
+                        </p>
+                      ) : pw.confirm ? (
+                        <p className="settings-pw-hint is-warn" role="status">
+                          <AlertCircle size={13} aria-hidden="true" /> Passwords don&apos;t match yet.
+                        </p>
+                      ) : (
+                        <p className="settings-pw-hint">
+                          <Info size={13} aria-hidden="true" /> Re-enter the same password to confirm.
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </label>
+                </div>
 
-                <div className="flex items-center gap-3" style={{ marginTop: "var(--space-2)" }}>
-                  <button type="submit" className="ghost small-btn" disabled={isChanging || !pwCodeSent} style={{ padding: "8px 16px", fontSize: "14px", fontWeight: 600 }}>
-                    <KeyRound size={14} /> {isChanging ? "Updating..." : "Update password"}
+                {pwError && <p className="error-box" role="alert" style={{ margin: 0 }}>{pwError}</p>}
+
+                <div className="settings-pw-footer">
+                  <p className="settings-pw-note">
+                    <Info size={14} aria-hidden="true" /> You&apos;ll be signed out after the update.
+                  </p>
+                  <button type="submit" className="settings-pw-submit" disabled={isChanging || !pwCodeSent}>
+                    <KeyRound size={15} /> {isChanging ? "Updating..." : "Update password"}
                   </button>
-                  {pwError && <p className="error-box" role="alert" style={{ margin: 0, flex: 1 }}>{pwError}</p>}
                 </div>
               </form>
             )}
