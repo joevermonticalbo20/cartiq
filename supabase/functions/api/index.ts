@@ -1820,6 +1820,10 @@ async function handleOrderReceiptGet(orderId, origin, user) {
   return new Response(bytes, {
     status: 200,
     headers: {
+      // A raw Response bypasses jsonRes, so the CORS headers must be added
+      // explicitly — without them the dashboard's blob fetch is blocked by
+      // the browser even though the token is valid.
+      ...corsHeaders(origin),
       "content-type": String(doc.mime || "image/jpeg"),
       "cache-control": "private, max-age=3600",
     },

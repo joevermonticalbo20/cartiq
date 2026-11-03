@@ -15,6 +15,7 @@ import bcrypt from "bcryptjs";
 import { db } from "../src/firestore.js";
 
 const API = "https://ezynbxzarxozzmwqdjxs.supabase.co/functions/v1/api";
+const WEB_ORIGIN = "https://cartiq-8e46f.web.app";
 const USERNAME = "zz-flows-check";
 const PASSWORD = "FlowsCheck#2026";
 const CART = "CART-01";
@@ -126,12 +127,36 @@ try {
     });
     check("receipt upload accepted", up.status === 200 && up.body?.receipt?.bytes === photo.length, `${up.status} ${JSON.stringify(up.body?.receipt)}`);
     // Byte-exact comparison straight off the wire (res.text() would decode
-    // the JPEG and mangle the length).
+    // the JPEG and mangle the length). Origin header included: the dashboard
+    // fetches this with XHR, so a missing CORS header breaks the owner's
+    // receipt viewer even though the token is valid.
     const raw = await fetch(`${API}/orders/${orderId}/receipt`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, Origin: WEB_ORIGIN },
     });
     const served = new Uint8Array(await raw.arrayBuffer());
     check("receipt GET returns the exact bytes", raw.status === 200 && served.length === photo.length, `${raw.status} ${served.length}/${photo.length}`);
+    check(
+      "receipt GET carries the web CORS header",
+      raw.headers.get("access-control-allow-origin") === WEB_ORIGIN,
+      String(raw.headers.get("access-control-allow-origin"))
+    );
+    const preflight = await fetch(`${API}/orders/${orderId}/receipt`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: WEB_ORIGIN,
+        "Access-Control-Request-Method": "GET",
+        "Access-Control-Request-Headers": "authorization",
+      },
+    });
+    check(
+      "receipt preflight allows the web origin + authorization header",
+      preflight.status === 204 &&
+        preflight.headers.get("access-control-allow-origin") === WEB_ORIGIN &&
+        String(preflight.headers.get("access-control-allow-headers") || "")
+          .toLowerCase()
+          .includes("authorization"),
+      `${preflight.status} ${preflight.headers.get("access-control-allow-origin")}`
+    );
     const anon = await api(`/orders/${orderId}/receipt`, {});
     check("receipt GET is private (401 without a token)", anon.status === 401, `got ${anon.status}`);
   }
