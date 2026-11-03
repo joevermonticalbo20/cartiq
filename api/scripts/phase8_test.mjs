@@ -58,7 +58,8 @@ async function main() {
     body: { code: "CART-04", name: "Test New Canteen", address: "Test Address" },
   });
   check("add CART-04 201", created.status === 201, `got ${created.status}`);
-  check("starter inventory seeded (7 rows)", created.data?.items?.length === 7);
+  // 7 base rows + Pouch Medium / Large / XL (size-based pouches).
+  check("starter inventory seeded (10 rows)", created.data?.items?.length === 10);
   check("device token issued once", typeof created.data?.deviceToken === "string" &&
     created.data.deviceToken.startsWith("dev-CART-04-"));
   check("device id derived", created.data?.device?.deviceId === "esp32-cart-04");
@@ -79,7 +80,7 @@ async function main() {
 
   const list = await req("/locations", { token: tok });
   const row = (list.data?.data ?? []).find((l) => l.code === "CART-04");
-  check("CART-04 listed with counts", row?.itemCount === 7 && row?.status === "ACTIVE");
+  check("CART-04 listed with counts", row?.itemCount === 10 && row?.status === "ACTIVE");
 
   const catalog = await req("/catalog", { token: tok });
   check("new cart in POS catalog", (catalog.data?.locations ?? []).some((l) => l.code === "CART-04"));
