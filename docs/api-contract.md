@@ -157,7 +157,7 @@ envelope `{ data:[...], meta:{ total, page, pageSize, totalPages } }`.
 | `/auth/staff/:id` | PATCH | OWNER enables/disables account, resets password, reassigns cart/RFID/email (unique address, empty clears). Disabled accounts are rejected at login. A password reset revokes sessions + codes; an email change revokes codes. Your OWN password/email must go through Settings (`/auth/change-password`, `PATCH /auth/me`) so the email code/current password is enforced. |
 
 Web UI rebuilt as a multi-page app shell: collapsible sidebar (Dashboard,
-Sales, Inventory, Staff & Shifts, Analytics, Expenses, Data Hub, Settings),
+Sales, Inventory, Staff & Shifts, Analytics, Expenses, Import & Export, Settings),
 nested routes with per-module URLs, toast notifications, confirm dialogs,
 skeleton loaders, table filters and client pagination against the meta
 envelope.

@@ -234,7 +234,7 @@ export function setupAuthInterceptor(navigate) {
 api.interceptors.request.use((config) => {
   const token = readStored(TOKEN_KEY);
   if (token) config.headers.Authorization = `Bearer ${token}`;
-  // FormData uploads (Data Hub .xlsx import) need the browser's multipart
+  // FormData uploads (Import & Export .xlsx import) need the browser's multipart
   // boundary. The instance default is application/json, so drop it here and
   // let axios set multipart/form-data automatically.
   if (config.data instanceof FormData && config.headers) {
@@ -262,7 +262,7 @@ export class ApiError extends Error {
 
 /**
  * Safe display text for a caught request error. Uses the shared formatter so
- * Data Hub and other callers cannot render raw axios or database internals.
+ * Import & Export and other callers cannot render raw axios or database internals.
  */
 export function getErrorMessage(err, fallback = "Request failed") {
   if (err instanceof ApiError) return getFriendlyError(err, fallback);

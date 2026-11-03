@@ -46,7 +46,7 @@ const NAV_GROUPS = [
   {
     label: "Tools",
     items: [
-      { to: "/data", label: "Data Hub", icon: FileSpreadsheet },
+      { to: "/data", label: "Import & Export", icon: FileSpreadsheet },
       { to: "/settings", label: "Settings", icon: SettingsIcon },
     ]
   }
