@@ -2709,10 +2709,18 @@ const IMAGE_PREFIX = {
   "image/webp": "UklGR",
 };
 
-/** Absolute base of this deployment's public API, from the request URL. */
+/**
+ * Absolute base of this deployment's public API. Supabase terminates TLS at
+ * the proxy, so the function sees an http:// request URL; the forwarded
+ * proto (https) is what clients must use — an http image URL would be
+ * cleartext traffic the POS has to special-case.
+ */
 function apiPublicBase(req) {
   const u = new URL(req.url);
-  return u.origin + "/functions/v1/api";
+  const proto = String(req.headers.get("x-forwarded-proto") || u.protocol.replace(":", "") || "https")
+    .split(",")[0]
+    .trim();
+  return `${proto || "https"}://${u.host}/functions/v1/api`;
 }
 
 function uploadedImageUrl(imageBase, productId, updatedMs) {
