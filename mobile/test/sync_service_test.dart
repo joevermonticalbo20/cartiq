@@ -15,6 +15,13 @@ class _FakeApi extends ApiClient {
   final List<Object?> script = [];
   int calls = 0;
   Future<void> Function()? onSubmit;
+  Map<String, dynamic> submitResponse = {'ok': true};
+  Map<String, dynamic>? lastOrderBody;
+
+  // Receipt attach capture.
+  int? receiptOrderId;
+  String? receiptMime;
+  String? receiptData;
 
   @override
   Future<bool> health() async => healthy;
@@ -24,12 +31,28 @@ class _FakeApi extends ApiClient {
     Map<String, dynamic> payload,
     String token,
   ) async {
+    lastOrderBody = payload;
     await onSubmit?.call();
     final outcome = calls < script.length ? script[calls] : null;
     calls++;
     if (outcome is ApiException) throw outcome;
     if (outcome is Exception) throw outcome;
-    return {'ok': true};
+    return submitResponse;
+  }
+
+  @override
+  Future<Map<String, dynamic>> uploadOrderReceipt(
+    String token,
+    int orderId, {
+    required String mime,
+    required String data,
+  }) async {
+    receiptOrderId = orderId;
+    receiptMime = mime;
+    receiptData = data;
+    return {
+      'receipt': {'bytes': data.length},
+    };
   }
 }
 
@@ -318,5 +341,42 @@ void main() {
       expect(result.remaining, 1);
       expect(await queue.count, 1);
     });
+  });
+
+  test('a queued GCash sale syncs the order and attaches its receipt', () async {
+    api.submitResponse = {
+      'duplicate': false,
+      'order': {'id': 99},
+    };
+    await queue.enqueue(
+      QueuedRecord(
+        id: 'with-receipt',
+        kind: 'order',
+        payload: {
+          'clientRef': 'with-receipt',
+          'locationCode': 'CART-01',
+          'items': [
+            {
+              'productName': 'Cheese Fries',
+              'flavor': 'Medium',
+              'qty': 1,
+              'unitPrice': 20,
+            },
+          ],
+          'receipt': {'mime': 'image/jpeg', 'data': '/9j/AAAA'},
+        },
+      ),
+    );
+
+    final result = await sync.syncAll();
+
+    expect(result.synced, 1);
+    // The photo is NOT part of the order body sent to POST /orders...
+    expect(api.lastOrderBody?.containsKey('receipt'), isFalse);
+    // ...it is attached to the recorded order afterwards.
+    expect(api.receiptOrderId, 99);
+    expect(api.receiptMime, 'image/jpeg');
+    expect(api.receiptData, '/9j/AAAA');
+    expect(queue.items, isEmpty);
   });
 }

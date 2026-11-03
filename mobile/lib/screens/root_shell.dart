@@ -36,6 +36,7 @@ class _RootShellState extends State<RootShell> {
       2; // Perfectly centered now! (0: POS, 1: Receipts, 2: Home, 3: History, 4: Settings)
 
   final _receiptsKey = GlobalKey<ReceiptsScreenState>();
+  final _settingsKey = GlobalKey<SettingsScreenState>();
   final _queue = PersistedOfflineQueue.instance;
   late final SyncService _sync;
   late final StreamSubscription<int> _queueSubscription;
@@ -278,6 +279,12 @@ class _RootShellState extends State<RootShell> {
     final ok = await showPinSetupFlow(context, auth);
     if (!mounted) return;
 
+    // The Settings tab is built with the shell and kept alive in the
+    // IndexedStack, so its Offline PIN row still says OFF right after this
+    // prompt sets one. Reload it now (and again whenever the tab is opened)
+    // — the stale row is what made the PIN look unsaved.
+    _settingsKey.currentState?.reload();
+
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -331,7 +338,7 @@ class _RootShellState extends State<RootShell> {
                     },
                   ),
                   HistoryScreen(onNewSale: () => setState(() => _index = 0)),
-                  const SettingsScreen(),
+                  SettingsScreen(key: _settingsKey),
                   // TINANGGAL NA ANG LIVE STOCK SCREEN DITO SA INDEXED STACK
                 ],
               ),
@@ -443,6 +450,12 @@ class _RootShellState extends State<RootShell> {
                                     onTap: () {
                                       Haptics.tap();
                                       setState(() => _index = i);
+                                      // Fresh data on every visit: the
+                                      // screens stay alive in the
+                                      // IndexedStack, so a PIN set after
+                                      // this tab was first built would
+                                      // otherwise keep showing as OFF.
+                                      if (i == 4) _settingsKey.currentState?.reload();
                                     },
                                     behavior: HitTestBehavior.opaque,
                                     child: SizedBox(
