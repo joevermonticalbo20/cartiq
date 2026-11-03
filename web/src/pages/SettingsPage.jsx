@@ -863,8 +863,8 @@ export default function SettingsPage() {
                 </label>
 
                 <div className="flex items-center gap-3" style={{ marginTop: "var(--space-2)" }}>
-                  <button type="submit" className="login-submit-btn" disabled={isChanging || !pwCodeSent} style={{ width: "auto", minWidth: "160px" }}>
-                    <KeyRound size={15} /> {isChanging ? "Updating..." : "Update password"}
+                  <button type="submit" className="ghost small-btn" disabled={isChanging || !pwCodeSent} style={{ padding: "8px 16px", fontSize: "14px", fontWeight: 600 }}>
+                    <KeyRound size={14} /> {isChanging ? "Updating..." : "Update password"}
                   </button>
                   {pwError && <p className="error-box" role="alert" style={{ margin: 0, flex: 1 }}>{pwError}</p>}
                 </div>
