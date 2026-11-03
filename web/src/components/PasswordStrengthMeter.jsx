@@ -19,7 +19,7 @@ export function evaluatePassword(pw = "") {
 }
 
 const LEVEL_LABEL = {
-  empty: "Start typing to check strength",
+  empty: "",
   weak: "Weak",
   fair: "Fair",
   good: "Good",

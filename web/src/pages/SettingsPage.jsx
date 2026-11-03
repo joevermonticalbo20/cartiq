@@ -918,11 +918,7 @@ export default function SettingsPage() {
                         <p className="settings-pw-hint is-warn" role="status">
                           <AlertCircle size={13} aria-hidden="true" /> Passwords don&apos;t match yet.
                         </p>
-                      ) : (
-                        <p className="settings-pw-hint">
-                          <Info size={13} aria-hidden="true" /> Re-enter the same password to confirm.
-                        </p>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 </div>
