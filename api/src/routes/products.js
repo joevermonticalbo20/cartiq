@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db as prisma } from "../firestore.js";
+import { db as prisma, bumpCatalogVersion } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { sortFlavorRows } from "../services/flavor_order.js";
 import {
@@ -12,6 +12,17 @@ import {
 } from "../services/product_images.js";
 
 const router = Router();
+
+// The menu changed: bump the catalog version the POS app polls (1 read) so
+// every open device refreshes without being asked. Best-effort only — a
+// version bump must never fail the mutation itself.
+async function touchCatalog() {
+  try {
+    await bumpCatalogVersion();
+  } catch {
+    /* best-effort */
+  }
+}
 
 function countLetters(s) {
   const m = String(s ?? "").match(/\p{L}/gu);
@@ -300,6 +311,7 @@ router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, nex
       if (out.error) return res.status(400).json({ error: out.error });
       recipesCreated += out.created;
     }
+    await touchCatalog();
     return res.status(201).json({
       product: { ...product, flavorPrices },
       flavorsCreated: resolved.created.length,
@@ -496,6 +508,7 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
         await prisma.ingredientMap.deleteMany({ where: { productName: existing.name, flavor, itemName } });
       }
     }
+    await touchCatalog();
     return res.json({ product, recipesChanged, unmatchedItems });
   } catch (err) {
     return next(err);
@@ -541,6 +554,7 @@ router.patch("/products/:id/rename", requireAuth, requireRole("OWNER"), async (r
     // Recipe rows were rewritten through the raw txn handle (bypasses the
     // read cache) — invalidate so the next GET sees the new names.
     prisma._invalidateModel("ingredientMaps");
+    await touchCatalog();
     return res.json({ product: outcome.updated, mapsUpdated: outcome.mapsUpdated });
   } catch (err) {
     return next(err);
@@ -570,6 +584,7 @@ router.delete("/products/:id", requireAuth, requireRole("OWNER"), async (req, re
     }
     await imageDoc(existing.id).delete();
     await prisma.product.delete({ where: { id: existing.id } });
+    await touchCatalog();
     return res.json({ deleted: true });
   } catch (err) {
     if (err.code === "P2025") return res.status(404).json({ error: "Product not found" });
@@ -665,6 +680,7 @@ router.post("/flavors", requireAuth, requireRole("OWNER"), async (req, res, next
       return res.status(409).json({ error: `Flavor "${flavorName}" already exists` });
     }
     const flavor = await prisma.flavor.create({ data: { name: flavorName } });
+    await touchCatalog();
     return res.status(201).json({ flavor });
   } catch (err) {
     if (err.code === "P2002") return res.status(409).json({ error: "Flavor already exists" });
@@ -717,6 +733,7 @@ router.patch("/flavors/:id", requireAuth, requireRole("OWNER"), async (req, res,
     });
     // Same as product rename: maps + price keys moved under the raw handle.
     prisma._invalidateModel("ingredientMaps");
+    await touchCatalog();
     return res.json({ flavor: outcome.updated, mapsUpdated: outcome.mapsUpdated, pricesRewritten: outcome.pricesRewritten });
   } catch (err) {
     return next(err);
@@ -744,6 +761,7 @@ router.delete("/flavors/:id", requireAuth, requireRole("OWNER"), async (req, res
       });
     }
     await prisma.flavor.delete({ where: { id: existing.id } });
+    await touchCatalog();
     return res.json({ deleted: true });
   } catch (err) {
     if (err.code === "P2025") return res.status(404).json({ error: "Flavor not found" });

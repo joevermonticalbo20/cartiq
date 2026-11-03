@@ -29,7 +29,7 @@ import { createRequire } from "node:module";
 // createRequire loads it correctly regardless of CJS/ESM packaging.
 const require = createRequire(import.meta.url);
 const { initializeApp, getApps, applicationDefault, cert, deleteApp } = require("firebase-admin/app");
-const { getFirestore, Timestamp } = require("firebase-admin/firestore");
+const { getFirestore, Timestamp, FieldValue } = require("firebase-admin/firestore");
 
 const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "cartiq-8e46f";
 
@@ -743,6 +743,27 @@ function buildDb(ctx) {
     if (!handle[alias]) handle[alias] = handle[model];
   }
   return handle;
+}
+
+// ---------- catalog version ----------
+// One tiny document the POS app polls (1 read) to discover menu changes made
+// on the dashboard without refetching the whole catalog (~200 reads) every
+// poll. Bumped by every product/flavor/recipe mutation.
+export async function bumpCatalogVersion() {
+  await fs.collection("catalogMeta").doc("catalog").set(
+    { version: FieldValue.increment(1), updatedAt: Timestamp.now() },
+    { merge: true },
+  );
+}
+
+export async function readCatalogVersion() {
+  try {
+    const snap = await fs.collection("catalogMeta").doc("catalog").get();
+    const v = snap.exists ? Number(snap.data()?.version) : 0;
+    return Number.isFinite(v) ? v : 0;
+  } catch {
+    return 0;
+  }
 }
 
 export const db = {

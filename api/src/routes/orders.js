@@ -4,6 +4,7 @@ import { requireAuth, requireRole, assertOwnLocation } from "../middleware/auth.
 import { flavorSharesForOrderLine, fmtStock, mapsForOrderLine, oversellShortage, planVoidRestores } from "../services/inventory_rules.js";
 import { lowStockDedupeKey, shouldOpenLowStockAlert } from "../services/low_stock_alert.js";
 import { manilaDayRange } from "../services/timezone.js";
+import { IMAGE_MAX_BYTES, IMAGE_PREFIX } from "../services/product_images.js";
 import { emit } from "./events.js";
 
 const router = Router();
@@ -247,6 +248,42 @@ router.post("/orders", requireAuth, async (req, res, next) => {
       staffName: req.user?.name,
     });
 
+    // Owner notification: a persisted SALE alert feeds the bell on reload
+    // (/alerts) and the live stream (alert:new) for open dashboards. A
+    // notification must never fail a recorded sale, hence the try/catch.
+    try {
+      const staffName = req.user?.name ?? req.user?.username;
+      const message =
+        `New sale: ₱${Number(result.order.total).toFixed(2)} · ` +
+        `${result.order.items.length} item(s) at ${location.code}` +
+        (staffName ? ` · ${staffName}` : "");
+      const alert = await prisma.alert.create({
+        data: {
+          type: "SALE",
+          title: "New sale",
+          locationId: location.id,
+          message,
+          payload: JSON.stringify({
+            orderId: result.order.id,
+            total: result.order.total,
+            itemCount: result.order.items.length,
+            locationCode: location.code,
+          }),
+        },
+      });
+      emit("alert:new", {
+        id: alert.id,
+        type: alert.type,
+        title: alert.title ?? null,
+        message: alert.message,
+        isRead: alert.isRead === true,
+        createdAt: alert.createdAt,
+        locationId: alert.locationId ?? null,
+      });
+    } catch {
+      // best-effort only
+    }
+
     return res.status(201).json({ duplicate: false, ...result, locationCode: location.code });
   } catch (err) {
     return next(err);
@@ -338,69 +375,247 @@ router.patch("/orders/:id", requireAuth, requireRole("OWNER"), async (req, res, 
     if (existing.status === "VOID") {
       return res.status(400).json({ error: "Order is already void" });
     }
-    if (process.env.VOID_RESTORE === "false") {
-      const updated = await prisma.order.update({
-        where: { id: existing.id },
-        data: {
-          status: "VOID",
-          voidedBy: req.user.sub,
-          voidedAt: new Date(),
-          voidReason: reason ? String(reason).slice(0, 500) : null,
-        },
-        include: { items: true },
-      });
-      return res.json({ order: updated, restored: [], warnings: [] });
-    }
-    const outcome = await prisma.$transaction(async (tx) => {
-      // Re-read order status INSIDE the txn: two parallel VOIDs both pass
-      // the outside check, so the loser must abort here instead of
-      // restoring stock a second time (tx.order.update is a blind write).
-      const fresh = await tx.order.findUnique({ where: { id: existing.id } });
-      if (!fresh) throw Object.assign(new Error("Order not found"), { status: 404 });
-      if (fresh.status === "VOID") {
-        throw Object.assign(new Error("Order is already void"), { status: 409 });
-      }
-      const [maps, invRows] = await Promise.all([
-        tx.ingredientMap.findMany(),
-        tx.inventoryItem.findMany({ where: { locationId: existing.locationId } }),
-      ]);
-      // Restore arithmetic + the orphan warning live in one shared helper
-      // (services/inventory_rules.js) so the POS, the Edge Function and the
-      // forecast can never disagree about which recipe a line consumed.
-      const { restores, warnings } = planVoidRestores(existing.items ?? [], maps, invRows);
-      const alloc = await tx.allocIds({ stockAdjustments: restores.size });
-      const adjIds = alloc.stockAdjustments ?? [];
-      let i = 0;
-      for (const { inv, newStock, added } of restores.values()) {
-        await tx.inventoryItem.update({ where: { id: inv.id }, data: { stock: newStock } });
-        await tx.stockAdjustment.create({
-          data: {
-            id: adjIds[i++],
-            inventoryItemId: inv.id,
-            locationId: inv.locationId,
-            actorId: req.user.sub,
-            before: inv.stock,
-            after: newStock,
-            reason: `VOID order #${existing.id}: restored ${added} ${inv.unit}${reason ? ` — ${String(reason).slice(0, 200)}` : ""}`.slice(0, 500),
-          },
-        });
-      }
-      const updated = await tx.order.update({
-        where: { id: existing.id },
-        data: {
-          status: "VOID",
-          voidedBy: req.user.sub,
-          voidedAt: new Date(),
-          voidReason: reason ? String(reason).slice(0, 500) : null,
-        },
-      });
-      return { updated, warnings, restored: [...restores.values()].map(({ inv, newStock, added }) => ({ item: inv.name, restored: added, stock: newStock })) };
-    });
-    const order = await prisma.order.findUnique({
+    return res.json(await performVoid({ existing, actorId: req.user.sub, reason }));
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// Shared void executor (stock restore + audit trail). Used by the direct
+// OWNER void above and by approving a staff void request. The caller has
+// already verified the order exists and is PAID.
+async function performVoid({ existing, actorId, reason }) {
+  const trimmedReason = reason ? String(reason).slice(0, 500) : null;
+  if (process.env.VOID_RESTORE === "false") {
+    const updated = await prisma.order.update({
       where: { id: existing.id },
+      data: { status: "VOID", voidedBy: actorId, voidedAt: new Date(), voidReason: trimmedReason },
       include: { items: true },
     });
-    return res.json({ order, restored: outcome.restored, warnings: outcome.warnings });
+    return { order: updated, restored: [], warnings: [] };
+  }
+  const outcome = await prisma.$transaction(async (tx) => {
+    // Re-read order status INSIDE the txn: two parallel VOIDs both pass the
+    // outside check, so the loser must abort here instead of restoring stock
+    // a second time (tx.order.update is a blind write).
+    const fresh = await tx.order.findUnique({ where: { id: existing.id } });
+    if (!fresh) throw Object.assign(new Error("Order not found"), { status: 404 });
+    if (fresh.status === "VOID") {
+      throw Object.assign(new Error("Order is already void"), { status: 409 });
+    }
+    const [maps, invRows] = await Promise.all([
+      tx.ingredientMap.findMany(),
+      tx.inventoryItem.findMany({ where: { locationId: existing.locationId } }),
+    ]);
+    // Restore arithmetic + the orphan warning live in one shared helper
+    // (services/inventory_rules.js) so the POS, the Edge Function and the
+    // forecast can never disagree about which recipe a line consumed.
+    const { restores, warnings } = planVoidRestores(existing.items ?? [], maps, invRows);
+    const alloc = await tx.allocIds({ stockAdjustments: restores.size });
+    const adjIds = alloc.stockAdjustments ?? [];
+    let i = 0;
+    for (const { inv, newStock, added } of restores.values()) {
+      await tx.inventoryItem.update({ where: { id: inv.id }, data: { stock: newStock } });
+      await tx.stockAdjustment.create({
+        data: {
+          id: adjIds[i++],
+          inventoryItemId: inv.id,
+          locationId: inv.locationId,
+          actorId,
+          before: inv.stock,
+          after: newStock,
+          reason: `VOID order #${existing.id}: restored ${added} ${inv.unit}${reason ? ` — ${String(reason).slice(0, 200)}` : ""}`.slice(0, 500),
+        },
+      });
+    }
+    const updated = await tx.order.update({
+      where: { id: existing.id },
+      data: { status: "VOID", voidedBy: actorId, voidedAt: new Date(), voidReason: trimmedReason },
+    });
+    return {
+      updated,
+      warnings,
+      restored: [...restores.values()].map(({ inv, newStock, added }) => ({ item: inv.name, restored: added, stock: newStock })),
+    };
+  });
+  const order = await prisma.order.findUnique({
+    where: { id: existing.id },
+    include: { items: true },
+  });
+  return { order, restored: outcome.restored, warnings: outcome.warnings };
+}
+
+// ---------- order receipts (GCash proof photos) ----------
+// Same base64-in-Firestore approach as product images, but PRIVATE: receipts
+// carry customer names/ref numbers, so the GET requires auth (the dashboard
+// fetches it as a blob) and is limited to owners + the order's own cart.
+const receiptDoc = (id) => prisma.collection("orderReceipts").doc(String(id));
+
+function mayAccessOrder(user, order) {
+  if (!user) return false;
+  if (user.role === "OWNER") return true;
+  return order.locationId != null && Number(user.locationId) === Number(order.locationId);
+}
+
+// POST /orders/:id/receipt (OWNER or the order's cart staff)
+router.post("/orders/:id/receipt", requireAuth, async (req, res, next) => {
+  try {
+    const existing = await prisma.order.findUnique({ where: { id: Number(req.params.id) } });
+    if (!existing) return res.status(404).json({ error: "Order not found" });
+    if (!mayAccessOrder(req.user, existing)) {
+      return res.status(403).json({ error: "Forbidden: outside your cart" });
+    }
+    const { data, mime } = req.body ?? {};
+    const m = String(mime ?? "").trim().toLowerCase();
+    const prefix = IMAGE_PREFIX[m];
+    if (!prefix || typeof data !== "string" || !data.startsWith(prefix)) {
+      return res.status(400).json({ error: "receipt must be a base64 JPEG, PNG, or WebP" });
+    }
+    const bytes = Buffer.from(data, "base64");
+    if (bytes.length === 0) return res.status(400).json({ error: "receipt data is empty" });
+    if (bytes.length > IMAGE_MAX_BYTES) {
+      return res.status(413).json({ error: `receipt too large (max ${Math.round(IMAGE_MAX_BYTES / 1024)} KB)` });
+    }
+    const updatedAtMs = Date.now();
+    await receiptDoc(existing.id).set({ mime: m, data, bytes: bytes.length, updatedAtMs });
+    const receipt = { mime: m, bytes: bytes.length, updatedAtMs, uploadedBy: req.user.sub ?? null };
+    const order = await prisma.order.update({
+      where: { id: existing.id },
+      data: { receipt },
+      include: { items: true },
+    });
+    return res.json({ order, receipt });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// GET /orders/:id/receipt — the bytes, authenticated (blob fetch on web).
+router.get("/orders/:id/receipt", requireAuth, async (req, res, next) => {
+  try {
+    const existing = await prisma.order.findUnique({ where: { id: Number(req.params.id) } });
+    if (!existing) return res.status(404).json({ error: "Order not found" });
+    if (!mayAccessOrder(req.user, existing)) {
+      return res.status(403).json({ error: "Forbidden: outside your cart" });
+    }
+    const snap = await receiptDoc(existing.id).get();
+    if (!snap.exists) return res.status(404).json({ error: "No receipt for this order" });
+    const { mime, data } = snap.data() ?? {};
+    res.setHeader("Content-Type", mime || "image/jpeg");
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    return res.send(Buffer.from(String(data ?? ""), "base64"));
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /orders/:id/void-request — staff ask the owner to void a sale. The
+// order stays PAID until an OWNER approves; the request rides on the order
+// plus a VOID_REQUEST alert (bell/dashboard) owned by the decision.
+router.post("/orders/:id/void-request", requireAuth, async (req, res, next) => {
+  try {
+    const existing = await prisma.order.findUnique({ where: { id: Number(req.params.id) } });
+    if (!existing) return res.status(404).json({ error: "Order not found" });
+    if (!mayAccessOrder(req.user, existing)) {
+      return res.status(403).json({ error: "Forbidden: outside your cart" });
+    }
+    if (existing.status !== "PAID") {
+      return res.status(400).json({ error: "Only PAID orders can be void-requested" });
+    }
+    if (existing.voidRequest?.status === "pending") {
+      return res.status(409).json({ error: "A void request is already waiting for the owner" });
+    }
+    const reason = String(req.body?.reason ?? "").trim().slice(0, 500);
+    const requestedByName = req.user.name ?? req.user.username ?? null;
+    const alert = await prisma.alert.create({
+      data: {
+        type: "VOID_REQUEST",
+        title: "Void request",
+        locationId: existing.locationId ?? null,
+        message:
+          `Void request: ₱${Number(existing.total).toFixed(2)} · order #${existing.id}` +
+          (requestedByName ? ` by ${requestedByName}` : "") +
+          (reason ? ` · ${reason}` : ""),
+        payload: JSON.stringify({ orderId: existing.id, total: existing.total, reason }),
+      },
+    });
+    const voidRequest = {
+      status: "pending",
+      reason: reason || null,
+      requestedBy: req.user.sub ?? null,
+      requestedByName,
+      requestedAt: new Date().toISOString(),
+      alertId: alert.id,
+    };
+    const order = await prisma.order.update({
+      where: { id: existing.id },
+      data: { voidRequest },
+      include: { items: true },
+    });
+    emit("alert:new", {
+      id: alert.id,
+      type: alert.type,
+      title: alert.title ?? null,
+      message: alert.message,
+      isRead: alert.isRead === true,
+      createdAt: alert.createdAt,
+      locationId: alert.locationId ?? null,
+    });
+    return res.status(201).json({ order, alert });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// PATCH /orders/:id/void-request (OWNER) — the final decision.
+//   { decision: "approve" } -> performs the void (stock restored) and marks
+//   the request approved; { decision: "deny" } leaves the sale PAID.
+// Either way the VOID_REQUEST alert is resolved so it leaves the bell.
+router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), async (req, res, next) => {
+  try {
+    const decision = String(req.body?.decision ?? "").trim().toLowerCase();
+    if (!["approve", "deny"].includes(decision)) {
+      return res.status(400).json({ error: 'decision must be "approve" or "deny"' });
+    }
+    const existing = await prisma.order.findUnique({ where: { id: Number(req.params.id) } });
+    if (!existing) return res.status(404).json({ error: "Order not found" });
+    if (existing.status !== "PAID") {
+      return res.status(409).json({ error: "Order is not awaiting a void decision" });
+    }
+    const alertId = existing.voidRequest?.alertId;
+    const resolveAlert = async () => {
+      if (alertId == null) return;
+      try {
+        await prisma.alert.update({ where: { id: Number(alertId) }, data: { isRead: true } });
+      } catch {
+        /* alert already gone is fine */
+      }
+    };
+
+    if (decision === "deny") {
+      const voidRequest = { ...(existing.voidRequest ?? {}), status: "denied", decidedBy: req.user.sub ?? null, decidedAt: new Date().toISOString() };
+      const order = await prisma.order.update({
+        where: { id: existing.id },
+        data: { voidRequest },
+        include: { items: true },
+      });
+      await resolveAlert();
+      return res.json({ order, restored: [], warnings: [] });
+    }
+
+    const reasonText = existing.voidRequest?.reason
+      ? `Void request: ${existing.voidRequest.reason}`
+      : "Void request approved";
+    const out = await performVoid({ existing, actorId: req.user.sub, reason: reasonText });
+    const voidRequest = { ...(existing.voidRequest ?? {}), status: "approved", decidedBy: req.user.sub ?? null, decidedAt: new Date().toISOString() };
+    const order = await prisma.order.update({
+      where: { id: existing.id },
+      data: { voidRequest },
+      include: { items: true },
+    });
+    await resolveAlert();
+    emit("order:updated", { id: existing.id, status: "VOID" });
+    return res.json({ order, restored: out.restored, warnings: out.warnings });
   } catch (err) {
     return next(err);
   }

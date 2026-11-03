@@ -410,7 +410,15 @@ router.post("/inventory/adjustments", requireAuth, async (req, res, next) => {
           }),
         },
       });
-      emit("alert:new", { id: alert.id, type: "LOW_STOCK", message: alert.message });
+      emit("alert:new", {
+        id: alert.id,
+        type: "LOW_STOCK",
+        title: alert.title ?? "Low stock",
+        message: alert.message,
+        isRead: alert.isRead === true,
+        createdAt: alert.createdAt,
+        locationId: alert.locationId ?? null,
+      });
     }
     return res.json({
       item: decorate([updated])[0],

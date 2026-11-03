@@ -1301,7 +1301,10 @@ async function handleCatalog(req, origin) {
       };
     });
   const locs = activeLocations.map((l) => ({ id: l.id, code: l.code, name: l.name }));
-  return jsonRes(origin, { products: out, locations: locs }, 200);
+  // Version for the POS auto-refresh probe (the app refetches only when it
+  // differs from the value it saw with this payload).
+  const version = await readCatalogVersion();
+  return jsonRes(origin, { products: out, locations: locs, version }, 200);
 }
 
 // ---------- orders (mirrors api/src/routes/orders.js) ----------
@@ -1526,6 +1529,23 @@ async function handleCreateOrder(req, origin, user) {
     const alertNext = alertCounter && alertCounter.next !== undefined ? Number(alertCounter.next) || 1 : 1;
     const orderId = orderNext;
     itemRows.forEach((row, i) => { row.id = orderNext + 1 + i; });
+    // Owner notification: every sale writes a SALE alert in the same commit.
+    // Reloads read it from /alerts; the stream emits alert:new for open tabs.
+    newAlerts.push({
+      type: "SALE",
+      title: "New sale",
+      locationId: location.id,
+      message:
+        `New sale: ₱${Number(orderTotal).toFixed(2)} · ` +
+        `${itemRows.length} item(s) at ${location.code}` +
+        (user.name ? ` · ${user.name}` : ""),
+      payload: JSON.stringify({
+        orderId,
+        total: orderTotal,
+        itemCount: itemRows.length,
+        locationCode: location.code,
+      }),
+    });
     // Alerts stay counter-allocated: the `alerts` model is numeric and
     // fromDoc coerces the doc name with Number(), so a string id would surface
     // as NaN and break every ack/read. The read saving comes from the dedupe
@@ -1688,8 +1708,17 @@ async function handlePatchOrder(req, origin, orderId, user) {
     return jsonRes(origin, { order: cleanDoc(updated), restored: [], warnings: [] }, 200);
   }
 
-  const outcome = await withRetry(async () => {
-    const fresh = await fsGet("orders", existing.id);
+  const outcome = await performVoidEdge({ orderId: existing.id, actorId: user.id, reason });
+
+  const order = await fsGet("orders", existing.id);
+  return jsonRes(origin, { order: cleanDoc(order), restored: outcome.restored, warnings: outcome.warnings }, 200);
+}
+
+// Shared void executor (stock restore + audit trail). Used by the direct
+// OWNER void above and by approving a staff void request.
+async function performVoidEdge({ orderId, actorId, reason }) {
+  return await withRetry(async () => {
+    const fresh = await fsGet("orders", orderId);
     if (!fresh) {
       throw Object.assign(new Error("Order not found"), { status: 404 });
     }
@@ -1714,10 +1743,10 @@ async function handlePatchOrder(req, origin, orderId, user) {
         id: adjNext + i,
         inventoryItemId: inv.id,
         locationId: inv.locationId,
-        actorId: user.id,
+        actorId,
         before: inv.stock,
         after: newStock,
-        reason: `VOID order #${existing.id}: restored ${added} ${inv.unit}${reason ? ` — ${String(reason).slice(0, 200)}` : ""}`.slice(0, 500),
+        reason: `VOID order #${orderId}: restored ${added} ${inv.unit}${reason ? ` — ${String(reason).slice(0, 200)}` : ""}`.slice(0, 500),
         createdAt: now,
       }));
       restored.push({ item: inv.name, restored: added, stock: newStock });
@@ -1730,16 +1759,186 @@ async function handlePatchOrder(req, origin, orderId, user) {
     }
     writes.push(updateWrite("orders", fresh.id, {
       status: "VOID",
-      voidedBy: user.id,
+      voidedBy: actorId,
       voidedAt: now,
       voidReason: reason ? String(reason).slice(0, 500) : null,
     }, fresh._updateTime));
     await fsCommit(writes);
     return { warnings, restored };
   }, 4);
+}
 
-  const order = await fsGet("orders", existing.id);
-  return jsonRes(origin, { order: cleanDoc(order), restored: outcome.restored, warnings: outcome.warnings }, 200);
+// ---------- order receipts + void requests (mirror api/src/routes/orders.js) ----------
+function mayAccessOrder(user, order) {
+  if (!user) return false;
+  if (user.role === "OWNER") return true;
+  return order.locationId != null && Number(user.locationId) === Number(order.locationId);
+}
+
+/** POST /orders/:id/receipt (OWNER or the order's cart staff). */
+async function handleOrderReceiptSet(req, orderId, user) {
+  const existing = await fsGet("orders", orderId);
+  if (!existing) return { status: 404, body: { error: "Order not found" } };
+  if (!mayAccessOrder(user, existing)) {
+    return { status: 403, body: { error: "Forbidden: outside your cart" } };
+  }
+  const body = await req.json().catch(() => null);
+  const data = body?.data;
+  const mime = String(body?.mime ?? "").trim().toLowerCase();
+  const prefix = IMAGE_PREFIX[mime];
+  if (!prefix || typeof data !== "string" || !data.startsWith(prefix)) {
+    return { status: 400, body: { error: "receipt must be a base64 JPEG, PNG, or WebP" } };
+  }
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  const bytes = Math.floor((data.length / 4) * 3) - padding;
+  if (bytes <= 0) return { status: 400, body: { error: "receipt data is empty" } };
+  if (bytes > IMAGE_MAX_BYTES) {
+    return { status: 413, body: { error: `receipt too large (max ${Math.round(IMAGE_MAX_BYTES / 1024)} KB)` } };
+  }
+  const updatedAtMs = Date.now();
+  await fsCommit([updateWrite("orderReceipts", orderId, { mime, data, bytes, updatedAtMs })]);
+  const receipt = { mime, bytes, updatedAtMs, uploadedBy: user.id ?? null };
+  await fsPatch("orders", orderId, { receipt });
+  const order = await fsGet("orders", orderId);
+  return { status: 200, body: { order: cleanDoc(order), receipt } };
+}
+
+/** GET /orders/:id/receipt — authenticated bytes (the dashboard blob-fetches). */
+async function handleOrderReceiptGet(orderId, origin, user) {
+  const existing = await fsGet("orders", orderId);
+  if (!existing) return jsonRes(origin, { error: "Order not found" }, 404);
+  if (!mayAccessOrder(user, existing)) {
+    return jsonRes(origin, { error: "Forbidden: outside your cart" }, 403);
+  }
+  const doc = await fsGet("orderReceipts", orderId);
+  if (!doc || typeof doc.data !== "string" || !doc.data) {
+    return jsonRes(origin, { error: "No receipt for this order" }, 404);
+  }
+  const bin = atob(doc.data);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      "content-type": String(doc.mime || "image/jpeg"),
+      "cache-control": "private, max-age=3600",
+    },
+  });
+}
+
+/** POST /orders/:id/void-request — staff ask the owner to void a sale. */
+async function handleOrderVoidRequest(req, orderId, user) {
+  const existing = await fsGet("orders", orderId);
+  if (!existing) return { status: 404, body: { error: "Order not found" } };
+  if (!mayAccessOrder(user, existing)) {
+    return { status: 403, body: { error: "Forbidden: outside your cart" } };
+  }
+  if (existing.status !== "PAID") {
+    return { status: 400, body: { error: "Only PAID orders can be void-requested" } };
+  }
+  if (existing.voidRequest?.status === "pending") {
+    return { status: 409, body: { error: "A void request is already waiting for the owner" } };
+  }
+  const body = await req.json().catch(() => null);
+  const reason = String(body?.reason ?? "").trim().slice(0, 500);
+  const requestedByName = user.name ?? user.username ?? null;
+  const counters = await readCounters(["alerts"]);
+  const { ids, writes } = counterWritesFor(counters, { alerts: 1 });
+  const message =
+    `Void request: ₱${Number(existing.total).toFixed(2)} · order #${orderId}` +
+    (requestedByName ? ` by ${requestedByName}` : "") +
+    (reason ? ` · ${reason}` : "");
+  const alertDoc = {
+    id: ids.alerts[0],
+    type: "VOID_REQUEST",
+    title: "Void request",
+    locationId: existing.locationId ?? null,
+    message,
+    payload: JSON.stringify({ orderId, total: existing.total, reason }),
+    isRead: false,
+    ackedBy: null,
+    ackedAt: null,
+    ackedByName: null,
+    createdAt: new Date(),
+  };
+  writes.push(createWrite("alerts", alertDoc.id, alertDoc));
+  await fsCommit(writes);
+  const voidRequest = {
+    status: "pending",
+    reason: reason || null,
+    requestedBy: user.id ?? null,
+    requestedByName,
+    requestedAt: new Date().toISOString(),
+    alertId: alertDoc.id,
+  };
+  await fsPatch("orders", orderId, { voidRequest });
+  const order = await fsGet("orders", orderId);
+  return { status: 201, body: { order: cleanDoc(order), alert: cleanDoc(alertDoc) } };
+}
+
+/** PATCH /orders/:id/void-request (OWNER) — final decision. */
+async function handleOrderVoidDecision(req, orderId, user) {
+  const ownErr = requireOwner(user);
+  if (ownErr) return ownErr;
+  const body = await req.json().catch(() => null);
+  const decision = String(body?.decision ?? "").trim().toLowerCase();
+  if (!["approve", "deny"].includes(decision)) {
+    return { status: 400, body: { error: 'decision must be "approve" or "deny"' } };
+  }
+  const existing = await fsGet("orders", orderId);
+  if (!existing) return { status: 404, body: { error: "Order not found" } };
+  if (existing.status !== "PAID") {
+    return { status: 409, body: { error: "Order is not awaiting a void decision" } };
+  }
+  const alertId = existing.voidRequest?.alertId;
+  const resolveAlert = async () => {
+    if (alertId == null) return;
+    try {
+      await fsPatch("alerts", Number(alertId), { isRead: true });
+    } catch {
+      /* alert already gone is fine */
+    }
+  };
+  if (decision === "deny") {
+    const voidRequest = {
+      ...(existing.voidRequest || {}),
+      status: "denied",
+      decidedBy: user.id ?? null,
+      decidedAt: new Date().toISOString(),
+    };
+    await fsPatch("orders", orderId, { voidRequest });
+    await resolveAlert();
+    const order = await fsGet("orders", orderId);
+    return { status: 200, body: { order: cleanDoc(order), restored: [], warnings: [] } };
+  }
+  const reasonText = existing.voidRequest?.reason
+    ? `Void request: ${existing.voidRequest.reason}`
+    : "Void request approved";
+  const outcome = await performVoidEdge({ orderId, actorId: user.id, reason: reasonText });
+  const voidRequest = {
+    ...(existing.voidRequest || {}),
+    status: "approved",
+    decidedBy: user.id ?? null,
+    decidedAt: new Date().toISOString(),
+  };
+  await fsPatch("orders", orderId, { voidRequest });
+  await resolveAlert();
+  const order = await fsGet("orders", orderId);
+  return { status: 200, body: { order: cleanDoc(order), restored: outcome.restored, warnings: outcome.warnings } };
+}
+
+// ---------- catalog version (POS auto-refresh probe) ----------
+async function readCatalogVersion() {
+  const doc = await fsGet("catalogMeta", "catalog").catch(() => null);
+  const v = doc ? Number(doc.version) : 0;
+  return Number.isFinite(v) ? v : 0;
+}
+
+// Owner edits are rare; a read-modify-write is fine (a lost bump only delays
+// one refresh, and the next edit catches up).
+async function bumpCatalogVersion() {
+  const current = await readCatalogVersion();
+  await fsCommit([updateWrite("catalogMeta", "catalog", { version: current + 1, updatedAt: new Date() })]);
 }
 
 // ---------- locations + devices (mirror api/src/routes/locations.js, devices.js) ----------
@@ -2914,6 +3113,7 @@ async function handleCreateProduct(req) {
     if (out.error) return { status: 400, body: { error: out.error } };
     recipesCreated += out.created;
   }
+  await bumpCatalogVersion().catch(() => {});
   return {
     status: 201,
     body: {
@@ -3084,6 +3284,7 @@ async function handlePatchProduct(req, id) {
       }
     }
   }
+  await bumpCatalogVersion().catch(() => {});
   return { status: 200, body: { product: cleanDoc(product), recipesChanged, unmatchedItems } };
 }
 
@@ -3114,6 +3315,7 @@ async function handleRenameProduct(req, id) {
     return { mapsUpdated: maps.length };
   }, 4);
   const updated = await fsGet("products", existing.id);
+  await bumpCatalogVersion().catch(() => {});
   return { status: 200, body: { product: cleanDoc(updated), mapsUpdated: outcome.mapsUpdated } };
 }
 
@@ -3143,6 +3345,7 @@ async function handleDeleteProduct(id) {
   } catch (_) {
     // A missing image document is not an error.
   }
+  await bumpCatalogVersion().catch(() => {});
   return { status: 200, body: { deleted: true } };
 }
 
@@ -3230,6 +3433,7 @@ async function handleCreateFlavor(req) {
     }
     throw e;
   }
+  await bumpCatalogVersion().catch(() => {});
   return { status: 201, body: { flavor: cleanDoc(await fsGet("flavors", doc.id)) } };
 }
 
@@ -3272,6 +3476,7 @@ async function handleRenameFlavor(req, id) {
     return { mapsUpdated: maps.length, pricesRewritten };
   }, 4);
   const updated = await fsGet("flavors", existing.id);
+  await bumpCatalogVersion().catch(() => {});
   return {
     status: 200,
     body: { flavor: cleanDoc(updated), mapsUpdated: outcome.mapsUpdated, pricesRewritten: outcome.pricesRewritten },
@@ -3299,6 +3504,7 @@ async function handleDeleteFlavor(id) {
     };
   }
   await fsDeleteByName(existing._name);
+  await bumpCatalogVersion().catch(() => {});
   return { status: 200, body: { deleted: true } };
 }
 
@@ -6544,7 +6750,23 @@ async function handleEventStream(req, origin, inUrl) {
             .sort((a, b) => Number(a.id) - Number(b.id));
           for (const a of freshAlerts) {
             lastAlertId = Math.max(lastAlertId, Number(a.id));
-            send(sseEncode("alert:new", { id: a.id, type: a.type, message: a.message }));
+            // Full shape: the bell/dashboard render title + time + unread and
+            // must not fall back to "Invalid Date"/always-read.
+            const createdIso =
+              a.createdAt instanceof Date
+                ? a.createdAt.toISOString()
+                : a.createdAt
+                  ? String(a.createdAt)
+                  : new Date().toISOString();
+            send(sseEncode("alert:new", {
+              id: a.id,
+              type: a.type,
+              title: a.title ?? null,
+              message: a.message,
+              isRead: a.isRead === true,
+              createdAt: createdIso,
+              locationId: a.locationId ?? null,
+            }));
             if (a.type === "RESTOCK_REQUEST") {
               const loc = locById.get(Number(a.locationId));
               send(sseEncode("restock-request:new", {
@@ -6710,12 +6932,39 @@ Deno.serve(async (req) => {
         else return notFoundRes(origin, req, path);
         return jsonRes(origin, out.body, out.status);
       }
+      if (req.method === "GET" && path === "/catalog/version") {
+        const auth = await authUser(req);
+        if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
+        return jsonRes(origin, { version: await readCatalogVersion() }, 200);
+      }
       if (req.method === "GET" && path === "/catalog") return await handleCatalog(req, origin);
       if (path === "/orders" || path.startsWith("/orders/")) {
         const auth = await authUser(req);
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
         if (req.method === "POST" && path === "/orders") return await handleCreateOrder(req, origin, auth.user);
         if (req.method === "GET" && path === "/orders") return await handleListOrders(req, origin, inUrl);
+        // Receipt + void-request subpaths (before the generic :id patch).
+        const receiptMatch = path.match(/^\/orders\/(\d+)\/receipt$/);
+        if (receiptMatch) {
+          const orderId = Number(receiptMatch[1]);
+          if (req.method === "POST") {
+            const out = await handleOrderReceiptSet(req, orderId, auth.user);
+            return jsonRes(origin, out.body, out.status);
+          }
+          if (req.method === "GET") return await handleOrderReceiptGet(orderId, origin, auth.user);
+        }
+        const voidMatch = path.match(/^\/orders\/(\d+)\/void-request$/);
+        if (voidMatch) {
+          const orderId = Number(voidMatch[1]);
+          if (req.method === "POST") {
+            const out = await handleOrderVoidRequest(req, orderId, auth.user);
+            return jsonRes(origin, out.body, out.status);
+          }
+          if (req.method === "PATCH") {
+            const out = await handleOrderVoidDecision(req, orderId, auth.user);
+            return jsonRes(origin, out.body, out.status);
+          }
+        }
         if (req.method === "PATCH" && path.startsWith("/orders/")) {
           const idPart = path.slice("/orders/".length).split("/")[0].split("?")[0];
           if (!/^\d+$/.test(idPart)) return jsonRes(origin, { error: "Order not found" }, 404);

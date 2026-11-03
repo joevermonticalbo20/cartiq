@@ -63,6 +63,16 @@ erDiagram
         float threshold
         enum source "MANUAL|SENSOR"
     }
+    CATALOG_META {
+        string id PK "doc catalogMeta/catalog"
+        int version "bumped by every product/flavor/recipe mutation; POS auto-refresh probe"
+    }
+    ORDER_RECEIPT {
+        string id PK "= order id; doc orderReceipts/{orderId}; private (auth GET)"
+        string mime "image/jpeg | image/png | image/webp"
+        string data "base64, <= 512 KB decoded"
+        int updatedAtMs
+    }
     ORDER {
         int id PK
         string clientRef UK "offline dedupe"
@@ -70,6 +80,8 @@ erDiagram
         int staffId FK
         float total
         enum status
+        map receipt "optional GCash proof meta {mime, bytes, updatedAtMs, uploadedBy}"
+        map voidRequest "optional staff request {status: pending|approved|denied, reason, requestedByName, alertId}; the owner decides"
     }
     ORDER_ITEM {
         int id PK

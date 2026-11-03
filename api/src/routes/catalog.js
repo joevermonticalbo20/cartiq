@@ -1,11 +1,22 @@
 import { Router } from "express";
-import { db as prisma } from "../firestore.js";
+import { db as prisma, readCatalogVersion } from "../firestore.js";
 import { requireAuth } from "../middleware/auth.js";
 import { recipeAvailability } from "../services/inventory_rules.js";
 import { sortFlavorRows } from "../services/flavor_order.js";
 import { servedImageUrl, uploadedImageTimes } from "../services/product_images.js";
 
 const router = Router();
+
+// GET /api/catalog/version — one-document probe the POS app polls to notice
+// dashboard menu changes without refetching the whole catalog every minute.
+// Mounted BEFORE /catalog so "version" is never read as a product filter.
+router.get("/catalog/version", requireAuth, async (_req, res, next) => {
+  try {
+    return res.json({ version: await readCatalogVersion() });
+  } catch (err) {
+    return next(err);
+  }
+});
 
 router.get("/catalog", requireAuth, async (req, res, next) => {
   try {
@@ -67,7 +78,10 @@ router.get("/catalog", requireAuth, async (req, res, next) => {
         limitingIngredient: bestOption.limitingIngredient,
       };
     });
-    return res.json({ products: catalog, locations });
+    // The app remembers this and only refetches when the probe reports a
+    // different value.
+    const version = await readCatalogVersion();
+    return res.json({ products: catalog, locations, version });
   } catch (err) {
     return next(err);
   }
