@@ -731,9 +731,6 @@ export default function SettingsPage() {
               </span>
               <div>
                 <h3 className="settings-pw-title">Change password</h3>
-                <p className="settings-pw-sub">
-                  Verify it&apos;s you, then choose a new password. You&apos;ll be signed out afterward.
-                </p>
               </div>
             </div>
 
@@ -749,9 +746,6 @@ export default function SettingsPage() {
                     <span className="settings-pw-step" aria-hidden="true">1</span>
                     <div>
                       <h4 className="settings-pw-section-title">Verify your identity</h4>
-                      <p className="settings-pw-section-sub">
-                        Use your current password and a one-time code from your recovery email.
-                      </p>
                     </div>
                   </div>
 
@@ -846,9 +840,6 @@ export default function SettingsPage() {
                     <span className="settings-pw-step" aria-hidden="true">2</span>
                     <div>
                       <h4 className="settings-pw-section-title">Choose a new password</h4>
-                      <p className="settings-pw-section-sub">
-                        Use 8+ characters with uppercase, lowercase, a number, and a symbol.
-                      </p>
                     </div>
                   </div>
 
