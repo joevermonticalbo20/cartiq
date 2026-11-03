@@ -37,8 +37,11 @@ async function api(path, { token, ...opts } = {}) {
   return { status: res.status, body };
 }
 
+// nocache: the data layer serves reads from a 60 s cache invalidated only by
+// writes in THIS process; the API deducts in another process, so cached
+// reads would hide every change and the check would pass vacuously.
 async function stockOf(locationId) {
-  const rows = await db.inventoryItem.findMany({ where: { locationId } });
+  const rows = await db.inventoryItem.findMany({ where: { locationId }, nocache: true });
   return new Map(rows.map((r) => [r.name, Number(r.stock)]));
 }
 
