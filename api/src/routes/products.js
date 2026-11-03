@@ -1,6 +1,15 @@
 import { Router } from "express";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { sortFlavorRows } from "../services/flavor_order.js";
+import {
+  IMAGE_MAX_BYTES,
+  IMAGE_PREFIX,
+  imageDoc,
+  imageUrlFor,
+  servedImageUrl,
+  uploadedImageTimes,
+} from "../services/product_images.js";
 
 const router = Router();
 
@@ -112,9 +121,9 @@ async function upsertRecipeRows(productName, flavorName, rows) {
 
 // GET /api/products (any auth) — catalog management view: flavors, recipe
 // usage, and order-reference counts so the UI can explain delete blocks.
-router.get("/products", requireAuth, async (_req, res, next) => {
+router.get("/products", requireAuth, async (req, res, next) => {
   try {
-    const [products, maps, orders, invRows] = await Promise.all([
+    const [products, maps, orders, invRows, uploadTimes] = await Promise.all([
       prisma.product.findMany({
         include: { flavors: { orderBy: { name: "asc" } } },
         orderBy: { name: "asc" },
@@ -122,6 +131,7 @@ router.get("/products", requireAuth, async (_req, res, next) => {
       prisma.ingredientMap.findMany(),
       prisma.order.findMany({ select: { items: true } }),
       prisma.inventoryItem.findMany({ select: { name: true } }),
+      uploadedImageTimes(),
     ]);
     // Deduction matches map.itemName to inventory rows by EXACT name, so
     // surface coverage: recipe items with no stock row anywhere can never
@@ -157,9 +167,12 @@ router.get("/products", requireAuth, async (_req, res, next) => {
           basePrice: p.basePrice,
           // Missing on pre-archive docs means active (backwards compatible).
           active: p.active !== false,
-          imageUrl: p.imageUrl ?? null,
+          isBestSeller: p.isBestSeller === true,
+          imageUrl: servedImageUrl(req, p, uploadTimes),
           flavorPrices,
-          flavors: (p.flavors ?? []).map((f) => ({
+          // Size-aware order: Medium, Large, XL 40, XL 50 — never the
+          // alphabetical Large/Medium that misled the pickers.
+          flavors: sortFlavorRows(p.flavors ?? []).map((f) => ({
             id: f.id,
             name: f.name,
             // Absolute per-flavor price; falls back to the product base price
@@ -193,7 +206,7 @@ router.get("/products", requireAuth, async (_req, res, next) => {
 // and defaults to basePrice; recipes are optional (warn, don't block).
 router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const { name, category, basePrice, flavorIds, flavors, imageUrl } = req.body ?? {};
+    const { name, category, basePrice, flavorIds, flavors, imageUrl, isBestSeller } = req.body ?? {};
     if (!validProductName(name)) {
       return res.status(400).json({ error: "name needs at least 2 letters (max 120 characters)" });
     }
@@ -266,6 +279,7 @@ router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, nex
         ...(imageUrl !== undefined && imageUrl !== null && String(imageUrl).trim() !== ""
           ? { imageUrl: String(imageUrl).trim() }
           : {}),
+        ...(isBestSeller === true ? { isBestSeller: true } : {}),
       },
       include: { flavors: true },
     });
@@ -311,7 +325,7 @@ router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, nex
 // recipe rows is rejected with 409 (delete the rows first).
 router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const { category, basePrice, active, addFlavorIds, removeFlavorIds, flavorPrices, addRecipes, removeRecipes, imageUrl } = req.body ?? {};
+    const { category, basePrice, active, addFlavorIds, removeFlavorIds, flavorPrices, addRecipes, removeRecipes, imageUrl, isBestSeller } = req.body ?? {};
     if (
       category === undefined &&
       basePrice === undefined &&
@@ -321,9 +335,10 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
       flavorPrices === undefined &&
       addRecipes === undefined &&
       removeRecipes === undefined &&
-      imageUrl === undefined
+      imageUrl === undefined &&
+      isBestSeller === undefined
     ) {
-      return res.status(400).json({ error: "provide category, basePrice, active, flavorIds, flavorPrices, recipes, or imageUrl" });
+      return res.status(400).json({ error: "provide category, basePrice, active, flavorIds, flavorPrices, recipes, imageUrl, or isBestSeller" });
     }
     const existing = await prisma.product.findUnique({
       where: { id: Number(req.params.id) },
@@ -354,6 +369,14 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
       } else {
         data.imageUrl = String(imageUrl).trim();
       }
+    }
+    // Best-seller flag: the star toggle on the Products page. The POS
+    // "Best Sellers" filter has read this field all along.
+    if (isBestSeller !== undefined) {
+      if (typeof isBestSeller !== "boolean") {
+        return res.status(400).json({ error: "isBestSeller must be true or false" });
+      }
+      data.isBestSeller = isBestSeller;
     }
     const current = new Set(existing.flavorIds ?? existing.flavors.map((f) => f.id));
     if (addFlavorIds !== undefined || removeFlavorIds !== undefined) {
@@ -545,10 +568,76 @@ router.delete("/products/:id", requireAuth, requireRole("OWNER"), async (req, re
         recipeRows: maps.length,
       });
     }
+    await imageDoc(existing.id).delete();
     await prisma.product.delete({ where: { id: existing.id } });
     return res.json({ deleted: true });
   } catch (err) {
     if (err.code === "P2025") return res.status(404).json({ error: "Product not found" });
+    return next(err);
+  }
+});
+
+// POST /api/products/:id/image (OWNER) — store a cropped product photo.
+// Body: { data*: base64, mime*: "image/jpeg" | "image/png" | "image/webp" }.
+// 512 KB decoded max. Returns { imageUrl, updatedAt } — the URL the product
+// list/catalog will serve for this product (replacing any pasted URL).
+router.post("/products/:id/image", requireAuth, requireRole("OWNER"), async (req, res, next) => {
+  try {
+    const existing = await prisma.product.findUnique({ where: { id: Number(req.params.id) } });
+    if (!existing) return res.status(404).json({ error: "Product not found" });
+    const { data, mime } = req.body ?? {};
+    const m = String(mime ?? "").trim().toLowerCase();
+    const prefix = IMAGE_PREFIX[m];
+    if (!prefix || typeof data !== "string" || !data.startsWith(prefix)) {
+      return res.status(400).json({ error: "image must be a base64 JPEG, PNG, or WebP" });
+    }
+    const bytes = Buffer.from(data, "base64");
+    if (bytes.length === 0) {
+      return res.status(400).json({ error: "image data is empty" });
+    }
+    if (bytes.length > IMAGE_MAX_BYTES) {
+      return res.status(413).json({ error: `image too large (max ${Math.round(IMAGE_MAX_BYTES / 1024)} KB)` });
+    }
+    const updatedAtMs = Date.now();
+    await imageDoc(existing.id).set({
+      mime: m,
+      data,
+      bytes: bytes.length,
+      updatedAtMs,
+      updatedAt: new Date(),
+    });
+    return res.json({ imageUrl: imageUrlFor(req, existing.id, updatedAtMs), updatedAt: updatedAtMs });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// GET /api/products/:id/image (PUBLIC) — the photo bytes for <img> tags on
+// the dashboard and the POS cards (they cannot send an auth header). CORS is
+// open so the dashboard can re-crop an existing upload on a <canvas>.
+router.get("/products/:id/image", async (req, res, next) => {
+  try {
+    const snap = await imageDoc(Number(req.params.id)).get();
+    if (!snap.exists) return res.status(404).json({ error: "No image for this product" });
+    const { mime, data } = snap.data() ?? {};
+    const buf = Buffer.from(String(data ?? ""), "base64");
+    res.setHeader("Content-Type", mime || "image/jpeg");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    return res.send(buf);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// DELETE /api/products/:id/image (OWNER) — remove the uploaded photo.
+router.delete("/products/:id/image", requireAuth, requireRole("OWNER"), async (req, res, next) => {
+  try {
+    const existing = await prisma.product.findUnique({ where: { id: Number(req.params.id) } });
+    if (!existing) return res.status(404).json({ error: "Product not found" });
+    await imageDoc(existing.id).delete();
+    return res.json({ deleted: true });
+  } catch (err) {
     return next(err);
   }
 });

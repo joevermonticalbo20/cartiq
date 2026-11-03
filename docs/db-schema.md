@@ -47,6 +47,13 @@ erDiagram
         float basePrice
         map flavorPrices "optional per-flavor absolute price overrides, keyed by flavor name; missing = basePrice"
         string imageUrl "optional absolute photo URL shown on POS cards; null = icon fallback"
+        bool isBestSeller "manual star toggle (Products page); POS Best Sellers filter reads it"
+    }
+    PRODUCT_IMAGE {
+        string id PK "= product id; doc productImages/{productId}"
+        string mime "image/jpeg | image/png | image/webp"
+        string data "base64, <= 512 KB decoded"
+        int updatedAtMs "cache-busting ?v= for the public image URL"
     }
     INVENTORY_ITEM {
         int id PK

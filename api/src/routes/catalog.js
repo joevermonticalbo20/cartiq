@@ -2,6 +2,8 @@ import { Router } from "express";
 import { db as prisma } from "../firestore.js";
 import { requireAuth } from "../middleware/auth.js";
 import { recipeAvailability } from "../services/inventory_rules.js";
+import { sortFlavorRows } from "../services/flavor_order.js";
+import { servedImageUrl, uploadedImageTimes } from "../services/product_images.js";
 
 const router = Router();
 
@@ -33,6 +35,7 @@ router.get("/catalog", requireAuth, async (req, res, next) => {
           where: { locationId },
           nocache: true,
         });
+    const uploadTimes = await uploadedImageTimes();
     const inventoryByName = new Map(inventory.map((item) => [item.name, item]));
     const products = all.filter((p) => p.active !== false);
     const catalog = products.map((product) => {
@@ -40,7 +43,9 @@ router.get("/catalog", requireAuth, async (req, res, next) => {
       // stores overrides in flavorPrices; missing names fall back to the
       // product base price, exactly like the management list.
       const flavorPrices = product.flavorPrices ?? {};
-      const flavors = (product.flavors ?? []).map((flavor) => ({
+      // Size-aware order (Medium, Large, XL 40, XL 50) so the POS picker
+      // lists sizes the way the menu is spoken.
+      const flavors = sortFlavorRows(product.flavors ?? []).map((flavor) => ({
         ...flavor,
         unitPrice: Number(flavorPrices[flavor.name] ?? product.basePrice),
         hasCustomPrice: flavorPrices[flavor.name] !== undefined,
@@ -54,6 +59,8 @@ router.get("/catalog", requireAuth, async (req, res, next) => {
       );
       return {
         ...product,
+        // Uploaded photo (public endpoint) wins over any pasted URL.
+        imageUrl: servedImageUrl(req, product, uploadTimes),
         flavors,
         isAvailable: options.some((option) => option.isAvailable),
         availableServings: bestOption.availableServings,

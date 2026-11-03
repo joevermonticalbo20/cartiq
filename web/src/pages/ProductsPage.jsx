@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { Plus, Edit2, Trash2, RefreshCw, Tag, AlertTriangle, Archive, ArchiveRestore } from "lucide-react";
+import { Plus, Edit2, Trash2, RefreshCw, Tag, AlertTriangle, Archive, ArchiveRestore, Star, ImagePlus } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
@@ -8,6 +8,7 @@ import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import ImageCropDialog from "../components/ImageCropDialog.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import Select from "../components/Select.jsx";
@@ -79,7 +80,11 @@ export default function ProductsPage() {
   const [addClosing, setAddClosing] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState("");
-  const [newProduct, setNewProduct] = useState({ name: "", category: "Fries", basePrice: "", markupPrice: "", sellingPrice: "", imageUrl: "" });
+  const [newProduct, setNewProduct] = useState({ name: "", category: "Fries", basePrice: "", markupPrice: "", sellingPrice: "", imageDraft: null });
+
+  // Insert/crop photo dialog: which modal asked for it ("add" | "edit").
+  const [cropState, setCropState] = useState({ open: false, target: null });
+  const [starring, setStarring] = useState(null);
   
   const [addFlavorRows, setAddFlavorRows] = useState([]);
   const [addRowErrors, setAddRowErrors] = useState({});
@@ -272,7 +277,7 @@ export default function ProductsPage() {
                     className={`flavor-card-dot ${hasRecipes ? "flavor-card-dot--ok" : "flavor-card-dot--empty"}`}
                     aria-hidden="true"
                   />
-                  <span className="flavor-card-name">{picked?.name ?? "Pick a flavor"}</span>
+                  <span className="flavor-card-name">{picked?.name ?? "Pick a size or flavor"}</span>
                   <span className="flavor-card-meta">{priceLabel} • {recipeLabel}</span>
                   <span className="flavor-card-chevron" aria-hidden="true">▼</span>
                 </button>
@@ -292,18 +297,18 @@ export default function ProductsPage() {
                   className={`flavor-card-dot ${hasRecipes ? "flavor-card-dot--ok" : "flavor-card-dot--empty"}`}
                   aria-hidden="true"
                 />
-                <span className="flavor-card-name">{picked?.name ?? "New flavor"}</span>
+                <span className="flavor-card-name">{picked?.name ?? "New option"}</span>
                 <span className="flavor-card-meta">{priceLabel} • {recipeLabel}</span>
                 <span className="flavor-card-chevron" aria-hidden="true">▲</span>
               </button>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <label className="field">
-                  Flavor
+                  Size / Flavor
                   <Select
                     value={row.flavorId ?? ""}
                     onChange={(v) => updateFlavorRow(setRows, row.key, { flavorId: Number(v) })}
                     options={optionsFor(row.flavorId)}
-                    placeholder="Pick a flavor"
+                    placeholder="Pick a size or flavor"
                   />
                 </label>
                 <label className="field">
@@ -389,7 +394,7 @@ export default function ProductsPage() {
                   className="danger-ghost small-btn"
                   onClick={() => setRows((prev) => prev.filter((r) => r.key !== row.key))}
                 >
-                  Remove flavor
+                  Remove option
                 </button>
               </div>
               {rowErrors[row.key] && (
@@ -417,7 +422,7 @@ export default function ProductsPage() {
             className="ghost small-btn"
             onClick={() => setRows((prev) => [...prev, newFlavorRowState()])}
           >
-            + Add flavor
+            + Add size / flavor
           </button>
         </div>
         <div className="field">
@@ -543,15 +548,23 @@ export default function ProductsPage() {
         basePrice: bp,
         markupPrice: mp,
         sellingPrice: sp,
-        imageUrl: newProduct.imageUrl.trim() || null,
         flavors: checked.payload,
       });
+      // The cropped photo needs the new product's id; a failed upload warns
+      // instead of pretending the whole create failed.
+      if (newProduct.imageDraft && data?.product?.id) {
+        try {
+          await uploadProductImage(data.product.id, newProduct.imageDraft);
+        } catch (imgErr) {
+          toast(getFriendlyError(imgErr, "Product created, but the photo upload failed."), "error");
+        }
+      }
       toast(
         `Product "${name.value}" created${checked.payload.length ? ` with ${checked.payload.length} flavor(s)` : ""}${data?.recipesCreated ? `, ${data.recipesCreated} recipe row(s)` : ""}`,
         "success"
       );
       closeAddModal();
-      setNewProduct({ name: "", category: "Fries", basePrice: "", markupPrice: "", sellingPrice: "", imageUrl: "" });
+      setNewProduct({ name: "", category: "Fries", basePrice: "", markupPrice: "", sellingPrice: "", imageDraft: null });
       setAddFlavorRows([]);
       setAddRowErrors({});
       setFlavorDraft("");
@@ -626,8 +639,8 @@ export default function ProductsPage() {
       }
     }
 
-    const nextImage = String(editing.imageUrl ?? "").trim();
-    const imageChanged = nextImage !== String(editing._imageUrl ?? "").trim();
+    // A pending cropped photo is a change even when no field moved.
+    const hasImageDraft = Boolean(editing.imageDraft);
 
     if (
       (editing.category || "Fries") === (editing._category || "Fries") &&
@@ -636,7 +649,7 @@ export default function ProductsPage() {
       sp === Number(editing._sellingPrice) &&
       sameLinks &&
       !pricesChanged &&
-      !imageChanged &&
+      !hasImageDraft &&
       addRecipes.length === 0
     ) {
       toast("No changes — nothing to update on this product.", "info");
@@ -652,7 +665,6 @@ export default function ProductsPage() {
         markupPrice: mp,
         sellingPrice: sp,
       };
-      if (imageChanged) body.imageUrl = nextImage || null;
       
       const adds = nextIds.filter((id) => !origIds.includes(id));
       const removes = origIds.filter((id) => !nextIds.includes(id));
@@ -677,7 +689,14 @@ export default function ProductsPage() {
       
       if ((editing.category || "Fries") !== (editing._category || "Fries")) details.push("category updated");
       if (sp !== Number(editing._sellingPrice)) details.push(`selling price P${Number(editing._sellingPrice)} ➔ P${sp}`);
-      if (imageChanged) details.push(nextImage ? "image updated" : "image removed");
+      if (hasImageDraft) {
+        try {
+          await uploadProductImage(editing.id, editing.imageDraft);
+          details.push("photo updated");
+        } catch (imgErr) {
+          toast(getFriendlyError(imgErr, "Product saved, but the photo upload failed."), "error");
+        }
+      }
 
       toast(
         `Product "${editing.name}" updated${details.length ? ` (${details.join("; ")})` : ""}`,
@@ -754,6 +773,127 @@ export default function ProductsPage() {
     }
   }
 
+  // --- PRODUCT PHOTOS ---------------------------------------------------
+  // The cropped photo is uploaded right after the product save lands
+  // (create) or after the PATCH (edit): the endpoints need a product id.
+  async function uploadProductImage(productId, draft) {
+    const comma = draft.dataUrl.indexOf(",");
+    const data = draft.dataUrl.slice(comma + 1);
+    await api.post(`/products/${productId}/image`, { data, mime: draft.mime });
+  }
+
+  function openCrop(target) {
+    setCropState({ open: true, target });
+  }
+
+  function handleCropSave({ dataUrl, mime }) {
+    const draft = { dataUrl, mime };
+    if (cropState.target === "add") {
+      setNewProduct((prev) => ({ ...prev, imageDraft: draft }));
+    } else if (cropState.target === "edit") {
+      setEditing((prev) => (prev ? { ...prev, imageDraft: draft } : prev));
+    }
+    setCropState({ open: false, target: null });
+  }
+
+  async function handleRemoveImage() {
+    if (!editing) return;
+    try {
+      await api.del(`/products/${editing.id}/image`);
+      // Seeded products carry a pasted URL instead of an upload; clear it
+      // too so the list stops serving the old photo.
+      await api.patch(`/products/${editing.id}`, { imageUrl: null });
+      setEditing((prev) => (prev ? { ...prev, imageUrl: "", imageDraft: null } : prev));
+      toast("Product photo removed", "success");
+      load();
+    } catch (err) {
+      toast(getFriendlyError(err, "Could not remove the photo."), "error");
+    }
+  }
+
+  function handleRemoveDraft() {
+    setNewProduct((prev) => ({ ...prev, imageDraft: null }));
+    setEditing((prev) => (prev ? { ...prev, imageDraft: null } : prev));
+  }
+
+  // --- BEST SELLER STAR -------------------------------------------------
+  // The POS "Best Sellers" filter reads isBestSeller; the star is the one
+  // control that sets it, so the owner curates that category by hand.
+  async function handleBestSellerToggle(p) {
+    if (starring) return;
+    setStarring(p.id);
+    try {
+      const next = !(p.isBestSeller === true);
+      await api.patch(`/products/${p.id}`, { isBestSeller: next });
+      toast(
+        next
+          ? `"${p.name}" added to Best Sellers`
+          : `"${p.name}" removed from Best Sellers`,
+        "success"
+      );
+      load();
+    } catch (err) {
+      toast(getFriendlyError(err, "Could not update the Best Seller mark."), "error");
+    } finally {
+      setStarring(null);
+    }
+  }
+
+  function productImageField({ draft, existingUrl, onInsert, onRemove }) {
+    const preview = draft?.dataUrl ?? existingUrl ?? null;
+    return (
+      <div className="field">
+        <span>Product photo</span>
+        <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={onInsert}
+            title="Insert or crop a photo"
+            style={{
+              padding: 0,
+              border: "1px solid var(--border)",
+              borderRadius: 14,
+              overflow: "hidden",
+              background: "var(--surface-alt)",
+              width: 72,
+              height: 72,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              flex: "0 0 auto",
+            }}
+          >
+            {preview ? (
+              <img
+                src={preview}
+                alt=""
+                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+              />
+            ) : (
+              <ImagePlus size={22} className="muted" aria-hidden="true" />
+            )}
+          </button>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <button type="button" className="ghost small-btn" onClick={onInsert}>
+                <ImagePlus size={13} /> {preview ? "Change / crop" : "Insert photo"}
+              </button>
+              {preview && (
+                <button type="button" className="danger-ghost small-btn" onClick={onRemove}>
+                  Remove
+                </button>
+              )}
+            </div>
+            <span className="muted small">
+              Click the image to crop it. The square is what the POS card shows.
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function openEdit(p) {
     const prices = p.flavorPrices ?? {};
     const basePriceSnapshot = Number(p.basePrice) || 0;
@@ -765,6 +905,7 @@ export default function ProductsPage() {
       markupPrice: String(Math.max(0, sellingPriceSnapshot - basePriceSnapshot)),
       sellingPrice: String(sellingPriceSnapshot),
       imageUrl: p.imageUrl ?? "",
+      imageDraft: null,
       flavorRows: (p.flavors ?? []).map((f) => newFlavorRowState({
         flavorId: f.id,
         unitPrice: f.hasCustomPrice ? String(prices[f.name] ?? f.unitPrice ?? "") : "",
@@ -785,7 +926,6 @@ export default function ProductsPage() {
       _basePrice: basePriceSnapshot,
       _markupPrice: Math.max(0, sellingPriceSnapshot - basePriceSnapshot),
       _sellingPrice: sellingPriceSnapshot,
-      _imageUrl: p.imageUrl ?? "",
       _flavorIds: (p.flavors ?? []).map((f) => f.id),
       _flavorPrices: prices,
       rowErrors: {},
@@ -886,6 +1026,22 @@ export default function ProductsPage() {
                           />
                         )}
                         <strong>{p.name}</strong>
+                        <button
+                          type="button"
+                          className="linklike"
+                          onClick={() => handleBestSellerToggle(p)}
+                          disabled={starring === p.id}
+                          aria-pressed={p.isBestSeller === true}
+                          title={p.isBestSeller === true ? "Remove from Best Sellers" : "Add to Best Sellers"}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            padding: 2,
+                            color: p.isBestSeller === true ? "var(--highlight-strong)" : "var(--text-faint)",
+                          }}
+                        >
+                          <Star size={15} fill={p.isBestSeller === true ? "currentColor" : "none"} aria-hidden="true" />
+                        </button>
                         {p.active === false && <Badge variant="neutral">Archived</Badge>}
                       </span>
                     ),
@@ -919,7 +1075,10 @@ export default function ProductsPage() {
                   },
                   {
                     key: "flavors",
-                    label: "Flavors",
+                    // These options ARE the sizes on the fries menu
+                    // (Medium / Large / XL 40 / XL 50), so the column name
+                    // says both instead of calling them only flavors.
+                    label: "Sizes / Flavors",
                     render: (p) => (
                       <span className="flex flex-wrap gap-1">
                         {(p.flavors ?? []).map((f) => (
@@ -949,9 +1108,20 @@ export default function ProductsPage() {
                   {
                     key: "usage",
                     label: "Used in",
-                    width: 130,
+                    width: 150,
                     render: (p) => (
-                      <span className="muted small">
+                      // nowrap + ellipsis: the long count used to wrap under
+                      // the row-action icons in the fixed table layout.
+                      <span
+                        className="muted small"
+                        style={{
+                          display: "block",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                        title={`${p.recipeCount} recipe(s) • ${p.orderLines} order line(s)`}
+                      >
                         {p.recipeCount} recipe(s) • {p.orderLines} order line(s)
                       </span>
                     ),
@@ -1047,16 +1217,12 @@ export default function ProductsPage() {
                   </label>
                 </div>
 
-                <label className="field">
-                  Product Image URL <span className="muted small">(optional)</span>
-                  <input
-                    type="url"
-                    maxLength={500}
-                    placeholder="https://... image shown on the POS product card"
-                    value={newProduct.imageUrl}
-                    onChange={(e) => setNewProduct({ ...newProduct, imageUrl: e.target.value })}
-                  />
-                </label>
+                {productImageField({
+                  draft: newProduct.imageDraft,
+                  existingUrl: null,
+                  onInsert: () => openCrop("add"),
+                  onRemove: handleRemoveDraft,
+                })}
 
                 {/* PRICING GRID */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "20px" }}>
@@ -1101,7 +1267,7 @@ export default function ProductsPage() {
                 </div>
                 
                 <div className="field">
-                  <span>Flavors — price &amp; recipes per flavor</span>
+                  <span>Sizes / flavors — price &amp; recipes per option</span>
                   {flavorRowsEditor(addFlavorRows, setAddRows, newProduct.sellingPrice, addRowErrors)}
                 </div>
                 
@@ -1143,16 +1309,12 @@ export default function ProductsPage() {
                   />
                 </label>
 
-                <label className="field">
-                  Product Image URL <span className="muted small">(optional)</span>
-                  <input
-                    type="url"
-                    maxLength={500}
-                    placeholder="https://... image shown on the POS product card"
-                    value={editing?.imageUrl ?? ""}
-                    onChange={(e) => setEditing({ ...editing, imageUrl: e.target.value })}
-                  />
-                </label>
+                {productImageField({
+                  draft: editing?.imageDraft,
+                  existingUrl: editing?.imageUrl,
+                  onInsert: () => openCrop("edit"),
+                  onRemove: handleRemoveImage,
+                })}
 
                 {/* PRICING GRID */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "20px" }}>
@@ -1195,7 +1357,7 @@ export default function ProductsPage() {
                 </div>
                 
                 <div className="field">
-                  <span>Flavors — price &amp; recipes per flavor</span>
+                  <span>Sizes / flavors — price &amp; recipes per option</span>
                   {flavorRowsEditor(editing?.flavorRows ?? [], setEditRows, editing?.sellingPrice, editing?.rowErrors ?? {})}
                 </div>
                 
@@ -1261,6 +1423,19 @@ export default function ProductsPage() {
           onConfirm={handleArchiveToggle}
           onCancel={() => setArchiving(null)}
         />
+
+        {/* PRODUCT PHOTO INSERT / CROP (mounted per open, so it starts fresh) */}
+        {cropState.open && (
+          <ImageCropDialog
+            seed={
+              cropState.target === "add"
+                ? (newProduct.imageDraft?.dataUrl ?? null)
+                : (editing?.imageDraft?.dataUrl ?? editing?.imageUrl ?? null)
+            }
+            onCancel={() => setCropState({ open: false, target: null })}
+            onSave={handleCropSave}
+          />
+        )}
 
         {/* DELETE PRODUCT CONFIRMATION */}
         <ConfirmDialog

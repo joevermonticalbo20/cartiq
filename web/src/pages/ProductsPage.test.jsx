@@ -160,7 +160,7 @@ describe("ProductsPage by-flavor add", () => {
     renderPage();
     await screen.findByText("No products yet");
     fireEvent.click(screen.getByText("Add product"));
-    expect(await screen.findByText(/price & recipes per flavor/)).toBeInTheDocument();
+    expect(await screen.findByText(/price & recipes per option/)).toBeInTheDocument();
   }
 
   function addModal() {
@@ -185,7 +185,7 @@ describe("ProductsPage by-flavor add", () => {
   it("blocks submit when a flavor row has no picked flavor", async () => {
     await openAddModal();
     fillNameAndPrice();
-    fireEvent.click(screen.getByText("+ Add flavor"));
+    fireEvent.click(screen.getByText("+ Add size / flavor"));
     fireEvent.click(screen.getByText("Create Product"));
     // Same message at modal level and inline under the bad row.
     const matches = await screen.findAllByText(/Pick a flavor for this row/);
@@ -196,7 +196,7 @@ describe("ProductsPage by-flavor add", () => {
   it("shows the row error inline under the bad row and expands it", async () => {
     await openAddModal();
     fillNameAndPrice();
-    fireEvent.click(screen.getByText("+ Add flavor"));
+    fireEvent.click(screen.getByText("+ Add size / flavor"));
     const modal = screen.getByText("Add Product").closest(".modal");
     // Collapse the empty row: submit must expand it again with the error.
     fireEvent.click(within(modal).getByLabelText("Collapse flavor row"));
@@ -218,7 +218,7 @@ describe("ProductsPage by-flavor add", () => {
       return Promise.resolve({ data: null });
     });
     await openAddModal();
-    fireEvent.click(screen.getByText("+ Add flavor"));
+    fireEvent.click(screen.getByText("+ Add size / flavor"));
     const modal = screen.getByText("Add Product").closest(".modal");
     const option = modal.querySelector('datalist#cartiq-inventory-items option[value="Cheese Powder"]');
     expect(option).not.toBeNull();
@@ -235,7 +235,7 @@ describe("ProductsPage by-flavor add", () => {
     });
     await openAddModal();
     fillNameAndPrice();
-    fireEvent.click(screen.getByText("+ Add flavor"));
+    fireEvent.click(screen.getByText("+ Add size / flavor"));
     const modal = screen.getByText("Add Product").closest(".modal");
     fireEvent.click(within(modal).getByText("+ Recipe line"));
     fireEvent.change(within(modal).getByPlaceholderText("Ingredient item (e.g. Cheese Powder)"), {
@@ -264,7 +264,7 @@ describe("ProductsPage by-flavor add", () => {
     });
     await openAddModal();
     fillNameAndPrice();
-    fireEvent.click(screen.getByText("+ Add flavor"));
+    fireEvent.click(screen.getByText("+ Add size / flavor"));
     fireEvent.change(screen.getByPlaceholderText("New flavor name"), { target: { value: "Cheesy" } });
     const modal = screen.getByText("Add Product").closest(".modal");
     fireEvent.click(within(modal).getByText("Add", { selector: "button" }));
@@ -300,7 +300,7 @@ describe("ProductsPage by-flavor add", () => {
     fillNameAndPrice();
 
     // New flavor row, then inline-create the flavor into it.
-    fireEvent.click(screen.getByText("+ Add flavor"));
+    fireEvent.click(screen.getByText("+ Add size / flavor"));
     fireEvent.change(screen.getByPlaceholderText("New flavor name"), { target: { value: "Wasabi" } });
     const modal = screen.getByText("Add Product").closest(".modal");
     fireEvent.click(within(modal).getByText("Add", { selector: "button" }));
@@ -324,5 +324,72 @@ describe("ProductsPage by-flavor add", () => {
         recipes: [{ itemName: "Wasabi Powder", amountPerUnit: 0.04 }],
       },
     ]);
+  });
+});
+
+describe("ProductsPage best sellers + sizes", () => {
+  const seedProducts = [
+    {
+      id: 11,
+      name: "Cheese Fries",
+      category: "Fries",
+      basePrice: 20,
+      active: true,
+      isBestSeller: false,
+      imageUrl: null,
+      flavorPrices: { Large: 30 },
+      flavors: [
+        { id: 3, name: "Medium", unitPrice: 20, hasCustomPrice: false, recipeCount: 1, missingItems: [] },
+        { id: 4, name: "Large", unitPrice: 30, hasCustomPrice: true, recipeCount: 1, missingItems: [] },
+      ],
+      recipeCount: 2,
+      orderLines: 5,
+    },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.get.mockImplementation((url) => {
+      if (url === "/products") return Promise.resolve({ data: { data: seedProducts } });
+      if (url === "/flavors") return Promise.resolve({ data: { data: seedFlavors } });
+      return Promise.resolve({ data: { data: [] } });
+    });
+    api.patch.mockResolvedValue({ data: {} });
+  });
+
+  it("star toggle marks a product as best seller", async () => {
+    renderPage();
+    expect(await screen.findByText("Cheese Fries")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle("Add to Best Sellers"));
+
+    await vi.waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith("/products/11", { isBestSeller: true })
+    );
+  });
+
+  it("labels the option column for sizes, not just flavors", async () => {
+    renderPage();
+    expect(await screen.findByText("Sizes / Flavors")).toBeInTheDocument();
+  });
+
+  it("shows the star filled for a best seller and unfills on click", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/products") {
+        return Promise.resolve({
+          data: { data: [{ ...seedProducts[0], isBestSeller: true }] },
+        });
+      }
+      if (url === "/flavors") return Promise.resolve({ data: { data: seedFlavors } });
+      return Promise.resolve({ data: { data: [] } });
+    });
+    renderPage();
+    const star = await screen.findByTitle("Remove from Best Sellers");
+    expect(star).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(star);
+    await vi.waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith("/products/11", { isBestSeller: false })
+    );
   });
 });

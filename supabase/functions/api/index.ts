@@ -1205,12 +1205,13 @@ async function handleLogout(req, origin) {
 async function handleCatalog(req, origin) {
   const auth = await authUser(req);
   if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
-  const [products, locations, flavors, maps, inventory] = await Promise.all([
+  const [products, locations, flavors, maps, inventory, imageTimes] = await Promise.all([
     fsListAll("products"),
     fsListAll("locations"),
     fsListAll("flavors"),
     fsListAll("ingredientMaps"),
     fsListAll("inventoryItems"),
+    uploadedImageTimes(),
   ]);
   const byName = (a, b) => String(a.name || "").localeCompare(String(b.name || ""));
   const cleanFlavors = flavors.map(cleanDoc);
@@ -1275,18 +1276,19 @@ async function handleCatalog(req, origin) {
       // Per-flavor absolute price (POS size/price options): overrides live
       // in flavorPrices; missing names fall back to the base price.
       const flavorPrices = p.flavorPrices || {};
-      const fl = cleanFlavors
-        .filter((f) => ids.has(f.id))
-        .sort(byName)
-        .map((f) => ({
-          ...f,
-          unitPrice: Number(flavorPrices[f.name] ?? p.basePrice),
-          hasCustomPrice: flavorPrices[f.name] !== undefined,
-          ...availability(p.name, f.name),
-        }));
+      // Size-aware order (Medium, Large, XL 40, XL 50) — alphabetical put
+      // Large before Medium on every POS picker.
+      const fl = sortFlavorRows(cleanFlavors.filter((f) => ids.has(f.id))).map((f) => ({
+        ...f,
+        unitPrice: Number(flavorPrices[f.name] ?? p.basePrice),
+        hasCustomPrice: flavorPrices[f.name] !== undefined,
+        ...availability(p.name, f.name),
+      }));
       const c = cleanDoc(p);
       delete c.flavorIds;
       c.flavors = fl;
+      // Uploaded photo (public endpoint) wins over any pasted URL.
+      c.imageUrl = servedImageUrl(apiPublicBase(req), p, imageTimes);
       const options = fl.length ? fl : [availability(p.name, "")];
       const bestOption = options.reduce((best, option) =>
         option.availableServings > best.availableServings ? option : best,
@@ -2673,7 +2675,67 @@ async function upsertRecipeRows(productName, flavorName, rows) {
   return { created };
 }
 
-function attachFlavors(product, flavors, maps, orders, invNames) {
+// Size-aware flavor order (mirrors api/src/services/flavor_order.js): the
+// Pota Fries menu stores SIZES as options, and alphabetical order showed
+// Large before Medium on every picker.
+const sizeRank = (name) => {
+  const n = String(name ?? "").trim().toLowerCase();
+  if (n.startsWith("medium")) return 0;
+  if (n.startsWith("large")) return 1;
+  if (n.startsWith("xl")) return 2;
+  return 3;
+};
+function compareFlavorNames(a, b) {
+  const ra = sizeRank(a);
+  const rb = sizeRank(b);
+  if (ra !== rb) return ra - rb;
+  return String(a ?? "").localeCompare(String(b ?? ""), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+function sortFlavorRows(rows, nameOf = (r) => r?.name) {
+  return [...(rows ?? [])].sort((x, y) => compareFlavorNames(nameOf(x), nameOf(y)));
+}
+
+// ---------- product images ----------
+// Uploaded photos live in productImages/{productId} (base64). Product docs
+// carry only the served URL so catalog payloads stay small. The GET is
+// PUBLIC by design: <img> tags cannot send an auth header.
+const IMAGE_MAX_BYTES = 512 * 1024;
+const IMAGE_PREFIX = {
+  "image/jpeg": "/9j/",
+  "image/png": "iVBOR",
+  "image/webp": "UklGR",
+};
+
+/** Absolute base of this deployment's public API, from the request URL. */
+function apiPublicBase(req) {
+  const u = new URL(req.url);
+  return u.origin + "/functions/v1/api";
+}
+
+function uploadedImageUrl(imageBase, productId, updatedMs) {
+  return `${imageBase}/products/${productId}/image?v=${updatedMs}`;
+}
+
+async function uploadedImageTimes() {
+  const rows = await fsListAll("productImages");
+  const out = new Map();
+  for (const r of rows) {
+    const ms = Number(r.updatedAtMs);
+    out.set(Number(r.id), Number.isFinite(ms) ? ms : Date.now());
+  }
+  return out;
+}
+
+function servedImageUrl(imageBase, product, times) {
+  const uploaded = times?.get(Number(product.id));
+  if (uploaded) return uploadedImageUrl(imageBase, product.id, uploaded);
+  return product.imageUrl ?? null;
+}
+
+function attachFlavors(product, flavors, maps, orders, invNames, imageBase, imageTimes) {
   const flavorPrices = product.flavorPrices ?? {};
   const flavorKey = (pn, f) => JSON.stringify([pn, f ?? ""]);
   const recipeByFlavor = new Map();
@@ -2688,8 +2750,7 @@ function attachFlavors(product, flavors, maps, orders, invNames) {
     rowsByFlavor.get(key).push({ itemName: m.itemName, amountPerUnit: m.amountPerUnit });
   }
   const ids = new Set((product.flavorIds ?? []).map(Number));
-  const linked = flavors.filter((f) => ids.has(Number(f.id)))
-    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+  const linked = sortFlavorRows(flavors.filter((f) => ids.has(Number(f.id))));
   let orderLines = 0;
   for (const o of orders) {
     for (const it of o.items ?? []) {
@@ -2703,7 +2764,8 @@ function attachFlavors(product, flavors, maps, orders, invNames) {
     basePrice: product.basePrice,
     // Missing on pre-archive docs means active (backwards compatible).
     active: product.active !== false,
-    imageUrl: product.imageUrl ?? null,
+    isBestSeller: product.isBestSeller === true,
+    imageUrl: imageBase ? servedImageUrl(imageBase, product, imageTimes) : (product.imageUrl ?? null),
     flavorPrices,
     flavors: linked.map((f) => ({
       id: f.id,
@@ -2720,24 +2782,29 @@ function attachFlavors(product, flavors, maps, orders, invNames) {
   };
 }
 
-async function handleListProducts() {
-  const [products, maps, orders, invRows] = await Promise.all([
+async function handleListProducts(req) {
+  const [products, maps, orders, invRows, imageTimes, flavors] = await Promise.all([
     fsListAll("products"),
     fsListAll("ingredientMaps"),
     // orderLines reference counts: bounded to the 2000 newest orders (exact
     // at pilot scale; keeps this admin view fast as history grows).
     fsRunQuery("orders", { orderBy: [{ field: "createdAt", dir: "DESCENDING" }], limit: 2000 }),
     fsListAll("inventoryItems"),
+    uploadedImageTimes(),
+    fsListAll("flavors"),
   ]);
   const invNames = new Set(invRows.map((r) => String(r.name ?? "").trim()).filter(Boolean));
-  const flavors = await fsListAll("flavors");
+  const imageBase = apiPublicBase(req);
   products.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-  return { data: products.map((p) => attachFlavors(cleanDoc(p), flavors, maps, orders, invNames)) };
+  return {
+    data: products.map((p) =>
+      attachFlavors(cleanDoc(p), flavors, maps, orders, invNames, imageBase, imageTimes)),
+  };
 }
 
 async function handleCreateProduct(req) {
   const body = await req.json().catch(() => null);
-  const { name, category, basePrice, flavorIds, flavors, imageUrl } = body || {};
+  const { name, category, basePrice, flavorIds, flavors, imageUrl, isBestSeller } = body || {};
   if (!validProductName(name)) {
     return { status: 400, body: { error: "name needs at least 2 letters (max 120 characters)" } };
   }
@@ -2811,6 +2878,7 @@ async function handleCreateProduct(req) {
     ...(imageUrl !== undefined && imageUrl !== null && String(imageUrl).trim() !== ""
       ? { imageUrl: String(imageUrl).trim() }
       : {}),
+    ...(isBestSeller === true ? { isBestSeller: true } : {}),
   };
   writes.push(createWrite("products", doc.id, doc));
   try {
@@ -2851,14 +2919,14 @@ async function handleCreateProduct(req) {
 
 async function handlePatchProduct(req, id) {
   const body = await req.json().catch(() => null);
-  const { category, basePrice, active, addFlavorIds, removeFlavorIds, flavorPrices, addRecipes, removeRecipes, imageUrl } = body || {};
+  const { category, basePrice, active, addFlavorIds, removeFlavorIds, flavorPrices, addRecipes, removeRecipes, imageUrl, isBestSeller } = body || {};
   if (
     category === undefined && basePrice === undefined && active === undefined &&
     addFlavorIds === undefined && removeFlavorIds === undefined &&
     flavorPrices === undefined && addRecipes === undefined && removeRecipes === undefined &&
-    imageUrl === undefined
+    imageUrl === undefined && isBestSeller === undefined
   ) {
-    return { status: 400, body: { error: "provide category, basePrice, active, flavorIds, flavorPrices, recipes, or imageUrl" } };
+    return { status: 400, body: { error: "provide category, basePrice, active, flavorIds, flavorPrices, recipes, imageUrl, or isBestSeller" } };
   }
   const existing = await fsGet("products", id);
   if (!existing) return { status: 404, body: { error: "Product not found" } };
@@ -2884,6 +2952,14 @@ async function handlePatchProduct(req, id) {
     data.imageUrl = imageUrl === null || String(imageUrl).trim() === ""
       ? null
       : String(imageUrl).trim();
+  }
+  // Best-seller flag: the star toggle on the Products page. The POS
+  // "Best Sellers" filter has read this field all along.
+  if (isBestSeller !== undefined) {
+    if (typeof isBestSeller !== "boolean") {
+      return { status: 400, body: { error: "isBestSeller must be true or false" } };
+    }
+    data.isBestSeller = isBestSeller;
   }
   const allFlavors = await fsListAll("flavors");
   const byId = new Map(allFlavors.map((f) => [Number(f.id), f]));
@@ -3053,6 +3129,68 @@ async function handleDeleteProduct(id) {
     };
   }
   await fsDeleteByName(existing._name);
+  // The uploaded photo (if any) dies with the product.
+  try {
+    await fsDeleteByName(fsDocName("productImages", existing.id));
+  } catch (_) {
+    // A missing image document is not an error.
+  }
+  return { status: 200, body: { deleted: true } };
+}
+
+// ---------- product image endpoints (mirror api/src/routes/products.js) ----------
+
+/** GET /products/:id/image — public bytes for <img> tags everywhere. */
+async function handleProductImageGet(id, origin) {
+  const doc = await fsGet("productImages", id);
+  if (!doc || typeof doc.data !== "string" || !doc.data) {
+    return jsonRes(origin, { error: "No image for this product" }, 404);
+  }
+  const bin = atob(doc.data);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      "content-type": String(doc.mime || "image/jpeg"),
+      "cache-control": "public, max-age=3600",
+      // Open CORS so the dashboard can also re-crop an existing upload on a
+      // <canvas> (cross-origin pixels taint it without this).
+      "access-control-allow-origin": "*",
+    },
+  });
+}
+
+/** POST /products/:id/image (OWNER) — store a cropped photo (base64). */
+async function handleProductImageSet(req, id) {
+  const existing = await fsGet("products", id);
+  if (!existing) return { status: 404, body: { error: "Product not found" } };
+  const body = await req.json().catch(() => null);
+  const data = body?.data;
+  const mime = String(body?.mime ?? "").trim().toLowerCase();
+  const prefix = IMAGE_PREFIX[mime];
+  if (!prefix || typeof data !== "string" || !data.startsWith(prefix)) {
+    return { status: 400, body: { error: "image must be a base64 JPEG, PNG, or WebP" } };
+  }
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  const bytes = Math.floor((data.length / 4) * 3) - padding;
+  if (bytes <= 0) return { status: 400, body: { error: "image data is empty" } };
+  if (bytes > IMAGE_MAX_BYTES) {
+    return { status: 413, body: { error: `image too large (max ${Math.round(IMAGE_MAX_BYTES / 1024)} KB)` } };
+  }
+  const updatedAtMs = Date.now();
+  await fsCommit([updateWrite("productImages", id, { mime, data, bytes, updatedAtMs })]);
+  return {
+    status: 200,
+    body: { imageUrl: uploadedImageUrl(apiPublicBase(req), id, updatedAtMs), updatedAt: updatedAtMs },
+  };
+}
+
+/** DELETE /products/:id/image (OWNER) — remove the uploaded photo. */
+async function handleProductImageDelete(id) {
+  const existing = await fsGet("products", id);
+  if (!existing) return { status: 404, body: { error: "Product not found" } };
+  await fsDeleteByName(fsDocName("productImages", id));
   return { status: 200, body: { deleted: true } };
 }
 
@@ -6700,10 +6838,15 @@ Deno.serve(async (req) => {
       // Products + flavors.
       if (path === "/products" || path.startsWith("/products/") ||
           path === "/flavors" || path.startsWith("/flavors/")) {
+        // Product photo bytes are PUBLIC: the dashboard table and the POS
+        // cards load them with plain <img> tags, which cannot send a token.
+        if (req.method === "GET" && /^\/products\/\d+\/image$/.test(path)) {
+          return await handleProductImageGet(Number(path.split("/")[2]), origin);
+        }
         const auth = await authUser(req);
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
         let out;
-        if (req.method === "GET" && path === "/products") out = { status: 200, body: await handleListProducts() };
+        if (req.method === "GET" && path === "/products") out = { status: 200, body: await handleListProducts(req) };
         else if (req.method === "GET" && path === "/flavors") out = { status: 200, body: await handleListFlavors() };
         else {
           const ownErr = requireOwner(auth.user);
@@ -6717,6 +6860,12 @@ Deno.serve(async (req) => {
           }
           else if (req.method === "DELETE" && /^\/products\/\d+$/.test(path)) {
             out = await handleDeleteProduct(Number(path.split("/")[2]));
+          }
+          else if (req.method === "POST" && /^\/products\/\d+\/image$/.test(path)) {
+            out = await handleProductImageSet(req, Number(path.split("/")[2]));
+          }
+          else if (req.method === "DELETE" && /^\/products\/\d+\/image$/.test(path)) {
+            out = await handleProductImageDelete(Number(path.split("/")[2]));
           }
           else if (req.method === "POST" && path === "/flavors") out = await handleCreateFlavor(req);
           else if (req.method === "PATCH" && /^\/flavors\/\d+$/.test(path)) {
