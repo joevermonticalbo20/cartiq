@@ -1016,17 +1016,6 @@ export default function ProductsPage() {
                     width: 200,
                     render: (p) => (
                       <span className="flex flex-wrap items-center gap-1">
-                        {p.imageUrl && (
-                          <img
-                            src={p.imageUrl}
-                            alt=""
-                            width={28}
-                            height={28}
-                            loading="lazy"
-                            style={{ width: 28, height: 28, borderRadius: 8, objectFit: "cover", flex: "0 0 auto" }}
-                          />
-                        )}
-                        <strong>{p.name}</strong>
                         <button
                           type="button"
                           className="linklike"
@@ -1038,11 +1027,23 @@ export default function ProductsPage() {
                             display: "inline-flex",
                             alignItems: "center",
                             padding: 2,
+                            flex: "0 0 auto",
                             color: p.isBestSeller === true ? "var(--highlight-strong)" : "var(--text-faint)",
                           }}
                         >
                           <Star size={15} fill={p.isBestSeller === true ? "currentColor" : "none"} aria-hidden="true" />
                         </button>
+                        {p.imageUrl && (
+                          <img
+                            src={p.imageUrl}
+                            alt=""
+                            width={28}
+                            height={28}
+                            loading="lazy"
+                            style={{ width: 28, height: 28, borderRadius: 8, objectFit: "cover", flex: "0 0 auto" }}
+                          />
+                        )}
+                        <strong>{p.name}</strong>
                         {p.active === false && <Badge variant="neutral">Archived</Badge>}
                       </span>
                     ),
@@ -1118,6 +1119,9 @@ export default function ProductsPage() {
                     render: (p) => (
                       // nowrap + ellipsis: the long count used to wrap under
                       // the row-action icons in the fixed table layout.
+                      // Short labels so the whole line fits the column instead
+                      // of being cut off; the exact wording stays in the
+                      // tooltip.
                       <span
                         className="muted small"
                         style={{
@@ -1128,7 +1132,7 @@ export default function ProductsPage() {
                         }}
                         title={`${p.recipeCount} recipe(s) • ${p.orderLines} order line(s)`}
                       >
-                        {p.recipeCount} recipe(s) • {p.orderLines} order line(s)
+                        {p.recipeCount} {p.recipeCount === 1 ? "recipe" : "recipes"} • {p.orderLines} sold
                       </span>
                     ),
                   },

@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Bell, Info, AlertTriangle, PackageSearch, ReceiptText, ChevronDown } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
+import { useLiveEvent } from "../hooks/useLiveStream.js";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import Badge from "../components/Badge.jsx";
@@ -35,31 +36,46 @@ export default function NotificationsPage() {
   const [filter, setFilter] = useState("ALL");
   const [expandedId, setExpandedId] = useState(null); 
 
-  useEffect(() => {
-    let active = true;
-    api.get("/alerts?page=1&pageSize=100")
-      .then((res) => {
-        if (!active) return;
-        setAlerts(res.data?.data || []);
-        setError("");
-      })
-      .catch((err) => {
-        if (!active) return;
-        setError(getFriendlyError(err, "Failed to load notifications."));
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
+  const load = useCallback(async () => {
+    try {
+      const res = await api.get("/alerts?page=1&pageSize=100");
+      setAlerts(res.data?.data || []);
+      setError("");
+    } catch (err) {
+      setError(getFriendlyError(err, "Failed to load notifications."));
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(load, 0);
+    return () => clearTimeout(timer);
+  }, [load]);
+
+  // A sale on the POS writes a SALE alert; both events land on the same
+  // query, so one refetch keeps this page live while it is open.
+  const liveRefresh = useCallback(() => {
+    load();
+  }, [load]);
+  useLiveEvent("alert:new", liveRefresh);
+  useLiveEvent("order:new", liveRefresh);
 
   const filteredAlerts = useMemo(() => {
     if (filter === "ALL") return alerts;
-    if (filter === "SALES") return alerts.filter(a => a.type === "sales" || (a.message && a.message.toLowerCase().includes("order")));
-    if (filter === "RESTOCK") return alerts.filter(a => a.type === "restock" || a.type === "inventory");
-    
+    if (filter === "SALES") {
+      return alerts.filter(a => {
+        const t = String(a.type ?? "").toLowerCase();
+        return t === "sale" || t === "sales" ||
+          (a.message && a.message.toLowerCase().includes("sale"));
+      });
+    }
+    if (filter === "RESTOCK") {
+      return alerts.filter(a => {
+        const t = String(a.type ?? "").toLowerCase();
+        return t === "restock" || t === "restock_request" || t === "inventory" || t === "low_stock";
+      });
+    }
     return alerts.filter(a => a.locationCode === filter || (a.message && a.message.includes(filter)));
   }, [alerts, filter]);
 
@@ -189,7 +205,7 @@ export default function NotificationsPage() {
                             <span style={{ fontWeight: "800", color: "var(--text)", fontSize: "16px" }}>
                               {alert.title || alert.type?.toUpperCase() || "UPDATE"}
                             </span>
-                            {alert.status === "unread" && (
+                            {alert.isRead !== true && (
                               <Badge variant="warn">Unread</Badge>
                             )}
                             {alert.locationCode && (

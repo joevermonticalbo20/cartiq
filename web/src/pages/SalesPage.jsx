@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useOutletContext, useSearchParams } from "react-router-dom";
-import { ReceiptText, RefreshCw, X, Download, Edit2 } from "lucide-react";
+import { ReceiptText, RefreshCw, X, Download, Edit2, Eye, Hourglass, Check, Ban } from "lucide-react";
 
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
+import { useLiveEvent } from "../hooks/useLiveStream.js";
 import { usePagedData } from "../hooks/usePagedData.js";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import DataTable from "../components/DataTable.jsx";
@@ -43,6 +44,12 @@ export default function SalesPage() {
   // --- NEW STATE FOR TOTAL INCOME ---
   const [totalIncome, setTotalIncome] = useState(null);
 
+  // Staff void requests: the POS files them, the OWNER decides here.
+  const [voidRequests, setVoidRequests] = useState([]);
+  const [deciding, setDeciding] = useState(null);
+  // GCash receipt viewer (blob fetched with the session, shown as object URL).
+  const [viewingReceipt, setViewingReceipt] = useState(null);
+
   useEffect(() => {
       api.get("/catalog", { cacheTtl: 60000 }).then(({ data }) => setLocations(data?.locations ?? [])).catch(() => {});
   }, []);
@@ -76,9 +83,98 @@ export default function SalesPage() {
     return () => clearTimeout(timer);
   }, [loadSummary]);
 
+  const loadVoidRequests = useCallback(async () => {
+    if (!isOwner) return;
+    try {
+      const res = await api.get("/alerts?page=1&pageSize=100");
+      const pending = (res.data?.data ?? []).filter(
+        (a) => a.type === "VOID_REQUEST" && a.isRead !== true
+      );
+      setVoidRequests(pending);
+    } catch {
+      // background fetch; the table error surface owns failures
+    }
+  }, [isOwner]);
+
+  useEffect(() => {
+    const timer = setTimeout(loadVoidRequests, 0);
+    return () => clearTimeout(timer);
+  }, [loadVoidRequests]);
+
   function handleRefresh() {
     refresh();
     loadSummary();
+    loadVoidRequests();
+  }
+
+  // Live: a sale (order:new) refreshes the table (debounced for rushes) and
+  // an alert (void request, low stock) re-reads the requests panel.
+  const liveTimer = useRef(null);
+  const scheduleLiveRefresh = useCallback(() => {
+    if (liveTimer.current) clearTimeout(liveTimer.current);
+    liveTimer.current = setTimeout(() => {
+      liveTimer.current = null;
+      refresh();
+      loadSummary();
+    }, 1500);
+  }, [refresh, loadSummary]);
+  useLiveEvent("order:new", scheduleLiveRefresh);
+  useLiveEvent("alert:new", loadVoidRequests);
+  useEffect(
+    () => () => {
+      if (liveTimer.current) clearTimeout(liveTimer.current);
+    },
+    []
+  );
+
+  async function decideVoidRequest(request, decision) {
+    if (deciding) return;
+    let orderId = request.orderId ?? null;
+    try {
+      orderId = JSON.parse(request.payload ?? "{}")?.orderId ?? orderId;
+    } catch {
+      /* keep whatever the alert carried at the top level */
+    }
+    if (!orderId) {
+      toast("This request has no order reference.", "error");
+      return;
+    }
+    setDeciding(request.id);
+    try {
+      await api.patch(`/orders/${orderId}/void-request`, { decision });
+      toast(
+        decision === "approve"
+          ? `Order #${orderId} voided - stock restored`
+          : `Order #${orderId} stays as paid`,
+        "success"
+      );
+      handleRefresh();
+    } catch (err) {
+      toast(getFriendlyError(err, "Could not record the void decision."), "error");
+    } finally {
+      setDeciding(null);
+    }
+  }
+
+  async function openReceipt(order) {
+    setViewingReceipt({ order, url: null, loading: true, error: "" });
+    try {
+      const res = await api.get(`/orders/${order.id}/receipt`, { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      setViewingReceipt((prev) => (prev ? { ...prev, url, loading: false } : prev));
+    } catch (err) {
+      const message = await blobErrorMessage(err, "Could not load the receipt.");
+      setViewingReceipt((prev) =>
+        prev ? { ...prev, loading: false, error: message } : prev
+      );
+    }
+  }
+
+  function closeReceipt() {
+    setViewingReceipt((prev) => {
+      if (prev?.url) URL.revokeObjectURL(prev.url);
+      return null;
+    });
   }
 
   useEffect(() => {
@@ -253,6 +349,62 @@ export default function SalesPage() {
             </div>
           </div>
 
+          {isOwner && voidRequests.length > 0 && (
+            <div
+              className="panel"
+              style={{
+                marginBottom: "var(--space-4)",
+                padding: "var(--space-4)",
+                borderLeft: "4px solid var(--warn)",
+              }}
+              aria-label="Void requests"
+            >
+              <h3
+                className="section-title"
+                style={{
+                  padding: 0,
+                  borderBottom: "none",
+                  marginBottom: "var(--space-3)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <Hourglass size={16} aria-hidden="true" /> Void requests
+                ({voidRequests.length})
+              </h3>
+              <div className="flex flex-col gap-3">
+                {voidRequests.map((req) => (
+                  <div
+                    key={req.id}
+                    className="flex items-center justify-between gap-3"
+                    style={{ flexWrap: "wrap" }}
+                  >
+                    <span className="small">{req.message}</span>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="danger-ghost small-btn"
+                        disabled={deciding === req.id}
+                        onClick={() => decideVoidRequest(req, "deny")}
+                      >
+                        <Ban size={13} /> Deny
+                      </button>
+                      <button
+                        type="button"
+                        className="small-btn"
+                        disabled={deciding === req.id}
+                        onClick={() => decideVoidRequest(req, "approve")}
+                      >
+                        <Check size={13} /> Approve void
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {error ? (
             <ErrorBox message={error} onRetry={handleRefresh} />
           ) : !loading && (!rows || rows.length === 0) ? (
@@ -311,8 +463,15 @@ export default function SalesPage() {
                 {
                   key: "payment",
                   label: "Payment",
-                  width: 110,
-                  render: (o) => <Badge variant="neutral">{o.paymentMethod || "CASH"}</Badge>,
+                  width: 178,
+                  render: (o) => (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <Badge variant="neutral">{o.paymentMethod || "CASH"}</Badge>
+                      {o.voidRequest?.status === "pending" && (
+                        <Badge variant="warn">Void requested</Badge>
+                      )}
+                    </span>
+                  ),
                 },
                 {
                   key: "staff",
@@ -352,10 +511,19 @@ export default function SalesPage() {
                       {
                         key: "actions",
                         label: "",
-                        width: 84,
+                        width: 120,
                         align: "right",
                         render: (o) => (
                           <div className="flex items-center justify-end gap-2">
+                            {o.receipt && (
+                              <button
+                                className="ghost small-btn"
+                                onClick={() => openReceipt(o)}
+                                title="View GCash receipt"
+                              >
+                                <Eye size={13} />
+                              </button>
+                            )}
                             {o.status === "PAID" ? (
                               <>
                                 <button
@@ -421,6 +589,60 @@ export default function SalesPage() {
             </>
           )}
         </section>
+
+        {/* --- GCASH RECEIPT VIEWER --- */}
+        {viewingReceipt && (
+          <div className="modal-backdrop" onClick={closeReceipt}>
+            <div
+              className="modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label={`GCash receipt for order #${viewingReceipt.order?.id ?? ""}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3>
+                <Eye size={22} className="muted" /> GCash receipt - order #
+                {viewingReceipt.order?.id}
+              </h3>
+              <div
+                style={{
+                  marginTop: "12px",
+                  minHeight: "220px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "var(--surface-alt)",
+                  borderRadius: "16px",
+                  overflow: "auto",
+                }}
+              >
+                {viewingReceipt.loading ? (
+                  <p className="muted small" role="status">Loading receipt…</p>
+                ) : viewingReceipt.url ? (
+                  <img
+                    src={viewingReceipt.url}
+                    alt="GCash receipt"
+                    style={{ maxWidth: "100%", maxHeight: "60vh", display: "block" }}
+                  />
+                ) : (
+                  <p className="error-box" role="alert" style={{ margin: 0 }}>
+                    {viewingReceipt.error || "Receipt unavailable."}
+                  </p>
+                )}
+              </div>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={closeReceipt}
+                  disabled={viewingReceipt.loading}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* --- EDIT ORDER MODAL --- */}
         {(editing || editClosing) && (

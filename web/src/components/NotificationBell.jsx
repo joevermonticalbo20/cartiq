@@ -1,12 +1,18 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Bell, Check, PackageSearch, ReceiptText, AlertTriangle, Info } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api.js";
 import { useLiveEvent } from "../hooks/useLiveStream.js";
 
+/** Unread is `isRead` from the API (a.status only exists on restock rows). */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper colocated with its only consumer, unit-tested in place
+export const isUnreadAlert = (a) =>
+  Boolean(a) && a.isRead !== true && a.status !== "read";
+
 // Helper para sa "1h ago", "2m ago" format
 function timeAgo(dateString) {
   const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return "Just now";
   const diffMins = Math.floor((new Date() - date) / 60000);
   if (diffMins < 1) return "Just now";
   if (diffMins < 60) return `${diffMins}m ago`;
@@ -24,22 +30,44 @@ export default function NotificationBell() {
   const ref = useRef(null);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    let active = true;
-    api.get("/alerts?page=1&pageSize=30")
-      .then((res) => {
-        if (!active) return;
-        const data = res.data?.data || [];
-        setAlerts(data);
-        setUnreadCount(data.filter(a => a.status === "unread").length);
-      })
-      .catch(() => {
-        // Background fetch, ignore errors
-      });
-    return () => {
-      active = false;
-    };
+  const activeRef = useRef(true);
+  const refreshTimer = useRef(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const res = await api.get("/alerts?page=1&pageSize=30");
+      if (!activeRef.current) return;
+      const data = res.data?.data || [];
+      setAlerts(data);
+      setUnreadCount(data.filter(isUnreadAlert).length);
+    } catch {
+      // Background fetch, ignore errors
+    }
   }, []);
+
+  useEffect(() => {
+    activeRef.current = true;
+    const timer = setTimeout(refresh, 0);
+    return () => {
+      activeRef.current = false;
+      clearTimeout(timer);
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    };
+  }, [refresh]);
+
+  // One live refresh serves sales AND alerts: the API writes a SALE alert on
+  // every order, so both events land on the same query. Debounced because an
+  // Edge stream poll can deliver a burst of events at once.
+  const liveRefresh = useCallback(() => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => {
+      refreshTimer.current = null;
+      refresh();
+    }, 600);
+  }, [refresh]);
+
+  useLiveEvent("alert:new", liveRefresh);
+  useLiveEvent("order:new", liveRefresh);
 
   const closePanel = () => {
     setIsClosing(true);
@@ -73,38 +101,39 @@ export default function NotificationBell() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  useLiveEvent("alert:new", (newAlert) => {
-    setAlerts(prev => [newAlert, ...prev].slice(0, 30));
-    setUnreadCount(prev => prev + 1);
-  });
-
   async function markAllAsRead() {
     try {
       await api.patch("/alerts/read");
-      setAlerts(alerts.map(a => ({ ...a, status: "read" })));
+      setAlerts(alerts.map(a => ({ ...a, status: "read", isRead: true })));
       setUnreadCount(0);
     } catch {
       // Background action
     }
   }
 
-  // INO-MODIFIED: Dynamic indicator theme (Icon, Color, Background)
+  // Dynamic indicator theme (Icon, Color, Background). Types arrive in
+  // UPPER_CASE from the API (SALE, LOW_STOCK, RESTOCK_REQUEST).
   const getTheme = (type) => {
-    if (type === "restock" || type === "inventory") {
+    const t = String(type ?? "").toLowerCase();
+    if (t === "restock" || t === "restock_request" || t === "inventory" || t === "low_stock") {
       return { icon: PackageSearch, color: "var(--warn)", bg: "var(--warn-bg)" };
     }
-    if (type === "sales") {
+    if (t === "sale" || t === "sales") {
       return { icon: ReceiptText, color: "var(--success)", bg: "var(--success-bg)" };
     }
-    if (type === "critical") {
+    if (t === "critical") {
       return { icon: AlertTriangle, color: "var(--danger)", bg: "var(--danger-bg)" };
     }
     return { icon: Info, color: "var(--info)", bg: "var(--info-bg)" };
   };
 
   const displayAlerts = alerts.filter(a => {
-    if (activeTab === "Unread") return a.status === "unread";
-    if (activeTab === "Sales") return a.type === "sales" || (a.message && a.message.toLowerCase().includes("order"));
+    if (activeTab === "Unread") return isUnreadAlert(a);
+    if (activeTab === "Sales") {
+      const t = String(a.type ?? "").toLowerCase();
+      return t === "sale" || t === "sales" ||
+        (a.message && a.message.toLowerCase().includes("sale"));
+    }
     return true;
   }).slice(0, 15);
 
@@ -183,9 +212,9 @@ export default function NotificationBell() {
                       <div className="notif-content">
                         <div className="notif-title-row">
                           <div className="notif-title">
-                            {alert.status === "unread" && <span className="notif-unread-dot" />}
-                            <span style={{ color: alert.status === "read" ? "var(--text-muted)" : "var(--text)"}}>
-                              {alert.title || alert.type?.replace(/^\w/, c => c.toUpperCase()) || "Update"}
+                            {isUnreadAlert(alert) && <span className="notif-unread-dot" />}
+                            <span style={{ color: isUnreadAlert(alert) ? "var(--text)" : "var(--text-muted)" }}>
+                              {alert.title || alert.type || "Update"}
                             </span>
                           </div>
                           <span className="notif-time">{timeAgo(alert.createdAt)}</span>
