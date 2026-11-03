@@ -808,6 +808,69 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  /// Upload the GCash proof photo for a recorded order (base64, ≤512 KB).
+  /// The owner views it in the dashboard's Sales page.
+  Future<Map<String, dynamic>> uploadOrderReceipt(
+    String token,
+    int orderId, {
+    required String mime,
+    required String data,
+  }) async {
+    final res = await _send(
+      () => _http.post(
+        _uri('/orders/$orderId/receipt'),
+        headers: _headers(token: token),
+        body: jsonEncode({'mime': mime, 'data': data}),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  /// Fetch the receipt bytes for the in-app viewer (authenticated; receipts
+  /// are private to the owner and the order's own cart).
+  Future<List<int>> fetchOrderReceipt(String token, int orderId) async {
+    final res = await _send(
+      () => _http.get(
+        _uri('/orders/$orderId/receipt'),
+        headers: _headers(token: token),
+      ),
+    );
+    return res.bodyBytes;
+  }
+
+  /// Ask the owner to void a recorded sale. Staff file the request; the
+  /// owner approves or denies it from the dashboard.
+  Future<Map<String, dynamic>> requestVoidOrder(
+    String token,
+    int orderId, {
+    String? reason,
+  }) async {
+    final res = await _send(
+      () => _http.post(
+        _uri('/orders/$orderId/void-request'),
+        headers: _headers(token: token),
+        body: jsonEncode({
+          if (reason != null && reason.isNotEmpty) 'reason': reason,
+        }),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  /// One-document probe the POS polls to notice dashboard menu changes
+  /// without refetching the whole catalog.
+  Future<int> catalogVersion(String token) async {
+    final res = await _send(
+      () => _http.get(
+        _uri('/catalog/version'),
+        headers: _headers(token: token),
+      ),
+    );
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    final v = data['version'];
+    return v is num ? v.toInt() : 0;
+  }
+
   Future<Map<String, dynamic>> stockAlerts(
     String token, {
     bool unreadOnly = true,

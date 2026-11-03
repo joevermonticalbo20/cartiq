@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -269,9 +270,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
       return;
     }
 
+    // Staff cannot void on their own: this files a request and the OWNER
+    // approves or denies it from the dashboard. The sale stays PAID (and
+    // stock untouched) until then.
     Map<String, dynamic> res;
     try {
-      res = await auth.api.voidOrder(token, orderId, reason: reason);
+      res = await auth.api.requestVoidOrder(token, orderId, reason: reason);
     } on ApiException catch (e) {
       if (!mounted) {
         return;
@@ -288,7 +292,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       }
       AppMessenger.showGlassToast(
         context: context,
-        message: 'Could not reach the server. Order not voided.',
+        message: 'Could not reach the server. Request not sent.',
         isSuccess: false,
       );
       return;
@@ -298,63 +302,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
       return;
     }
 
-    final restored = (res['restored'] as List?) ?? [];
-    final warnings =
-        (res['warnings'] as List?)
-            ?.map((w) => '$w')
-            .where((w) => w.isNotEmpty)
-            .toList() ??
-        const <String>[];
-    final unrestored = warnings
-        .where(
-          (w) =>
-              w.contains('no recipe matched') || w.contains('generic recipe'),
-        )
-        .toList();
-
-    final msg = unrestored.isNotEmpty
-        ? 'Voided   ${restored.length} restored   ${unrestored.length} NOT restored'
-        : (restored.isEmpty
-              ? 'Voided   no stock needed restoring'
-              : 'Voided   ${restored.length} ingredient${restored.length == 1 ? '' : 's'} restored');
+    final updatedOrder = res['order'];
+    setState(() {
+      order['voidRequest'] = updatedOrder is Map<String, dynamic>
+          ? (updatedOrder['voidRequest'] ?? {'status': 'pending'})
+          : {'status': 'pending'};
+    });
 
     AppMessenger.showGlassToast(
       context: context,
-      message: msg,
-      isSuccess: unrestored.isEmpty,
+      message: 'Void request sent - the owner decides',
+      isSuccess: true,
     );
-
-    if (unrestored.isNotEmpty && mounted) {
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          icon: const Icon(
-            Icons.warning_amber_rounded,
-            color: AppColors.danger,
-          ),
-          title: const Text('Stock not fully restored'),
-          content: SingleChildScrollView(
-            child: Text(
-              '${unrestored.join('\n\n')}\n\n'
-              'The sale is voided, but this stock was NOT put back. '
-              'Please recount it.',
-              style: const TextStyle(height: 1.4),
-            ),
-          ),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Understood'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    setState(() {
-      order['status'] = 'VOID';
-      order['voidReason'] = reason;
-    });
 
     if (mounted) {
       _bus?.bump('void');
@@ -439,8 +398,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
     await _loadMore(reset: true);
   }
 
-  void _viewNetworkProof(BuildContext context, String? url) {
-    if (url == null || url.isEmpty) {
+  /// Shows the GCash proof photo the POS attached to this order. The
+  /// endpoint is authenticated (receipts are private), so the bytes are
+  /// fetched with the session token and rendered from memory.
+  Future<void> _viewOrderReceipt(
+    BuildContext context,
+    Map<String, dynamic> order,
+  ) async {
+    final rawId = order['id'];
+    final auth = context.read<AuthState>();
+    final token = auth.token;
+    if (order['receipt'] == null || rawId is! num || token == null) {
       AppMessenger.showGlassToast(
         context: context,
         message: 'No receipt image uploaded for this order.',
@@ -448,6 +416,24 @@ class _HistoryScreenState extends State<HistoryScreen> {
       );
       return;
     }
+    List<int> bytes;
+    try {
+      bytes = await auth.api.fetchOrderReceipt(token, rawId.toInt());
+    } on ApiException catch (e) {
+      if (!context.mounted) return;
+      AppMessenger.showErrorSnackBar(context: context, error: e);
+      return;
+    } catch (_) {
+      if (!context.mounted) return;
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Could not load the receipt.',
+        isSuccess: false,
+      );
+      return;
+    }
+    if (!context.mounted) return;
+
     showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.4),
@@ -469,8 +455,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     maxScale: 4.0,
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(AppRadius.l),
-                      child: Image.network(
-                        url,
+                      child: Image.memory(
+                        Uint8List.fromList(bytes),
                         fit: BoxFit.contain,
                         errorBuilder: (_, _, _) => const Center(
                           child: Icon(
@@ -479,16 +465,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             size: 48,
                           ),
                         ),
-                        loadingBuilder: (context, child, progress) {
-                          if (progress == null) {
-                            return child;
-                          }
-                          return const Center(
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                            ),
-                          );
-                        },
                       ),
                     ),
                   ),
@@ -526,6 +502,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     final isVoided = (order['status'] ?? 'PAID').toString() == 'VOID';
     final voidReason = order['voidReason'];
+    final voidRequest = order['voidRequest'];
+    final voidPending = voidRequest is Map && voidRequest['status'] == 'pending';
+    final voidDenied = voidRequest is Map && voidRequest['status'] == 'denied';
 
     await showModalBottomSheet<void>(
       context: context,
@@ -845,6 +824,39 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
               ),
             ],
+            if (voidPending) ...[
+              const SizedBox(height: AppSpacing.space3),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppSpacing.space3),
+                decoration: BoxDecoration(
+                  color: AppColors.warn.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(AppRadius.s),
+                  border: Border.all(
+                    color: AppColors.warn.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.hourglass_top_rounded,
+                      color: AppColors.warn,
+                      size: 16,
+                    ),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Void requested - waiting for the owner',
+                        style: TextStyle(
+                          color: AppColors.warn,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (paymentMethod == 'GCASH') ...[
               const SizedBox(height: AppSpacing.space3),
               FilledButton.tonalIcon(
@@ -856,14 +868,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 icon: const Icon(Icons.image_outlined, size: 18),
                 label: const Text('View GCash Receipt'),
                 onPressed: () {
-                  _viewNetworkProof(sheetContext, order['proofImageUrl']);
+                  _viewOrderReceipt(sheetContext, order);
                 },
               ),
             ],
             const SizedBox(height: AppSpacing.space5),
             Row(
               children: [
-                if (!isVoided)
+                if (!isVoided && !voidPending)
                   Expanded(
                     child: OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
@@ -872,14 +884,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         minimumSize: const Size.fromHeight(52),
                       ),
                       icon: const Icon(Icons.block_rounded, size: 18),
-                      label: const Text('Void Order'),
+                      label: Text(
+                        voidDenied ? 'Request Void Again' : 'Request Void',
+                      ),
                       onPressed: () {
                         Navigator.pop(sheetContext);
                         _promptVoidOrder(order);
                       },
                     ),
                   ),
-                if (!isVoided) const SizedBox(width: AppSpacing.space3),
+                if (!isVoided && !voidPending)
+                  const SizedBox(width: AppSpacing.space3),
                 Expanded(
                   child: FilledButton(
                     style: FilledButton.styleFrom(

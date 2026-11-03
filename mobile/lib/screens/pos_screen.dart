@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:ui';
@@ -76,8 +77,11 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   bool _searching = false;
   String _search = '';
   String _categoryFilter = 'All';
-  Set<String> _bestSellerNames = {};
-  String? _bestSellerError;
+
+  /// Menu version the loaded catalog came with. The poll below compares the
+  /// cheap /catalog/version probe against it and refetches only on a change.
+  int? _catalogVersion;
+  Timer? _catalogPoll;
 
   Timer? _searchDebounce;
   final _searchController = TextEditingController();
@@ -98,15 +102,51 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _dataRefresh = context.read<DataRefresh?>();
     _dataRefresh?.addListener(_onDataRefresh);
+    // Dashboard edits reach this device without a manual refresh: one tiny
+    // version read every 30 s, and the full catalog only when it changed.
+    _catalogPoll = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _pollCatalogVersion(),
+    );
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _dataRefresh?.removeListener(_onDataRefresh);
+    _catalogPoll?.cancel();
     _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pollCatalogVersion() async {
+    if (!mounted || _refreshingCatalog) return;
+    final auth = context.read<AuthState>();
+    final token = auth.token;
+    if (token == null) return;
+    try {
+      final version = await auth.api.catalogVersion(token);
+      if (!mounted) return;
+      final known = _catalogVersion;
+      if (known == null) {
+        // First probe after a cold start: adopt the current version.
+        _catalogVersion = version;
+        return;
+      }
+      if (version != known) {
+        _catalogVersion = version;
+        await _reloadCatalog(forceRefresh: true);
+        if (!mounted) return;
+        AppMessenger.showGlassToast(
+          context: context,
+          message: 'Menu updated from the dashboard',
+          isSuccess: true,
+        );
+      }
+    } catch (_) {
+      // Offline or transient: the next tick tries again.
+    }
   }
 
   @override
@@ -194,7 +234,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
     try {
       final data = await auth.api.catalog(token, forceRefresh: forceRefresh);
-      unawaited(_loadBestSellers(auth, token));
+      _rememberCatalogVersion(data);
       return (data['products'] as List).cast<Map<String, dynamic>>();
     } on ApiException catch (e) {
       if (e.statusCode == 401 &&
@@ -204,60 +244,16 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
           auth.token!,
           forceRefresh: forceRefresh,
         );
-        unawaited(_loadBestSellers(auth, auth.token!));
+        _rememberCatalogVersion(data);
         return (data['products'] as List).cast<Map<String, dynamic>>();
       }
       rethrow;
     }
   }
 
-  Future<void> _loadBestSellers(AuthState auth, String token) async {
-    try {
-      final orders = await auth.api.orders(
-        token,
-        pageSize: 100,
-        locationCode: auth.locationCode,
-      );
-
-      final unitsByProduct = <String, int>{};
-      for (final order in orders.whereType<Map<String, dynamic>>()) {
-        if (order['status'] != 'PAID') {
-          continue;
-        }
-        final items = order['items'];
-        if (items is! List) {
-          continue;
-        }
-        for (final item in items.whereType<Map<String, dynamic>>()) {
-          final name = item['productName'];
-          final qty = item['qty'];
-          if (name is String && qty is num) {
-            unitsByProduct[name] = (unitsByProduct[name] ?? 0) + qty.toInt();
-          }
-        }
-      }
-
-      final ranked = unitsByProduct.entries.toList()
-        ..sort((a, b) => b.value.compareTo(a.value));
-
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _bestSellerNames = ranked.take(5).map((entry) => entry.key).toSet();
-        _bestSellerError = null;
-      });
-    } on ApiException catch (error) {
-      if (error.statusCode == 401 &&
-          await auth.refreshSession() &&
-          auth.token != null) {
-        await _loadBestSellers(auth, auth.token!);
-        return;
-      }
-      if (mounted) setState(() => _bestSellerError = error.message);
-    } catch (error) {
-      if (mounted) setState(() => _bestSellerError = '$error');
-    }
+  void _rememberCatalogVersion(Map<String, dynamic> data) {
+    final version = data['version'];
+    if (version is num) _catalogVersion = version.toInt();
   }
 
   void _addToCart(Map<String, dynamic> product, {String? flavor, int qty = 1}) {
@@ -319,10 +315,10 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
     return switch (_categoryFilter) {
       'Available Only' => available,
-      'Best Sellers' =>
-        _bestSellerNames.contains(product['name']) ||
-            product['isBestSeller'] == true ||
-            product['bestSeller'] == true,
+      // The owner's star on the Products page is the ONLY source. The old
+      // auto-ranking pulled the top sellers from recent orders, so products
+      // showed up here while the dashboard showed no star.
+      'Best Sellers' => product['isBestSeller'] == true,
       'Fries' => category.contains('fries'),
       'Drinks' => category.contains('drink'),
       'Add-ons' => category.contains('add') || category.contains('topping'),
@@ -467,8 +463,8 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       builder: (sheetContext) {
         return _CartSheet(
           cart: cart,
-          onPay: (method, cashTendered) =>
-              _payAndRecord(sheetContext, method, cashTendered),
+          onPay: (method, cashTendered, gcashProof) =>
+              _payAndRecord(sheetContext, method, cashTendered, gcashProof),
         );
       },
     );
@@ -478,6 +474,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     BuildContext sheetContext,
     PaymentMethod method,
     double? cashTendered,
+    File? gcashProof,
   ) async {
     final cart = sheetContext.read<CartState>();
     final auth = sheetContext.read<AuthState>();
@@ -515,6 +512,35 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
       final snapshotTotal = cart.total;
 
+      // GCash proof photo: read + base64 ONCE. It rides inside the queued
+      // payload; the sync service attaches it to the order after the sale is
+      // recorded, so it works for both online and offline (queued) sales.
+      Map<String, dynamic>? receipt;
+      if (method == PaymentMethod.gcash && gcashProof != null) {
+        try {
+          final bytes = await gcashProof.readAsBytes();
+          if (bytes.isEmpty) {
+            // nothing to attach
+          } else if (bytes.length > 512 * 1024) {
+            if (mounted) {
+              AppMessenger.showGlassToast(
+                context: context,
+                message: 'Proof photo too large - sale recorded without it',
+                isSuccess: false,
+              );
+            }
+          } else {
+            final path = gcashProof.path.toLowerCase();
+            receipt = {
+              'mime': path.endsWith('.png') ? 'image/png' : 'image/jpeg',
+              'data': base64Encode(bytes),
+            };
+          }
+        } catch (_) {
+          // Unreadable file: record the sale without the proof.
+        }
+      }
+
       try {
         await persistCheckout(
           cart: cart,
@@ -526,6 +552,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
             'total': cart.total,
             'status': 'PAID',
             'paymentMethod': method.name.toUpperCase(),
+            'receipt': ?receipt,
           },
         );
       } catch (_) {
@@ -705,9 +732,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                                     subtitle: _search.isNotEmpty
                                         ? 'Try a different name or category.'
                                         : _categoryFilter == 'Best Sellers'
-                                        ? _bestSellerError == null
-                                              ? 'No best-selling products are available yet.'
-                                              : 'Best sellers could not be loaded: $_bestSellerError'
+                                        ? 'No best sellers yet - tap the star next to a product on the dashboard.'
                                         : 'Pull down to refresh the catalog.',
                                   ),
                                 ),
@@ -961,7 +986,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 class _CartSheet extends StatefulWidget {
   const _CartSheet({required this.cart, required this.onPay});
   final CartState cart;
-  final void Function(PaymentMethod method, double? cashTendered) onPay;
+  final void Function(PaymentMethod method, double? cashTendered, File? gcashProof) onPay;
 
   @override
   State<_CartSheet> createState() => _CartSheetState();
@@ -988,7 +1013,11 @@ class _CartSheetState extends State<_CartSheet> {
     if (!_canPay) {
       return;
     }
-    widget.onPay(_method, _method == PaymentMethod.cash ? _tendered : null);
+    widget.onPay(
+      _method,
+      _method == PaymentMethod.cash ? _tendered : null,
+      _method == PaymentMethod.gcash ? _gcashProofImage : null,
+    );
   }
 
   Future<void> _pickGCashProof() async {
@@ -999,9 +1028,14 @@ class _CartSheetState extends State<_CartSheet> {
 
     try {
       final picker = ImagePicker();
+      // Downscale on capture: the photo must fit the API's 512 KB receipt
+      // cap (~680 KB base64) and travel inside the offline queue when the
+      // cart has no signal.
       final xfile = await picker.pickImage(
         source: ImageSource.camera,
-        imageQuality: 80,
+        imageQuality: 70,
+        maxWidth: 1280,
+        maxHeight: 1280,
       );
       if (xfile != null) {
         setState(() => _gcashProofImage = File(xfile.path));

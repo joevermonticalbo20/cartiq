@@ -162,7 +162,7 @@ class SyncService extends ChangeNotifier {
       }
       try {
         // Server returns 200 {duplicate:true} for replays — still synced.
-        await api.submitOrder(record.payload, activeToken);
+        await _submitRecord(record, activeToken);
         await queue.remove(record.id);
         synced++;
       } on ApiException catch (e) {
@@ -197,7 +197,7 @@ class SyncService extends ChangeNotifier {
           }
           activeToken = fresh;
           try {
-            await api.submitOrder(record.payload, activeToken);
+            await _submitRecord(record, activeToken);
             await queue.remove(record.id);
             synced++;
           } catch (retryError) {
@@ -275,6 +275,38 @@ class SyncService extends ChangeNotifier {
       authExpired: authExpired,
       errorMessage: errorMessage,
     );
+  }
+
+  /// Posts one queued order. A GCash proof photo travels inside the queued
+  /// payload but is NOT part of the order body: it is stripped before the
+  /// POST and attached to the recorded order afterwards — best-effort, so a
+  /// failed photo upload can never fail (or delay) the sale itself.
+  Future<void> _submitRecord(QueuedRecord record, String token) async {
+    final payload = record.payload;
+    var body = payload;
+    if (payload['receipt'] != null) {
+      body = Map<String, dynamic>.from(payload)..remove('receipt');
+    }
+    final response = await api.submitOrder(body, token);
+
+    final receipt = payload['receipt'];
+    if (receipt is! Map) return;
+    final mime = receipt['mime'];
+    final data = receipt['data'];
+    final orderId = (response['order'] as Map?)?['id'];
+    if (mime is! String || data is! String || data.isEmpty || orderId is! num) {
+      return;
+    }
+    try {
+      await api.uploadOrderReceipt(
+        token,
+        orderId.toInt(),
+        mime: mime,
+        data: data,
+      );
+    } catch (_) {
+      // The sale is already recorded; only the photo failed to attach.
+    }
   }
 
   /// Returns a drop reason when [record] can never upload, else null.

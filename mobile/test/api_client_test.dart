@@ -391,4 +391,65 @@ void main() {
       );
     });
   });
+
+  // GCash receipts, staff void requests and the menu-change probe.
+  group('order receipts + void requests + catalog version', () {
+    test('requestVoidOrder POSTs to /orders/:id/void-request', () async {
+      late http.Request captured;
+      final client = _clientWith((req) async {
+        captured = req;
+        return http.Response('{"order":{"id":7,"voidRequest":{"status":"pending"}}}', 201);
+      });
+
+      final res = await client.requestVoidOrder(
+        'tok',
+        7,
+        reason: 'Wrong item punched',
+      );
+
+      expect(captured.method, 'POST');
+      expect(captured.url.path, endsWith('/orders/7/void-request'));
+      expect(jsonDecode(captured.body), {'reason': 'Wrong item punched'});
+      expect(res['order']['voidRequest']['status'], 'pending');
+    });
+
+    test('uploadOrderReceipt POSTs mime + base64 data', () async {
+      late http.Request captured;
+      final client = _clientWith((req) async {
+        captured = req;
+        return http.Response('{"receipt":{"bytes":8}}', 200);
+      });
+
+      await client.uploadOrderReceipt(
+        'tok',
+        9,
+        mime: 'image/jpeg',
+        data: '/9j/AAAA',
+      );
+
+      expect(captured.method, 'POST');
+      expect(captured.url.path, endsWith('/orders/9/receipt'));
+      final body = jsonDecode(captured.body) as Map<String, dynamic>;
+      expect(body['mime'], 'image/jpeg');
+      expect(body['data'], '/9j/AAAA');
+    });
+
+    test('fetchOrderReceipt returns the raw bytes', () async {
+      final client = _clientWith(
+        (_) async => http.Response.bytes([1, 2, 3], 200),
+      );
+      expect(await client.fetchOrderReceipt('tok', 9), [1, 2, 3]);
+    });
+
+    test('catalogVersion reads the one-document probe', () async {
+      late http.Request captured;
+      final client = _clientWith((req) async {
+        captured = req;
+        return http.Response('{"version":42}', 200);
+      });
+
+      expect(await client.catalogVersion('tok'), 42);
+      expect(captured.url.path, endsWith('/catalog/version'));
+    });
+  });
 }
