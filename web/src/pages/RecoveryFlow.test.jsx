@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { act, render, screen, fireEvent } from "@testing-library/react";
 
 vi.mock("../api.js", () => ({
   default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), del: vi.fn() },
@@ -177,22 +177,40 @@ describe("RecoveryFlow 3-step flow", () => {
   });
 
   it("resend re-requests a code for the same address", async () => {
+    vi.useFakeTimers();
     api.post.mockResolvedValue({ data: { success: true, message: "sent" } });
     renderFlow();
 
     fireEvent.change(screen.getByLabelText("Email Address"), {
       target: { value: "staff@gmail.com" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Send Reset Code" }));
-    await screen.findByText("Check Email");
-
-    fireEvent.click(screen.getByRole("button", { name: "Resend" }));
-    await vi.waitFor(() => {
-      expect(api.post).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Send Reset Code" }));
     });
+
+    // Resend is on cooldown immediately after sending.
+    expect(screen.getByText("Check Email")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Resend in \d+s/ })).toBeDisabled();
+
+    // Advance the cooldown so Resend becomes available again.
+    for (let i = 0; i < 60; i++) {
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+    }
+
+    const resendBtn = screen.getByRole("button", { name: "Resend" });
+    expect(resendBtn).not.toBeDisabled();
+
+    await act(async () => {
+      fireEvent.click(resendBtn);
+    });
+
+    expect(api.post).toHaveBeenCalledTimes(2);
     expect(api.post).toHaveBeenLastCalledWith("/auth/forgot-password", {
       email: "staff@gmail.com",
     });
+    vi.useRealTimers();
   });
 
   it("back button calls onExitToLogin instead of navigating itself", async () => {

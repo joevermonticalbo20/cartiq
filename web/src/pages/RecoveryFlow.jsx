@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Mail, ShieldCheck, Lock } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
@@ -29,7 +29,18 @@ export default function RecoveryFlow({ onExitToLogin }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const boxRefs = useRef([]);
+
+  // Countdown for the resend cooldown (60s, matching the backend).
+  useEffect(() => {
+    if (resendCooldown <= 0) return undefined;
+    const timer = setTimeout(
+      () => setResendCooldown((s) => Math.max(0, s - 1)),
+      1000,
+    );
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
 
   async function sendCode(e) {
     e?.preventDefault();
@@ -42,6 +53,7 @@ export default function RecoveryFlow({ onExitToLogin }) {
       setSentTo(email.trim());
       setCode("");
       setVerified(false);
+      setResendCooldown(60);
       setStep(2);
     } catch (err) {
       setError(getFriendlyError(err, "Couldn't send a reset code - try again."));
@@ -214,8 +226,17 @@ export default function RecoveryFlow({ onExitToLogin }) {
           </form>
           <p className="muted small" style={{ textAlign: "center", marginTop: "var(--space-3)" }}>
             Didn&apos;t receive code?{" "}
-            <button type="button" className="linklike" onClick={sendCode} disabled={busy}>
-              {busy ? "Sending..." : "Resend"}
+            <button
+              type="button"
+              className="linklike"
+              onClick={sendCode}
+              disabled={busy || resendCooldown > 0}
+            >
+              {busy
+                ? "Sending..."
+                : resendCooldown > 0
+                  ? `Resend in ${resendCooldown}s`
+                  : "Resend"}
             </button>
           </p>
         </>
