@@ -65,9 +65,11 @@ try {
     if (cheese) {
       check("photo URL is absolute", /^https:\/\/cartiq-8e46f\.web\.app\/products\/pota-fries-cheese\.jpg$/.test(cheese.imageUrl ?? ""), cheese.imageUrl);
       const sizes = new Map((cheese.flavors ?? []).map((f) => [f.name, f.unitPrice]));
+      check("four size choices", (cheese.flavors ?? []).length === 4, String((cheese.flavors ?? []).length));
       check("Medium P20", sizes.get("Medium") === 20, String(sizes.get("Medium")));
       check("Large P30", sizes.get("Large") === 30, String(sizes.get("Large")));
-      check("XL P40", sizes.get("XL") === 40, String(sizes.get("XL")));
+      check("XL P40", sizes.get("XL 40") === 40, String(sizes.get("XL 40")));
+      check("XL P50", sizes.get("XL 50") === 50, String(sizes.get("XL 50")));
       check("sizes available for sale", (cheese.flavors ?? []).every((f) => f.isAvailable === true));
     }
     const dip = byName.get("Cheese Dip");

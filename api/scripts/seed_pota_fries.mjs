@@ -4,15 +4,21 @@
 //   node scripts/seed_pota_fries.mjs --apply    # writes
 //
 // What it creates / aligns:
-//   1. Size options (flavor records) Medium / Large / XL.
+//   1. Size options (flavor records) Medium / Large / XL 40 / XL 50 — the
+//      client prices XL at either P40 or P50, so the POS offers both and the
+//      cashier picks. Legacy "XL" is renamed to "XL 40" in place.
 //   2. Eight flavor products ("Cheese Fries" ... "Honey Butter Fries"):
-//      base price = Medium P20, Large P30, XL P40 via per-flavor prices,
-//      linked to the three size options, each with its product photo.
+//      base price = Medium P20, Large P30, XL 40 / XL 50 via per-flavor
+//      prices, linked to the size options, each with its product photo.
 //   3. Three dip add-ons (category "Add-ons", P15): Cheese Dip,
 //      Garlic Mayo Dip, Barbecue Dip.
-//   4. Size-based pouch stock rows per location: Pouch Medium / Large / XL.
-//   5. Recipes: the chosen size deducts its pouch; every flavor deducts
-//      frozen fries (0.05 packs) and, when a house powder exists, 15 g of it.
+//   4. Size-based pouch stock rows per location: Pouch Medium / Large / XL
+//      (both XL choices deduct the XL pouch).
+//   5. One seasoning powder stock row per flavor (2 kg) and a 15 g recipe
+//      row per flavor, so every flavor deducts its powder on sale. Cheese /
+//      Sour Cream / BBQ share the existing powder items; the five new
+//      flavors get their own ("Chili Cheese Powder", "Chili BBQ Powder",
+//      "Caramel Powder", "Sweet Corn Powder", "Honey Butter Powder").
 //   6. Archives the legacy "Flavored Fries" product (history kept).
 //
 // Safe to re-run: existing rows are updated only where this script owns the
@@ -28,25 +34,36 @@ const IMAGE_BASE = "https://cartiq-8e46f.web.app/products";
 const SIZES = [
   { name: "Medium", price: 20 },
   { name: "Large", price: 30 },
-  { name: "XL", price: 40 },
+  // XL has two prices (client: "it can be 40 or 50") — the POS shows both
+  // choices; both deduct the XL pouch.
+  { name: "XL 40", price: 40 },
+  { name: "XL 50", price: 50 },
 ];
-const POUCH_BY_SIZE = { Medium: "Pouch Medium", Large: "Pouch Large", XL: "Pouch XL" };
+const LEGACY_XL = "XL"; // renamed to "XL 40" on first run
+const POUCH_BY_SIZE = {
+  Medium: "Pouch Medium",
+  Large: "Pouch Large",
+  "XL 40": "Pouch XL",
+  "XL 50": "Pouch XL",
+};
 
-// flavor name -> product. `powder` is the house stock item when one exists.
+// flavor name -> product. `powder` is the seasoning stock item deducted per
+// serving (15 g, house convention) for every flavor.
 const FLAVOR_PRODUCTS = [
   { name: "Cheese Fries", slug: "cheese", powder: "Cheese Powder" },
-  { name: "Chili Cheese Fries", slug: "chili-cheese" },
+  { name: "Chili Cheese Fries", slug: "chili-cheese", powder: "Chili Cheese Powder" },
   { name: "BBQ Fries", slug: "bbq", powder: "BBQ Powder" },
-  { name: "Chili BBQ Fries", slug: "chili-bbq" },
-  { name: "Caramel Fries", slug: "caramel" },
-  { name: "Sweet Corn Fries", slug: "sweet-corn" },
+  { name: "Chili BBQ Fries", slug: "chili-bbq", powder: "Chili BBQ Powder" },
+  { name: "Caramel Fries", slug: "caramel", powder: "Caramel Powder" },
+  { name: "Sweet Corn Fries", slug: "sweet-corn", powder: "Sweet Corn Powder" },
   { name: "Sour Cream Fries", slug: "sour-cream", powder: "Sour Cream Powder" },
-  { name: "Honey Butter Fries", slug: "honey-butter" },
+  { name: "Honey Butter Fries", slug: "honey-butter", powder: "Honey Butter Powder" },
 ];
 const DIPS = ["Cheese Dip", "Garlic Mayo Dip", "Barbecue Dip"];
 const LEGACY_PRODUCT = "Flavored Fries";
 
 const POUCH_STOCK = { unit: "pcs", stock: 150, threshold: 50, source: "MANUAL" };
+const POWDER_STOCK = { unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" };
 
 const plan = [];
 const note = (line) => plan.push(APPLY ? line : `[dry] ${line}`);
@@ -57,6 +74,32 @@ async function upsertFlavor(name) {
   note(`+ flavor "${name}"`);
   if (!APPLY) return { id: null, name };
   return db.flavor.create({ data: { name } });
+}
+
+// Rename a flavor everywhere it is referenced (same rewrite the API does):
+// recipe rows keyed by flavor name + per-flavor price keys on products.
+// No-op when the old name is gone or the new name already exists.
+async function renameFlavor(oldName, newName) {
+  const old = await db.flavor.findUnique({ where: { name: oldName } });
+  if (!old) return;
+  const target = await db.flavor.findUnique({ where: { name: newName } });
+  if (target) return;
+  note(`~ rename flavor "${oldName}" -> "${newName}"`);
+  if (!APPLY) return;
+  const maps = await db.ingredientMap.findMany({ where: { flavor: oldName } });
+  for (const m of maps) {
+    await db.collection("ingredientMaps").doc(String(m.id)).update({ flavor: newName });
+  }
+  const products = await db.product.findMany();
+  for (const p of products) {
+    if (p.flavorPrices && p.flavorPrices[oldName] !== undefined) {
+      const merged = { ...p.flavorPrices };
+      merged[newName] = merged[oldName];
+      delete merged[oldName];
+      await db.product.update({ where: { id: p.id }, data: { flavorPrices: merged } });
+    }
+  }
+  await db.flavor.update({ where: { id: old.id }, data: { name: newName } });
 }
 
 async function upsertProduct({ name, category, basePrice, flavorIds, flavorPrices, imageUrl }) {
@@ -127,7 +170,9 @@ async function main() {
   ]);
 
   // 1. Size options (stored as flavors; the POS shows them as the price
-  //    choices when a flavor product is tapped).
+  //    choices when a flavor product is tapped). The first run upgrades the
+  //    old single "XL" to the two-price "XL 40" / "XL 50" pair.
+  await renameFlavor(LEGACY_XL, "XL 40");
   const sizeFlavor = {};
   for (const s of SIZES) sizeFlavor[s.name] = await upsertFlavor(s.name);
   const sizeIds = SIZES.map((s) => Number(sizeFlavor[s.name]?.id)).filter((id) => Number.isFinite(id) && id > 0);
@@ -157,14 +202,21 @@ async function main() {
     });
   }
 
-  // 4. Pouch stock per location (all locations, so a reactivated cart is ready).
+  // 4. Pouch + seasoning stock per location (all locations, so a reactivated
+  //    cart is ready). Existing rows are never overwritten — a real count
+  //    stays a real count.
+  const powderItems = [...new Set(FLAVOR_PRODUCTS.map((fp) => fp.powder).filter(Boolean))];
   for (const loc of locations) {
-    for (const size of Object.values(POUCH_BY_SIZE)) {
+    for (const size of new Set(Object.values(POUCH_BY_SIZE))) {
       await upsertInventoryRow(loc, size, POUCH_STOCK);
+    }
+    for (const powder of powderItems) {
+      await upsertInventoryRow(loc, powder, POWDER_STOCK);
     }
   }
 
-  // 5. Recipes: size pouch + shared frozen packs + house powder where known.
+  // 5. Recipes: the chosen size deducts its pouch (both XL choices -> XL
+  //    pouch); every flavor deducts frozen fries + its 15 g powder.
   for (const fp of FLAVOR_PRODUCTS) {
     for (const s of SIZES) {
       await upsertRecipe(fp.name, s.name, POUCH_BY_SIZE[s.name], 1);

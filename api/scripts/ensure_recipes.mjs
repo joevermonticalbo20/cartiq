@@ -3,6 +3,10 @@
 // (src/services/recipe_defaults.js): 1 pouch + 0.05 frozen packs per serving
 // (generic rows) + 15 g powder per flavored serving.
 //
+// Products that already deduct a SIZE pouch (recipe item named
+// "Pouch Medium/Large/XL ...") skip the generic "Pouches" row — both would
+// otherwise deduct on the same sale.
+//
 //   node scripts/ensure_recipes.mjs            # dry run: prints the plan
 //   node scripts/ensure_recipes.mjs --apply    # writes missing rows + aligns amounts
 //
@@ -41,7 +45,7 @@ async function upsertRow(productName, flavor, itemName, amount, counters) {
 }
 
 async function main() {
-  const counters = { added: 0, aligned: 0, toLog: [], unknownFlavors: new Set(), cartGaps: [] };
+  const counters = { added: 0, aligned: 0, toLog: [], unknownFlavors: new Set(), cartGaps: [], sizePouchProducts: new Set() };
   const [products, flavors, maps, locations] = await Promise.all([
     db.product.findMany({ include: { flavors: true } }),
     db.flavor.findMany(),
@@ -54,8 +58,16 @@ async function main() {
   for (const p of products) {
     const linkedIds = (p.flavorIds ?? (p.flavors ?? []).map((f) => f.id)).map(Number);
     const linkedNames = linkedIds.map((id) => flavorNameById.get(id)).filter(Boolean);
+    // Size-based pouches (Pota Fries menu): a product whose recipe already
+    // deducts "Pouch Medium/Large/XL ..." must NOT also get the generic
+    // "Pouches" row — that would double-deduct packaging on every sale.
+    const hasSizePouches = maps.some(
+      (m) => m.productName === p.name && /^Pouch (Medium|Large|XL)/i.test(String(m.itemName ?? ""))
+    );
+    if (hasSizePouches) counters.sizePouchProducts.add(p.name);
     // Generic rows for the product itself.
     for (const r of genericRecipeRows()) {
+      if (hasSizePouches && r.itemName === "Pouches") continue;
       if (!existingKeys.has(JSON.stringify([p.name, "", r.itemName]))) {
         await upsertRow(p.name, "", r.itemName, r.amountPerUnit, counters);
         existingKeys.add(JSON.stringify([p.name, "", r.itemName]));
@@ -113,6 +125,9 @@ async function main() {
 
   console.log(`Mode: ${APPLY ? "APPLY (writing)" : "DRY RUN (no writes — add --apply to write)"}`);
   console.log(`Products scanned: ${products.length}`);
+  if (counters.sizePouchProducts.size > 0) {
+    console.log(`Size-pouch products (generic "Pouches" intentionally skipped): ${[...counters.sizePouchProducts].join(", ")}`);
+  }
   for (const line of counters.toLog) console.log(`  ${line}`);
   console.log(`Recipe rows added: ${counters.added}, amounts aligned to 15 g convention: ${counters.aligned}`);
   if (counters.unknownFlavors.size > 0) {

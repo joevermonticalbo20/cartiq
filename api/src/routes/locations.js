@@ -23,6 +23,12 @@ const INVENTORY_TEMPLATE = [
   { name: "Pouch Medium", unit: "pcs", stock: 150, threshold: 50, source: "MANUAL" },
   { name: "Pouch Large", unit: "pcs", stock: 150, threshold: 50, source: "MANUAL" },
   { name: "Pouch XL", unit: "pcs", stock: 150, threshold: 50, source: "MANUAL" },
+  // Seasoning powders for the remaining menu flavors (15 g per serving).
+  { name: "Chili Cheese Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
+  { name: "Chili BBQ Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
+  { name: "Caramel Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
+  { name: "Sweet Corn Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
+  { name: "Honey Butter Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
 ];
 
 function countLetters(s) {
