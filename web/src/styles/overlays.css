@@ -215,6 +215,17 @@ button.flavor-card-toggle--flat {
   flex: 1; /* Para itulak ang close button sa dulong kanan */
 }
 
+.toast--clickable {
+  cursor: pointer;
+}
+.toast--clickable:hover {
+  filter: brightness(0.94);
+}
+.toast--clickable:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
 /* Custom styling para sa 'X' button */
 .toast-close {
   padding: 6px;

@@ -11,26 +11,14 @@ import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import ImageCropDialog from "../components/ImageCropDialog.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
-import Select from "../components/Select.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { sanitizeMoneyInput, sanitizeQtyInput, parseMoney, parseQty } from "../utils/format.js";
 import { sanitizeTextInput, validateItemName } from "../utils/text.js";
 
-let flavorRowSeq = 1;
-function newFlavorRowState(overrides = {}) {
-  return {
-    key: `fr-${Date.now()}-${flavorRowSeq++}`,
-    flavorId: null,
-    unitPrice: "",
-    recipes: [],
-    collapsed: false,
-    ...overrides,
-  };
-}
-
+let recipeRowSeq = 1;
 function newRecipeRowState(overrides = {}) {
   return {
-    key: `rr-${Date.now()}-${flavorRowSeq++}`,
+    key: `rr-${Date.now()}-${recipeRowSeq++}`,
     itemName: "",
     amount: "",
     unit: "",
@@ -70,7 +58,6 @@ export default function ProductsPage() {
   const isOwner = user?.role === "OWNER";
 
   const [products, setProducts] = useState([]);
-  const [flavors, setFlavors] = useState([]);
   const [itemNames, setItemNames] = useState([]);
 
   const [loading, setLoading] = useState(true);
@@ -85,14 +72,10 @@ export default function ProductsPage() {
   // Insert/crop photo dialog: which modal asked for it ("add" | "edit").
   const [cropState, setCropState] = useState({ open: false, target: null });
   const [starring, setStarring] = useState(null);
-  
-  const [addFlavorRows, setAddFlavorRows] = useState([]);
-  const [addRowErrors, setAddRowErrors] = useState({});
 
-  const setAddRows = (updater) => {
-    setAddFlavorRows(updater);
-    setAddRowErrors({});
-  };
+  // Flat recipe rows (the size-to-product catalog carries recipes on the
+  // product itself — there is no per-variant option anymore).
+  const [addRecipeRows, setAddRecipeRows] = useState([]);
 
   const [editing, setEditing] = useState(null);
   const [editClosing, setEditClosing] = useState(false);
@@ -111,15 +94,11 @@ export default function ProductsPage() {
   const [archiving, setArchiving] = useState(null);
   const [isArchiving, setIsArchiving] = useState(false);
 
-  const [flavorDraft, setFlavorDraft] = useState("");
-  const [flavorError, setFlavorError] = useState("");
-
   const load = useCallback(() => {
     setLoading(true);
-    Promise.all([api.get("/products"), api.get("/flavors"), api.get("/inventory/names").catch(() => ({ data: { data: [] } }))])
-      .then(([p, f, n]) => {
+    Promise.all([api.get("/products"), api.get("/inventory/names").catch(() => ({ data: { data: [] } }))])
+      .then(([p, n]) => {
         setProducts(p.data?.data ?? []);
-        setFlavors(f.data?.data ?? []);
         setItemNames(n.data?.data ?? []);
         setError("");
       })
@@ -189,59 +168,14 @@ export default function ProductsPage() {
     });
   };
 
-  async function createFlavorInlineForRows(setRows) {
-    const name = sanitizeTextInput(flavorDraft, 60).trim();
-    if (!name) {
-      setFlavorError("Type a flavor name first.");
-      return;
-    }
-    const dupe = flavors.some((f) => f.name.toLowerCase() === name.toLowerCase());
-    if (dupe) {
-      setFlavorError(`Flavor "${name}" already exists — pick it from the list.`);
-      return;
-    }
-    setFlavorError("");
-    try {
-      const { data } = await api.post("/flavors", { name });
-      setFlavors((prev) => [...prev, data.flavor].sort((a, b) => a.name.localeCompare(b.name)));
-      setRows((prev) => {
-        const emptyIdx = prev.findIndex((r) => !r.flavorId);
-        if (emptyIdx >= 0) {
-          return prev.map((r, i) => (i === emptyIdx ? { ...r, flavorId: data.flavor.id, collapsed: false } : r));
-        }
-        return [...prev, newFlavorRowState({ flavorId: data.flavor.id })];
-      });
-      setFlavorDraft("");
-      toast(`Flavor "${data.flavor.name}" created`, "success");
-    } catch (err) {
-      setFlavorError(getFriendlyError(err, "Could not create flavor."));
-    }
+  function updateRecipeLineFlat(setLines, key, patch) {
+    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   }
 
-  function updateFlavorRow(setRows, key, patch) {
-    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
-  }
-
-  function updateRecipeLine(setRows, rowKey, lineKey, patch) {
-    setRows((prev) =>
-      prev.map((r) =>
-        r.key === rowKey
-          ? { ...r, recipes: (r.recipes ?? []).map((l) => (l.key === lineKey ? { ...l, ...patch } : l)) }
-          : r
-      )
-    );
-  }
-
-  function flavorRowsEditor(rows, setRows, sellingPriceText, rowErrors = {}) {
-    const sellingPrice = parseMoney(sellingPriceText);
+  function flatRecipesEditor(lines, setLines) {
     const knownItems = new Set(itemNames.map((n) => n.name.toLowerCase()));
     const knownUnitOf = (name) =>
       itemNames.find((n) => n.name.toLowerCase() === String(name ?? "").trim().toLowerCase())?.unit ?? "";
-
-    const optionsFor = (currentId) =>
-      flavors
-        .filter((f) => f.id === currentId || !rows.some((r) => r.flavorId === f.id))
-        .map((f) => ({ value: f.id, label: f.name }));
 
     return (
       <div className="flex flex-col gap-3">
@@ -250,265 +184,109 @@ export default function ProductsPage() {
             <option key={n.name} value={n.name} />
           ))}
         </datalist>
-        {rows.map((row) => {
-          const picked = flavors.find((f) => f.id === row.flavorId);
-          const newLines = (row.recipes ?? []).filter((l) => String(l.itemName ?? "").trim()).length;
-          
-          const priceLabel = String(row.unitPrice ?? "").trim()
-            ? `P${Number(row.unitPrice).toLocaleString()}`
-            : `Selling Price${sellingPrice !== null ? ` (P${sellingPrice.toLocaleString()})` : ""}`;
-            
-          const recipeLabel = row.existingRecipeCount > 0
-            ? `${row.existingRecipeCount} saved${newLines > 0 ? ` + ${newLines} new` : ""}`
-            : newLines > 0 ? `${newLines} new` : "no recipes";
-          const hasRecipes = row.existingRecipeCount > 0 || newLines > 0;
-
-          if (row.collapsed) {
-            return (
-              <div key={row.key} className="flavor-card">
-                <button
-                  type="button"
-                  className="flavor-card-toggle flavor-card-toggle--flat"
-                  onClick={() => updateFlavorRow(setRows, row.key, { collapsed: false })}
-                  aria-expanded="false"
-                  aria-label={`Expand ${picked?.name ?? "flavor row"}`}
-                >
-                  <span
-                    className={`flavor-card-dot ${hasRecipes ? "flavor-card-dot--ok" : "flavor-card-dot--empty"}`}
-                    aria-hidden="true"
-                  />
-                  <span className="flavor-card-name">{picked?.name ?? "Pick a size or flavor"}</span>
-                  <span className="flavor-card-meta">{priceLabel} • {recipeLabel}</span>
-                  <span className="flavor-card-chevron" aria-hidden="true">▼</span>
-                </button>
-              </div>
-            );
-          }
+        {lines.length === 0 && (
+          <p className="muted small">
+            No recipe lines yet. The product sells at its selling price and deducts nothing from stock until you add ingredient lines.
+          </p>
+        )}
+        {lines.map((line) => {
+          const typedName = String(line.itemName ?? "").trim();
+          const unknownItem = typedName !== "" && !knownItems.has(typedName.toLowerCase());
+          const stockUnit = knownUnitOf(line.itemName);
+          const unitChoices = unitOptionsFor(stockUnit);
+          const effUnit = line.unit || defaultUnitFor(stockUnit);
           return (
-            <div key={row.key} className="flavor-card flavor-card--open">
-              <button
-                type="button"
-                className="flavor-card-toggle"
-                onClick={() => updateFlavorRow(setRows, row.key, { collapsed: true })}
-                aria-expanded="true"
-                aria-label={`Collapse ${picked?.name ?? "flavor row"}`}
-              >
-                <span
-                  className={`flavor-card-dot ${hasRecipes ? "flavor-card-dot--ok" : "flavor-card-dot--empty"}`}
-                  aria-hidden="true"
+            <div key={line.key}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 84px 78px 32px", gap: "8px" }}>
+                <input
+                  type="text"
+                  maxLength={120}
+                  placeholder="Ingredient item (e.g. Cheese Powder)"
+                  list="cartiq-inventory-items"
+                  title="Must match a stock item name exactly - pick from the list"
+                  value={line.itemName}
+                  onChange={(e) =>
+                    updateRecipeLineFlat(setLines, line.key, { itemName: sanitizeTextInput(e.target.value, 120) })
+                  }
                 />
-                <span className="flavor-card-name">{picked?.name ?? "New option"}</span>
-                <span className="flavor-card-meta">{priceLabel} • {recipeLabel}</span>
-                <span className="flavor-card-chevron" aria-hidden="true">▲</span>
-              </button>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                <label className="field">
-                  Size / Flavor
-                  <Select
-                    value={row.flavorId ?? ""}
-                    onChange={(v) => updateFlavorRow(setRows, row.key, { flavorId: Number(v) })}
-                    options={optionsFor(row.flavorId)}
-                    placeholder="Pick a size or flavor"
-                  />
-                </label>
-                <label className="field">
-                  Custom Price (PHP, blank = selling price)
-                  <input
-                    type="number"
-                    min="0"
-                    max="9999999.99"
-                    step="0.01"
-                    placeholder={sellingPrice !== null ? String(sellingPrice) : "Selling price"}
-                    title="Leave blank to use the main selling price"
-                    value={row.unitPrice}
-                    onChange={(e) => updateFlavorRow(setRows, row.key, { unitPrice: sanitizeMoneyInput(e.target.value) })}
-                  />
-                </label>
-              </div>
-
-              {(row.recipes ?? []).map((line) => {
-                const typedName = String(line.itemName ?? "").trim();
-                const unknownItem = typedName !== "" && !knownItems.has(typedName.toLowerCase());
-                const stockUnit = knownUnitOf(line.itemName);
-                const unitChoices = unitOptionsFor(stockUnit);
-                const effUnit = line.unit || defaultUnitFor(stockUnit);
-                return (
-                  <div key={line.key}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 84px 78px 32px", gap: "8px", marginTop: "8px" }}>
-                      <input
-                        type="text"
-                        maxLength={120}
-                        placeholder="Ingredient item (e.g. Cheese Powder)"
-                        list="cartiq-inventory-items"
-                        title="Must match a stock item name exactly — pick from the list"
-                        value={line.itemName}
-                        onChange={(e) => updateRecipeLine(setRows, row.key, line.key, { itemName: sanitizeTextInput(e.target.value, 120) })}
-                      />
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="Qty"
-                        title={`Amount deducted per unit sold, in ${effUnit}`}
-                        value={line.amount}
-                        onChange={(e) => updateRecipeLine(setRows, row.key, line.key, { amount: sanitizeQtyInput(e.target.value) })}
-                      />
-                      <select
-                        aria-label="Unit"
-                        title={stockUnit ? `Stock unit is ${stockUnit} — converts automatically` : "Pick the unit"}
-                        value={effUnit}
-                        onChange={(e) => updateRecipeLine(setRows, row.key, line.key, { unit: e.target.value })}
-                      >
-                        {unitChoices.map((u) => (
-                          <option key={u} value={u}>{u}</option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        className="danger-ghost small-btn"
-                        title="Remove recipe line"
-                        onClick={() => updateFlavorRow(setRows, row.key, { recipes: (row.recipes ?? []).filter((l) => l.key !== line.key) })}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                    {unknownItem && (
-                      <p className="muted small" style={{ margin: "4px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
-                        <AlertTriangle size={12} aria-hidden="true" />
-                        No stock item named &rsquo;{typedName}&rsquo; — sales will warn instead of deducting.
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-              <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
-                <button
-                  type="button"
-                  className="ghost small-btn"
-                  onClick={() => updateFlavorRow(setRows, row.key, { recipes: [...(row.recipes ?? []), newRecipeRowState()] })}
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Qty"
+                  title={`Amount deducted per unit sold, in ${effUnit}`}
+                  value={line.amount}
+                  onChange={(e) =>
+                    updateRecipeLineFlat(setLines, line.key, { amount: sanitizeQtyInput(e.target.value) })
+                  }
+                />
+                <select
+                  aria-label="Unit"
+                  title={stockUnit ? `Stock unit is ${stockUnit} - converts automatically` : "Pick the unit"}
+                  value={effUnit}
+                  onChange={(e) => updateRecipeLineFlat(setLines, line.key, { unit: e.target.value })}
                 >
-                  + Recipe line
-                </button>
+                  {unitChoices.map((u) => (
+                    <option key={u} value={u}>{u}</option>
+                  ))}
+                </select>
                 <button
                   type="button"
                   className="danger-ghost small-btn"
-                  onClick={() => setRows((prev) => prev.filter((r) => r.key !== row.key))}
+                  title="Remove recipe line"
+                  onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))}
                 >
-                  Remove option
+                  \u2715
                 </button>
               </div>
-              {rowErrors[row.key] && (
-                <p className="error-box" role="alert" style={{ margin: "8px 0 0" }}>
-                  {rowErrors[row.key]}
-                </p>
-              )}
-              {row.existingRecipeCount > 0 && (
-                <p className="muted small" style={{ margin: "8px 0 0" }}>
-                  {row.existingRecipeCount} recipe row(s) already saved for {picked?.name ?? "this flavor"} — new lines below are added on save.
-                </p>
-              )}
-              {(row.existingMissing ?? []).length > 0 && (
+              {unknownItem && (
                 <p className="muted small" style={{ margin: "4px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
                   <AlertTriangle size={12} aria-hidden="true" />
-                  No stock row for: {(row.existingMissing ?? []).join(", ")}.
+                  No stock item named &rsquo;{typedName}&rsquo; — sales will warn instead of deducting.
                 </p>
               )}
             </div>
           );
         })}
-        <div style={{ display: "flex", gap: "8px" }}>
-          <button
-            type="button"
-            className="ghost small-btn"
-            onClick={() => setRows((prev) => [...prev, newFlavorRowState()])}
-          >
-            + Add size / flavor
-          </button>
-        </div>
-        <div className="field">
-          <span>Create flavor</span>
-          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            <input
-              type="text"
-              maxLength={60}
-              placeholder="New flavor name"
-              value={flavorDraft}
-              onChange={(e) => setFlavorDraft(sanitizeTextInput(e.target.value, 60))}
-              style={{ flex: 1 }}
-            />
-            <button
-              type="button"
-              className="ghost small-btn"
-              onClick={() => createFlavorInlineForRows(setRows)}
-            >
-              Add
-            </button>
-          </div>
-          {flavorError && <p className="error-box" role="alert" style={{ marginTop: "8px" }}>{flavorError}</p>}
-        </div>
+        <button
+          type="button"
+          className="ghost small-btn"
+          style={{ alignSelf: "flex-start" }}
+          onClick={() => setLines((prev) => [...prev, newRecipeRowState()])}
+        >
+          + Recipe line
+        </button>
       </div>
     );
   }
 
-  function checkFlavorRows(rows, sellingPrice) {
-    const payload = [];
-    const seen = new Set();
-    const fail = (row, error) => ({
-      ok: false, error, payload: [],
-      rowErrors: { [row.key]: error }, badKey: row.key,
-    });
+  function checkFlatRecipes(lines) {
+    const recipes = [];
+    const stockUnitOf = (name) =>
+      itemNames.find((n) => n.name.toLowerCase() === String(name ?? "").trim().toLowerCase())?.unit ?? "";
 
-    for (const row of rows) {
-      if (!row.flavorId) {
-        return fail(row, "Pick a flavor for this row (or remove the row).");
+    for (const r of lines) {
+      const itemName = String(r.itemName ?? "").trim();
+      const rawAmount = parseQty(String(r.amount ?? ""));
+      if (!itemName && rawAmount === null) continue;
+      if (!itemName || itemName.length > 120) {
+        return { ok: false, error: "Recipe lines need an item name (max 120 characters)." };
       }
-      if (seen.has(row.flavorId)) {
-        return fail(row, "This flavor is already added below — each flavor can only appear once.");
+      if (rawAmount === null || rawAmount <= 0) {
+        return { ok: false, error: `Recipe line for "${itemName}" needs an amount above 0.` };
       }
-      seen.add(row.flavorId);
-
-      const flavor = flavors.find((f) => f.id === row.flavorId);
-      const entry = { flavorId: row.flavorId };
-
-      const unitText = String(row.unitPrice ?? "").trim();
-      if (unitText) {
-        const unit = parseMoney(unitText);
-        if (unit === null || unit <= 0) {
-          return fail(row, `Enter a valid price for "${flavor?.name ?? "this flavor"}" (P0.01 to P9,999,999.99) or leave it blank to use the selling price.`);
-        }
-        if (unit !== sellingPrice) entry.unitPrice = unit;
+      const stockUnit = stockUnitOf(itemName);
+      const dispUnit = r.unit || defaultUnitFor(stockUnit);
+      const conv = toStockUnit(rawAmount, dispUnit, stockUnit || dispUnit);
+      if (!conv.ok) {
+        return { ok: false, error: `"${dispUnit}" can't convert to "${stockUnit}" for "${itemName}" — amounts must use compatible units.` };
       }
-
-      const recipes = [];
-      const stockUnitOf = (name) =>
-        itemNames.find((n) => n.name.toLowerCase() === String(name ?? "").trim().toLowerCase())?.unit ?? "";
-
-      for (const r of row.recipes ?? []) {
-        const itemName = String(r.itemName ?? "").trim();
-        const rawAmount = parseQty(String(r.amount ?? ""));
-        if (!itemName && (rawAmount === null)) continue;
-        if (!itemName || itemName.length > 120) {
-          return fail(row, `Recipe rows for "${flavor?.name ?? "this flavor"}" need an item name (max 120 characters).`);
-        }
-        if (rawAmount === null || rawAmount <= 0) {
-          return fail(row, `Recipe rows for "${flavor?.name ?? "this flavor"}" need an amount above 0.`);
-        }
-        const stockUnit = stockUnitOf(itemName);
-        const dispUnit = r.unit || defaultUnitFor(stockUnit);
-        const conv = toStockUnit(rawAmount, dispUnit, stockUnit || dispUnit);
-        if (!conv.ok) {
-          return fail(row, `"${dispUnit}" can't convert to "${stockUnit}" for "${itemName}" — amounts must use compatible units.`);
-        }
-        if (conv.value <= 0 || conv.value > 99999.99) {
-          return fail(row, `Recipe rows for "${flavor?.name ?? "this flavor"}" need an amount from 0.01 to 99,999.99 (in ${stockUnit || dispUnit}).`);
-        }
-        recipes.push({ itemName, amountPerUnit: conv.value });
+      if (conv.value <= 0 || conv.value > 99999.99) {
+        return { ok: false, error: `Recipe line for "${itemName}" needs an amount from 0.01 to 99,999.99 (in ${stockUnit || dispUnit}).` };
       }
-
-      if (recipes.length > 0) entry.recipes = recipes;
-      payload.push(entry);
+      recipes.push({ itemName, amountPerUnit: conv.value });
     }
-    return { ok: true, payload, rowErrors: {}, badKey: null };
+    return { ok: true, recipes };
   }
 
   async function handleAddProduct(e) {
@@ -530,13 +308,9 @@ export default function ProductsPage() {
       return;
     }
 
-    const checked = checkFlavorRows(addFlavorRows, sp);
+    const checked = checkFlatRecipes(addRecipeRows);
     if (!checked.ok) {
       setAddError(checked.error);
-      setAddRowErrors(checked.rowErrors);
-      if (checked.badKey) {
-        setAddFlavorRows((prev) => prev.map((r) => (r.key === checked.badKey ? { ...r, collapsed: false } : r)));
-      }
       return;
     }
 
@@ -548,8 +322,17 @@ export default function ProductsPage() {
         basePrice: bp,
         markupPrice: mp,
         sellingPrice: sp,
-        flavors: checked.payload,
       });
+      const newId = data?.product?.id;
+      if (newId && checked.recipes.length > 0) {
+        try {
+          await api.patch(`/products/${newId}`, {
+            addRecipes: checked.recipes.map((r) => ({ flavor: "", ...r })),
+          });
+        } catch (recErr) {
+          toast(getFriendlyError(recErr, "Product created but its recipe lines could not be saved — open Edit and save them again."), "error");
+        }
+      }
       // The cropped photo needs the new product's id; a failed upload warns
       // instead of pretending the whole create failed.
       if (newProduct.imageDraft && data?.product?.id) {
@@ -560,14 +343,12 @@ export default function ProductsPage() {
         }
       }
       toast(
-        `Product "${name.value}" created${checked.payload.length ? ` with ${checked.payload.length} flavor(s)` : ""}${data?.recipesCreated ? `, ${data.recipesCreated} recipe row(s)` : ""}`,
+        `Product "${name.value}" created${checked.recipes.length ? ` with ${checked.recipes.length} recipe line(s)` : ""}`,
         "success"
       );
       closeAddModal();
       setNewProduct({ name: "", category: "Fries", basePrice: "", markupPrice: "", sellingPrice: "", imageDraft: null });
-      setAddFlavorRows([]);
-      setAddRowErrors({});
-      setFlavorDraft("");
+      setAddRecipeRows([]);
       load();
     } catch (err) {
       setAddError(getFriendlyError(err, "Failed to create product."));
@@ -589,55 +370,28 @@ export default function ProductsPage() {
       return;
     }
 
-    const rows = editing.flavorRows ?? [];
-    const checked = checkFlavorRows(rows, sp);
-    
+    // Flat recipe lines (flavor "" = the product itself).
+    const lines = editing.recipeLines ?? [];
+    const checked = checkFlatRecipes(lines);
     if (!checked.ok) {
       setEditError(checked.error);
-      setEditing((prev) => {
-        if (!prev) return prev;
-        const nextRows = checked.badKey
-          ? (prev.flavorRows ?? []).map((r) => (r.key === checked.badKey ? { ...r, collapsed: false } : r))
-          : prev.flavorRows;
-        return { ...prev, flavorRows: nextRows, rowErrors: checked.rowErrors };
-      });
       return;
     }
-
-    const origIds = [...(editing._flavorIds ?? [])].sort((a, b) => a - b);
-    const nextIds = checked.payload.map((p) => p.flavorId).sort((a, b) => a - b);
-    const sameLinks = origIds.length === nextIds.length &&
-      origIds.every((id, i) => id === nextIds[i]);
-
-    const flavorPrices = {};
-    const priceChanges = [];
-    let pricesChanged = false;
-    const baseSnapshot = Number(editing._sellingPrice);
-
-    for (const row of rows) {
-      const flavor = flavors.find((f) => f.id === row.flavorId);
-      if (!flavor) continue;
-      const snap = editing._flavorPrices?.[flavor.name];
-      const unitText = String(row.unitPrice ?? "").trim();
-      
-      const next = unitText ? parseMoney(unitText) : null;
-      const normNext = next !== null && next !== sp ? next : null;
-      const normSnap = snap !== undefined && snap !== baseSnapshot ? snap : null;
-      
-      if (normNext !== normSnap) {
-        pricesChanged = true;
-        flavorPrices[flavor.name] = normNext;
-        priceChanges.push(`${flavor.name} P${normSnap ?? baseSnapshot} ➔ P${normNext ?? sp}`);
-      }
-    }
-
-    const addRecipes = [];
-    for (const entry of checked.payload) {
-      const flavor = flavors.find((f) => f.id === entry.flavorId);
-      for (const r of entry.recipes ?? []) {
-        addRecipes.push({ flavor: flavor?.name ?? "", itemName: r.itemName, amountPerUnit: r.amountPerUnit });
-      }
-    }
+    const baseline = editing._recipeBaseline ?? [];
+    const keepPair = (a, b) =>
+      a.itemName === b.itemName && Number(a.amountPerUnit) === Number(b.amountPerUnit);
+    const unchanged =
+      checked.recipes.length === baseline.length &&
+      checked.recipes.every((r) => baseline.some((b) => keepPair(r, b)));
+    const keptNames = new Set(checked.recipes.map((r) => r.itemName));
+    const removeRecipes = unchanged
+      ? []
+      : baseline
+          .filter((b) => !keptNames.has(b.itemName))
+          .map((b) => ({ flavor: "", itemName: b.itemName }));
+    const addRecipes = unchanged
+      ? []
+      : checked.recipes.map((r) => ({ flavor: "", ...r }));
 
     // A pending cropped photo is a change even when no field moved.
     const hasImageDraft = Boolean(editing.imageDraft);
@@ -647,10 +401,9 @@ export default function ProductsPage() {
       bp === Number(editing._basePrice) &&
       mp === Number(editing._markupPrice) &&
       sp === Number(editing._sellingPrice) &&
-      sameLinks &&
-      !pricesChanged &&
       !hasImageDraft &&
-      addRecipes.length === 0
+      addRecipes.length === 0 &&
+      removeRecipes.length === 0
     ) {
       toast("No changes — nothing to update on this product.", "info");
       closeEditModal();
@@ -665,27 +418,18 @@ export default function ProductsPage() {
         markupPrice: mp,
         sellingPrice: sp,
       };
-      
-      const adds = nextIds.filter((id) => !origIds.includes(id));
-      const removes = origIds.filter((id) => !nextIds.includes(id));
-      if (adds.length > 0) body.addFlavorIds = adds;
-      if (removes.length > 0) body.removeFlavorIds = removes;
-      if (pricesChanged) body.flavorPrices = flavorPrices;
       if (addRecipes.length > 0) body.addRecipes = addRecipes;
+      if (removeRecipes.length > 0) body.removeRecipes = removeRecipes;
 
       const { data } = await api.patch(`/products/${editing.id}`, body);
 
       const details = [];
-      const nameOf = (id) => flavors.find((f) => f.id === id)?.name ?? "a flavor";
-      for (const id of adds) details.push(`+${nameOf(id)}`);
-      for (const id of removes) details.push(`-${nameOf(id)}`);
-      details.push(...priceChanges);
-      
       if ((data?.recipesChanged ?? 0) > 0) {
-        details.push(`${data.recipesChanged} new recipe row(s)`);
+        details.push(`${data.recipesChanged} recipe row(s) saved`);
       } else if (addRecipes.length > 0) {
         details.push(`${addRecipes.length} recipe row(s) saved`);
       }
+      if (removeRecipes.length > 0) details.push(`${removeRecipes.length} recipe row(s) removed`);
       
       if ((editing.category || "Fries") !== (editing._category || "Fries")) details.push("category updated");
       if (sp !== Number(editing._sellingPrice)) details.push(`selling price P${Number(editing._sellingPrice)} ➔ P${sp}`);
@@ -895,9 +639,10 @@ export default function ProductsPage() {
   }
 
   function openEdit(p) {
-    const prices = p.flavorPrices ?? {};
     const basePriceSnapshot = Number(p.basePrice) || 0;
     const sellingPriceSnapshot = Number(p.sellingPrice ?? p.basePrice) || 0;
+    const flatRecipes = (p.recipes ?? []).map((r) =>
+      newRecipeRowState({ itemName: String(r.itemName ?? ""), amount: String(r.amountPerUnit ?? "") }));
     setEditing({
       ...p,
       category: p.category || "Fries",
@@ -906,14 +651,8 @@ export default function ProductsPage() {
       sellingPrice: String(sellingPriceSnapshot),
       imageUrl: p.imageUrl ?? "",
       imageDraft: null,
-      flavorRows: (p.flavors ?? []).map((f) => newFlavorRowState({
-        flavorId: f.id,
-        unitPrice: f.hasCustomPrice ? String(prices[f.name] ?? f.unitPrice ?? "") : "",
-        recipes: [],
-        existingRecipeCount: f.recipeCount ?? 0,
-        existingMissing: f.missingItems ?? [],
-        collapsed: (f.recipeCount ?? 0) > 0,
-      })),
+      recipeLines: flatRecipes,
+      _recipeBaseline: flatRecipes.map((r) => ({ itemName: r.itemName, amountPerUnit: Number(r.amount) || 0 })),
       _category: p.category || "Fries",
       // The API stores one canonical `basePrice` per product (products.js
       // accepts basePrice/flavorPrices/unitPrice — there is no markupPrice
@@ -926,21 +665,8 @@ export default function ProductsPage() {
       _basePrice: basePriceSnapshot,
       _markupPrice: Math.max(0, sellingPriceSnapshot - basePriceSnapshot),
       _sellingPrice: sellingPriceSnapshot,
-      _flavorIds: (p.flavors ?? []).map((f) => f.id),
-      _flavorPrices: prices,
-      rowErrors: {},
     });
     setEditError("");
-    setFlavorDraft("");
-    setFlavorError("");
-  }
-
-  function setEditRows(updater) {
-    setEditing((prev) => {
-      if (!prev) return prev;
-      const next = typeof updater === "function" ? updater(prev.flavorRows ?? []) : updater;
-      return { ...prev, flavorRows: next, rowErrors: {} };
-    });
   }
 
   if (user && !isOwner) {
@@ -970,9 +696,7 @@ export default function ProductsPage() {
                 className="small-btn"
                 onClick={() => {
                   setAddError("");
-                  setAddRowErrors({});
-                  setFlavorDraft("");
-                  setFlavorError("");
+                  setAddRecipeRows([]);
                   setAddOpen(true);
                 }}
               >
@@ -1076,41 +800,38 @@ export default function ProductsPage() {
                     render: (p) => <strong>P{Number(p.sellingPrice ?? p.basePrice ?? 0).toLocaleString()}</strong>,
                   },
                   {
-                    key: "flavors",
-                    // These options ARE the sizes on the fries menu
-                    // (Medium / Large / XL 40 / XL 50), so the column name
-                    // says both instead of calling them only flavors.
-                    label: "Sizes / Flavors",
-                    // Fixed min width + clipping: without it a squeezed
-                    // column let badges poke into the Used in cell (the
-                    // overlap reported from the field). The table scrolls
-                    // horizontally instead.
-                    width: 230,
-                    render: (p) => (
-                      <span className="flex flex-wrap gap-1" style={{ overflow: "hidden", maxWidth: "100%" }}>
-                        {(p.flavors ?? []).map((f) => (
-                          <Badge
-                            key={f.id}
-                            variant={(f.recipeCount ?? 0) === 0 || (f.missingItems ?? []).length > 0 ? "warn" : "info"}
-                            title={[
-                              f.hasCustomPrice ? `P${Number(f.unitPrice).toLocaleString()} — custom price` : `P${Number(f.unitPrice ?? p.sellingPrice ?? p.basePrice).toLocaleString()}`,
-                              ...((f.missingItems ?? []).map((m) => `No stock row for "${m}"`)),
-                            ].join(" • ")}
-                          >
-                            {f.name}
-                            {f.hasCustomPrice ? ` - P${Number(f.unitPrice).toLocaleString()}` : ""}
-                            {((f.recipeCount ?? 0) === 0 || (f.missingItems ?? []).length > 0) && (
-                              <AlertTriangle
-                                size={11}
-                                aria-label={(f.missingItems ?? []).length > 0 ? `Missing stock: ${(f.missingItems ?? []).join(", ")}` : "No recipe"}
-                                style={{ marginLeft: 4, verticalAlign: "-1px" }}
-                              />
-                            )}
-                          </Badge>
-                        ))}
-                        {(p.flavors ?? []).length === 0 && <span className="muted small">—</span>}
-                      </span>
-                    ),
+                    key: "recipes",
+                    // The catalog is flat (each size is its own product).
+                    // What matters per product is whether it deducts stock:
+                    // recipe rows and any stock item it can't find.
+                    label: "Recipes",
+                    width: 110,
+                    render: (p) => {
+                      const count = p.recipeCount ?? 0;
+                      const missing = p.missingItems ?? [];
+                      const warn = count === 0 || missing.length > 0;
+                      const title = missing.length > 0
+                        ? `No stock row for: ${missing.join(", ")}`
+                        : count === 0
+                          ? "No recipe — selling deducts nothing"
+                          : `${count} recipe row(s)`;
+                      return (
+                        <span
+                          className="muted small"
+                          title={title}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}
+                        >
+                          {count}
+                          {warn && (
+                            <AlertTriangle
+                              size={11}
+                              aria-label={missing.length > 0 ? `Missing stock: ${missing.join(", ")}` : "No recipe"}
+                              style={{ color: "var(--warn)" }}
+                            />
+                          )}
+                        </span>
+                      );
+                    },
                   },
                   {
                     key: "usage",
@@ -1130,9 +851,9 @@ export default function ProductsPage() {
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                         }}
-                        title={`${p.recipeCount} recipe(s) • ${p.orderLines} order line(s)`}
+                        title={`${p.recipeCount} recipe(s)`}
                       >
-                        {p.recipeCount} {p.recipeCount === 1 ? "recipe" : "recipes"} • {p.orderLines} sold
+                        {p.recipeCount} {p.recipeCount === 1 ? "recipe" : "recipes"}
                       </span>
                     ),
                   },
@@ -1146,7 +867,7 @@ export default function ProductsPage() {
                         <button
                           className="ghost small-btn"
                           onClick={() => openEdit(p)}
-                          title="Edit price, flavors, recipes"
+                          title="Edit price and recipe"
                         >
                           <Edit2 size={13} />
                         </button>
@@ -1277,8 +998,8 @@ export default function ProductsPage() {
                 </div>
                 
                 <div className="field">
-                  <span>Sizes / flavors — price &amp; recipes per option</span>
-                  {flavorRowsEditor(addFlavorRows, setAddRows, newProduct.sellingPrice, addRowErrors)}
+                  <span>Recipe — ingredients deducted per unit sold</span>
+                  {flatRecipesEditor(addRecipeRows, setAddRecipeRows)}
                 </div>
                 
                 <div className="modal-actions">
@@ -1367,8 +1088,14 @@ export default function ProductsPage() {
                 </div>
                 
                 <div className="field">
-                  <span>Sizes / flavors — price &amp; recipes per option</span>
-                  {flavorRowsEditor(editing?.flavorRows ?? [], setEditRows, editing?.sellingPrice, editing?.rowErrors ?? {})}
+                  <span>Recipe — ingredients deducted per unit sold</span>
+                  {flatRecipesEditor(editing?.recipeLines ?? [], (updater) =>
+                    setEditing((prev) => {
+                      if (!prev) return prev;
+                      const next = typeof updater === "function" ? updater(prev.recipeLines ?? []) : updater;
+                      return { ...prev, recipeLines: next };
+                    })
+                  )}
                 </div>
                 
                 <div className="modal-actions">

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "../components/Toast.jsx";
 import { useLiveEvent } from "./useLiveStream.js";
+import { alertLink, alertLinkLabel } from "../utils/alertLinks.js";
+import api from "../api.js";
 
 /**
  * Turns live `order:new` / `alert:new` stream events into notifications the
@@ -31,7 +34,7 @@ function ensurePermission() {
   }
 }
 
-function pushBrowserNotification(title, body) {
+function pushBrowserNotification(title, body, link) {
   if (typeof window === "undefined" || !("Notification" in window)) return;
   if (Notification.permission !== "granted") return;
   try {
@@ -47,6 +50,12 @@ function pushBrowserNotification(title, body) {
         window.focus();
       } catch {
         /* focus can be blocked; nothing else to do */
+      }
+      // Same target as the in-app toast: the page the notification is about.
+      try {
+        if (link) window.location.assign(link);
+      } catch {
+        /* location.assign can be blocked; window focus is still useful */
       }
       n.close();
     };
@@ -87,6 +96,7 @@ export function formatOrderNotice(data) {
 export function useOrderNotifications({ onOrder, playSound } = {}) {
   const orderRef = useRef(onOrder);
   const soundRef = useRef(playSound);
+  const navigate = useNavigate();
 
   // Ref writes belong in effects, not during render (react-hooks/refs).
   useLayoutEffect(() => {
@@ -103,24 +113,39 @@ export function useOrderNotifications({ onOrder, playSound } = {}) {
 
   const handleOrder = useCallback((data) => {
     const notice = formatOrderNotice(data);
+    const cart = data?.locationCode ?? "";
+    const link = cart ? `/sales?cart=${encodeURIComponent(cart)}` : "/sales";
 
     // Audible first: on a busy counter the operator may be looking away from
     // the monitor, and a sound is what they actually notice.
     soundRef.current?.();
-    toast(notice.message, "success");
-    pushBrowserNotification(notice.title, notice.body);
+    toast(notice.message, "success", {
+      onClick: () => navigate(link),
+      title: "Go to sales",
+    });
+    pushBrowserNotification(notice.title, notice.body, link);
 
     // Let the Dashboard bump its KPI counters without owning the connection.
     orderRef.current?.(data);
-  }, []);
+  }, [navigate]);
 
   useLiveEvent("order:new", handleOrder);
 
   const handleAlert = useCallback((data) => {
     const message = data?.message ?? "New alert";
-    toast(`Alert: ${message}`, "warn");
-    pushBrowserNotification("CartIQ alert", message);
-  }, []);
+    const link = alertLink(data);
+    toast(`Alert: ${message}`, "warn", {
+      onClick: () => {
+        if (data?.id != null) {
+          // The toast is the operator clearing this item from the bell too.
+          api.patch(`/alerts/${data.id}/read`).catch(() => {});
+        }
+        navigate(link);
+      },
+      title: alertLinkLabel(data),
+    });
+    pushBrowserNotification("CartIQ alert", message, link);
+  }, [navigate]);
 
   useLiveEvent("alert:new", handleAlert);
 }

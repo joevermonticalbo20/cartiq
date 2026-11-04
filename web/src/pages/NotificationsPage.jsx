@@ -1,11 +1,13 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Bell, Info, AlertTriangle, PackageSearch, ReceiptText, ChevronDown } from "lucide-react";
+import { Bell, Info, AlertTriangle, PackageSearch, ReceiptText, ChevronDown, ArrowRight } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import { useLiveEvent } from "../hooks/useLiveStream.js";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import Badge from "../components/Badge.jsx";
+import { alertLink, alertLinkLabel } from "../utils/alertLinks.js";
 
 // Ginawang context-aware ang pagkuha ng tema (bumabasa na rin ng message/title)
 const getTheme = (alert) => {
@@ -34,7 +36,18 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("ALL");
-  const [expandedId, setExpandedId] = useState(null); 
+  const [expandedId, setExpandedId] = useState(null);
+  const navigate = useNavigate();
+
+  const openAlert = (alert) => {
+    const target = alertLink(alert);
+    if (alert.isRead !== true) {
+      // Optimistic: the row dimming is instant, the PATCH is best-effort.
+      setAlerts((current) => current.map((a) => (a.id === alert.id ? { ...a, isRead: true } : a)));
+      api.patch(`/alerts/${alert.id}/read`).catch(() => {});
+    }
+    navigate(target);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -270,6 +283,18 @@ export default function NotificationsPage() {
                           <p style={{ margin: 0, color: "var(--text)", lineHeight: "1.6", fontSize: "14px", whiteSpace: "pre-wrap" }}>
                             {alert.message}
                           </p>
+                          <button
+                            type="button"
+                            className="ghost small-btn"
+                            style={{ marginTop: "12px" }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openAlert(alert);
+                            }}
+                            aria-label={`${alertLinkLabel(alert)}`}
+                          >
+                            {alertLinkLabel(alert)} <ArrowRight size={13} aria-hidden="true" />
+                          </button>
 
                           {/* Premium Staff Note Section */}
                           {alertNote && (

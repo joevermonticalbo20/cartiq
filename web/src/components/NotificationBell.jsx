@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Bell, Check, PackageSearch, ReceiptText, AlertTriangle, Info } from "lucide-react";
+import { Bell, Check, PackageSearch, ReceiptText, AlertTriangle, Info, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api.js";
 import { useLiveEvent } from "../hooks/useLiveStream.js";
+import { alertLink, alertLinkLabel } from "../utils/alertLinks.js";
 
 /** Unread is `isRead` from the API (a.status only exists on restock rows). */
 // eslint-disable-next-line react-refresh/only-export-components -- pure helper colocated with its only consumer, unit-tested in place
@@ -111,6 +112,20 @@ export default function NotificationBell() {
     }
   }
 
+  // Opening an item marks it read and takes the operator to the page it
+  // concerns. Optimistic; the PATCH is best-effort and the next refresh
+  // reconciles either way.
+  function goToAlert(alert) {
+    const target = alertLink(alert);
+    closePanel();
+    navigate(target);
+    if (isUnreadAlert(alert)) {
+      setAlerts((current) => current.map((a) => (a.id === alert.id ? { ...a, isRead: true } : a)));
+      setUnreadCount((n) => Math.max(0, n - 1));
+      api.patch(`/alerts/${alert.id}/read`).catch(() => {});
+    }
+  }
+
   // Dynamic indicator theme (Icon, Color, Background). Types arrive in
   // UPPER_CASE from the API (SALE, LOW_STOCK, RESTOCK_REQUEST).
   const getTheme = (type) => {
@@ -146,7 +161,7 @@ export default function NotificationBell() {
         aria-expanded={open}
       >
         <Bell size={18} />
-        {unreadCount > 0 && <span className="notif-badge">{unreadCount}</span>}
+        {unreadCount > 0 && <span className="notif-badge">{unreadCount > 9 ? "9+" : unreadCount}</span>}
       </button>
 
       {open && (
@@ -196,33 +211,44 @@ export default function NotificationBell() {
                   const Icon = theme.icon;
 
                   return (
-                    <li key={alert.id} className="notif-item">
-                      {/* DYNAMIC INDICATOR */}
-                      <div 
-                        className="notif-icon-circle"
-                        style={{ 
-                          color: theme.color, 
-                          backgroundColor: theme.bg,
-                          borderColor: `color-mix(in srgb, ${theme.color} 30%, transparent)`
-                        }}
+                    <li key={alert.id}>
+                      <button
+                        type="button"
+                        className="notif-item notif-item-btn"
+                        onClick={() => goToAlert(alert)}
+                        title={alertLinkLabel(alert)}
+                        aria-label={`${alert.title || "Notification"}: ${alert.message}. ${alertLinkLabel(alert)}`}
                       >
-                        <Icon size={16} />
-                      </div>
-                      
-                      <div className="notif-content">
-                        <div className="notif-title-row">
-                          <div className="notif-title">
-                            {isUnreadAlert(alert) && <span className="notif-unread-dot" />}
-                            <span style={{ color: isUnreadAlert(alert) ? "var(--text)" : "var(--text-muted)" }}>
-                              {alert.title || alert.type || "Update"}
-                            </span>
+                        {/* DYNAMIC INDICATOR */}
+                        <div
+                          className="notif-icon-circle"
+                          style={{
+                            color: theme.color,
+                            backgroundColor: theme.bg,
+                            borderColor: `color-mix(in srgb, ${theme.color} 30%, transparent)`
+                          }}
+                        >
+                          <Icon size={16} />
+                        </div>
+
+                        <div className="notif-content">
+                          <div className="notif-title-row">
+                            <div className="notif-title">
+                              {isUnreadAlert(alert) && <span className="notif-unread-dot" />}
+                              <span style={{ color: isUnreadAlert(alert) ? "var(--text)" : "var(--text-muted)" }}>
+                                {alert.title || alert.type || "Update"}
+                              </span>
+                            </div>
+                            <span className="notif-time">{timeAgo(alert.createdAt)}</span>
                           </div>
-                          <span className="notif-time">{timeAgo(alert.createdAt)}</span>
+                          <div className="notif-desc">
+                            {alert.message}
+                          </div>
                         </div>
-                        <div className="notif-desc">
-                          {alert.message}
-                        </div>
-                      </div>
+                        <span className="notif-item-go" aria-hidden="true">
+                          <ChevronRight size={16} />
+                        </span>
+                      </button>
                     </li>
                   );
                 })}

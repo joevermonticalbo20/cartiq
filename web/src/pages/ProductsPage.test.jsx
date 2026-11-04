@@ -27,10 +27,10 @@ function renderPage() {
   );
 }
 
-const seedFlavors = [
-  { id: 1, name: "Cheese" },
-  { id: 2, name: "BBQ" },
-];
+const emptyGet = (url) => {
+  if (url === "/products") return Promise.resolve({ data: { data: [] } });
+  return Promise.resolve({ data: null });
+};
 
 describe("ProductsPage loading/error states", () => {
   beforeEach(() => {
@@ -46,11 +46,7 @@ describe("ProductsPage loading/error states", () => {
   });
 
   it("shows the empty state on success with zero products", async () => {
-    api.get.mockImplementation((url) => {
-      if (url === "/products") return Promise.resolve({ data: { data: [] } });
-      if (url === "/flavors") return Promise.resolve({ data: { data: seedFlavors } });
-      return Promise.resolve({ data: null });
-    });
+    api.get.mockImplementation(emptyGet);
     renderPage();
     expect(await screen.findByText("No products yet")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
@@ -59,7 +55,6 @@ describe("ProductsPage loading/error states", () => {
   it("shows an error with retry on failure, not the empty state", async () => {
     api.get.mockImplementation((url) => {
       if (url === "/products") return Promise.reject(new Error("explode"));
-      if (url === "/flavors") return Promise.resolve({ data: { data: seedFlavors } });
       return Promise.resolve({ data: null });
     });
     renderPage();
@@ -77,7 +72,6 @@ describe("ProductsPage loading/error states", () => {
         if (calls === 1) return Promise.reject(new Error("down"));
         return Promise.resolve({ data: { data: [] } });
       }
-      if (url === "/flavors") return Promise.resolve({ data: { data: seedFlavors } });
       return Promise.resolve({ data: null });
     });
     renderPage();
@@ -93,15 +87,17 @@ describe("ProductsPage edit change feedback", () => {
   const seedProducts = [
     {
       id: 5,
-      name: "Flavored Fries",
+      name: "Cheese Fries - Medium",
       category: "Fries",
-      basePrice: 40,
-      flavorPrices: {},
-      flavors: [
-        { id: 1, name: "Cheese", unitPrice: 40, hasCustomPrice: false, recipeCount: 1 },
+      basePrice: 20,
+      active: true,
+      imageUrl: null,
+      recipes: [
+        { itemName: "Pouch Medium", amountPerUnit: 1 },
+        { itemName: "Fries (frozen packs)", amountPerUnit: 0.05 },
       ],
-      recipeCount: 1,
-      orderLines: 0,
+      recipeCount: 2,
+      missingItems: [],
     },
   ];
 
@@ -109,7 +105,6 @@ describe("ProductsPage edit change feedback", () => {
     vi.clearAllMocks();
     api.get.mockImplementation((url) => {
       if (url === "/products") return Promise.resolve({ data: { data: seedProducts } });
-      if (url === "/flavors") return Promise.resolve({ data: { data: seedFlavors } });
       return Promise.resolve({ data: null });
     });
     api.patch.mockResolvedValue({ data: { product: {}, recipesChanged: 0 } });
@@ -117,9 +112,9 @@ describe("ProductsPage edit change feedback", () => {
 
   async function openEdit() {
     renderPage();
-    await screen.findByText("Flavored Fries");
-    fireEvent.click(screen.getByTitle("Edit price, flavors, recipes"));
-    expect(await screen.findByText("Edit Flavored Fries")).toBeInTheDocument();
+    await screen.findByText("Cheese Fries - Medium");
+    fireEvent.click(screen.getByTitle("Edit price and recipe"));
+    expect(await screen.findByText("Edit Cheese Fries - Medium")).toBeInTheDocument();
   }
 
   it("reports no changes when nothing was touched", async () => {
@@ -129,38 +124,56 @@ describe("ProductsPage edit change feedback", () => {
     expect(api.patch).not.toHaveBeenCalled();
   });
 
-  it("names the price move in the success message", async () => {
+  it("saves edited recipe line amounts with flavor \"\" (flat product)", async () => {
     await openEdit();
-    const modal = screen.getByText("Edit Flavored Fries").closest(".modal");
-    // Saved rows start collapsed — expand first.
-    fireEvent.click(within(modal).getByLabelText("Expand Cheese"));
-    fireEvent.change(within(modal).getByTitle("Leave blank to use the main selling price"), {
-      target: { value: "45" },
-    });
-    fireEvent.click(within(modal).getByText("Save Changes"));
+    const modal = screen.getByText("Edit Cheese Fries - Medium").closest(".modal");
+    const qtyInputs = within(modal).getAllByPlaceholderText("Qty");
+    expect(qtyInputs).toHaveLength(2);
+    expect(qtyInputs[0]).toHaveValue(1);
+    expect(within(modal).getAllByPlaceholderText("Ingredient item (e.g. Cheese Powder)")[0]).toHaveValue("Pouch Medium");
 
-    await screen.findByText(/Cheese P40 ➔ P45/);
-    const [url, body] = api.patch.mock.calls[0];
-    expect(url).toBe("/products/5");
-    expect(body.flavorPrices).toEqual({ Cheese: 45 });
+    fireEvent.change(qtyInputs[0], { target: { value: "2" } });
+    fireEvent.click(screen.getByText("Save Changes"));
+
+    await vi.waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith(
+        "/products/5",
+        expect.objectContaining({
+          addRecipes: expect.arrayContaining([{ flavor: "", itemName: "Pouch Medium", amountPerUnit: 2 }]),
+        })
+      )
+    );
+  });
+
+  it("removes a baseline recipe line via removeRecipes", async () => {
+    await openEdit();
+    const modal = screen.getByText("Edit Cheese Fries - Medium").closest(".modal");
+    const removeButtons = within(modal).getAllByTitle("Remove recipe line");
+    fireEvent.click(removeButtons[0]);
+    fireEvent.click(screen.getByText("Save Changes"));
+
+    await vi.waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith(
+        "/products/5",
+        expect.objectContaining({
+          removeRecipes: [{ flavor: "", itemName: "Pouch Medium" }],
+        })
+      )
+    );
   });
 });
 
-describe("ProductsPage by-flavor add", () => {
+describe("ProductsPage flat product add", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.get.mockImplementation((url) => {
-      if (url === "/products") return Promise.resolve({ data: { data: [] } });
-      if (url === "/flavors") return Promise.resolve({ data: { data: seedFlavors } });
-      return Promise.resolve({ data: null });
-    });
+    api.get.mockImplementation(emptyGet);
   });
 
   async function openAddModal() {
     renderPage();
     await screen.findByText("No products yet");
     fireEvent.click(screen.getByText("Add product"));
-    expect(await screen.findByText(/price & recipes per option/)).toBeInTheDocument();
+    expect(await screen.findByText(/ingredients deducted per unit/)).toBeInTheDocument();
   }
 
   function addModal() {
@@ -182,43 +195,16 @@ describe("ProductsPage by-flavor add", () => {
     fireEvent.change(moneyInput("Selling Price"), { target: { value: price } });
   }
 
-  it("blocks submit when a flavor row has no picked flavor", async () => {
-    await openAddModal();
-    fillNameAndPrice();
-    fireEvent.click(screen.getByText("+ Add size / flavor"));
-    fireEvent.click(screen.getByText("Create Product"));
-    // Same message at modal level and inline under the bad row.
-    const matches = await screen.findAllByText(/Pick a flavor for this row/);
-    expect(matches.length).toBeGreaterThanOrEqual(2);
-    expect(api.post).not.toHaveBeenCalled();
-  });
-
-  it("shows the row error inline under the bad row and expands it", async () => {
-    await openAddModal();
-    fillNameAndPrice();
-    fireEvent.click(screen.getByText("+ Add size / flavor"));
-    const modal = screen.getByText("Add Product").closest(".modal");
-    // Collapse the empty row: submit must expand it again with the error.
-    fireEvent.click(within(modal).getByLabelText("Collapse flavor row"));
-    expect(within(modal).queryByTitle("Leave blank to use the main selling price")).toBeNull();
-    fireEvent.click(within(modal).getByText("Create Product"));
-    const alerts = await within(modal).findAllByRole("alert");
-    expect(alerts.length).toBeGreaterThanOrEqual(2);
-    expect(within(modal).getByTitle("Leave blank to use the main selling price")).toBeInTheDocument();
-    expect(api.post).not.toHaveBeenCalled();
-  });
-
   it("offers known stock items in the recipe picker", async () => {
     api.get.mockImplementation((url) => {
       if (url === "/products") return Promise.resolve({ data: { data: [] } });
-      if (url === "/flavors") return Promise.resolve({ data: { data: seedFlavors } });
       if (url === "/inventory/names") {
         return Promise.resolve({ data: { data: [{ name: "Cheese Powder", unit: "kg" }] } });
       }
       return Promise.resolve({ data: null });
     });
     await openAddModal();
-    fireEvent.click(screen.getByText("+ Add size / flavor"));
+    fireEvent.click(screen.getByText("+ Recipe line"));
     const modal = screen.getByText("Add Product").closest(".modal");
     const option = modal.querySelector('datalist#cartiq-inventory-items option[value="Cheese Powder"]');
     expect(option).not.toBeNull();
@@ -227,7 +213,6 @@ describe("ProductsPage by-flavor add", () => {
   it("hints when a recipe item matches no stock row", async () => {
     api.get.mockImplementation((url) => {
       if (url === "/products") return Promise.resolve({ data: { data: [] } });
-      if (url === "/flavors") return Promise.resolve({ data: { data: seedFlavors } });
       if (url === "/inventory/names") {
         return Promise.resolve({ data: { data: [{ name: "Cheese Powder", unit: "kg" }] } });
       }
@@ -235,28 +220,19 @@ describe("ProductsPage by-flavor add", () => {
     });
     await openAddModal();
     fillNameAndPrice();
-    fireEvent.click(screen.getByText("+ Add size / flavor"));
+    fireEvent.click(screen.getByText("+ Recipe line"));
     const modal = screen.getByText("Add Product").closest(".modal");
-    fireEvent.click(within(modal).getByText("+ Recipe line"));
     fireEvent.change(within(modal).getByPlaceholderText("Ingredient item (e.g. Cheese Powder)"), {
       target: { value: "Mystery Dust" },
     });
     expect(await within(modal).findByText(/No stock item named/)).toBeInTheDocument();
   });
 
-  it("converts grams to the kg stock unit on submit", async () => {
-    api.post.mockImplementation((url, body) => {
-      if (url === "/flavors") {
-        return Promise.resolve({ data: { flavor: { id: 9, name: body.name } } });
-      }
-      if (url === "/products") {
-        return Promise.resolve({ data: { product: { id: 7, name: body.name }, recipesCreated: 1 } });
-      }
-      return Promise.resolve({ data: {} });
-    });
+  it("converts grams to the kg stock unit and saves via addRecipes", async () => {
+    api.post.mockResolvedValue({ data: { product: { id: 7, name: "Wasabi Fries" } } });
+    api.patch.mockResolvedValue({ data: { product: {}, recipesChanged: 1 } });
     api.get.mockImplementation((url) => {
       if (url === "/products") return Promise.resolve({ data: { data: [] } });
-      if (url === "/flavors") return Promise.resolve({ data: { data: seedFlavors } });
       if (url === "/inventory/names") {
         return Promise.resolve({ data: { data: [{ name: "Cheese Powder", unit: "kg" }] } });
       }
@@ -264,14 +240,9 @@ describe("ProductsPage by-flavor add", () => {
     });
     await openAddModal();
     fillNameAndPrice();
-    fireEvent.click(screen.getByText("+ Add size / flavor"));
-    fireEvent.change(screen.getByPlaceholderText("New flavor name"), { target: { value: "Cheesy" } });
     const modal = screen.getByText("Add Product").closest(".modal");
-    fireEvent.click(within(modal).getByText("Add", { selector: "button" }));
-    await screen.findByText('Flavor "Cheesy" created');
 
-    // Stock unit is kg, picker defaults to g: typing 15 stores 0.015.
-    fireEvent.click(within(modal).getByText("+ Recipe line"));
+    fireEvent.click(screen.getByText("+ Recipe line"));
     fireEvent.change(within(modal).getByPlaceholderText("Ingredient item (e.g. Cheese Powder)"), {
       target: { value: "Cheese Powder" },
     });
@@ -279,71 +250,39 @@ describe("ProductsPage by-flavor add", () => {
     expect(within(modal).getByLabelText("Unit")).toHaveValue("g");
 
     fireEvent.click(within(modal).getByText("Create Product"));
-    await screen.findByText(/created with 1 flavor/);
-    const call = api.post.mock.calls.find(([url]) => url === "/products");
-    expect(call[1].flavors).toEqual([
-      { flavorId: 9, recipes: [{ itemName: "Cheese Powder", amountPerUnit: 0.015 }] },
-    ]);
+    await screen.findByText(/wasabi|created/i);
+    const [url, body] = api.patch.mock.calls[0];
+    expect(url).toBe("/products/7");
+    expect(body.addRecipes).toEqual([{ flavor: "", itemName: "Cheese Powder", amountPerUnit: 0.015 }]);
   });
 
-  it("creates the product with per-flavor rows (inline flavor + recipe line)", async () => {
-    api.post.mockImplementation((url, body) => {
-      if (url === "/flavors") {
-        return Promise.resolve({ data: { flavor: { id: 9, name: body.name } } });
-      }
-      if (url === "/products") {
-        return Promise.resolve({ data: { product: { id: 7, name: body.name }, recipesCreated: 1 } });
-      }
-      return Promise.resolve({ data: {} });
-    });
+  it("creates the product without recipes when the list is empty", async () => {
+    api.post.mockResolvedValue({ data: { product: { id: 8, name: "Cheese Dip" } } });
     await openAddModal();
-    fillNameAndPrice();
-
-    // New flavor row, then inline-create the flavor into it.
-    fireEvent.click(screen.getByText("+ Add size / flavor"));
-    fireEvent.change(screen.getByPlaceholderText("New flavor name"), { target: { value: "Wasabi" } });
-    const modal = screen.getByText("Add Product").closest(".modal");
-    fireEvent.click(within(modal).getByText("Add", { selector: "button" }));
-    await screen.findByText('Flavor "Wasabi" created');
-
-    // One recipe line on that row.
-    fireEvent.click(within(modal).getByText("+ Recipe line"));
-    fireEvent.change(within(modal).getByPlaceholderText("Ingredient item (e.g. Cheese Powder)"), {
-      target: { value: "Wasabi Powder" },
-    });
-    fireEvent.change(within(modal).getByPlaceholderText("Qty"), { target: { value: "0.04" } });
-
-    fireEvent.click(within(modal).getByText("Create Product"));
-    await screen.findByText(/created with 1 flavor/);
-
-    const call = api.post.mock.calls.find(([url]) => url === "/products");
-    expect(call).toBeDefined();
-    expect(call[1].flavors).toEqual([
-      {
-        flavorId: 9,
-        recipes: [{ itemName: "Wasabi Powder", amountPerUnit: 0.04 }],
-      },
-    ]);
+    fillNameAndPrice("Cheese Dip", "15");
+    fireEvent.click(screen.getByText("Create Product"));
+    await screen.findByText(/created/);
+    expect(api.post).toHaveBeenCalledWith(
+      "/products",
+      expect.objectContaining({ name: "Cheese Dip", sellingPrice: 15 })
+    );
+    expect(api.patch).not.toHaveBeenCalled();
   });
 });
 
-describe("ProductsPage best sellers + sizes", () => {
+describe("ProductsPage best sellers + flat catalog", () => {
   const seedProducts = [
     {
       id: 11,
-      name: "Cheese Fries",
+      name: "Cheese Fries - Medium",
       category: "Fries",
       basePrice: 20,
       active: true,
       isBestSeller: false,
       imageUrl: null,
-      flavorPrices: { Large: 30 },
-      flavors: [
-        { id: 3, name: "Medium", unitPrice: 20, hasCustomPrice: false, recipeCount: 1, missingItems: [] },
-        { id: 4, name: "Large", unitPrice: 30, hasCustomPrice: true, recipeCount: 1, missingItems: [] },
-      ],
-      recipeCount: 2,
-      orderLines: 5,
+      recipes: [{ itemName: "Pouch Medium", amountPerUnit: 1 }],
+      recipeCount: 1,
+      missingItems: [],
     },
   ];
 
@@ -351,15 +290,14 @@ describe("ProductsPage best sellers + sizes", () => {
     vi.clearAllMocks();
     api.get.mockImplementation((url) => {
       if (url === "/products") return Promise.resolve({ data: { data: seedProducts } });
-      if (url === "/flavors") return Promise.resolve({ data: { data: seedFlavors } });
-      return Promise.resolve({ data: { data: [] } });
+      return Promise.resolve({ data: [] });
     });
     api.patch.mockResolvedValue({ data: {} });
   });
 
   it("star toggle marks a product as best seller", async () => {
     renderPage();
-    expect(await screen.findByText("Cheese Fries")).toBeInTheDocument();
+    expect(await screen.findByText("Cheese Fries - Medium")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTitle("Add to Best Sellers"));
 
@@ -368,9 +306,10 @@ describe("ProductsPage best sellers + sizes", () => {
     );
   });
 
-  it("labels the option column for sizes, not just flavors", async () => {
+  it("shows the flat Recipes column with the recipe count", async () => {
     renderPage();
-    expect(await screen.findByText("Sizes / Flavors")).toBeInTheDocument();
+    expect(await screen.findByText("Recipes")).toBeInTheDocument();
+    expect(await screen.findByTitle("1 recipe row(s)")).toHaveTextContent("1");
   });
 
   it("shows the star filled for a best seller and unfills on click", async () => {
@@ -380,7 +319,6 @@ describe("ProductsPage best sellers + sizes", () => {
           data: { data: [{ ...seedProducts[0], isBestSeller: true }] },
         });
       }
-      if (url === "/flavors") return Promise.resolve({ data: { data: seedFlavors } });
       return Promise.resolve({ data: { data: [] } });
     });
     renderPage();

@@ -11,9 +11,14 @@ const MAX_VISIBLE_ERROR_TOASTS = 2;
 // api.js) can emit a toast without calling a hook.
 let toastPush = () => {};
 
+/**
+ * toast(message, type)           - plain toast, dismisses on its own timer
+ * toast(message, type, {onClick, title}) - clickable toast: navigates via the
+ *   callback, dismisses itself, and announces itself as a button.
+ */
 // eslint-disable-next-line react-refresh/only-export-components -- module bridge so non-React code (api.js) can push toasts
-export function toast(message, type = "info") {
-  toastPush(message, type);
+export function toast(message, type = "info", opts = {}) {
+  toastPush(message, type, opts);
 }
 
 export function ToastProvider({ children }) {
@@ -26,13 +31,13 @@ export function ToastProvider({ children }) {
 
   // Cap simultaneous toasts so SSE bursts or bulk actions can't flood the
   // UI or stack dozens of live-region nodes for screen readers.
-  const push = useCallback((message, type = "info") => {
+  const push = useCallback((message, type = "info", opts = {}) => {
     const id = ++idRef.current;
     setToasts((t) => {
       // Identical toast already visible: keep the original (and its timer)
       // instead of stacking a duplicate.
       if (t.some((x) => x.message === message && x.type === type)) return t;
-      const next = [...t, { id, message, type }];
+      const next = [...t, { id, message, type, onClick: opts?.onClick, title: opts?.title }];
       const maxVisible = type === "error" ? MAX_VISIBLE_ERROR_TOASTS : MAX_VISIBLE_TOASTS;
       return next.slice(-maxVisible);
     });
@@ -55,32 +60,56 @@ export function ToastProvider({ children }) {
       {/* NOTE: no aria-live here   each toast announces itself once via
           role=status/alert below. A live host + live items double-announces. */}
       <div className="toast-host">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className={`toast ${t.type}`}
-            role={t.type === "error" ? "alert" : "status"}
-            aria-atomic="true"
-          >
-            {t.type === "success" ? (
-              <CheckCircle2 size={18} />
-            ) : t.type === "error" ? (
-              <XCircle size={18} />
-            ) : (
-              <Info size={18} />
-            )}
-            
-            <span className="toast-msg">{t.message}</span>
-            
-            <button
-              className="toast-close"
-              aria-label="Dismiss notification"
-              onClick={() => dismiss(t.id)}
+        {toasts.map((t) => {
+          const clickable = typeof t.onClick === "function";
+          const activate = () => {
+            dismiss(t.id);
+            t.onClick?.();
+          };
+          return (
+            <div
+              key={t.id}
+              className={`toast ${t.type}${clickable ? " toast--clickable" : ""}`}
+              role={t.type === "error" ? "alert" : clickable ? "button" : "status"}
+              tabIndex={clickable ? 0 : undefined}
+              aria-atomic="true"
+              aria-label={clickable ? `${t.message}${t.title ? ` — ${t.title}` : ""}` : undefined}
+              title={clickable ? t.title : undefined}
+              onClick={clickable ? activate : undefined}
+              onKeyDown={
+                clickable
+                  ? (event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        activate();
+                      }
+                    }
+                  : undefined
+              }
             >
-              <X size={15} />
-            </button>
-          </div>
-        ))}
+              {t.type === "success" ? (
+                <CheckCircle2 size={18} />
+              ) : t.type === "error" ? (
+                <XCircle size={18} />
+              ) : (
+                <Info size={18} />
+              )}
+
+              <span className="toast-msg">{t.message}</span>
+
+              <button
+                className="toast-close"
+                aria-label="Dismiss notification"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  dismiss(t.id);
+                }}
+              >
+                <X size={15} />
+              </button>
+            </div>
+          );
+        })}
       </div>
     </ToastContext.Provider>
   );

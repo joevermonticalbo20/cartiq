@@ -515,7 +515,7 @@ export default function SalesPage() {
                         align: "right",
                         render: (o) => (
                           <div className="flex items-center justify-end gap-2">
-                            {o.receipt && (
+                            {o.receipt || String(o.paymentMethod ?? "").toUpperCase() === "GCASH" ? (
                               <button
                                 className="ghost small-btn"
                                 onClick={() => openReceipt(o)}
@@ -523,7 +523,7 @@ export default function SalesPage() {
                               >
                                 <Eye size={13} />
                               </button>
-                            )}
+                            ) : null}
                             {o.status === "PAID" ? (
                               <>
                                 <button

@@ -159,6 +159,28 @@
 .user-chip button.notif-btn { position: relative; }
 .notif-wrap { position: relative; display: inline-flex; }
 
+/* Unread counter sits ON TOP of the bell, upper-right corner. */
+.notif-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  letter-spacing: 0.2px;
+  box-sizing: border-box;
+  border: 2px solid var(--surface);
+  pointer-events: none;
+  z-index: 1;
+}
+
 /* ============================================================
    INO-MODIFIED: Refined, Smaller, Softer Notification Center
    ============================================================ */
@@ -319,7 +341,8 @@
   flex-direction: column;
 }
 
-/* Individual Item */
+/* Individual Item — rendered as a button so each notification clicks
+   through to the page it concerns. */
 .notif-item {
   display: flex;
   align-items: flex-start;
@@ -329,6 +352,27 @@
 }
 .notif-item:last-child {
   border-bottom: none;
+}
+button.notif-item-btn {
+  width: 100%;
+  background: transparent;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  border-radius: 12px;
+  transition: background 0.15s ease;
+}
+button.notif-item-btn:hover { background: var(--surface-alt); }
+button.notif-item-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.notif-item-go {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-faint);
 }
 
 .notif-icon-circle {

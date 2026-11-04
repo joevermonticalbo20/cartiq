@@ -131,6 +131,14 @@ export default function InventoryPage() {
               if (!usage.get(name).includes(label)) usage.get(name).push(label);
             }
           }
+          // Flat products (each size is its own product): recipe rows live on
+          // the product itself, keyed by flavor "".
+          for (const r of p.recipes ?? []) {
+            const name = String(r.itemName ?? "").trim();
+            if (!name) continue;
+            if (!usage.has(name)) usage.set(name, []);
+            if (!usage.get(name).includes(p.name)) usage.get(name).push(p.name);
+          }
         }
         setUsageByItem(usage);
         setRestockRequests(restocks.data?.data ?? []);
