@@ -1,6 +1,6 @@
 /// The app version shown in the UI.
 ///
-/// Single source of truth on purpose. pubspec.yaml carries `version: 1.0.2+5`
+/// Single source of truth on purpose. pubspec.yaml carries `version: 1.0.2+6`
 /// (the `+4` is the Android versionCode), but Dart cannot read pubspec at
 /// runtime without a plugin, so the same number is kept here by hand.
 ///

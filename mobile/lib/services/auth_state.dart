@@ -189,10 +189,12 @@ class AuthState extends ChangeNotifier {
   /// is shown. Never throws — returns the specific reason when ineligible.
   Future<PinEligibility> checkOfflineEligibility() async {
     if (token == null || refreshToken == null) {
+      // Fresh install, new package name, or wiped app data: nothing to unlock
+      // with yet. Online sign-in is the only cure — and it only has to happen once.
       return const PinEligibility(
         false,
         'noSession',
-        'No saved session on this device. Sign in online first.',
+        'No saved session on this device yet. Sign in online once, then Continue offline works.',
       );
     }
     final profile = await _readCachedProfile();
@@ -210,7 +212,7 @@ class AuthState extends ChangeNotifier {
       return const PinEligibility(
         false,
         'expired',
-        'Session needs online verification. Please connect to the internet.',
+        'Your offline window expired. Sign in online once to verify, then Continue offline works again.',
       );
     }
     final username = profile?['username'] as String?;
@@ -247,7 +249,7 @@ class AuthState extends ChangeNotifier {
     if (token == null || refreshToken == null) {
       throw const PinException(
         'noSession',
-        'No saved session on this device. Sign in online first.',
+        'No saved session on this device yet. Sign in online once, then Continue offline works.',
       );
     }
     await _restoreCachedProfile();

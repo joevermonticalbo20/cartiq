@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'api_client.dart';
 import 'auth_state.dart';
 import 'data_refresh.dart';
+import 'failed_receipts_store.dart';
 import 'offline_queue.dart';
 
 /// A queued record the server will never accept. Kept out of the queue but
@@ -36,6 +37,12 @@ class SyncResult {
   final bool authExpired;
   final String? errorMessage;
 
+  /// GCash proof photos that could NOT be attached this drain. The sale
+  /// itself synced; these photos are kept on the device and retried on the
+  /// next drain (see FailedReceiptsStore).
+  final int receiptsFailed;
+  final String? receiptError;
+
   const SyncResult({
     required this.online,
     required this.synced,
@@ -43,6 +50,8 @@ class SyncResult {
     this.dropped = const [],
     this.authExpired = false,
     this.errorMessage,
+    this.receiptsFailed = 0,
+    this.receiptError,
   });
 
   bool get allDone => online && remaining == 0;
@@ -79,11 +88,16 @@ class SyncService extends ChangeNotifier {
   final OfflineQueue queue;
   final DataRefresh? dataRefresh;
 
+  /// Where GCash proof photos wait to be retried when their upload failed.
+  /// Optional so tests can omit it; production wires it in main.dart.
+  final FailedReceiptsStore? receiptStore;
+
   SyncService({
     required this.api,
     required this.auth,
     required this.queue,
     this.dataRefresh,
+    this.receiptStore,
   });
 
   Timer? _timer;
@@ -136,6 +150,8 @@ class SyncService extends ChangeNotifier {
     var synced = 0;
     var activeToken = startToken;
     var authExpired = false;
+    var receiptsFailed = 0;
+    String? receiptError;
     String? errorMessage;
     final dropped = <DroppedRecord>[];
     final gen = _generation;
@@ -147,6 +163,8 @@ class SyncService extends ChangeNotifier {
           synced: synced,
           remaining: await queue.count,
           dropped: dropped,
+          receiptsFailed: receiptsFailed,
+          receiptError: receiptError,
         );
       }
       // Pre-validate before spending an upload: unattributable or malformed
@@ -162,7 +180,11 @@ class SyncService extends ChangeNotifier {
       }
       try {
         // Server returns 200 {duplicate:true} for replays — still synced.
-        await _submitRecord(record, activeToken);
+        final receiptFailure = await _submitRecord(record, activeToken);
+        if (receiptFailure != null) {
+          receiptsFailed += 1;
+          receiptError ??= receiptFailure;
+        }
         await queue.remove(record.id);
         synced++;
       } on ApiException catch (e) {
@@ -197,7 +219,11 @@ class SyncService extends ChangeNotifier {
           }
           activeToken = fresh;
           try {
-            await _submitRecord(record, activeToken);
+            final receiptFailure = await _submitRecord(record, activeToken);
+            if (receiptFailure != null) {
+              receiptsFailed += 1;
+              receiptError ??= receiptFailure;
+            }
             await queue.remove(record.id);
             synced++;
           } catch (retryError) {
@@ -267,6 +293,53 @@ class SyncService extends ChangeNotifier {
         break; // network hiccup mid-drain: try again next sync
       }
     }
+
+    // Retry GCash proof photos whose upload failed earlier — a previous
+    // drain, or the upload part of this one. Best effort: anything that
+    // still fails stays on the device for the next drain.
+    final store = receiptStore;
+    if (store != null) {
+      for (final item in await store.pending()) {
+        final orderId = item['orderId'];
+        final mime = item['mime'];
+        final data = item['data'];
+        final ref = item['clientRef']?.toString();
+        if (ref == null || orderId is! num || mime is! String || data is! String) {
+          continue;
+        }
+        try {
+          await api.uploadOrderReceipt(
+            activeToken,
+            orderId.toInt(),
+            mime: mime,
+            data: data,
+          );
+          await store.remove(ref);
+        } on ApiException catch (e) {
+          if (e.statusCode == 401) {
+            // One refresh for the whole retry batch.
+            if (await auth.refreshSession()) {
+              final fresh = auth.token;
+              if (fresh != null) {
+                try {
+                  await api.uploadOrderReceipt(
+                    fresh,
+                    orderId.toInt(),
+                    mime: mime,
+                    data: data,
+                  );
+                  await store.remove(ref);
+                } catch (_) {
+                  /* keep it for the next drain */
+                }
+              }
+            }
+          }
+        } catch (_) {
+          /* keep it for the next drain */
+        }
+      }
+    }
     return SyncResult(
       online: true,
       synced: synced,
@@ -274,14 +347,20 @@ class SyncService extends ChangeNotifier {
       dropped: dropped,
       authExpired: authExpired,
       errorMessage: errorMessage,
+      receiptsFailed: receiptsFailed,
+      receiptError: receiptError,
     );
   }
 
   /// Posts one queued order. A GCash proof photo travels inside the queued
   /// payload but is NOT part of the order body: it is stripped before the
-  /// POST and attached to the recorded order afterwards — best-effort, so a
-  /// failed photo upload can never fail (or delay) the sale itself.
-  Future<void> _submitRecord(QueuedRecord record, String token) async {
+  /// POST and attached to the recorded order afterwards.
+  ///
+  /// Returns null when the order (and any photo) fully landed, otherwise the
+  /// failure message. An unattachable photo never fails the sale itself — it
+  /// is kept on the device (see FailedReceiptsStore) and retried on later
+  /// drains instead of being silently dropped.
+  Future<String?> _submitRecord(QueuedRecord record, String token) async {
     final payload = record.payload;
     var body = payload;
     if (payload['receipt'] != null) {
@@ -290,12 +369,12 @@ class SyncService extends ChangeNotifier {
     final response = await api.submitOrder(body, token);
 
     final receipt = payload['receipt'];
-    if (receipt is! Map) return;
+    if (receipt is! Map) return null;
     final mime = receipt['mime'];
     final data = receipt['data'];
     final orderId = (response['order'] as Map?)?['id'];
     if (mime is! String || data is! String || data.isEmpty || orderId is! num) {
-      return;
+      return 'receipt payload was incomplete';
     }
     try {
       await api.uploadOrderReceipt(
@@ -304,8 +383,28 @@ class SyncService extends ChangeNotifier {
         mime: mime,
         data: data,
       );
+      return null;
+    } on ApiException catch (e) {
+      await _holdReceipt(record, orderId.toInt(), mime: mime, data: data);
+      return e.message;
     } catch (_) {
-      // The sale is already recorded; only the photo failed to attach.
+      await _holdReceipt(record, orderId.toInt(), mime: mime, data: data);
+      return 'receipt upload failed';
+    }
+  }
+
+  /// Keep the proof photo on-device for the next drain. Without this the
+  /// only copy of the evidence died with the swallowed error.
+  Future<void> _holdReceipt(QueuedRecord record, int orderId, {required String mime, required String data}) async {
+    try {
+      await receiptStore?.add(
+        clientRef: record.payload['clientRef']?.toString() ?? record.id,
+        orderId: orderId,
+        mime: mime,
+        data: data,
+      );
+    } catch (_) {
+      // Best effort: the caller surfaces the failure to the operator anyway.
     }
   }
 

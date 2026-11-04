@@ -408,7 +408,22 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final rawId = order['id'];
     final auth = context.read<AuthState>();
     final token = auth.token;
-    if (order['receipt'] == null || rawId is! num || token == null) {
+    final payMethod =
+        (order['paymentMethod'] as String?)?.toUpperCase() ?? '';
+    // A missing `receipt` marker is not proof the photo is absent: older
+    // orders (or a failed marker write) can still have the bytes on the
+    // server. Try the authenticated GET whenever a photo is plausible and
+    // report honestly if there is none.
+    final mayHavePhoto = payMethod == 'GCASH' || order['receipt'] != null;
+    if (!mayHavePhoto || rawId is! num || token == null) {
+      if (token == null) {
+        AppMessenger.showGlassToast(
+          context: context,
+          message: 'Session expired. Please log in again.',
+          isSuccess: false,
+        );
+        return;
+      }
       AppMessenger.showGlassToast(
         context: context,
         message: 'No receipt image uploaded for this order.',

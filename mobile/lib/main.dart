@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
 
 import 'app_version.dart';
@@ -7,6 +8,8 @@ import 'screens/root_shell.dart';
 import 'services/api_client.dart';
 import 'services/auth_state.dart';
 import 'services/data_refresh.dart';
+import 'services/failed_receipts_store.dart';
+import 'services/kv_store.dart';
 import 'services/persisted_queue.dart';
 import 'services/sync_service.dart';
 import 'state/cart_state.dart';
@@ -46,11 +49,17 @@ Future<void> main() async {
   final api = ApiClient();
   final auth = AuthState(apiClient: api);
   final dataRefresh = DataRefresh();
+  // GCash proof photos whose upload failed are kept on the device and
+  // retried on every sync drain — never silently dropped.
+  final receiptStore = FailedReceiptsStore(
+    const SecureStoreAdapter(FlutterSecureStorage()),
+  );
   final sync = SyncService(
     api: api,
     auth: auth,
     queue: PersistedOfflineQueue.instance,
     dataRefresh: dataRefresh,
+    receiptStore: receiptStore,
   );
   final themeController = ThemeController();
   // One instance for the whole app: every mounted tab subscribes to it so a

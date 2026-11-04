@@ -583,6 +583,17 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
         (record) => record.code == 'INSUFFICIENT_STOCK',
       );
 
+      if (result.receiptsFailed > 0) {
+        // The sale synced — only the photo did not. The photo is held on the
+        // device and retried on later drains, but the operator must know.
+        AppMessenger.showGlassToast(
+          context: context,
+          message:
+              'Sale recorded but the receipt photo did not attach (${result.receiptError}). It will retry automatically when the app is online.',
+          isSuccess: false,
+        );
+      }
+
       if (result.synced == 0 && !stockConflict) {
         refresh?.bump('sale');
       }
@@ -1030,12 +1041,13 @@ class _CartSheetState extends State<_CartSheet> {
       final picker = ImagePicker();
       // Downscale on capture: the photo must fit the API's 512 KB receipt
       // cap (~680 KB base64) and travel inside the offline queue when the
-      // cart has no signal.
+      // cart has no signal. 1024px @ q55 lands most GCash proofs near a
+      // tenth of the cap; the API 413 path is still surfaced, never silent.
       final xfile = await picker.pickImage(
         source: ImageSource.camera,
-        imageQuality: 70,
-        maxWidth: 1280,
-        maxHeight: 1280,
+        imageQuality: 55,
+        maxWidth: 1024,
+        maxHeight: 1024,
       );
       if (xfile != null) {
         setState(() => _gcashProofImage = File(xfile.path));
