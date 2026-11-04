@@ -2946,7 +2946,7 @@ function servedImageUrl(imageBase, product, times) {
   return product.imageUrl ?? null;
 }
 
-function attachFlavors(product, flavors, maps, orders, invNames, imageBase, imageTimes) {
+function attachFlavors(product, flavors, maps, invNames, imageBase, imageTimes) {
   const flavorPrices = product.flavorPrices ?? {};
   const flavorKey = (pn, f) => JSON.stringify([pn, f ?? ""]);
   const recipeByFlavor = new Map();
@@ -2962,12 +2962,14 @@ function attachFlavors(product, flavors, maps, orders, invNames, imageBase, imag
   }
   const ids = new Set((product.flavorIds ?? []).map(Number));
   const linked = sortFlavorRows(flavors.filter((f) => ids.has(Number(f.id))));
-  let orderLines = 0;
-  for (const o of orders) {
-    for (const it of o.items ?? []) {
-      if (it.productName === product.name) orderLines += it.qty;
-    }
-  }
+  const flatKey = flavorKey(product.name, "");
+  // Flat products created by the size-to-product migration carry their recipe
+  // on flavor ""; surface it so the dashboard's "Used by" reverse map and the
+  // Products page recipe editor keep working for them.
+  const flatRecipes = linked.length === 0 ? (rowsByFlavor.get(flatKey) ?? []) : [];
+  const flatMissing = linked.length === 0
+    ? (itemsByFlavor.get(flatKey) ?? []).filter((item) => !invNames.has(String(item ?? "").trim()))
+    : [];
   return {
     id: product.id,
     name: product.name,
@@ -2989,17 +2991,14 @@ function attachFlavors(product, flavors, maps, orders, invNames, imageBase, imag
         .filter((item) => !invNames.has(String(item ?? "").trim())),
     })),
     recipeCount: maps.filter((m) => m.productName === product.name).length,
-    orderLines,
+    ...(linked.length === 0 ? { recipes: flatRecipes, missingItems: flatMissing } : {}),
   };
 }
 
 async function handleListProducts(req) {
-  const [products, maps, orders, invRows, imageTimes, flavors] = await Promise.all([
+  const [products, maps, invRows, imageTimes, flavors] = await Promise.all([
     fsListAll("products"),
     fsListAll("ingredientMaps"),
-    // orderLines reference counts: bounded to the 2000 newest orders (exact
-    // at pilot scale; keeps this admin view fast as history grows).
-    fsRunQuery("orders", { orderBy: [{ field: "createdAt", dir: "DESCENDING" }], limit: 2000 }),
     fsListAll("inventoryItems"),
     uploadedImageTimes(),
     fsListAll("flavors"),
@@ -3009,7 +3008,7 @@ async function handleListProducts(req) {
   products.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
   return {
     data: products.map((p) =>
-      attachFlavors(cleanDoc(p), flavors, maps, orders, invNames, imageBase, imageTimes)),
+      attachFlavors(cleanDoc(p), flavors, maps, invNames, imageBase, imageTimes)),
   };
 }
 
@@ -3253,9 +3252,10 @@ async function handlePatchProduct(req, id) {
     const byFlavor = new Map();
     for (const r of addRecipes) {
       const row = validRecipeRow(r);
-      const flavor = String(r?.flavor ?? "").trim();
-      if (!row || !flavor) {
-        return { status: 400, body: { error: "addRecipes entries need flavor, itemName (1-120 chars), amountPerUnit > 0" } };
+      // An explicit empty flavor means the flat (size-to-product migration) product.
+      const flavor = r?.flavor === undefined || r?.flavor === null ? "" : String(r.flavor).trim();
+      if (!row) {
+        return { status: 400, body: { error: "addRecipes entries need itemName (1-120 chars), amountPerUnit > 0" } };
       }
       if (!byFlavor.has(flavor)) byFlavor.set(flavor, []);
       byFlavor.get(flavor).push(row);
@@ -3278,10 +3278,10 @@ async function handlePatchProduct(req, id) {
     }
     const maps = await fsQueryEqual("ingredientMaps", "productName", existing.name, 10000);
     for (const r of removeRecipes) {
-      const flavor = String(r?.flavor ?? "").trim();
+      const flavor = r?.flavor === undefined || r?.flavor === null ? "" : String(r.flavor).trim();
       const itemName = String(r?.itemName ?? "").trim();
-      if (!flavor || !itemName) {
-        return { status: 400, body: { error: "removeRecipes entries need flavor and itemName" } };
+      if (!itemName) {
+        return { status: 400, body: { error: "removeRecipes entries need itemName" } };
       }
       for (const m of maps.filter((x) => x.flavor === flavor && x.itemName === itemName)) {
         await fsDeleteByName(m._name).catch(() => {});

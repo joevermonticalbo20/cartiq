@@ -46,3 +46,7 @@ api/prisma/dev.db-journal
 
 # Supabase CLI cache (the CLI writes its version stamp here)
 supabase/.temp/
+
+# Local Firestore dumps (backups - never commit)
+/.backups/
+/api/backups/

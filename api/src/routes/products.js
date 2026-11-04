@@ -131,16 +131,17 @@ async function upsertRecipeRows(productName, flavorName, rows) {
 }
 
 // GET /api/products (any auth) — catalog management view: flavors, recipe
-// usage, and order-reference counts so the UI can explain delete blocks.
+// usage and stock coverage so the UI can explain delete blocks and warn on
+// missing recipe rows. Order counts were removed: they read the whole orders
+// history on every list call and burned the Firestore read budget.
 router.get("/products", requireAuth, async (req, res, next) => {
   try {
-    const [products, maps, orders, invRows, uploadTimes] = await Promise.all([
+    const [products, maps, invRows, uploadTimes] = await Promise.all([
       prisma.product.findMany({
         include: { flavors: { orderBy: { name: "asc" } } },
         orderBy: { name: "asc" },
       }),
       prisma.ingredientMap.findMany(),
-      prisma.order.findMany({ select: { items: true } }),
       prisma.inventoryItem.findMany({ select: { name: true } }),
       uploadedImageTimes(),
     ]);
@@ -161,12 +162,6 @@ router.get("/products", requireAuth, async (req, res, next) => {
       itemsByFlavor.get(key).push(m.itemName);
       if (!rowsByFlavor.has(key)) rowsByFlavor.set(key, []);
       rowsByFlavor.get(key).push({ itemName: m.itemName, amountPerUnit: m.amountPerUnit });
-    }
-    const orderRefs = new Map();
-    for (const o of orders) {
-      for (const it of o.items ?? []) {
-        orderRefs.set(it.productName, (orderRefs.get(it.productName) ?? 0) + it.qty);
-      }
     }
     return res.json({
       data: products.map((p) => {
@@ -193,13 +188,19 @@ router.get("/products", requireAuth, async (req, res, next) => {
             recipeCount: recipeByFlavor.get(flavorKey(p.name, f.name)) ?? 0,
             // Full recipe rows (powers the Inventory "Used by" mapping).
             recipes: rowsByFlavor.get(flavorKey(p.name, f.name)) ?? [],
-            // Recipe items with no stock row in any cart: sales of this
-            // flavor warn instead of deducting. Empty = fully covered.
             missingItems: (itemsByFlavor.get(flavorKey(p.name, f.name)) ?? [])
               .filter((item) => !knownItems.has(String(item ?? "").trim())),
           })),
           recipeCount: recipeCount.get(p.name) ?? 0,
-          orderLines: orderRefs.get(p.name) ?? 0,
+          // Flat products (size-to-product migration): their recipe rows live
+          // on flavor ""; surface them so "Used by" and the recipe editor work.
+          ...(sortFlavorRows(p.flavors ?? []).length === 0
+            ? {
+                recipes: rowsByFlavor.get(flavorKey(p.name, "")) ?? [],
+                missingItems: (itemsByFlavor.get(flavorKey(p.name, "")) ?? [])
+                  .filter((item) => !knownItems.has(String(item ?? "").trim())),
+              }
+            : {}),
         };
       }),
     });
@@ -474,9 +475,10 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
       const byFlavor = new Map();
       for (const r of addRecipes) {
         const row = validRecipeRow(r);
-        const flavor = String(r?.flavor ?? "").trim();
-        if (!row || !flavor) {
-          return res.status(400).json({ error: "addRecipes entries need flavor, itemName (1-120 chars), amountPerUnit > 0" });
+        // An explicit empty flavor means the flat (size-to-product migration) product.
+        const flavor = r?.flavor === undefined || r?.flavor === null ? "" : String(r.flavor).trim();
+        if (!row) {
+          return res.status(400).json({ error: "addRecipes entries need itemName (1-120 chars), amountPerUnit > 0" });
         }
         if (!byFlavor.has(flavor)) byFlavor.set(flavor, []);
         byFlavor.get(flavor).push(row);
@@ -500,10 +502,10 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
         return res.status(400).json({ error: "removeRecipes must be an array" });
       }
       for (const r of removeRecipes) {
-        const flavor = String(r?.flavor ?? "").trim();
+        const flavor = r?.flavor === undefined || r?.flavor === null ? "" : String(r.flavor).trim();
         const itemName = String(r?.itemName ?? "").trim();
-        if (!flavor || !itemName) {
-          return res.status(400).json({ error: "removeRecipes entries need flavor and itemName" });
+        if (!itemName) {
+          return res.status(400).json({ error: "removeRecipes entries need itemName" });
         }
         await prisma.ingredientMap.deleteMany({ where: { productName: existing.name, flavor, itemName } });
       }
