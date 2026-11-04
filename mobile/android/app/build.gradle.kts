@@ -1,8 +1,20 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// Upload key for Google Play (android/key.properties, gitignored — never commit it).
+// Falls back to the debug key when the file is missing so local dev still builds.
+val keystorePropertiesFile = rootProject.file("key.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+val hasUploadKeystore = keystorePropertiesFile.exists()
 
 android {
     namespace = "com.cartiq.cartiq_mobile"
@@ -27,9 +39,17 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Google Play upload key (android/key.properties); debug key only as a local fallback.
+            signingConfig = if (hasUploadKeystore) {
+                signingConfigs.create("release") {
+                    storeFile = file(keystoreProperties.getProperty("storeFile"))
+                    storePassword = keystoreProperties.getProperty("storePassword")
+                    keyAlias = keystoreProperties.getProperty("keyAlias")
+                    keyPassword = keystoreProperties.getProperty("keyPassword")
+                }
+            } else {
+                signingConfigs.getByName("debug")
+            }
             // Keep rules for ML Kit text recognition (see proguard-rules.pro).
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
