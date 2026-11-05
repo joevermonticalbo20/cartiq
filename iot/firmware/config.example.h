@@ -6,7 +6,10 @@
 #define WIFI_SSID       "YOUR_HOTSPOT_OR_HOME_WIFI"
 #define WIFI_PASS       "CHANGE_ME"
 
-#define API_BASE_URL    "http://192.168.x.x:4000/api"  // LAN IP of the PC running the CartIQ API (keep trailing /api; firmware paths are "/shifts" and "/iot/readings")
+// Production Edge API (HTTPS, no local server needed). For local development,
+// use "http://<PC_LAN_IP>:4000/api" instead. Keep the trailing /api - the
+// firmware paths are "/shifts" and "/iot/readings".
+#define API_BASE_URL    "https://ezynbxzarxozzmwqdjxs.supabase.co/functions/v1/api"
 #define API_DEVICE_TOKEN "dev-CART-01-potafries"        // printed by `npm run db:seed` (rotate for deployment)
 
 #define DEVICE_ID       "esp32-cart-01"

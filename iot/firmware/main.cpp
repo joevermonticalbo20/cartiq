@@ -99,12 +99,34 @@ void connectWifi() {
 
 int postBatch(const char* path, const String& body) {
   HTTPClient http;
-  http.begin(String(API_BASE_URL) + path);
+  http.setTimeout(15000);  // Edge cold starts can exceed the 5s default
+  if (!http.begin(String(API_BASE_URL) + path)) {
+    Serial.printf("POST %s -> begin failed\n", path);
+    return -1;
+  }
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", String("Bearer ") + API_DEVICE_TOKEN);
   int code = http.POST(body);
+  Serial.printf("POST %s -> %d\n", path, code);
   http.end();
   return code;
+}
+
+// One empty /shifts POST proves the device token and the HTTPS path without
+// writing a shift: the API authenticates first, then rejects the empty events
+// array with 400. This runs once at boot so the serial log says immediately
+// whether the production API accepts this node.
+void checkDeviceAuth() {
+  String body = String("{\"cart_id\":\"") + DEVICE_CART_ID +
+                "\",\"device_id\":\"" + DEVICE_ID + "\",\"events\":[]}";
+  int code = postBatch("/shifts", body);
+  if (code == 400) {
+    Serial.println("API auth OK (400 = empty events rejected after auth)");
+  } else if (code == 401 || code == 403) {
+    Serial.println("API auth FAILED - check API_DEVICE_TOKEN");
+  } else {
+    Serial.printf("API check inconclusive: HTTP %d\n", code);
+  }
 }
 
 String nowIso() {
@@ -205,6 +227,8 @@ void flushReadings() {
 void setup() {
   Serial.begin(115200);
   delay(1500);   // let the USB-UART bridge settle before printing
+  Serial.printf("CartIQ node %s (cart %s)\n", DEVICE_ID, DEVICE_CART_ID);
+  Serial.printf("API base: %s\n", API_BASE_URL);
   pinMode(LED_PIN, OUTPUT);
 
   SPI.begin();
@@ -227,6 +251,7 @@ void setup() {
   configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
 
   connectWifi();
+  if (WiFi.status() == WL_CONNECTED) checkDeviceAuth();
 }
 
 void loop() {
