@@ -16,6 +16,7 @@ import expenseRoutes from "./routes/expenses.js";
 import excelRoutes from "./routes/excel.js";
 import deviceRoutes from "./routes/devices.js";
 import locationRoutes from "./routes/locations.js";
+import settingsRoutes from "./routes/settings.js";
 import productRoutes from "./routes/products.js";
 import eventRoutes from "./routes/events.js";
 import { requireAuth } from "./middleware/auth.js";
@@ -106,6 +107,7 @@ app.use("/api", expenseRoutes);
 app.use("/api", excelRoutes);
 app.use("/api", deviceRoutes);
 app.use("/api", locationRoutes);
+app.use("/api/settings", settingsRoutes);
 app.use("/api", productRoutes);
 // SSE must be registered so its handler is added to the broadcaster.
 app.use("/api", eventRoutes);

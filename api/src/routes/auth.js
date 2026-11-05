@@ -37,6 +37,7 @@ import {
   retryAfterSeconds,
 } from "../services/login_lockout.js";
 import { cleanRfidUid, normalizeRfidUid } from "../services/rfid.js";
+import { readTimeClock, timeClockVerdict } from "../services/time_clock.js";
 import { openClaim, getClaim, claimView } from "../services/rfid_claims.js";
 import { emit } from "./events.js";
 
@@ -331,6 +332,11 @@ router.post("/my-rfid/claim", requireAuth, async (req, res, next) => {
       cleanEvent = String(event).trim().toUpperCase();
       if (!["IN", "OUT"].includes(cleanEvent)) {
         return res.status(400).json({ error: 'event must be "IN" or "OUT"' });
+      }
+      const clock = await readTimeClock();
+      const verdict = timeClockVerdict(clock, cleanEvent, Date.now());
+      if (verdict) {
+        return res.status(403).json({ error: verdict, code: "TIMECLOCK_LOCKED" });
       }
     }
     let location;

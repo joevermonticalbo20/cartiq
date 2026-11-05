@@ -5,6 +5,7 @@ import { requireDevice } from "../middleware/device.js";
 import { manilaDayRange, manilaDayStart } from "../services/timezone.js";
 import { lowStockDedupeKey, shouldOpenLowStockAlert } from "../services/low_stock_alert.js";
 import { lookupUid, normalizeRfidUid } from "../services/rfid.js";
+import { readTimeClock, timeClockVerdict } from "../services/time_clock.js";
 import { CLAIM_BOUND, resolveClaim } from "../services/rfid_claims.js";
 import { bindClaimedTag } from "../services/rfid_bind.js";
 
@@ -217,10 +218,12 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
       const accepted = [];
       const rejected = [];
       // ---- READ PHASE (users table is tiny; match UIDs in code) ----
-      const [users, unreadAlerts] = await Promise.all([
+      const [users, unreadCardAlerts, unreadTimeClockAlerts] = await Promise.all([
         tx.user.findMany(),
         tx.alert.findMany({ where: { type: "UNKNOWN_CARD", isRead: false } }),
+        tx.alert.findMany({ where: { type: "TIMECLOCK_WINDOW", isRead: false } }),
       ]);
+      const unreadAlerts = [...unreadCardAlerts, ...unreadTimeClockAlerts];
       // Both sides of the comparison are normalized. A row stored before the
       // normalization fix (lowercase, or with separators a human pasted in)
       // would otherwise never match a tap and the card would silently become
@@ -231,6 +234,7 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
           .map((u) => [lookupUid(u.rfidUid), u]),
       );
 
+      const clock = await readTimeClock();
       // ---- COMPUTE PHASE (same validation/messages as before) ----
       const plans = [];
       const createdNeedles = new Set();
@@ -245,6 +249,43 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
         const ts = e.ts ? new Date(e.ts) : new Date();
         if (!Number.isFinite(ts.getTime())) {
           rejected.push({ staff_uid: uid || null, reason: "invalid ts" });
+          continue;
+        }
+        // Server-side backstop for the "Time in / Time out is greyed out in
+        // the app" rule: a direct reader tap cannot check a button, so the
+        // tap is refused here instead. The card still binds its registration
+        // claim; only the shift is blocked.
+        const verdict = timeClockVerdict(clock, event, ts.getTime());
+        if (verdict) {
+          rejected.push({ staff_uid: uid, reason: verdict });
+          const dedupeKey = `timeclock:${location.id}:${event}`;
+          const dup =
+            createdNeedles.has(dedupeKey) ||
+            unreadAlerts.some((a) => {
+              try {
+                if (JSON.parse(a.payload ?? "{}")?.dedupeKey === dedupeKey) return true;
+              } catch {
+                // fall through to the message check
+              }
+              return (a.message ?? "").includes(`outside the clock window`);
+            });
+          if (!dup) {
+            createdNeedles.add(dedupeKey);
+            const win = event === "OUT"
+              ? `${clock.outOpen}-${clock.outClose}`
+              : `${clock.inOpen}-${clock.inClose}`;
+            newAlerts.push({
+              type: "TIMECLOCK_WINDOW",
+              message: `${event === "IN" ? "Time in" : "Time out"} blocked at ${location.code}: tapped outside the clock window ${win} (Manila) - no shift logged`,
+              payload: JSON.stringify({
+                dedupeKey,
+                event,
+                window: win,
+                locationId: location.id,
+                locationCode: location.code,
+              }),
+            });
+          }
           continue;
         }
         const user = byUid.get(lookupUid(uid)) ?? null;

@@ -2036,7 +2036,7 @@ function canonicalHm(v) {
 }
 
 function normalizeTimeClock(doc) {
-  const out = { ...TIMECLOCK_DEFAULTS };
+  const out = { ...TIMECLOCK_DEFAULTS, updatedAt: null, updatedByName: null };
   if (doc) {
     out.enabled = doc.enabled === true;
     out.inOpen = canonicalHm(doc.inOpen) ?? out.inOpen;
