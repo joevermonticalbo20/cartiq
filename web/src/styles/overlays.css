@@ -70,6 +70,233 @@
   margin-top: 20px;
 }
 
+.product-modal {
+  display: flex;
+  flex-direction: column;
+  max-width: 760px;
+  padding: 28px;
+}
+
+.product-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.product-modal-header h3 {
+  margin: 0;
+}
+
+.product-modal-header p {
+  margin: 4px 0 0;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+
+.product-modal-icon {
+  display: grid;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 13px;
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+}
+
+.product-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+  padding-top: 18px;
+}
+
+.product-modal-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+.product-modal-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.product-modal-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.product-modal-section-heading h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+}
+
+.product-modal-section-heading > span {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.product-modal-fields {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.product-modal-fields--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.product-modal-fields--pricing {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.product-modal-selling-price input {
+  border-color: var(--primary-tint);
+  background: var(--primary-soft);
+  font-weight: var(--fw-bold);
+}
+
+.product-modal-section .field {
+  min-width: 0;
+}
+
+.product-modal-section input,
+.product-modal-section select {
+  width: 100%;
+  min-width: 0;
+}
+
+.product-modal-section .field > div > input,
+.product-modal-section .field > div > select {
+  width: auto;
+}
+
+.product-modal .product-recipe-unit-select {
+  width: 100%;
+  min-width: 0;
+}
+
+.product-modal .product-recipe-unit-select .custom-select-trigger {
+  min-height: 48px;
+  padding: 10px 8px;
+  border-radius: var(--radius);
+  font-size: var(--fs-sm);
+  box-shadow: none;
+}
+
+.product-modal .product-recipe-unit-select .custom-select-trigger:hover:not(:disabled),
+.product-modal .product-recipe-unit-select .custom-select-trigger.active {
+  box-shadow: none;
+  transform: none;
+}
+
+.product-modal .product-recipe-unit-select .custom-select-trigger.active {
+  border-color: var(--border-strong);
+}
+
+.product-modal .product-recipe-unit-select .custom-select-trigger:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.product-modal .product-recipe-unit-select .custom-select-dropdown {
+  min-width: max-content;
+}
+
+.product-modal .product-recipe-remove {
+  width: 32px;
+  min-width: 32px;
+  height: 48px;
+  padding: 0;
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+.product-modal .product-recipe-remove:hover:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+}
+
+.product-modal-recipe {
+  background: var(--surface-alt);
+}
+
+.product-modal-footer {
+  position: sticky;
+  bottom: -28px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: auto -28px -28px;
+  padding: 14px 28px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.product-modal-footer .error-box {
+  margin: 0;
+}
+
+.product-modal-footer .modal-actions {
+  margin: 0;
+  padding: 0;
+}
+
+@media (max-width: 640px) {
+  .product-modal {
+    padding: 20px;
+  }
+
+  .product-modal-fields--pricing {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .product-modal-selling-price {
+    grid-column: 1 / -1;
+  }
+
+  .product-modal-footer {
+    bottom: -20px;
+    margin: auto -20px -20px;
+    padding: 12px 20px 16px;
+  }
+}
+
+@media (max-width: 440px) {
+  .product-modal-fields--two,
+  .product-modal-fields--pricing {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .product-modal-selling-price {
+    grid-column: auto;
+  }
+
+  .product-modal-section {
+    padding: 13px;
+  }
+}
+
 /* Collapsible flavor card (Products Add/Edit). Neutral by design: red is
    reserved for real validation errors and destructive actions, so these
    rows use gray borders/text even though bare `button` is brand-red. */

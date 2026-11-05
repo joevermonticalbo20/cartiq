@@ -212,7 +212,7 @@ describe("ProductsPage flat product add", () => {
     renderPage();
     await screen.findByText("No products yet");
     fireEvent.click(screen.getByText("Add product"));
-    expect(await screen.findByText(/ingredients deducted per unit/)).toBeInTheDocument();
+    expect(await screen.findByText(/ingredients deducted per unit/i)).toBeInTheDocument();
   }
 
   function addModal() {
@@ -286,7 +286,7 @@ describe("ProductsPage flat product add", () => {
       target: { value: "Cheese Powder" },
     });
     fireEvent.change(within(modal).getByPlaceholderText("Qty"), { target: { value: "15" } });
-    expect(within(modal).getByLabelText("Unit")).toHaveValue("g");
+    expect(within(modal).getByLabelText("Unit")).toHaveTextContent("g");
 
     fireEvent.click(within(modal).getByText("Create Product"));
     await screen.findByText(/wasabi|created/i);

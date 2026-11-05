@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useId } from "react";
 import { ChevronDown } from "lucide-react";
 
-export default function Select({ value, onChange, options = [], placeholder = "Select...", placeholderValue, className = "" }) {
+export default function Select({ value, onChange, options = [], placeholder = "Select...", placeholderValue, className = "", ariaLabel, title }) {
   const safeOptions = Array.isArray(options) ? options : [];
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(-1);
@@ -95,6 +95,8 @@ export default function Select({ value, onChange, options = [], placeholder = "S
         className={`custom-select-trigger ${open ? "active" : ""}`}
         onClick={() => (open ? setOpen(false) : openMenu())}
         onKeyDown={onTriggerKeyDown}
+        aria-label={ariaLabel}
+        title={title}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={listId}

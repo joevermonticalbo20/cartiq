@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { Plus, Edit2, Trash2, RefreshCw, Tag, AlertTriangle, Archive, ArchiveRestore, Star, ImagePlus } from "lucide-react";
+import { Plus, Edit2, Trash2, X, RefreshCw, Tag, AlertTriangle, Archive, ArchiveRestore, Star, ImagePlus } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import DataTable from "../components/DataTable.jsx";
@@ -10,6 +10,7 @@ import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import ImageCropDialog from "../components/ImageCropDialog.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
+import Select from "../components/Select.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { sanitizeMoneyInput, sanitizeQtyInput, parseMoney, parseQty } from "../utils/format.js";
 import { sanitizeTextInput, validateItemName } from "../utils/text.js";
@@ -219,23 +220,21 @@ export default function ProductsPage() {
                     updateRecipeLineFlat(setLines, line.key, { amount: sanitizeQtyInput(e.target.value) })
                   }
                 />
-                <select
-                  aria-label="Unit"
+                <Select
+                  ariaLabel="Unit"
+                  className="product-recipe-unit-select"
                   title={stockUnit ? `Stock unit is ${stockUnit} - converts automatically` : "Pick the unit"}
                   value={effUnit}
-                  onChange={(e) => updateRecipeLineFlat(setLines, line.key, { unit: e.target.value })}
-                >
-                  {unitChoices.map((u) => (
-                    <option key={u} value={u}>{u}</option>
-                  ))}
-                </select>
+                  onChange={(unit) => updateRecipeLineFlat(setLines, line.key, { unit })}
+                  options={unitChoices.map((unit) => ({ value: unit, label: unit }))}
+                />
                 <button
                   type="button"
-                  className="danger-ghost small-btn"
+                  className="danger-ghost small-btn product-recipe-remove"
                   title="Remove recipe line"
                   onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))}
                 >
-                  \u2715
+                  <X size={14} strokeWidth={2.5} aria-hidden="true" />
                 </button>
               </div>
               {unknownItem && (
@@ -926,19 +925,27 @@ export default function ProductsPage() {
         {(addOpen || addClosing) && (
           <div className={`modal-backdrop ${addClosing ? "is-closing" : ""}`}>
             <div
-              className={`modal modal--tall ${addClosing ? "is-closing" : ""}`}
+              className={`modal modal--tall product-modal ${addClosing ? "is-closing" : ""}`}
               role="dialog"
               aria-modal="true"
               aria-labelledby="add-product-title"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 id="add-product-title"><Plus size={22} className="muted"/> Add Product</h3>
-              <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                New catalog item for the POS. Base + Markup automatically computes Selling Price.
-              </p>
+              <div className="product-modal-header">
+                <span className="product-modal-icon" aria-hidden="true"><Plus size={20} /></span>
+                <div>
+                  <h3 id="add-product-title">Add Product</h3>
+                  <p className="muted">Create a catalog item and set its pricing and ingredients.</p>
+                </div>
+              </div>
 
-              <form onSubmit={handleAddProduct} className="flex flex-col gap-4">
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+              <form onSubmit={handleAddProduct} className="product-modal-form">
+                <section className="product-modal-section">
+                  <div className="product-modal-section-heading">
+                    <h4>Product details</h4>
+                    <span>Basic information shown in the POS catalog</span>
+                  </div>
+                <div className="product-modal-fields product-modal-fields--two">
                   <label className="field">
                     Product Name
                     <input
@@ -963,16 +970,23 @@ export default function ProductsPage() {
                     />
                   </label>
                 </div>
+                </section>
 
-                {productImageField({
-                  draft: newProduct.imageDraft,
-                  existingUrl: null,
-                  onInsert: () => openCrop("add"),
-                  onRemove: handleRemoveDraft,
-                })}
+                <section className="product-modal-section">
+                  {productImageField({
+                    draft: newProduct.imageDraft,
+                    existingUrl: null,
+                    onInsert: () => openCrop("add"),
+                    onRemove: handleRemoveDraft,
+                  })}
+                </section>
 
-                {/* PRICING GRID */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "20px" }}>
+                <section className="product-modal-section">
+                  <div className="product-modal-section-heading">
+                    <h4>Pricing</h4>
+                    <span>Selling price is calculated from cost and markup.</span>
+                  </div>
+                <div className="product-modal-fields product-modal-fields--pricing">
                   <label className="field">
                     Base Price (Cost)
                     <input
@@ -998,7 +1012,7 @@ export default function ProductsPage() {
                       onChange={(e) => handleAddPriceChange("markupPrice", sanitizeMoneyInput(e.target.value))}
                     />
                   </label>
-                  <label className="field">
+                  <label className="field product-modal-selling-price">
                     Selling Price
                     <input
                       type="number"
@@ -1012,19 +1026,25 @@ export default function ProductsPage() {
                     />
                   </label>
                 </div>
+                </section>
                 
-                <div className="field">
-                  <span>Recipe — ingredients deducted per unit sold</span>
+                <section className="product-modal-section product-modal-recipe">
+                  <div className="product-modal-section-heading">
+                    <h4>Recipe</h4>
+                    <span>Ingredients deducted per unit sold</span>
+                  </div>
                   {flatRecipesEditor(addRecipeRows, setAddRecipeRows)}
-                </div>
+                </section>
                 
-                <div className="modal-actions">
-                  <button type="button" className="ghost" onClick={closeAddModal} disabled={isAdding || addClosing}>Cancel</button>
-                  <button type="submit" disabled={isAdding || addClosing}>
-                    {isAdding ? "Creating..." : "Create Product"}
-                  </button>
+                <div className="product-modal-footer">
+                  {addError && <p className="error-box" role="alert">{addError}</p>}
+                  <div className="modal-actions">
+                    <button type="button" className="ghost" onClick={closeAddModal} disabled={isAdding || addClosing}>Cancel</button>
+                    <button type="submit" disabled={isAdding || addClosing}>
+                      {isAdding ? "Creating..." : "Create Product"}
+                    </button>
+                  </div>
                 </div>
-                {addError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{addError}</p>}
               </form>
             </div>
           </div>
@@ -1034,37 +1054,54 @@ export default function ProductsPage() {
         {(editing || editClosing) && (
           <div className={`modal-backdrop ${editClosing ? "is-closing" : ""}`}>
             <div
-              className={`modal modal--tall ${editClosing ? "is-closing" : ""}`}
+              className={`modal modal--tall product-modal ${editClosing ? "is-closing" : ""}`}
               role="dialog"
               aria-modal="true"
               aria-labelledby="edit-product-title"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 id="edit-product-title"><Edit2 size={22} className="muted"/> Edit {editing?.name}</h3>
-              <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
-                Price changes affect future sales only — recorded orders keep their totals.
-              </p>
+              <div className="product-modal-header">
+                <span className="product-modal-icon" aria-hidden="true"><Edit2 size={18} /></span>
+                <div>
+                  <h3 id="edit-product-title">Edit {editing?.name}</h3>
+                  <p className="muted">Update catalog details, pricing, and ingredients.</p>
+                </div>
+              </div>
               
-              <form onSubmit={handleEditProduct} className="flex flex-col gap-4">
-                <label className="field">
-                  Category
-                  <input
-                    type="text"
-                    maxLength={60}
-                    value={editing?.category || ""}
-                    onChange={(e) => setEditing({ ...editing, category: e.target.value })}
-                  />
-                </label>
+              <form onSubmit={handleEditProduct} className="product-modal-form">
+                <p className="product-modal-note">Price changes apply to future sales only. Recorded orders keep their original totals.</p>
+                <section className="product-modal-section">
+                  <div className="product-modal-section-heading">
+                    <h4>Product details</h4>
+                  </div>
+                  <div className="product-modal-fields product-modal-fields--two">
+                    <label className="field">
+                      Category
+                      <input
+                        type="text"
+                        maxLength={60}
+                        value={editing?.category || ""}
+                        onChange={(e) => setEditing({ ...editing, category: e.target.value })}
+                      />
+                    </label>
+                  </div>
+                </section>
 
-                {productImageField({
-                  draft: editing?.imageDraft,
-                  existingUrl: editing?.imageUrl,
-                  onInsert: () => openCrop("edit"),
-                  onRemove: handleRemoveImage,
-                })}
+                <section className="product-modal-section">
+                  {productImageField({
+                    draft: editing?.imageDraft,
+                    existingUrl: editing?.imageUrl,
+                    onInsert: () => openCrop("edit"),
+                    onRemove: handleRemoveImage,
+                  })}
+                </section>
 
-                {/* PRICING GRID */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "20px" }}>
+                <section className="product-modal-section">
+                  <div className="product-modal-section-heading">
+                    <h4>Pricing</h4>
+                    <span>Selling price is calculated from cost and markup.</span>
+                  </div>
+                <div className="product-modal-fields product-modal-fields--pricing">
                   <label className="field">
                     Base Price (Cost)
                     <input
@@ -1089,7 +1126,7 @@ export default function ProductsPage() {
                       onChange={(e) => handleEditPriceChange("markupPrice", sanitizeMoneyInput(e.target.value))}
                     />
                   </label>
-                  <label className="field">
+                  <label className="field product-modal-selling-price">
                     Selling Price
                     <input
                       type="number"
@@ -1102,9 +1139,13 @@ export default function ProductsPage() {
                     />
                   </label>
                 </div>
+                </section>
                 
-                <div className="field">
-                  <span>Recipe — ingredients deducted per unit sold</span>
+                <section className="product-modal-section product-modal-recipe">
+                  <div className="product-modal-section-heading">
+                    <h4>Recipe</h4>
+                    <span>Ingredients deducted per unit sold</span>
+                  </div>
                   {flatRecipesEditor(editing?.recipeLines ?? [], (updater) =>
                     setEditing((prev) => {
                       if (!prev) return prev;
@@ -1112,15 +1153,17 @@ export default function ProductsPage() {
                       return { ...prev, recipeLines: next };
                     })
                   )}
-                </div>
+                </section>
                 
-                <div className="modal-actions">
-                  <button type="button" className="ghost" onClick={closeEditModal} disabled={isEditing || editClosing}>Cancel</button>
-                  <button type="submit" disabled={isEditing || editClosing}>
-                    {isEditing ? "Saving..." : "Save Changes"}
-                  </button>
+                <div className="product-modal-footer">
+                  {editError && <p className="error-box" role="alert">{editError}</p>}
+                  <div className="modal-actions">
+                    <button type="button" className="ghost" onClick={closeEditModal} disabled={isEditing || editClosing}>Cancel</button>
+                    <button type="submit" disabled={isEditing || editClosing}>
+                      {isEditing ? "Saving..." : "Save Changes"}
+                    </button>
+                  </div>
                 </div>
-                {editError && <p className="error-box" role="alert" style={{ marginTop: "12px" }}>{editError}</p>}
               </form>
             </div>
           </div>
