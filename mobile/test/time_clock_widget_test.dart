@@ -137,6 +137,37 @@ void main() {
     expect(find.textContaining('Time out opens 17:00'), findsOneWidget);
   });
 
+  testWidgets('closed day disables both buttons with the closed-day hint', (
+    tester,
+  ) async {
+    final store = _FakeStore();
+    final auth = _staffAuth(store);
+    auth.timeClock = const TimeClockConfig(
+      enabled: true,
+      inOpen: '07:00',
+      inClose: '09:00',
+      outOpen: '17:00',
+      outClose: '19:00',
+      days: [1, 2, 3, 4, 5, 6],
+    );
+    // Sunday 2026-11-08 07:30 Manila (Sat 2026-11-07 23:30 UTC) - inside the
+    // IN window on paper, but the day rule wins.
+    auth.clockNow = () => DateTime.utc(2026, 11, 7, 23, 30);
+
+    await tester.pumpWidget(_settingsHarness(auth));
+    await tester.pumpAndSettle();
+
+    final timeIn = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Time in'),
+    );
+    final timeOut = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Time out'),
+    );
+    expect(timeIn.onPressed, isNull);
+    expect(timeOut.onPressed, isNull);
+    expect(find.text('Closed today - no selling day.'), findsOneWidget);
+  });
+
   testWidgets('unrestricted windows keep both buttons tappable', (
     tester,
   ) async {

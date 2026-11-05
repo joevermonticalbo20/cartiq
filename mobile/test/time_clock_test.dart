@@ -72,6 +72,39 @@ void main() {
       expect(junk.isValid, false);
       expect(junk.isOpenNow('IN', DateTime.utc(2026, 1, 5, 12)), true);
     });
+
+    test('manilaWeekday matches getDay on the Manila wall clock', () {
+      expect(TimeClockConfig.manilaWeekday(DateTime.utc(2026, 11, 5, 15, 59)), 4); // Thu 23:59
+      expect(TimeClockConfig.manilaWeekday(DateTime.utc(2026, 11, 5, 16)), 5);     // Fri 00:00
+      expect(TimeClockConfig.manilaWeekday(DateTime.utc(2026, 11, 7, 16)), 0);     // Sun 00:00
+    });
+
+    test('closed days block both events for the whole day', () {
+      const weekdaysOnly = TimeClockConfig(
+        enabled: true,
+        inOpen: '07:00',
+        inClose: '09:00',
+        outOpen: '17:00',
+        outClose: '19:00',
+        days: [1, 2, 3, 4, 5, 6],
+      );
+      // Sunday 2026-11-08 07:30 Manila (Sat 2026-11-07 23:30 UTC).
+      expect(weekdaysOnly.isDayOpen(DateTime.utc(2026, 11, 7, 23, 30)), false);
+      expect(weekdaysOnly.isOpenNow('IN', DateTime.utc(2026, 11, 7, 23, 30)), false);
+      expect(weekdaysOnly.isOpenNow('OUT', DateTime.utc(2026, 11, 7, 23, 30)), false);
+      // Tuesday 2026-11-10 07:30 Manila (Mon 2026-11-09 23:30 UTC).
+      expect(weekdaysOnly.isDayOpen(DateTime.utc(2026, 11, 9, 23, 30)), true);
+      expect(weekdaysOnly.isOpenNow('IN', DateTime.utc(2026, 11, 9, 23, 30)), true);
+      // An all-day window is open on a Sunday when enabled fully.
+      const allDays = TimeClockConfig(
+        enabled: true,
+        inOpen: '00:00',
+        inClose: '23:59',
+        outOpen: '00:00',
+        outClose: '23:59',
+      );
+      expect(allDays.isOpenNow('IN', DateTime.utc(2026, 11, 7, 23, 30)), true);
+    });
   });
 
   group('fromJson', () {
@@ -100,6 +133,23 @@ void main() {
       expect(cfg.inClose, TimeClockConfig.defaults.inClose);
       expect(cfg.outOpen, TimeClockConfig.defaults.outOpen);
       expect(cfg.outClose, TimeClockConfig.defaults.outClose);
+    });
+
+      test('fromJson snaps days', () {
+      final cfg = TimeClockConfig.fromJson(const {
+        'enabled': true,
+        'days': [6, 2, 2, 9],
+      });
+      expect(cfg.days, [2, 6]);
+
+      final cfgMissing = TimeClockConfig.fromJson(const {'enabled': true});
+      expect(cfgMissing.days, [0, 1, 2, 3, 4, 5, 6]);
+
+      final cfgEmpty = TimeClockConfig.fromJson(const {
+        'enabled': true,
+        'days': [],
+      });
+      expect(cfgEmpty.days, [0, 1, 2, 3, 4, 5, 6]);
     });
 
     test('toJson roundtrips through fromJson', () {

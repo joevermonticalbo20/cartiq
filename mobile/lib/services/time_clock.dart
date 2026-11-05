@@ -14,6 +14,7 @@ class TimeClockConfig {
     required this.inClose,
     required this.outOpen,
     required this.outClose,
+    this.days = const [0, 1, 2, 3, 4, 5, 6],
   });
 
   final bool enabled;
@@ -23,6 +24,11 @@ class TimeClockConfig {
   final String inClose;
   final String outOpen;
   final String outClose;
+
+  /// Selling days the schedule applies to. 0 = Sunday … 6 = Saturday (UTC
+  /// getDay convention). A day not listed is a CLOSED day — no clock events
+  /// at all, blocked in the app AND on the server. Defaults to every day.
+  final List<int> days;
 
   /// Unrestricted defaults. When disabled — or the stored doc is corrupt —
   /// the app never locks staff out of clocking in/out.
@@ -56,8 +62,20 @@ class TimeClockConfig {
     return m.hour * 60 + m.minute;
   }
 
+  /// Weekday 0-6 in Manila for any instant (0 = Sunday, same as UTC getDay).
+  static int manilaWeekday(DateTime when) =>
+      when.toUtc().add(const Duration(hours: 8)).weekday % 7;
+
+  /// True when the day is a selling day in the config (defaults to every day).
+  bool isDayOpen(DateTime when) {
+    if (!enabled) return true;
+    if (days.isEmpty) return true; // corrupt on purpose: fail open
+    return days.contains(manilaWeekday(when));
+  }
+
   bool isOpenNow(String event, DateTime when) {
     if (!enabled || !isValid) return true;
+    if (!isDayOpen(when)) return false;
     final nowMin = manilaMinutes(when);
     final isOut = event == 'OUT';
     final open = hmToMinutes(isOut ? outOpen : inOpen);
@@ -83,7 +101,24 @@ class TimeClockConfig {
       inClose: snap(json['inClose'] as String?, defaults.inClose),
       outOpen: snap(json['outOpen'] as String?, defaults.outOpen),
       outClose: snap(json['outClose'] as String?, defaults.outClose),
+      days: _decodeDays(json['days']),
     );
+  }
+
+  static List<int> _decodeDays(dynamic raw) {
+    if (raw is! List) return const [0, 1, 2, 3, 4, 5, 6];
+    final set = <int>{};
+    for (final n in raw) {
+      int? n2;
+      if (n is num) {
+        if (n == n.roundToDouble()) n2 = n.toInt();
+      } else {
+        n2 = int.tryParse(n.toString());
+      }
+      if (n2 != null && n2 >= 0 && n2 <= 6) set.add(n2);
+    }
+    if (set.isEmpty) return const [0, 1, 2, 3, 4, 5, 6];
+    return set.toList()..sort();
   }
 
   static String _canon(String v) {
@@ -97,6 +132,7 @@ class TimeClockConfig {
         'inClose': inClose,
         'outOpen': outOpen,
         'outClose': outClose,
+        'days': days,
       };
 
   bool sameAs(TimeClockConfig? other) =>
@@ -105,7 +141,18 @@ class TimeClockConfig {
       other.inOpen == inOpen &&
       other.inClose == inClose &&
       other.outOpen == outOpen &&
-      other.outClose == outClose;
+      other.outClose == outClose &&
+      _sameDays(other.days);
+
+  bool _sameDays(List<int> other) {
+    if (other.length != days.length) return false;
+    final a = [...days]..sort();
+    final b = [...other]..sort();
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
 
   @override
   String toString() => jsonEncode(toJson());

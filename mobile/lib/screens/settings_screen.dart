@@ -1650,10 +1650,7 @@ class _TimeRow extends StatelessWidget {
                     const SizedBox(width: AppSpacing.space2),
                     Expanded(
                       child: Text(
-                        [
-                          if (lockedIn) auth.clockHint('IN'),
-                          if (lockedOut) auth.clockHint('OUT'),
-                        ].join('  ·  '),
+                        auth.timeClockCaption(),
                         style: (bodySmall ?? const TextStyle()).copyWith(
                           color: AppColors.muted,
                         ),

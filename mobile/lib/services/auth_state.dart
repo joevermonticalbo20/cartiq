@@ -522,11 +522,24 @@ class AuthState extends ChangeNotifier {
       (timeClock ?? TimeClockConfig.defaults).isOpenNow('OUT', _clockNow());
 
   /// "Time in opens 07:00 (closes 09:00)" — greys-out caption for the row.
+  /// On a closed day (no selling day in the config) every window is off, so
+  /// the caption says so instead of naming a window.
   String clockHint(String event) {
     final cfg = timeClock ?? TimeClockConfig.defaults;
+    if (!cfg.isDayOpen(_clockNow())) return 'Closed today - no selling day.';
     return event == 'OUT'
         ? 'Time out opens ${cfg.outOpen} (closes ${cfg.outClose})'
         : 'Time in opens ${cfg.inOpen} (closes ${cfg.inClose})';
+  }
+
+  /// The single caption shown under the row when anything is locked.
+  String timeClockCaption() {
+    final cfg = timeClock ?? TimeClockConfig.defaults;
+    if (!cfg.isDayOpen(_clockNow())) return 'Closed today - no selling day.';
+    final parts = <String>[];
+    if (!clockInOpen) parts.add(clockHint('IN'));
+    if (!clockOutOpen) parts.add(clockHint('OUT'));
+    return parts.join('  ·  ');
   }
 
   /// Persisted copy so a cold start (even offline) respects the last known
