@@ -1989,6 +1989,135 @@ function requireOwner(user) {
   return null;
 }
 
+// ---------- Time clock windows (owner-configured clock-in/out hours) ----------
+// The POS app's Time in / Time out buttons are greyed out outside the window,
+// and the server refuses IN/OUT shifts there too (belt and braces: a direct
+// reader tap has no app to gate). Stored as one Firestore doc:
+//   settings/timeClock = {
+//     enabled: boolean,               // false/missing = no restriction at all
+//     inOpen: "HH:MM", inClose: "HH:MM",   // Asia/Manila wall-clock (UTC+8)
+//     outOpen: "HH:MM", outClose: "HH:MM",
+//     updatedAt: timestamp, updatedByName: string
+//   }
+// Manila is UTC+8 with no DST, so the offset is a fixed constant - the same
+// thing api/src/services/timezone.js does for the business day.
+const MNL_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+const TIMECLOCK_DEFAULTS = {
+  enabled: false,
+  inOpen: "07:00",
+  inClose: "09:00",
+  outOpen: "17:00",
+  outClose: "19:00",
+};
+
+/** Minutes since Manila midnight for any instant (server runs UTC). */
+function manilaMinutesOfDay(nowMs) {
+  const m = new Date(nowMs + MNL_OFFSET_MS);
+  return m.getUTCHours() * 60 + m.getUTCMinutes();
+}
+
+/** "HH:MM" 24h -> minutes since midnight, or NaN. */
+function hmToMinutes(v) {
+  if (typeof v !== "string") return NaN;
+  const m = /^\s*(\d{1,2}):(\d{2})\s*$/.exec(v);
+  if (!m) return NaN;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h < 0 || h > 23 || min < 0 || min > 59) return NaN;
+  return h * 60 + min;
+}
+
+/** Snap a time to canonical "HH:MM", or null when invalid. */
+function canonicalHm(v) {
+  const n = hmToMinutes(v);
+  if (Number.isNaN(n)) return null;
+  return String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
+}
+
+function normalizeTimeClock(doc) {
+  const out = { ...TIMECLOCK_DEFAULTS };
+  if (doc) {
+    out.enabled = doc.enabled === true;
+    out.inOpen = canonicalHm(doc.inOpen) ?? out.inOpen;
+    out.inClose = canonicalHm(doc.inClose) ?? out.inClose;
+    out.outOpen = canonicalHm(doc.outOpen) ?? out.outOpen;
+    out.outClose = canonicalHm(doc.outClose) ?? out.outClose;
+    out.updatedAt = doc.updatedAt instanceof Date ? doc.updatedAt.toISOString() : (doc.updatedAt ? String(doc.updatedAt) : null);
+    out.updatedByName = doc.updatedByName ?? null;
+  }
+  return out;
+}
+
+/** Read settings/timeClock normalized; missing/garbage doc reads as "no restriction". */
+async function getTimeClock() {
+  let doc = null;
+  try {
+    doc = await fsGet("settings", "timeClock");
+  } catch {
+    doc = null;
+  }
+  return normalizeTimeClock(doc);
+}
+
+/** null when unrestricted/open; otherwise a human reason for the refusal. */
+function timeClockVerdict(clock, event, nowMs) {
+  if (!clock || clock.enabled !== true) return null;
+  const inOpen = hmToMinutes(clock.inOpen);
+  const inClose = hmToMinutes(clock.inClose);
+  const outOpen = hmToMinutes(clock.outOpen);
+  const outClose = hmToMinutes(clock.outClose);
+  // A hand-edited/corrupt doc must NEVER lock staff out: fall back to open.
+  if ([inOpen, inClose, outOpen, outClose].some(Number.isNaN)) return null;
+  const isOut = event === "OUT";
+  const openMin = isOut ? outOpen : inOpen;
+  const closeMin = isOut ? outClose : inClose;
+  const nowMin = manilaMinutesOfDay(nowMs);
+  // The closing minute itself is allowed (minute-level resolution).
+  if (nowMin >= openMin && nowMin <= closeMin) return null;
+  const open = isOut ? clock.outOpen : clock.inOpen;
+  const close = isOut ? clock.outClose : clock.inClose;
+  return `${isOut ? "Time out" : "Time in"} is only open ${open}-${close} (Manila time). Try again then.`;
+}
+
+/** GET /settings/timeclock - any signed-in role. The POS uses this to grey out the buttons. */
+async function handleGetTimeClock(req, origin) {
+  return jsonRes(origin, { clock: await getTimeClock() }, 200);
+}
+
+/**
+ * PUT /settings/timeclock - OWNER only. fsPatch doubles as an upsert here
+ * (the REST update call creates the doc when it does not exist), so the
+ * first-ever save needs no special-case create.
+ */
+async function handlePutTimeClock(req, origin, user) {
+  const body = await req.json().catch(() => null);
+  const enabled = body?.enabled === true;
+  const inOpen = canonicalHm(body?.inOpen);
+  const inClose = canonicalHm(body?.inClose);
+  const outOpen = canonicalHm(body?.outOpen);
+  const outClose = canonicalHm(body?.outClose);
+  if (!inOpen || !inClose || !outOpen || !outClose) {
+    return jsonRes(origin, { error: 'Each time must be "HH:MM" (24h), e.g. "07:30".' }, 400);
+  }
+  if (hmToMinutes(inOpen) >= hmToMinutes(inClose)) {
+    return jsonRes(origin, { error: "Time in: the opening time must be before the closing time." }, 400);
+  }
+  if (hmToMinutes(outOpen) >= hmToMinutes(outClose)) {
+    return jsonRes(origin, { error: "Time out: the opening time must be before the closing time." }, 400);
+  }
+  const saved = await fsPatch("settings", "timeClock", {
+    enabled,
+    inOpen,
+    inClose,
+    outOpen,
+    outClose,
+    updatedAt: new Date(),
+    updatedByName: user?.name ?? null,
+  });
+  return jsonRes(origin, { clock: normalizeTimeClock(saved) }, 200);
+}
+
 /** Read several _counters docs at once (read phase). */
 async function readCounters(models) {
   const out = {};
@@ -3775,14 +3904,15 @@ async function handleDeviceShifts(req, _origin, device) {
   const outcome = await withRetry(async () => {
     const accepted = [];
     const rejected = [];
-    const [users, unknownAlerts] = await Promise.all([
+    const [users, unknownAlerts, timeclockAlerts] = await Promise.all([
       fsListAll("users"),
-      // Only recent unread UNKNOWN_CARD alerts matter for the dedupe check below.
+      // Only recent unread alerts matter for the dedupe checks below.
       // A limit of 10000 read every one of them on EVERY tap batch - with a few
       // hundred stale alerts that alone could burn thousands of reads per tap.
       fsQueryEqual("alerts", "type", "UNKNOWN_CARD", 50),
+      fsQueryEqual("alerts", "type", "TIMECLOCK_WINDOW", 50),
     ]);
-    const unreadAlerts = unknownAlerts.filter((a) => a.isRead === false);
+    const unreadAlerts = [...unknownAlerts, ...timeclockAlerts].filter((a) => a.isRead === false);
     // Both sides of the comparison are normalized. A row stored before the
     // normalization fix (lowercase, or separators a human pasted in) would
     // otherwise never match a tap and the card would become an UNKNOWN_CARD
@@ -3791,6 +3921,7 @@ async function handleDeviceShifts(req, _origin, device) {
       users.filter((u) => u.rfidUid).map((u) => [lookupUid(u.rfidUid), u]),
     );
 
+    const clock = await getTimeClock();
     const plans = [];
     const createdNeedles = new Set();
     const newAlerts = [];
@@ -3804,6 +3935,41 @@ async function handleDeviceShifts(req, _origin, device) {
       const ts = e.ts ? new Date(e.ts) : new Date();
       if (!Number.isFinite(ts.getTime())) {
         rejected.push({ staff_uid: uid || null, reason: "invalid ts" });
+        continue;
+      }
+      // Server-side backstop for the "Time in / Time out is greyed out in the
+      // app" rule: a direct reader tap cannot check a button, so the tap is
+      // refused here instead. The card still binds its registration claim;
+      // only the shift is blocked.
+      const verdict = timeClockVerdict(clock, event, ts.getTime());
+      if (verdict) {
+        rejected.push({ staff_uid: uid, reason: verdict });
+        const dedupeKey = `timeclock:${location.id}:${event}`;
+        const dup =
+          createdNeedles.has(dedupeKey) ||
+          unreadAlerts.some((a) => {
+            try {
+              if (JSON.parse(a.payload ?? "{}")?.dedupeKey === dedupeKey) return true;
+            } catch { /* fall through */ }
+            return false;
+          });
+        if (!dup) {
+          createdNeedles.add(dedupeKey);
+          const win = event === "OUT"
+            ? `${clock.outOpen}-${clock.outClose}`
+            : `${clock.inOpen}-${clock.inClose}`;
+          newAlerts.push({
+            type: "TIMECLOCK_WINDOW",
+            message: `${event === "IN" ? "Time in" : "Time out"} blocked at ${location.code}: tapped outside the clock window ${win} (Manila) - no shift logged`,
+            payload: JSON.stringify({
+              dedupeKey,
+              event,
+              window: win,
+              locationId: location.id,
+              locationCode: location.code,
+            }),
+          });
+        }
         continue;
       }
       const user = byUid.get(lookupUid(uid)) ?? null;
@@ -6587,6 +6753,11 @@ async function handleRfidClaimOpen(req, origin, user) {
     if (!["IN", "OUT"].includes(cleanEvent)) {
       return jsonRes(origin, { error: 'event must be "IN" or "OUT"' }, 400);
     }
+    const clock = await getTimeClock();
+    const verdict = timeClockVerdict(clock, cleanEvent, Date.now());
+    if (verdict) {
+      return jsonRes(origin, { error: verdict, code: "TIMECLOCK_LOCKED" }, 403);
+    }
   }
 
   let location = null;
@@ -7029,6 +7200,19 @@ Deno.serve(async (req) => {
         }
         else return notFoundRes(origin, req, path);
         return jsonRes(origin, out.body, out.status);
+      }
+      // Time clock settings. GET is for any signed-in role (staff grey out
+      // Time in / Time out in the POS); PUT is owner-only.
+      if (path === "/settings/timeclock") {
+        const auth = await authUser(req);
+        if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
+        if (req.method === "GET") return await handleGetTimeClock(req, origin);
+        if (req.method === "PUT") {
+          const ownErr = requireOwner(auth.user);
+          if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
+          return await handlePutTimeClock(req, origin, auth.user);
+        }
+        return notFoundRes(origin, req, path);
       }
       // Inventory.
       if (path === "/inventory" || path === "/inventory/names" ||

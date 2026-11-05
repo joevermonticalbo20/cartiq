@@ -4,7 +4,7 @@ import { MemoryRouter, Routes, Route, Outlet } from "react-router-dom";
 import { ToastProvider } from "../components/Toast.jsx";
 
 vi.mock("../api.js", () => ({
-  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), del: vi.fn() },
+  default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), del: vi.fn() },
   clearSession: vi.fn(),
 }));
 
@@ -246,5 +246,96 @@ describe("SettingsPage cart/device confirmations", () => {
     fireEvent.click(screen.getByText("Delete Device", { selector: "button" }));
     expect(api.del).toHaveBeenCalledWith("/devices/21");
     expect(await screen.findByText("Device ESP32-A1 deleted")).toBeInTheDocument();
+  });
+});
+
+describe("SettingsPage time clock", () => {
+  const clockSeed = { enabled: false, inOpen: "07:00", inClose: "09:00", outOpen: "17:00", outClose: "19:00" };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.get.mockImplementation((url) => {
+      if (url === "/auth/me") {
+        return Promise.resolve({ data: { user: { name: "Owner", role: "OWNER" } } });
+      }
+      if (url === "/settings/timeclock") {
+        return Promise.resolve({ data: { clock: clockSeed } });
+      }
+      return emptyOk(url);
+    });
+    api.put.mockResolvedValue({
+      data: {
+        clock: { enabled: true, inOpen: "08:00", inClose: "09:30", outOpen: "17:30", outClose: "19:00" },
+      },
+    });
+  });
+
+  function renderOwnerPage() {
+    return render(
+      <MemoryRouter initialEntries={["/"]}>
+        <ToastProvider>
+          <Routes>
+            <Route
+              element={<Outlet context={{ user: { name: "Owner", role: "OWNER" } }} />}
+            >
+              <Route element={<SettingsPage />} path="/" />
+            </Route>
+          </Routes>
+        </ToastProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  it("loads the stored windows and saves an edited window", async () => {
+    renderOwnerPage();
+    expect(await screen.findByText("Time clock")).toBeInTheDocument();
+    expect(screen.getByLabelText(/daily window/)).not.toBeChecked();
+    fireEvent.click(screen.getByLabelText(/daily window/));
+    fireEvent.change(screen.getByLabelText("Time in opens"), { target: { value: "08:00" } });
+    fireEvent.change(screen.getByLabelText("Time in closes"), { target: { value: "09:30" } });
+    fireEvent.change(screen.getByLabelText("Time out opens"), { target: { value: "17:30" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    await vi.waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith("/settings/timeclock", {
+        enabled: true,
+        inOpen: "08:00",
+        inClose: "09:30",
+        outOpen: "17:30",
+        outClose: "19:00",
+      }),
+    );
+    expect(await screen.findByText("Time clock saved")).toBeInTheDocument();
+  });
+
+  it("blocks saving when Time in opens after it closes, without calling the server", async () => {
+    renderOwnerPage();
+    expect(await screen.findByText("Time clock")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(/daily window/));
+    fireEvent.change(screen.getByLabelText("Time in opens"), { target: { value: "09:30" } });
+    fireEvent.change(screen.getByLabelText("Time in closes"), { target: { value: "08:00" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "opening time must be before the closing time",
+    );
+    expect(api.put).not.toHaveBeenCalled();
+  });
+
+  it("blocks saving when Time out opens after it closes, without calling the server", async () => {
+    renderOwnerPage();
+    expect(await screen.findByText("Time clock")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(/daily window/));
+    fireEvent.change(screen.getByLabelText("Time out opens"), { target: { value: "19:00" } });
+    fireEvent.change(screen.getByLabelText("Time out closes"), { target: { value: "17:00" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Time out: the opening time must be before the closing time",
+    );
+    expect(api.put).not.toHaveBeenCalled();
+  });
+
+  it("shows the unrestricted hint while the restriction is off", async () => {
+    renderOwnerPage();
+    expect(await screen.findByText("Time clock")).toBeInTheDocument();
+    expect(screen.getByText(/No restriction/)).toBeInTheDocument();
   });
 });

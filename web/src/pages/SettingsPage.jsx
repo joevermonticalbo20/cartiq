@@ -3,6 +3,7 @@ import { useNavigate, useOutletContext } from "react-router-dom";
 import {
   AlertCircle,
   CheckCircle2,
+  Clock,
   Cpu,
   Edit2,
   Eye,
@@ -31,6 +32,40 @@ import { useToast } from "../components/Toast.jsx";
 import Select from "../components/Select.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import { sanitizeTextInput, countLetters } from "../utils/text.js";
+
+// --- Time clock (owner-configured daily clock-in/out windows) ---
+// Mirror of the server-side settings/timeClock document (Asia/Manila 24h).
+const TIMECLOCK_DEFAULTS = {
+  enabled: false,
+  inOpen: "07:00",
+  inClose: "09:00",
+  outOpen: "17:00",
+  outClose: "19:00",
+};
+const TIMECLOCK_HM = /^\s*(\d{1,2}):(\d{2})\s*$/;
+const hmToMinutes = (v) => {
+  const m = TIMECLOCK_HM.exec(String(v ?? ""));
+  if (!m) return NaN;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return NaN;
+  return h * 60 + min;
+};
+const canonicalHm = (v) => {
+  const n = hmToMinutes(v);
+  if (Number.isNaN(n)) return null;
+  return `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
+};
+const normalizeTimeClock = (c) => {
+  const snap = (v, fallback) => canonicalHm(v) ?? fallback;
+  return {
+    enabled: c?.enabled === true,
+    inOpen: snap(c?.inOpen, TIMECLOCK_DEFAULTS.inOpen),
+    inClose: snap(c?.inClose, TIMECLOCK_DEFAULTS.inClose),
+    outOpen: snap(c?.outOpen, TIMECLOCK_DEFAULTS.outOpen),
+    outClose: snap(c?.outClose, TIMECLOCK_DEFAULTS.outClose),
+  };
+};
 
 export default function SettingsPage() {
   const toast = useToast();
@@ -128,6 +163,12 @@ export default function SettingsPage() {
 
   const [cartToggling, setCartToggling] = useState(null);
   const [isCartToggling, setIsCartToggling] = useState(false);
+
+  // -- TIME CLOCK STATES --
+  const [timeClock, setTimeClock] = useState(TIMECLOCK_DEFAULTS);
+  const [clockLoading, setClockLoading] = useState(true);
+  const [clockSaving, setClockSaving] = useState(false);
+  const [clockError, setClockError] = useState("");
 
   const [isChanging, setIsChanging] = useState(false);
 
@@ -237,9 +278,60 @@ export default function SettingsPage() {
     });
   }
 
+  function loadTimeClock() {
+    setClockLoading(true);
+    api
+      .get("/settings/timeclock")
+      .then(({ data }) => setTimeClock(normalizeTimeClock(data?.clock)))
+      .catch(() =>
+        setClockError(
+          "Could not load the time clock settings - defaults shown; you can still save.",
+        ),
+      )
+      .finally(() => setClockLoading(false));
+  }
+
+  async function saveTimeClock(e) {
+    e.preventDefault();
+    const inOpen = canonicalHm(timeClock.inOpen);
+    const inClose = canonicalHm(timeClock.inClose);
+    const outOpen = canonicalHm(timeClock.outOpen);
+    const outClose = canonicalHm(timeClock.outClose);
+    if (!inOpen || !inClose || !outOpen || !outClose) {
+      setClockError('Each time must be "HH:MM" (24h), e.g. "07:30".');
+      return;
+    }
+    if (hmToMinutes(inOpen) >= hmToMinutes(inClose)) {
+      setClockError("Time in: the opening time must be before the closing time.");
+      return;
+    }
+    if (hmToMinutes(outOpen) >= hmToMinutes(outClose)) {
+      setClockError("Time out: the opening time must be before the closing time.");
+      return;
+    }
+    setClockError("");
+    setClockSaving(true);
+    try {
+      const { data } = await api.put("/settings/timeclock", {
+        enabled: timeClock.enabled,
+        inOpen,
+        inClose,
+        outOpen,
+        outClose,
+      });
+      setTimeClock(normalizeTimeClock(data?.clock));
+      toast("Time clock saved", "success");
+    } catch (err) {
+      setClockError(getFriendlyError(err, "Could not save the time clock - try again."));
+    } finally {
+      setClockSaving(false);
+    }
+  }
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional init: profile + catalog defaults on mount/role change
     loadProfile();
+    loadTimeClock();
     api.get("/catalog", { cacheTtl: 60000 }).then(({ data }) => {
       const locs = data?.locations ?? [];
       setLocations(locs);
@@ -970,13 +1062,120 @@ export default function SettingsPage() {
 
         {isOwner && (
           <div className="flex flex-col gap-4 mt-4">
-            
+
             {ownerError.length > 0 && (
               <div className="error-box" role="alert">
                 <span>Could not load {ownerError.join(", ")}. Showing cached data.</span>
                 <button className="ghost" onClick={loadOwnerData}>Retry</button>
               </div>
             )}
+
+            {/* TIME CLOCK */}
+            <section className="panel" style={{ padding: "var(--space-5)" }}>
+              <div className="settings-table-heading">
+                <div>
+                  <h3 className="section-title m-0 p-0" style={{ borderBottom: "none" }}>Time clock</h3>
+                  <p className="muted small" style={{ margin: "var(--space-1) 0 0" }}>
+                    When the Time in / Time out buttons open in the POS app (Manila time).
+                  </p>
+                </div>
+                <button className="ghost small-btn" onClick={loadTimeClock} disabled={clockLoading}>
+                  <RefreshCw size={13} /> Refresh
+                </button>
+              </div>
+
+              <form onSubmit={saveTimeClock} style={{ marginTop: "var(--space-3)" }}>
+                <label className="field" style={{ flexDirection: "row", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    id="timeclock-enabled"
+                    checked={timeClock.enabled}
+                    onChange={(e) => setTimeClock({ ...timeClock, enabled: e.target.checked })}
+                    style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                  />
+                  Restrict Time in / Time out to a daily window
+                </label>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                    gap: "var(--space-2)",
+                    marginTop: "var(--space-3)",
+                  }}
+                >
+                  <label className="field">
+                    Time in opens
+                    <input
+                      id="timeclock-in-open"
+                      type="time"
+                      required
+                      disabled={!timeClock.enabled}
+                      value={timeClock.inOpen}
+                      onChange={(e) => setTimeClock({ ...timeClock, inOpen: e.target.value })}
+                      style={{ height: "36px" }}
+                    />
+                  </label>
+                  <label className="field">
+                    Time in closes
+                    <input
+                      id="timeclock-in-close"
+                      type="time"
+                      required
+                      disabled={!timeClock.enabled}
+                      value={timeClock.inClose}
+                      onChange={(e) => setTimeClock({ ...timeClock, inClose: e.target.value })}
+                      style={{ height: "36px" }}
+                    />
+                  </label>
+                  <label className="field">
+                    Time out opens
+                    <input
+                      id="timeclock-out-open"
+                      type="time"
+                      required
+                      disabled={!timeClock.enabled}
+                      value={timeClock.outOpen}
+                      onChange={(e) => setTimeClock({ ...timeClock, outOpen: e.target.value })}
+                      style={{ height: "36px" }}
+                    />
+                  </label>
+                  <label className="field">
+                    Time out closes
+                    <input
+                      id="timeclock-out-close"
+                      type="time"
+                      required
+                      disabled={!timeClock.enabled}
+                      value={timeClock.outClose}
+                      onChange={(e) => setTimeClock({ ...timeClock, outClose: e.target.value })}
+                      style={{ height: "36px" }}
+                    />
+                  </label>
+                </div>
+
+                {clockError && (
+                  <p className="error-box" role="alert" style={{ marginTop: "var(--space-3)" }}>{clockError}</p>
+                )}
+
+                <div className="flex items-center justify-between gap-2" style={{ marginTop: "var(--space-4)" }}>
+                  <p className="muted small" style={{ margin: 0 }}>
+                    {timeClock.enabled ? (
+                      <>
+                        Every day: Time in <strong>{timeClock.inOpen}–{timeClock.inClose}</strong> · Time out{" "}
+                        <strong>{timeClock.outOpen}–{timeClock.outClose}</strong>. Buttons open on schedule;
+                        taps outside the windows are not logged.
+                      </>
+                    ) : (
+                      "No restriction — both buttons are always active (current behavior)."
+                    )}
+                  </p>
+                  <button type="submit" className="small-btn" disabled={clockSaving || clockLoading}>
+                    <Clock size={13} /> {clockSaving ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </form>
+            </section>
 
             {/* IOT DEVICE REGISTRY */}
             <section className="panel" style={{ padding: "var(--space-5)" }}>
