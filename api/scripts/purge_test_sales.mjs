@@ -1,13 +1,17 @@
 // One-off production purge of the test sales (local script, never deployed).
-// Deletes every document in `orders` and `orderRefs`, plus SALE/VOID_REQUEST
-// alerts (both are sale-derived test noise). Keeps RESTOCK_REQUEST, LOW_STOCK,
-// UNKNOWN_CARD and everything else — operational alerts are not sales data.
+// Deletes every document in `orders`, `orderRefs` and `orderReceipts`, plus
+// SALE/VOID_REQUEST alerts (all are sale-derived test noise). Keeps
+// RESTOCK_REQUEST, LOW_STOCK, UNKNOWN_CARD and everything else — operational
+// alerts are not sales data.
 //
 //   node scripts/purge_test_sales.mjs --dry-run
 //   node scripts/purge_test_sales.mjs --confirm "DELETE ALL SALES"
+//   node scripts/purge_test_sales.mjs --confirm "DELETE ALL SALES" --reset-order-counter
 //
-// Refuses to run without the local backup from scripts/backup_firestore.mjs
-// (checked at .backups/<today>/_summary.json), because there is no undo.
+// --reset-order-counter makes the next sale #1 again (the order number is
+// otherwise monotonic even after every order is deleted). Refuses to run
+// without the local backup from scripts/backup_firestore.mjs (checked at
+// .backups/<today>/_summary.json), because there is no undo.
 import "dotenv/config";
 import { createRequire } from "node:module";
 import { existsSync, readFileSync } from "node:fs";
@@ -47,11 +51,13 @@ async function refsFor(collection) {
 
 const orderRefs = await refsFor("orders");
 const refRefs = await refsFor("orderRefs");
+const receiptRefs = await refsFor("orderReceipts");
 const alertSnap = await fs.collection("alerts").get();
 const saleAlertRefs = alertSnap.docs.filter((d) => ["SALE", "VOID_REQUEST"].includes(d.data()?.type)).map((d) => d.ref);
 
 console.log(`orders:        ${orderRefs.length}`);
 console.log(`orderRefs:     ${refRefs.length}`);
+console.log(`orderReceipts: ${receiptRefs.length}`);
 console.log(`SALE/VOID alerts: ${saleAlertRefs.length}`);
 
 if (dryRun) {
@@ -76,11 +82,18 @@ async function deleteInBatches(label, refs) {
 
 await deleteInBatches("orders", orderRefs);
 await deleteInBatches("orderRefs", refRefs);
+await deleteInBatches("orderReceipts", receiptRefs);
 await deleteInBatches("SALE/VOID alerts", saleAlertRefs);
+
+if (process.argv.includes("--reset-order-counter")) {
+  await fs.collection("_counters").doc("orders").set({ next: 1 }, { merge: true });
+  console.log("orders counter reset: the next sale is #1");
+}
 
 const remaining = {
   orders: (await fs.collection("orders").get()).size,
   orderRefs: (await fs.collection("orderRefs").get()).size,
+  orderReceipts: (await fs.collection("orderReceipts").get()).size,
   saleAlerts: (await fs.collection("alerts").get()).docs.filter((d) => ["SALE", "VOID_REQUEST"].includes(d.data()?.type)).length,
 };
 console.log("\nRemaining:", JSON.stringify(remaining));

@@ -663,7 +663,6 @@ export default function SalesPage() {
                       options={[
                         { value: "CASH", label: "Cash" },
                         { value: "GCASH", label: "GCash" },
-                        { value: "CARD", label: "Card" }
                       ]}
                     />
                   </label>

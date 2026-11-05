@@ -62,13 +62,13 @@ router.post("/orders", requireAuth, async (req, res, next) => {
     if (clientRef !== undefined && String(clientRef).length > 200) {
       return res.status(400).json({ error: "clientRef is too long (max 200 chars)" });
     }
-    const PAYMENT_METHODS = ["CASH", "GCASH", "CARD"];
+    const PAYMENT_METHODS = ["CASH", "GCASH"];
     const payMethod =
       paymentMethod === undefined || paymentMethod === null || paymentMethod === ""
         ? null
         : String(paymentMethod).toUpperCase();
     if (payMethod !== null && !PAYMENT_METHODS.includes(payMethod)) {
-      return res.status(400).json({ error: "paymentMethod must be one of: CASH, GCASH, CARD" });
+      return res.status(400).json({ error: "paymentMethod must be one of: CASH, GCASH" });
     }
     const location = await prisma.location.findFirst({
       where: locationId !== undefined ? { id: +locationId } : { code: locationCode },
@@ -341,8 +341,8 @@ function emptyMeta(page, pageSize) {
 //   (auto-restore) with an audit trail. Missing inventory rows are reported in
 //   warnings[] instead of failing the void.
 //   { paymentMethod } — correct a mis-tapped payment method on a PAID order
-//   (CASH|GCASH|CARD). Stock untouched.
-const ORDER_PAYMENT_METHODS = ["CASH", "GCASH", "CARD"];
+//   (CASH|GCASH). Stock untouched.
+const ORDER_PAYMENT_METHODS = ["CASH", "GCASH"];
 router.patch("/orders/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
     const { status, reason, paymentMethod } = req.body ?? {};
@@ -363,7 +363,7 @@ router.patch("/orders/:id", requireAuth, requireRole("OWNER"), async (req, res, 
       }
       const payMethod = String(paymentMethod).toUpperCase();
       if (!ORDER_PAYMENT_METHODS.includes(payMethod)) {
-        return res.status(400).json({ error: "paymentMethod must be one of: CASH, GCASH, CARD" });
+        return res.status(400).json({ error: "paymentMethod must be one of: CASH, GCASH" });
       }
       const updated = await prisma.order.update({
         where: { id: existing.id },

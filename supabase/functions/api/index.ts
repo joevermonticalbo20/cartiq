@@ -1308,7 +1308,7 @@ async function handleCatalog(req, origin) {
 }
 
 // ---------- orders (mirrors api/src/routes/orders.js) ----------
-const ORDER_PAYMENT_METHODS = ["CASH", "GCASH", "CARD"];
+const ORDER_PAYMENT_METHODS = ["CASH", "GCASH"];
 
 /** STAFF cart scoping (mirrors assertOwnLocation): OWNERs bypass. */
 function checkOwnLocation(user, locationId) {
@@ -1416,7 +1416,7 @@ async function handleCreateOrder(req, origin, user) {
       ? null
       : String(paymentMethod).toUpperCase();
   if (payMethod !== null && !ORDER_PAYMENT_METHODS.includes(payMethod)) {
-    return jsonRes(origin, { error: "paymentMethod must be one of: CASH, GCASH, CARD" }, 400);
+    return jsonRes(origin, { error: "paymentMethod must be one of: CASH, GCASH" }, 400);
   }
 
   let location = null;
@@ -1686,7 +1686,7 @@ async function handlePatchOrder(req, origin, orderId, user) {
     }
     const payMethod = String(paymentMethod).toUpperCase();
     if (!ORDER_PAYMENT_METHODS.includes(payMethod)) {
-      return jsonRes(origin, { error: "paymentMethod must be one of: CASH, GCASH, CARD" }, 400);
+      return jsonRes(origin, { error: "paymentMethod must be one of: CASH, GCASH" }, 400);
     }
     await fsPatch("orders", existing.id, { paymentMethod: payMethod });
     const updated = await fsGet("orders", existing.id);

@@ -18,6 +18,7 @@ const { getFirestore } = require("firebase-admin/firestore");
 const COLLECTIONS = [
   "orders",
   "orderRefs",
+  "orderReceipts",
   "alerts",
   "products",
   "flavors",
@@ -27,7 +28,7 @@ const COLLECTIONS = [
   "locations",
   "users",
   "inventoryItems",
-  "inventoryAdjustments",
+  "stockAdjustments",
 ];
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
