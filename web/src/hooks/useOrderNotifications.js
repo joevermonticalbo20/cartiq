@@ -90,6 +90,17 @@ export function formatOrderNotice(data) {
 }
 
 /**
+ * A sale emits TWO stream events: `order:new` (cart, total, items, staff) and
+ * a persisted `alert:new` with type SALE. Toasting both stacks two boxes for
+ * one sale, so the SALE alert stays in the bell only. Every other alert type
+ * has no order event and keeps its toast.
+ */
+export function isDuplicateSaleAlert(alert) {
+  const type = String(alert?.type ?? "").toLowerCase();
+  return type === "sale" || type === "sales";
+}
+
+/**
  * Mount once in the app shell. Notifies on every order regardless of the
  * current page or filters.
  */
@@ -132,6 +143,10 @@ export function useOrderNotifications({ onOrder, playSound } = {}) {
   useLiveEvent("order:new", handleOrder);
 
   const handleAlert = useCallback((data) => {
+    // One sale = one notification. `order:new` already raised the richer
+    // toast (and browser notification) above; the SALE alert would only
+    // duplicate it. The bell still shows the alert.
+    if (isDuplicateSaleAlert(data)) return;
     const message = data?.message ?? "New alert";
     const link = alertLink(data);
     toast(`Alert: ${message}`, "warn", {

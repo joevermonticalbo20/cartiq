@@ -1,5 +1,21 @@
-import { describe, it, expect } from "vitest";
-import { formatOrderNotice } from "./useOrderNotifications.js";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderHook } from "@testing-library/react";
+
+const mocks = vi.hoisted(() => ({
+  handlers: new Map(),
+  toast: vi.fn(),
+  navigate: vi.fn(),
+  patch: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock("./useLiveStream.js", () => ({
+  useLiveEvent: (event, handler) => mocks.handlers.set(event, handler),
+}));
+vi.mock("../components/Toast.jsx", () => ({ toast: mocks.toast }));
+vi.mock("react-router-dom", () => ({ useNavigate: () => mocks.navigate }));
+vi.mock("../api.js", () => ({ default: { patch: mocks.patch } }));
+
+import { formatOrderNotice, useOrderNotifications } from "./useOrderNotifications.js";
 
 /**
  * The operator reads this text when a sale happens on the POS, so the wording
@@ -47,5 +63,55 @@ describe("formatOrderNotice", () => {
   it("survives a null payload entirely", () => {
     const notice = formatOrderNotice(null);
     expect(notice.message).not.toMatch(/undefined|NaN/);
+  });
+});
+
+/**
+ * A sale arrives twice on the stream: once as `order:new`, once as a SALE
+ * `alert:new`. The screenshot that reported this showed both toasts stacked,
+ * so the rule is asserted here: one sale = one toast, while alerts that have
+ * no order event still get theirs.
+ */
+describe("live notification dedupe", () => {
+  beforeEach(() => {
+    mocks.handlers.clear();
+    mocks.toast.mockClear();
+    mocks.navigate.mockClear();
+    mocks.patch.mockClear();
+  });
+
+  it("does not toast a SALE alert that order:new already announced", () => {
+    renderHook(() => useOrderNotifications());
+    mocks.handlers.get("alert:new")({
+      id: 17,
+      type: "SALE",
+      message: "New sale: ₱20.00 · 1 item(s) at CART-01 · Stall Staff 1",
+    });
+    expect(mocks.toast).not.toHaveBeenCalled();
+  });
+
+  it("still toasts alerts that have no order event", () => {
+    renderHook(() => useOrderNotifications());
+    mocks.handlers.get("alert:new")({
+      id: 4,
+      type: "LOW_STOCK",
+      message: "BBQ Powder @ CART-01 dropped below threshold",
+    });
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.toast.mock.calls[0][0]).toContain("Alert: BBQ Powder");
+  });
+
+  it("shows exactly one toast for a new order", () => {
+    renderHook(() => useOrderNotifications());
+    mocks.handlers.get("order:new")({
+      total: 20,
+      locationCode: "CART-01",
+      itemCount: 1,
+      staffName: "Stall Staff 1",
+    });
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.toast.mock.calls[0][0]).toBe(
+      "New order on CART-01 - ₱20.00 (1 item) - Stall Staff 1"
+    );
   });
 });
