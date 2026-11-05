@@ -43,12 +43,18 @@ router.put(
         return res.status(400).json({ error: "Time out: the opening time must be before the closing time." });
       }
       const rawDays = body.days;
-      if (rawDays === undefined || rawDays === null || !Array.isArray(rawDays)) {
+      let days;
+      if (rawDays === undefined || rawDays === null) {
+        // An older bundle that does not send days keeps the stored days
+        // (every day for a fresh doc) - never a hard 400 mid-rollout.
+        days = (await readTimeClock()).days;
+      } else if (!Array.isArray(rawDays)) {
         return res.status(400).json({ error: "days must be a non-empty array of weekday numbers (0 = Sunday, 6 = Saturday)." });
-      }
-      const days = [...new Set(rawDays.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))].sort((a, b) => a - b);
-      if (days.length === 0) {
-        return res.status(400).json({ error: "days must not be empty - select at least one selling day." });
+      } else {
+        days = [...new Set(rawDays.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))].sort((a, b) => a - b);
+        if (days.length === 0) {
+          return res.status(400).json({ error: "days must not be empty - select at least one selling day." });
+        }
       }
       const clock = await writeTimeClock(
         { enabled, inOpen, inClose, outOpen, outClose, days },

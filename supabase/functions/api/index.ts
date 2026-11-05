@@ -2133,12 +2133,18 @@ async function handlePutTimeClock(req, origin, user) {
     return jsonRes(origin, { error: "Time out: the opening time must be before the closing time." }, 400);
   }
   const rawDays = body?.days;
-  if (rawDays === undefined || rawDays === null || !Array.isArray(rawDays)) {
+  let days;
+  if (rawDays === undefined || rawDays === null) {
+    // An older bundle that does not send days keeps the stored days
+    // (every day for a fresh doc) - never a hard 400 mid-rollout.
+    days = (await getTimeClock()).days;
+  } else if (!Array.isArray(rawDays)) {
     return jsonRes(origin, { error: "days must be a non-empty array of weekday numbers (0 = Sunday, 6 = Saturday)." }, 400);
-  }
-  const days = [...new Set(rawDays.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))].sort((a, b) => a - b);
-  if (days.length === 0) {
-    return jsonRes(origin, { error: "days must not be empty - select at least one selling day." }, 400);
+  } else {
+    days = [...new Set(rawDays.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))].sort((a, b) => a - b);
+    if (days.length === 0) {
+      return jsonRes(origin, { error: "days must not be empty - select at least one selling day." }, 400);
+    }
   }
   const saved = await fsPatch("settings", "timeClock", {
     enabled,
