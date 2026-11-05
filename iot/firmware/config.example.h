@@ -33,7 +33,7 @@
 #define CAL_FACTOR_BIN  420.0f
 
 #define SAMPLE_INTERVAL_MS  600000UL   // weigh every 10 minutes
-#define FLUSH_INTERVAL_MS   30000UL    // try to upload every 30 s
+#define FLUSH_INTERVAL_MS   2000UL     // try to upload every 2 s (faster card-tap response)
 #define BUF_SIZE            64
 
 // NTP so buffered records carry true timestamps

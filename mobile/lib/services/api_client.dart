@@ -210,7 +210,7 @@ class ApiClient {
     bool preserveRateLimitMessage = false,
   }) async {
     try {
-      final res = await action().timeout(const Duration(seconds: 8));
+      final res = await action().timeout(const Duration(seconds: 15));
       if (res.statusCode >= 400) {
         Map<String, dynamic>? body;
         try {

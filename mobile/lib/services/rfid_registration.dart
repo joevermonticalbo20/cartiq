@@ -66,7 +66,7 @@ class RfidRegistrationService {
   /// The server enforces its own TTL; this is only a client-side stop so a
   /// wedged response cannot spin here forever.
   static const _maxPollMs = 120000;
-  static const _pollIntervalMs = 1500;
+  static const _pollIntervalMs = 1000;
 
   /// Open a claim and poll it until it resolves.
   ///

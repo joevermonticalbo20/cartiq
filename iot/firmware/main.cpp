@@ -149,6 +149,8 @@ void queueReading(const char* channel, float kg) {
   }
 }
 
+void flushShifts();
+
 void queueShift(const String& uid) {
   static bool isOpen = false;
   if (uid == lastUid && millis() - lastTapMs < 30000) return;  // debounce
@@ -166,6 +168,9 @@ void queueShift(const String& uid) {
   delay(80);
   digitalWrite(LED_PIN, LOW);
   Serial.printf("Shift %s queued for %s\n", isOpen ? "IN" : "OUT", uid.c_str());
+  // Push the tap to the server immediately instead of waiting for the flush
+  // interval, so the app's claim resolves within a couple of seconds.
+  if (WiFi.status() == WL_CONNECTED) flushShifts();
 }
 
 void flushShifts() {
