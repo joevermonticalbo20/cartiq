@@ -2081,7 +2081,7 @@ function timeClockVerdict(clock, event, nowMs) {
 }
 
 /** GET /settings/timeclock - any signed-in role. The POS uses this to grey out the buttons. */
-async function handleGetTimeClock(req, origin) {
+async function handleGetTimeClock(_req, origin) {
   return jsonRes(origin, { clock: await getTimeClock() }, 200);
 }
 
