@@ -477,6 +477,21 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  /// The cart-wide Time clock windows (web dashboard → Settings → Time clock).
+  /// Returns the normalized config: `{enabled, inOpen, inClose, outOpen, outClose}`.
+  /// Any signed-in role may read it — the POS uses it to grey out the Time in /
+  /// Time out buttons while they are closed. Throws [ApiException] on failure.
+  Future<Map<String, dynamic>> getTimeClock(String token) async {
+    final res = await _send(
+      () => _http.get(
+        _uri('/settings/timeclock'),
+        headers: _headers(token: token),
+      ),
+    );
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    return (body['clock'] as Map<String, dynamic>?) ?? const {};
+  }
+
   /// Request an email OTP for password reset. Always succeeds with the same
   /// generic message (the server never reveals whether the email is known).
   Future<Map<String, dynamic>> forgotPassword(String email) async {

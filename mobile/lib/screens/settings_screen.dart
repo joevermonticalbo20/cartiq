@@ -43,6 +43,7 @@ class SettingsScreenState extends State<SettingsScreen> {
     final hasPin = await auth.pin.hasPin;
     final lastOnline = await auth.lastOnline;
     final eligibility = await auth.checkOfflineEligibility();
+    await auth.refreshTimeClock();
 
     if (mounted) {
       setState(() {
@@ -125,12 +126,24 @@ class SettingsScreenState extends State<SettingsScreen> {
       );
       return;
     }
+    // The button is greyed out while closed — this backstop covers every
+    // programmatic path too. The server enforces the same on the claim.
+    final open = event == 'IN' ? auth.clockInOpen : auth.clockOutOpen;
+    if (!open) {
+      AppMessenger.showGlassToast(
+        context: context,
+        message: auth.clockHint(event),
+        isSuccess: false,
+      );
+      return;
+    }
     final isIn = event == 'IN';
     final result = await RfidClaimDialog.show(
       context,
       token: auth.token!,
       registration: auth.rfidRegistration,
       event: event,
+      onBound: auth.applyRfidBound,
       title: isIn ? 'Tap to time in' : 'Tap to time out',
       message: isIn
           ? 'Tap your staff card on the reader to start your shift.'
@@ -202,6 +215,7 @@ class SettingsScreenState extends State<SettingsScreen> {
       context,
       token: auth.token!,
       registration: auth.rfidRegistration,
+      onBound: auth.applyRfidBound,
       title: auth.hasRfidCard ? 'Tap your new card' : 'Tap your RFID card',
       message: auth.hasRfidCard
           ? 'Card ${auth.rfidUid} will be replaced by whichever card you tap next.'
@@ -662,6 +676,80 @@ class SettingsScreenState extends State<SettingsScreen> {
           _AccountCard(auth: auth, lastOnline: _lastOnline),
           const SizedBox(height: AppSpacing.space6),
 
+          const SectionHeader(title: 'Session', eyebrow: 'This device'),
+          const SizedBox(height: AppSpacing.space3),
+          Container(
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: surfaceColor,
+              borderRadius: BorderRadius.circular(AppRadius.xl),
+              boxShadow: AppShadow.sm(),
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: Column(
+                children: [
+                  _PremiumTile(
+                    icon: Icons.contactless_outlined,
+                    iconColor: auth.hasRfidCard ? AppColors.ok : AppColors.info,
+                    title: auth.hasRfidCard
+                        ? 'RFID card'
+                        : 'Register RFID card',
+                    subtitle: auth.hasRfidCard
+                        ? auth.rfidUid
+                        : 'Tap a card on the cart reader',
+                    trailing: auth.hasRfidCard
+                        ? const AppBadge(
+                            label: 'Registered',
+                            variant: AppBadgeVariant.ok,
+                          )
+                        : null,
+                    onTap: () => _rfidFlow(auth),
+                  ),
+                  // Time in / out, only once a card exists: without one there
+                  // is nothing for the reader to identify.
+                  if (auth.hasRfidCard) ...[
+                    _TimeRow(
+                      auth: auth,
+                      onPressed: (event) => _clockFlow(auth, event),
+                    ),
+                    const SizedBox(height: AppSpacing.space2),
+                  ],
+                  _PremiumTile(
+                    icon: Icons.mail_outline_rounded,
+                    iconColor: auth.hasRealEmail
+                        ? AppColors.ok
+                        : AppColors.warn,
+                    title: 'Recovery email',
+                    subtitle: auth.displayEmail,
+                    trailing: auth.hasRealEmail
+                        ? null
+                        : const AppBadge(
+                            label: 'Placeholder',
+                            variant: AppBadgeVariant.warn,
+                          ),
+                    onTap: () => _editEmailFlow(auth),
+                  ),
+                  _PremiumTile(
+                    icon: Icons.password_outlined,
+                    iconColor: AppColors.info,
+                    title: 'Change password',
+                    subtitle: 'Email code required',
+                    onTap: () => _changePasswordFlow(auth),
+                  ),
+                  _PremiumTile(
+                    icon: Icons.logout_rounded,
+                    iconColor: AppColors.danger,
+                    title: 'Log out',
+                    onTap: () =>
+                        _signOutFlow(auth, context.read<SyncService>()),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.space6),
+
           const SectionHeader(
             title: 'Offline PIN',
             eyebrow: 'No-internet login',
@@ -749,80 +837,6 @@ class SettingsScreenState extends State<SettingsScreen> {
                 isSuccess: success || !error,
               );
             },
-          ),
-          const SizedBox(height: AppSpacing.space6),
-
-          const SectionHeader(title: 'Session', eyebrow: 'This device'),
-          const SizedBox(height: AppSpacing.space3),
-          Container(
-            clipBehavior: Clip.antiAlias,
-            decoration: BoxDecoration(
-              color: surfaceColor,
-              borderRadius: BorderRadius.circular(AppRadius.xl),
-              boxShadow: AppShadow.sm(),
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: Column(
-                children: [
-                  _PremiumTile(
-                    icon: Icons.contactless_outlined,
-                    iconColor: auth.hasRfidCard ? AppColors.ok : AppColors.info,
-                    title: auth.hasRfidCard
-                        ? 'RFID card'
-                        : 'Register RFID card',
-                    subtitle: auth.hasRfidCard
-                        ? auth.rfidUid
-                        : 'Tap a card on the cart reader',
-                    trailing: auth.hasRfidCard
-                        ? const AppBadge(
-                            label: 'Registered',
-                            variant: AppBadgeVariant.ok,
-                          )
-                        : null,
-                    onTap: () => _rfidFlow(auth),
-                  ),
-                  // Time in / out, only once a card exists: without one there
-                  // is nothing for the reader to identify.
-                  if (auth.hasRfidCard) ...[
-                    _TimeRow(
-                      auth: auth,
-                      onPressed: (event) => _clockFlow(auth, event),
-                    ),
-                    const SizedBox(height: AppSpacing.space2),
-                  ],
-                  _PremiumTile(
-                    icon: Icons.mail_outline_rounded,
-                    iconColor: auth.hasRealEmail
-                        ? AppColors.ok
-                        : AppColors.warn,
-                    title: 'Recovery email',
-                    subtitle: auth.displayEmail,
-                    trailing: auth.hasRealEmail
-                        ? null
-                        : const AppBadge(
-                            label: 'Placeholder',
-                            variant: AppBadgeVariant.warn,
-                          ),
-                    onTap: () => _editEmailFlow(auth),
-                  ),
-                  _PremiumTile(
-                    icon: Icons.password_outlined,
-                    iconColor: AppColors.info,
-                    title: 'Change password',
-                    subtitle: 'Email code required',
-                    onTap: () => _changePasswordFlow(auth),
-                  ),
-                  _PremiumTile(
-                    icon: Icons.logout_rounded,
-                    iconColor: AppColors.danger,
-                    title: 'Log out',
-                    onTap: () =>
-                        _signOutFlow(auth, context.read<SyncService>()),
-                  ),
-                ],
-              ),
-            ),
           ),
           const SizedBox(height: AppSpacing.space6),
 
@@ -1549,6 +1563,11 @@ class _SyncSection extends StatelessWidget {
 
 /// The Time in / Time out pair. Sits directly under the card tile because the
 /// two are one task: register once, then clock in every day.
+///
+/// The cart-wide clock windows (web dashboard → Settings → Time clock) can
+/// grey either button out until its window opens. The state is computed live
+/// from the owner-configured config, so the 30s sync in [AuthState] opens the
+/// buttons on time without a manual refresh.
 class _TimeRow extends StatelessWidget {
   const _TimeRow({required this.auth, required this.onPressed});
 
@@ -1557,6 +1576,12 @@ class _TimeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final canIn = auth.clockInOpen;
+    final canOut = auth.clockOutOpen;
+    final lockedIn = !canIn;
+    final lockedOut = !canOut;
+    final scheme = Theme.of(context).colorScheme;
+    final bodySmall = Theme.of(context).textTheme.bodySmall;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.space4,
@@ -1564,33 +1589,80 @@ class _TimeRow extends StatelessWidget {
         AppSpacing.space4,
         AppSpacing.space3,
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                minimumSize: const Size(0, 48),
-                backgroundColor: AppColors.ok,
-                foregroundColor: Colors.white,
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                    backgroundColor: AppColors.ok,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor:
+                        AppColors.ok.withValues(alpha: 0.28),
+                    disabledForegroundColor: Colors.white,
+                  ),
+                  // Disabled during the closed window: the server refuses the
+                  // claim and the tap too — double gating.
+                  onPressed: canIn ? () => onPressed('IN') : null,
+                  icon: const Icon(Icons.login_rounded, size: 18),
+                  label: const Text('Time in'),
+                ),
               ),
-              onPressed: () => onPressed('IN'),
-              icon: const Icon(Icons.login_rounded, size: 18),
-              label: const Text('Time in'),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.space2),
-          Expanded(
-            child: OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size(0, 48),
-                foregroundColor: AppColors.danger,
-                side: const BorderSide(color: AppColors.danger),
+              const SizedBox(width: AppSpacing.space2),
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                    foregroundColor: AppColors.danger,
+                    side: const BorderSide(color: AppColors.danger),
+                    disabledForegroundColor:
+                        AppColors.danger.withValues(alpha: 0.38),
+                  ),
+                  onPressed: canOut ? () => onPressed('OUT') : null,
+                  icon: const Icon(Icons.logout_rounded, size: 18),
+                  label: const Text('Time out'),
+                ),
               ),
-              onPressed: () => onPressed('OUT'),
-              icon: const Icon(Icons.logout_rounded, size: 18),
-              label: const Text('Time out'),
-            ),
+            ],
           ),
+          if (lockedIn || lockedOut)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.space2),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.space3,
+                  vertical: AppSpacing.space2,
+                ),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest
+                      .withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(AppRadius.s),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.schedule_rounded,
+                        size: 16, color: AppColors.muted),
+                    const SizedBox(width: AppSpacing.space2),
+                    Expanded(
+                      child: Text(
+                        [
+                          if (lockedIn) auth.clockHint('IN'),
+                          if (lockedOut) auth.clockHint('OUT'),
+                        ].join('  ·  '),
+                        style: (bodySmall ?? const TextStyle()).copyWith(
+                          color: AppColors.muted,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     );

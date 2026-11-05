@@ -109,19 +109,17 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Account'), findsOneWidget);
-      expect(find.text('Offline PIN'), findsWidgets);
-      expect(find.text('Appearance'), findsOneWidget);
       expect(find.text('S1'), findsOneWidget);
       expect(find.text('staff01@cartiq.local'), findsWidgets);
-      await tester.scrollUntilVisible(find.text('Recovery email'), 200);
+      expect(find.text('Session'), findsOneWidget);
       expect(find.text('Recovery email'), findsOneWidget);
       expect(find.text('Placeholder'), findsWidgets);
-      await tester.scrollUntilVisible(find.text('Session'), 300);
-      await tester.pumpAndSettle();
-      expect(find.text('Session'), findsOneWidget);
-      await tester.scrollUntilVisible(find.text('Change password'), 200);
       expect(find.text('Change password'), findsOneWidget);
       expect(find.text('Log out'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('No-internet login'), 300);
+      expect(find.text('Offline PIN'), findsWidgets);
+      await tester.scrollUntilVisible(find.text('Appearance'), 200);
+      expect(find.text('Appearance'), findsOneWidget);
     });
 
     testWidgets('a real recovery email replaces the placeholder', (
@@ -157,6 +155,7 @@ void main() {
       await tester.pumpWidget(_settingsHarness(auth));
       await tester.pumpAndSettle();
 
+      await tester.scrollUntilVisible(find.textContaining('Staff accounts only'), 200);
       expect(find.textContaining('Staff accounts only'), findsOneWidget);
       expect(find.text('Set up PIN'), findsNothing);
     });
@@ -171,6 +170,7 @@ void main() {
       await tester.pumpWidget(_settingsHarness(auth));
       await tester.pumpAndSettle();
 
+      await tester.scrollUntilVisible(find.text('Set up PIN'), 200);
       expect(find.text('Set up PIN'), findsOneWidget);
     });
 

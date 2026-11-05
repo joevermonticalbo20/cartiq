@@ -239,6 +239,7 @@ class _RootShellState extends State<RootShell> {
       context,
       token: auth.token!,
       registration: auth.rfidRegistration,
+      onBound: auth.applyRfidBound,
     );
     if (!mounted || result == null) return;
 

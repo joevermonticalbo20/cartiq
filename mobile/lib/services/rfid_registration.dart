@@ -58,9 +58,15 @@ class RfidUnbound extends RfidClaimResult {
 /// usable on the same flaky connections the offline queue already handles, and
 /// the claim TTL is short enough that a handful of polls is enough.
 class RfidRegistrationService {
-  RfidRegistrationService({ApiClient? apiClient}) : api = apiClient ?? ApiClient();
+  RfidRegistrationService({ApiClient? apiClient, this.refreshToken})
+      : api = apiClient ?? ApiClient();
 
   final ApiClient api;
+
+  /// Returns a fresh access token, or null when the session cannot be renewed
+  /// here. Optional so offline/unit-tested instances behave as before; when
+  /// present, a mid-claim 401 is recovered instead of failing the claim.
+  final Future<String?> Function()? refreshToken;
 
   /// How long to keep polling after the server says the window is still open.
   /// The server enforces its own TTL; this is only a client-side stop so a
@@ -78,11 +84,27 @@ class RfidRegistrationService {
     String? event,
     void Function(int secondsLeft)? onTick,
   }) async {
+    // The token can lapse while the person is walking to the reader. The claim
+    // lives on the server, so refreshing and continuing is correct — never a
+    // reason to throw away a pending card or tell the user to start over.
+    var activeToken = token;
+    Future<Map<String, dynamic>> callWithRefresh(
+      Future<Map<String, dynamic>> Function(String) call,
+    ) async {
+      try {
+        return await call(activeToken);
+      } on ApiException catch (e) {
+        if (e.statusCode != 401 || refreshToken == null) rethrow;
+        final fresh = await refreshToken!();
+        if (fresh == null || fresh.isEmpty || fresh == activeToken) rethrow;
+        activeToken = fresh;
+        return call(activeToken);
+      }
+    }
+
     try {
-      final claim = await api.startRfidClaim(
-        token,
-        locationCode: locationCode,
-        event: event,
+      final claim = await callWithRefresh(
+        (t) => api.startRfidClaim(t, locationCode: locationCode, event: event),
       );
       final claimId = claim['claimId'] as String?;
       if (claimId == null || claimId.isEmpty) {
@@ -103,7 +125,7 @@ class RfidRegistrationService {
         );
         if (DateTime.now().isAfter(deadline)) return const RfidExpired();
 
-        final view = await api.rfidClaimStatus(token, claimId);
+        final view = await callWithRefresh((t) => api.rfidClaimStatus(t, claimId));
         final status = view['status'] as String?;
         switch (status) {
           case 'bound':

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'api_client.dart';
 import 'kv_store.dart';
 import 'offline_pin.dart';
 import 'rfid_registration.dart';
+import 'time_clock.dart';
 
 /// Holds the session token and profile for the whole app.
 class AuthState extends ChangeNotifier {
@@ -113,6 +115,7 @@ class AuthState extends ChangeNotifier {
         }
       }
     }
+    startTimeClockSync();
     notifyListeners();
   }
 
@@ -335,6 +338,7 @@ class AuthState extends ChangeNotifier {
     user = null;
     offlineMode = false;
     offlineUnlockRequired = false;
+    _stopTimeClockSync();
     for (final k in [
       'cartiq_token',
       'cartiq_refresh_token',
@@ -437,6 +441,18 @@ class AuthState extends ChangeNotifier {
 
   bool get hasRfidCard => (rfidUid ?? '').isNotEmpty;
 
+  /// Fold a just-registered card into [user] so the rest of the app sees it
+  /// without a re-login. Called by the claim dialog when the server reports
+  /// the tap bound; persisted so a cold start keeps the card.
+  Future<void> applyRfidBound(String rfidUid) async {
+    user = {...?user, 'rfidUid': rfidUid};
+    // Persisted so a cold start after this keeps the card.
+    try {
+      await storage.write(key: 'cartiq_profile', value: jsonEncode(user));
+    } catch (_) {}
+    notifyListeners();
+  }
+
   /// Post-login nudge for a user with no card. Mirrors [needsPinSetupPrompt]:
   /// online session only, once per device, and Settings stays available for
   /// anyone who skips it.
@@ -464,9 +480,140 @@ class AuthState extends ChangeNotifier {
   }
 
   /// Registration service bound to this session's API client, so the dialog and
-  /// Settings share one instance and one base URL.
-  RfidRegistrationService get rfidRegistration =>
-      RfidRegistrationService(apiClient: api);
+  /// Settings share one instance and one base URL. The refresh callback lets a
+  /// mid-claim token expiry be recovered instead of killing the registration.
+  RfidRegistrationService get rfidRegistration => RfidRegistrationService(
+        apiClient: api,
+        refreshToken: () async {
+          final ok = await refreshSession();
+          return ok ? token : null;
+        },
+      );
+
+  // -----------------------------------------------------------------------
+  // Time clock windows
+  //
+  // The owner configures cart-wide open/close times for Time in / Time out in
+  // the web dashboard. The POS greys the buttons out while they are closed and
+  // the server refuses IN/OUT claims and taps outside the windows as well.
+  // -----------------------------------------------------------------------
+
+  /// Owner-configured windows, persisted so a cold start (even offline)
+  /// respects the last known state instead of defaulting to always-open.
+  /// Null until the first fetch: until then clocking behaves as before.
+  TimeClockConfig? timeClock;
+
+  /// Test seam: when set, clock gates are evaluated against this instead of
+  /// the wall clock (keeps widget tests deterministic at every time of day).
+  @visibleForTesting
+  DateTime Function()? clockNow;
+
+  Timer? _timeClockTimer;
+  DateTime? _timeClockFetchedAt;
+  bool _inOpenCache = true;
+  bool _outOpenCache = true;
+  static const _timeClockCacheKey = 'cartiq_timeclock';
+
+  DateTime _clockNow() => clockNow?.call() ?? DateTime.now();
+
+  bool get clockInOpen =>
+      (timeClock ?? TimeClockConfig.defaults).isOpenNow('IN', _clockNow());
+  bool get clockOutOpen =>
+      (timeClock ?? TimeClockConfig.defaults).isOpenNow('OUT', _clockNow());
+
+  /// "Time in opens 07:00 (closes 09:00)" — greys-out caption for the row.
+  String clockHint(String event) {
+    final cfg = timeClock ?? TimeClockConfig.defaults;
+    return event == 'OUT'
+        ? 'Time out opens ${cfg.outOpen} (closes ${cfg.outClose})'
+        : 'Time in opens ${cfg.inOpen} (closes ${cfg.inClose})';
+  }
+
+  /// Persisted copy so a cold start (even offline) respects the last known
+  /// windows instead of defaulting to always-open. Best-effort.
+  Future<void> _restoreTimeClockCache() async {
+    try {
+      final raw = await storage.read(key: _timeClockCacheKey);
+      if (raw == null || raw.isEmpty) return;
+      timeClock = TimeClockConfig.fromJson(
+        jsonDecode(raw) as Map<String, dynamic>,
+      );
+    } catch (_) {}
+  }
+
+  /// Pull the windows from the server. Silent on failure — the UI keeps the
+  /// last known state. Never throws.
+  Future<void> refreshTimeClock() async {
+    if (token == null || offlineMode) return;
+    try {
+      final raw = await api.getTimeClock(token!);
+      if (raw.isEmpty) return;
+      final cfg = TimeClockConfig.fromJson(raw);
+      final changed = !cfg.sameAs(timeClock);
+      timeClock = cfg;
+      try {
+        await storage.write(key: _timeClockCacheKey, value: jsonEncode(cfg.toJson()));
+      } catch (_) {}
+      if (changed) notifyListeners();
+    } catch (_) {
+      // Offline / server unreachable: keep the cache — never flip staff into
+      // a locked-out state because of a network hiccup.
+    }
+  }
+
+  /// Start the background sync. Idempotent. Re-checks the clock boundary every
+  /// 30s (so the buttons open on time without a manual refresh) and polls the
+  /// server every 5 minutes (so an owner's edit propagates by itself — that is
+  /// the "auto reload" half of the feature).
+  void startTimeClockSync() {
+    if (_timeClockTimer != null) return;
+    unawaited(_restoreTimeClockCache().then((_) {
+      _inOpenCache = clockInOpen;
+      _outOpenCache = clockOutOpen;
+      notifyListeners();
+    }));
+    if (token == null) return; // No session to sync.
+    _timeClockFetchedAt = DateTime.now();
+    _inOpenCache = clockInOpen;
+    _outOpenCache = clockOutOpen;
+    unawaited(_tickTimeClock());
+    _timeClockTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => unawaited(_tickTimeClock()),
+    );
+  }
+
+  Future<void> _tickTimeClock() async {
+    var inNow = clockInOpen;
+    var outNow = clockOutOpen;
+    if (inNow != _inOpenCache || outNow != _outOpenCache) {
+      _inOpenCache = inNow;
+      _outOpenCache = outNow;
+      notifyListeners();
+    }
+    final fetched = _timeClockFetchedAt;
+    if (fetched == null ||
+        DateTime.now().difference(fetched) > const Duration(minutes: 5)) {
+      _timeClockFetchedAt = DateTime.now();
+      await refreshTimeClock(); // notifies by itself when the config changed
+      inNow = clockInOpen;
+      outNow = clockOutOpen;
+      if (inNow != _inOpenCache || outNow != _outOpenCache) {
+        _inOpenCache = inNow;
+        _outOpenCache = outNow;
+        notifyListeners();
+      }
+    }
+  }
+
+  void _stopTimeClockSync() {
+    _timeClockTimer?.cancel();
+    _timeClockTimer = null;
+    timeClock = null;
+    _timeClockFetchedAt = null;
+    _inOpenCache = true;
+    _outOpenCache = true;
+  }
 
   /// Run one registration attempt and fold a success back into [user], so the
   /// rest of the app immediately sees the card without a re-login.
@@ -476,12 +623,7 @@ class AuthState extends ChangeNotifier {
       locationCode: locationCode ?? this.locationCode,
     );
     if (result is RfidBound) {
-      user = {...?user, 'rfidUid': result.rfidUid};
-      // Persisted so a cold start after this keeps the card.
-      try {
-        await storage.write(key: 'cartiq_profile', value: jsonEncode(user));
-      } catch (_) {}
-      notifyListeners();
+      await applyRfidBound(result.rfidUid);
     }
     return result;
   }

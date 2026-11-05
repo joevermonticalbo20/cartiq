@@ -18,10 +18,16 @@ class RfidClaimDialog extends StatefulWidget {
     this.event,
     this.title = 'Tap your RFID card',
     this.message,
+    this.onBound,
   });
 
   final String token;
   final RfidRegistrationService registration;
+
+  /// Fired when the server reports the tap bound a card, before the dialog
+  /// pops, so the session state updates in place. The dialog itself never
+  /// persists anything.
+  final Future<void> Function(String rfidUid)? onBound;
 
   /// Only an owner needs this; staff always register on their own cart.
   final String? locationCode;
@@ -42,6 +48,7 @@ class RfidClaimDialog extends StatefulWidget {
     String? event,
     String title = 'Tap your RFID card',
     String? message,
+    Future<void> Function(String rfidUid)? onBound,
   }) {
     return showDialog<RfidClaimResult>(
       context: context,
@@ -55,6 +62,7 @@ class RfidClaimDialog extends StatefulWidget {
         event: event,
         title: title,
         message: message,
+        onBound: onBound,
       ),
     );
   }
@@ -93,6 +101,14 @@ class _RfidClaimDialogState extends State<RfidClaimDialog> {
       // retry without losing the dialog.
       setState(() => _error = result.message);
       return;
+    }
+    if (result is RfidBound && widget.onBound != null) {
+      // Save server-side already happened; a failed local fold must not strand
+      // the person or swallow the outcome.
+      try {
+        await widget.onBound!(result.rfidUid);
+      } catch (_) {}
+      if (!mounted) return;
     }
     Navigator.of(context).pop(result);
   }
