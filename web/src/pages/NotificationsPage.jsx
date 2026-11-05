@@ -7,6 +7,7 @@ import { useLiveEvent } from "../hooks/useLiveStream.js";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import Badge from "../components/Badge.jsx";
+import { SkeletonList } from "../components/Skeleton.jsx";
 import { alertLink, alertLinkLabel } from "../utils/alertLinks.js";
 
 // Ginawang context-aware ang pagkuha ng tema (bumabasa na rin ng message/title)
@@ -146,7 +147,9 @@ export default function NotificationsPage() {
 
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           {loading ? (
-            <div className="muted text-center" style={{ padding: "40px" }}>Loading notifications...</div>
+            <div role="status" aria-label="Loading notifications">
+              <SkeletonList rows={5} card className="notifications-skeleton" />
+            </div>
           ) : error ? (
             <div className="error-box">{error}</div>
           ) : filteredAlerts.length === 0 ? (

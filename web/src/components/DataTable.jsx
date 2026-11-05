@@ -2,11 +2,13 @@ import { useState } from "react";
 import { ChevronUp, ChevronDown, ChevronsUpDown, Inbox } from "lucide-react";
 import Pagination from "./Pagination.jsx";
 import EmptyState from "./EmptyState.jsx";
+import { TableSkeleton } from "./Skeleton.jsx";
 
 export default function DataTable({
   columns,
   data,
   onRowClick,
+  rowClassName,
   emptyMessage = "Nothing to display here",
   loading = false,
   onSort,
@@ -19,53 +21,11 @@ export default function DataTable({
 
   if (loading) {
     return (
-      <div className="table-wrap" tabIndex={0} role="region" aria-label="Loading table">
-        <table className={["data", compact ? "compact" : "", fixedLayout ? "table-fixed" : ""].filter(Boolean).join(" ")}>
-          <thead>
-            <tr>
-              {columns.map((col) => (
-                <th
-                  key={col.key}
-                  style={
-                    col.width
-                      ? { width: col.width, minWidth: col.width }
-                      : undefined
-                  }
-                  className={[
-                    col.align ? `t-${col.align}` : undefined,
-                    compact ? "compact-th" : "",
-                  ].filter(Boolean).join(" ")}
-                >
-                  <span className="th-inner">
-                    {col.label}
-                  </span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {/* Binalik natin sa 5 rows para hindi sobrang haba pababa */}
-            {Array.from({ length: 5 }).map((_, i) => (
-              <tr key={i}>
-                {columns.map((col) => (
-                  <td key={col.key} className={col.align ? `t-${col.align}` : undefined}>
-                    <div 
-                      className="skel" 
-                      style={{ 
-                        /* Pinaikli natin ang gray bars para magmukhang totoong text data */
-                        width: col.align === "right" ? "40%" : `${40 + (i * 17) % 30}%`, 
-                        height: 14,
-                        display: "inline-block", /* Para gumana ang right-alignment sa number columns */
-                        margin: "4px 0"
-                      }} 
-                    />
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <TableSkeleton
+        columns={columns}
+        compact={compact}
+        fixedLayout={fixedLayout}
+      />
     );
   }
 
@@ -154,6 +114,7 @@ export default function DataTable({
             {data.map((row, i) => (
               <tr
                 key={row.id ?? i}
+                className={rowClassName?.(row) || undefined}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
                 onKeyDown={onRowClick ? (e) => handleRowKey(e, row) : undefined}
                 tabIndex={onRowClick ? 0 : undefined}

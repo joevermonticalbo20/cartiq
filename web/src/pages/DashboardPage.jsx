@@ -22,7 +22,7 @@ import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
-import Skeleton from "../components/Skeleton.jsx";
+import Skeleton, { SkeletonCards, SkeletonList, TableSkeleton } from "../components/Skeleton.jsx";
 import SensorPanel from "../components/SensorPanel.jsx";
 import Select from "../components/Select.jsx";
 import { useLiveEvent, useLiveStatus } from "../hooks/useLiveStream.js";
@@ -274,12 +274,7 @@ export default function DashboardPage() {
       {loading ? (
         <>
           {/* TOP SECTION SKELETON */}
-          <div className="dashboard-kpi-strip">
-            <div className="kpi-card"><Skeleton rows={2} height={40} /></div>
-            <div className="kpi-card"><Skeleton rows={2} height={40} /></div>
-            <div className="kpi-card"><Skeleton rows={2} height={40} /></div>
-            <div className="kpi-card"><Skeleton rows={2} height={40} /></div>
-          </div>
+          <SkeletonCards count={4} className="dashboard-kpi-strip" />
           <div className="dashboard-middle-row">
             <div className="panel dashboard-trend-panel" style={{ display: "flex", flexDirection: "column" }}>
               <div className="panel-head" style={{ marginBottom: "16px" }}>
@@ -290,7 +285,8 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="panel">
-              <Skeleton rows={4} height={36} />
+              <Skeleton rows={1} height={24} />
+              <Skeleton rows={1} height={160} />
             </div>
           </div>
           
@@ -302,7 +298,7 @@ export default function DashboardPage() {
                 <div style={{ width: "90px" }}><Skeleton rows={1} height={28} /></div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "12px", flex: 1 }}>
-                <Skeleton rows={4} height={44} />
+                <SkeletonList rows={4} />
               </div>
             </section>
             
@@ -312,7 +308,7 @@ export default function DashboardPage() {
                 <div style={{ width: "70px" }}><Skeleton rows={1} height={24} /></div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "12px", flex: 1 }}>
-                <Skeleton rows={4} height={44} />
+                <SkeletonList rows={4} />
               </div>
             </section>
             
@@ -322,7 +318,7 @@ export default function DashboardPage() {
                 <div style={{ width: "80px" }}><Skeleton rows={1} height={24} /></div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "12px", flex: 1 }}>
-                <Skeleton rows={4} height={44} />
+                <SkeletonList rows={4} />
               </div>
             </section>
           </div>
@@ -333,9 +329,16 @@ export default function DashboardPage() {
                 <div style={{ width: "140px" }}><Skeleton rows={1} height={24} /></div>
                 <div style={{ width: "80px" }}><Skeleton rows={1} height={28} /></div>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "16px", flex: 1 }}>
-                <Skeleton rows={5} height={36} />
-              </div>
+              <TableSkeleton
+                rows={5}
+                columns={[
+                  { key: "time", label: "Time" },
+                  { key: "items", label: "Items" },
+                  { key: "total", label: "Total", align: "right" },
+                  { key: "payment", label: "Payment" },
+                  { key: "location", label: "Location" },
+                ]}
+              />
             </section>
           </div>
         </>

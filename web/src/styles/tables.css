@@ -16,21 +16,23 @@
 /* ================= data table ================= */
 .table-wrap {
   overflow-x: auto;
-  --table-scroll-shadow: rgba(0, 0, 0, 0.15);
-  
-  background-image:
-    linear-gradient(to right, var(--surface), transparent),
-    linear-gradient(to left, var(--surface), transparent),
-    radial-gradient(farthest-side at 0 50%, var(--table-scroll-shadow), transparent),
-    radial-gradient(farthest-side at 100% 50%, var(--table-scroll-shadow), transparent);
-  background-repeat: no-repeat;
-  background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%;
-  background-position: left center, right center, left center, right center;
-  background-attachment: local, local, scroll, scroll;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
-[data-theme="dark"] .table-wrap {
-  --table-scroll-shadow: rgba(0, 0, 0, 0.45);
+.table-wrap::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.table-wrap::-webkit-scrollbar-track:vertical {
+  margin-block-start: 60px;
+}
+
+.table-wrap::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+  border-radius: 99px;
 }
 
 .table-wrap .data {
@@ -71,6 +73,30 @@
 .table-wrap .data tr:hover td {
   background: var(--surface-alt);
   cursor: pointer;
+}
+
+.table-wrap .data tr.product-row-archived td {
+  background: var(--surface-alt);
+  color: var(--text-muted);
+}
+
+.table-wrap .data tr.product-row-archived td:first-child {
+  box-shadow: inset 3px 0 0 var(--border-strong);
+}
+
+.table-wrap .data tr.product-row-archived img {
+  filter: grayscale(1);
+  opacity: 0.65;
+}
+
+.table-wrap .data tr.product-row-archived td:first-child strong {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--border-strong);
+}
+
+.table-wrap .data tr.product-row-archived:hover td {
+  background: var(--surface-alt);
 }
 
 /* Alignment helpers */

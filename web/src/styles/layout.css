@@ -24,12 +24,10 @@
   z-index: 40;
   transition: width 0.18s ease, transform 0.18s ease;
 }
-
 [data-theme="dark"] .sidebar {
   border: 1px solid var(--border);
   box-shadow: none;
 }
-
 .sidebar.collapsed { width: var(--sidebar-collapsed); }
 
 .side-logo {
@@ -41,7 +39,6 @@
   white-space: nowrap;
   flex-shrink: 0;
 }
-
 .logo-icon {
   width: 36px;
   height: 36px;
@@ -50,7 +47,6 @@
   border-radius: 10px;
   filter: drop-shadow(0 4px 10px rgba(231, 54, 49, 0.35));
 }
-
 .logo-text strong { color: var(--text); font-size: var(--fs-lg); display: block; line-height: 1.1; }
 .logo-text span { color: var(--text-muted); font-size: 11px; }
 
@@ -61,7 +57,6 @@
   flex-direction: column;
   overflow-y: hidden;
 }
-
 .nav-group-label {
   font-size: 11px;
   font-weight: 700;
@@ -85,19 +80,16 @@
   white-space: nowrap;
   transition: all 0.2s ease;
 }
-
 .nav-item svg { flex: 0 0 auto; }
 .nav-item:hover {
   background: var(--surface-alt);
   color: var(--text);
 }
-
 .nav-item.active {
   background: var(--primary);
   color: #fff;
   box-shadow: 0 6px 16px rgba(231, 54, 49, 0.25);
 }
-
 .nav-item.active svg { color: #fff; }
 
 .side-foot {
@@ -130,7 +122,6 @@
   z-index: 60;
   backdrop-filter: blur(12px);
 }
-
 .topbar-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .topbar-title { font-size: var(--fs-xl); font-weight: 800; white-space: nowrap; color: var(--text); }
 
@@ -139,7 +130,6 @@
   align-items: center;
   gap: 14px;
 }
-
 .user-chip button.icon-only {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -153,30 +143,33 @@
   color: var(--text);
   transition: all 0.2s ease;
 }
-
 .user-chip button.icon-only:hover { background: var(--surface-alt); }
-
 .user-chip button.notif-btn { position: relative; }
+
 .notif-wrap { position: relative; display: inline-flex; }
 
 /* Unread counter sits ON TOP of the bell, upper-right corner. */
 .notif-badge {
   position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 18px;
-  height: 18px;
+  top: -4px;
+  right: -4px;
+  min-width: 20px; /* Pinalaki nang konti para hindi squished */
+  height: 20px;
   padding: 0 5px;
-  border-radius: 999px;
+  border-radius: 99px;
   background: var(--danger);
   color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 18px;
-  text-align: center;
-  letter-spacing: 0.2px;
+  font-size: 11px;
+  font-weight: 800;
+  
+  /* Pinalitan ang line-height ng flex para perfect center lagi kahit may border */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  
   box-sizing: border-box;
   border: 2px solid var(--surface);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* Subtle shadow para umangat nang konti */
   pointer-events: none;
   z-index: 1;
 }
@@ -203,7 +196,6 @@
   transform-origin: top right;
   overflow: hidden;
 }
-
 .notif-panel.is-closing {
   animation: notif-out 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -212,7 +204,6 @@
   from { opacity: 0; transform: translateY(-10px) scale(0.96); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-
 @keyframes notif-out {
   from { opacity: 1; transform: translateY(0) scale(1); }
   to   { opacity: 0; transform: translateY(-8px) scale(0.96); }
@@ -274,14 +265,12 @@
 .notif-tabs-wrapper {
   padding: 0 16px 12px;
 }
-
 .notif-tabs {
   display: flex;
   background: var(--surface-alt);
   border-radius: 8px;
   padding: 3px;
 }
-
 .notif-tab-btn {
   flex: 1;
   background: transparent;
@@ -299,14 +288,12 @@
   align-items: center;
   min-height: auto;
 }
-
 .notif-tab-btn:hover:not(:disabled) {
   color: var(--text);
   box-shadow: none;
   transform: none;
   background: transparent;
 }
-
 .notif-tab-btn.active {
   background: var(--surface);
   color: var(--text);
@@ -324,7 +311,6 @@
   overflow-y: auto;
   position: relative;
 }
-
 .notif-empty {
   margin: 0;
   padding: 32px 16px;
@@ -332,7 +318,6 @@
   color: var(--text-muted);
   font-size: 12px;
 }
-
 .notif-list {
   list-style: none;
   margin: 0;
@@ -341,33 +326,48 @@
   flex-direction: column;
 }
 
-/* Individual Item — rendered as a button so each notification clicks
+/* Individual Item - rendered as a button so each notification clicks
    through to the page it concerns. */
 .notif-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px 0;
   border-bottom: 1px solid var(--border);
 }
 .notif-item:last-child {
   border-bottom: none;
 }
+
 button.notif-item-btn {
   width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  margin: 4px 0;
   background: transparent;
-  border-top: none;
-  border-left: none;
-  border-right: none;
+  border: none;
+  box-shadow: none;
   text-align: left;
   cursor: pointer;
   font: inherit;
   color: inherit;
   border-radius: 12px;
-  transition: background 0.15s ease;
+  transition: all 0.2s ease;
+  min-height: auto;
 }
-button.notif-item-btn:hover { background: var(--surface-alt); }
-button.notif-item-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+button.notif-item-btn:hover:not(:disabled) {
+  background: var(--surface-alt);
+  box-shadow: none;
+  transform: none;
+}
+button.notif-item-btn:active:not(:disabled) {
+  background: var(--surface-alt);
+  box-shadow: none;
+  transform: scale(0.98);
+}
+button.notif-item-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
 .notif-item-go {
   flex-shrink: 0;
   display: inline-flex;
@@ -391,7 +391,6 @@ button.notif-item-btn:focus-visible { outline: 2px solid var(--primary); outline
   flex: 1;
   min-width: 0;
 }
-
 .notif-title-row {
   display: flex;
   justify-content: space-between;
@@ -399,7 +398,6 @@ button.notif-item-btn:focus-visible { outline: 2px solid var(--primary); outline
   gap: 8px;
   margin-bottom: 4px;
 }
-
 .notif-title {
   display: flex;
   align-items: center;
@@ -407,7 +405,6 @@ button.notif-item-btn:focus-visible { outline: 2px solid var(--primary); outline
   font-size: 12px;
   font-weight: 600;
 }
-
 .notif-unread-dot {
   width: 6px;
   height: 6px;
@@ -415,20 +412,19 @@ button.notif-item-btn:focus-visible { outline: 2px solid var(--primary); outline
   border-radius: 50%;
   flex-shrink: 0;
 }
-
 .notif-time {
   font-size: 10px;
   color: var(--text-muted);
   white-space: nowrap;
   flex-shrink: 0;
 }
-
 .notif-desc {
   font-size: 11px;
   color: var(--text-muted);
   line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -439,7 +435,6 @@ button.notif-item-btn:focus-visible { outline: 2px solid var(--primary); outline
   gap: 12px;
   margin-left: 8px;
 }
-
 .user-chip-info {
   display: flex;
   flex-direction: column;
@@ -456,7 +451,6 @@ button.notif-item-btn:focus-visible { outline: 2px solid var(--primary); outline
   color: var(--text-muted);
   font-weight: 600;
 }
-
 .avatar {
   width: 44px;
   height: 44px;
@@ -473,7 +467,6 @@ button.notif-item-btn:focus-visible { outline: 2px solid var(--primary); outline
 
 .hamburger { display: none; }
 .backdrop { display: none; }
-
 @media (max-width: 900px) {
   .sidebar { transform: translateX(-120%); box-shadow: var(--shadow); }
   .sidebar.mobile-open { transform: translateX(0); width: var(--sidebar-w); }
@@ -502,7 +495,6 @@ button.notif-item-btn:focus-visible { outline: 2px solid var(--primary); outline
 .sidebar.collapsed .side-nav {
   padding: 8px 0;
 }
-
 .sidebar.collapsed .nav-group {
   display: flex;
   flex-direction: column;
@@ -562,14 +554,12 @@ button.notif-item-btn:focus-visible { outline: 2px solid var(--primary); outline
   gap: var(--space-4);
   flex-wrap: wrap;
 }
-
 .page-header-title {
   font-size: var(--fs-xl);
   font-weight: var(--fw-extrabold);
   color: var(--text);
   margin: 0;
 }
-
 .page-eyebrow {
   margin: 0 0 2px;
   font-size: var(--fs-xs);
@@ -578,13 +568,11 @@ button.notif-item-btn:focus-visible { outline: 2px solid var(--primary); outline
   text-transform: uppercase;
   color: var(--text-faint);
 }
-
 .page-header-subtitle {
   font-size: var(--fs-sm);
   color: var(--text-muted);
   margin: 4px 0 0;
 }
-
 .page-header-actions {
   display: flex;
   gap: var(--space-2);
@@ -607,7 +595,6 @@ button.notif-item-btn:focus-visible { outline: 2px solid var(--primary); outline
   flex-direction: column;
   gap: 16px;
 }
-
 .page-container.wide { max-width: 1280px; }
 
 /* ----- Responsive (max-width: 640px): mobile - page container ----- */

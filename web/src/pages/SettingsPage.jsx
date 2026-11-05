@@ -23,7 +23,7 @@ import { getFriendlyError } from "../utils/errors.js";
 import { useRfidEvents } from "../hooks/useRfidEvents.js";
 import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
-import Skeleton from "../components/Skeleton.jsx";
+import Skeleton, { TableSkeleton } from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import PasswordStrengthMeter from "../components/PasswordStrengthMeter.jsx";
@@ -259,6 +259,14 @@ export default function SettingsPage() {
   const displayEmail = hasRealEmail
     ? profile.email
     : `${profile?.username ?? "staff"}@cartiq.local`;
+  const profileInitials = String(profile?.name ?? profile?.username ?? "?")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase() || "?";
 
   function openEmailModal() {
     setEmailForm({
@@ -672,10 +680,10 @@ export default function SettingsPage() {
           sub="Your profile, password, carts, devices, and staff accounts."
         />
         
-        <div className="settings-grid" style={{ gap: "var(--space-4)", alignItems: "stretch" }}>
+        <div className="settings-grid settings-account-grid" style={{ gap: "var(--space-4)" }}>
           
           {/* PROFILE PANEL */}
-          <section className="panel" style={{ padding: "var(--space-5)" }}>
+          <section className="panel settings-profile-card" style={{ padding: "var(--space-5)" }}>
             <h3 className="section-title" style={{ padding: 0, borderBottom: "none", marginBottom: "var(--space-4)" }}>
               Profile
             </h3>
@@ -689,36 +697,51 @@ export default function SettingsPage() {
                   </button>
                 </div>
               ) : (
-                <Skeleton rows={3} />
-              )
-            ) : (
-              <div className="flex flex-col" aria-label="Profile details">
-                <div className="flex items-center justify-between" style={{ padding: "14px 0", borderBottom: "1px solid var(--border)" }}>
-                  <span className="muted text-sm">Name</span>
-                  <strong className="text-right">{profile.name}</strong>
-                </div>
-                <div className="flex items-center justify-between" style={{ padding: "14px 0", borderBottom: "1px solid var(--border)" }}>
-                  <span className="muted text-sm">Username</span>
-                  <span className="text-right">{profile.username}</span>
-                </div>
-                <div className="flex items-center justify-between" style={{ padding: "14px 0", borderBottom: "1px solid var(--border)" }}>
-                  <span className="muted text-sm">Role</span>
-                  <Badge variant="brand">{profile.role}</Badge>
-                </div>
-                <div className="flex items-center justify-between" style={{ padding: "14px 0", borderTop: "1px solid var(--border)" }}>
-                  <span className="muted text-sm">Cart assignment</span>
-                  <span className="text-right">{profile.location ? `${profile.location.code} - ${profile.location.name}` : "All carts"}</span>
-                </div>
-                <div className="flex items-center justify-between gap-2" style={{ padding: "14px 0", borderTop: "1px solid var(--border)" }}>
-                  <span className="muted text-sm">Recovery email</span>
-                  <div className="flex items-center justify-end gap-2" style={{ minWidth: 0 }}>
-                    <span className="text-right" style={{ overflowWrap: "anywhere" }}>{displayEmail}</span>
-                    {!hasRealEmail && <Badge variant="warn">Placeholder</Badge>}
-                    <button type="button" className="ghost small-btn" onClick={openEmailModal} title="Edit recovery email">
-                      <Edit2 size={13} /> Edit
-                    </button>
+                <div className="settings-profile-skeleton" aria-hidden="true">
+                  <div className="settings-profile-skeleton-identity">
+                    <span className="skel settings-profile-skeleton-avatar" />
+                    <span className="settings-profile-skeleton-name">
+                      <span className="skel" />
+                      <span className="skel" />
+                    </span>
+                    <span className="skel settings-profile-skeleton-role" />
+                  </div>
+                  <div className="settings-profile-skeleton-row">
+                    <span className="skel" />
+                    <span className="skel" />
+                  </div>
+                  <div className="settings-profile-skeleton-row">
+                    <span className="skel" />
+                    <span className="skel" />
                   </div>
                 </div>
+              )
+            ) : (
+              <div className="settings-profile" aria-label="Profile details">
+                <div className="settings-profile-identity">
+                  <span className="settings-profile-avatar" aria-hidden="true">{profileInitials}</span>
+                  <div className="settings-profile-name">
+                    <strong>{profile.name}</strong>
+                    {profile.username && <span>@{profile.username}</span>}
+                  </div>
+                  <Badge variant="brand">{profile.role}</Badge>
+                </div>
+                <dl className="settings-profile-details">
+                  <div className="settings-profile-row">
+                    <dt>Cart assignment</dt>
+                    <dd>{profile.location ? `${profile.location.code} - ${profile.location.name}` : "All carts"}</dd>
+                  </div>
+                  <div className="settings-profile-row">
+                    <dt>Recovery email</dt>
+                    <dd className="settings-profile-email">
+                      <span>{displayEmail}</span>
+                      {!hasRealEmail && <Badge variant="warn">Placeholder</Badge>}
+                      <button type="button" className="ghost small-btn" onClick={openEmailModal} title="Edit recovery email">
+                        <Edit2 size={13} /> Edit
+                      </button>
+                    </dd>
+                  </div>
+                </dl>
               </div>
             )}
           </section>
@@ -957,7 +980,7 @@ export default function SettingsPage() {
 
             {/* IOT DEVICE REGISTRY */}
             <section className="panel" style={{ padding: "var(--space-5)" }}>
-              <div className="flex items-center justify-between" style={{ marginBottom: "var(--space-4)" }}>
+              <div className="settings-table-heading">
                 <h3 className="section-title m-0 p-0" style={{ borderBottom: "none" }}>IoT device registry</h3>
                 <div className="flex items-center gap-2">
                   <button className="ghost small-btn" onClick={loadOwnerData}>
@@ -970,9 +993,18 @@ export default function SettingsPage() {
               </div>
               
               {isLoadingOwner ? (
-                <div style={{ marginTop: "var(--space-4)" }}>
-                  <Skeleton rows={4} height={40} />
-                </div>
+                <TableSkeleton
+                  className="settings-table-wrap"
+                  tableClassName="settings-table settings-table-devices"
+                  rows={4}
+                  columns={[
+                    { key: "device", label: "Device ID" },
+                    { key: "cart", label: "Cart", className: "settings-hide-narrow" },
+                    { key: "status", label: "Status", className: "settings-indicator-heading", skeletonType: "badge" },
+                    { key: "heartbeat", label: "Last heartbeat" },
+                    { key: "actions", label: "Actions", align: "center" },
+                  ]}
+                />
               ) : safeDevices.length === 0 ? (
                 <EmptyState
                   icon={Cpu}
@@ -981,32 +1013,34 @@ export default function SettingsPage() {
                   compact
                 />
               ) : (
-                <div className="table-wrap">
-                  <table className="data table-fixed">
+                <div className="table-wrap settings-table-wrap">
+                  <table className="data table-fixed settings-table settings-table-devices">
                     <thead>
                       <tr>
-                        <th style={{ width: 180 }}>Device ID</th>
-                        <th style={{ width: 120 }}>Cart</th>
-                        <th style={{ width: 110 }}>Status</th>
-                        <th style={{ width: 240 }}>Last heartbeat</th>
-                        <th className="t-center" style={{ width: 160 }}>Actions</th>
+                        <th>Device ID</th>
+                        <th className="settings-hide-narrow">Cart</th>
+                        <th className="settings-indicator-heading">Status</th>
+                        <th>Last heartbeat</th>
+                        <th className="t-center">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {safeDevices.map((d) => (
                         <tr key={d.id}>
                           <td><strong>{d.device_id}</strong></td>
-                          <td><Badge variant="info">{d.cart}</Badge></td>
-                          <td>
-                            <Badge variant={d.online ? "ok" : "neutral"}>
-                              {d.active ? (d.online ? "ONLINE" : "IDLE") : "DISABLED"}
-                            </Badge>
+                          <td className="settings-hide-narrow"><Badge variant="info">{d.cart}</Badge></td>
+                          <td className="settings-indicator-cell">
+                            <span className="settings-indicator">
+                              <Badge variant={!d.active ? "danger" : d.online ? "ok" : "warn"}>
+                                {d.active ? (d.online ? "ONLINE" : "IDLE") : "DISABLED"}
+                              </Badge>
+                            </span>
                           </td>
                           <td className="muted small">
                             {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "never"}
                           </td>
-                          <td className="t-center nowrap">
-                            <div className="flex items-center justify-center gap-1">
+                          <td className="t-center settings-actions-cell">
+                            <div className="settings-table-actions">
                               <button
                                 className="ghost small-btn"
                                 onClick={() => { setDeviceEditing(d); setDeviceError(""); }}
@@ -1036,7 +1070,7 @@ export default function SettingsPage() {
 
             {/* STAFF ACCOUNTS */}
             <section className="panel" style={{ padding: "var(--space-5)" }}>
-              <div className="flex items-center justify-between" style={{ marginBottom: "var(--space-4)" }}>
+              <div className="settings-table-heading">
                 <h3 className="section-title m-0 p-0" style={{ borderBottom: "none" }}>Staff accounts</h3>
                 <button onClick={() => { setStaffError(""); setAddOpen(true); setShowNewStaffPw(false); }}>
                   <Plus size={15} /> Add staff
@@ -1044,9 +1078,20 @@ export default function SettingsPage() {
               </div>
 
               {isLoadingOwner ? (
-                <div style={{ marginTop: "var(--space-4)" }}>
-                  <Skeleton rows={4} height={40} />
-                </div>
+                <TableSkeleton
+                  className="settings-table-wrap"
+                  tableClassName="settings-table settings-table-staff"
+                  rows={4}
+                  columns={[
+                    { key: "name", label: "Name" },
+                    { key: "username", label: "Username", className: "settings-hide-narrow" },
+                    { key: "email", label: "Recovery email" },
+                    { key: "cart", label: "Cart", className: "settings-hide-narrow" },
+                    { key: "rfid", label: "RFID UID", className: "settings-hide-narrow" },
+                    { key: "status", label: "Status", className: "settings-indicator-heading", skeletonType: "badge" },
+                    { key: "actions", label: "Actions", align: "center" },
+                  ]}
+                />
               ) : safeStaff.filter((s) => s.role !== "OWNER").length === 0 ? (
                 <EmptyState
                   icon={Users}
@@ -1055,41 +1100,47 @@ export default function SettingsPage() {
                   compact
                 />
               ) : (
-                <div className="table-wrap">
-                  <table className="data table-fixed">
+                <div className="table-wrap settings-table-wrap">
+                  <table className="data table-fixed settings-table settings-table-staff">
                     <thead>
                       <tr>
                         <th>Name</th>
-                        <th style={{ width: 160 }}>Username</th>
-                        <th style={{ width: 200 }}>Recovery email</th>
-                        <th style={{ width: 110 }}>Cart</th>
-                        <th style={{ width: 130 }}>RFID UID</th>
-                        <th style={{ width: 110 }}>Status</th>
-                        <th className="t-center" style={{ width: 220 }}>Actions</th>
+                        <th className="settings-hide-narrow">Username</th>
+                        <th>Recovery email</th>
+                        <th className="settings-hide-narrow">Cart</th>
+                        <th className="settings-hide-narrow">RFID UID</th>
+                        <th className="settings-indicator-heading">Status</th>
+                        <th className="t-center">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {safeStaff.filter((s) => s.role !== "OWNER").map((s) => (
                         <tr key={s.id} className={!s.active ? "row-disabled" : undefined}>
                           <td><strong>{s.name}</strong></td>
-                          <td>{s.username}</td>
-                          <td className="muted small" style={{ overflowWrap: "anywhere" }}>
-                            {s.email && !String(s.email).toLowerCase().endsWith("@cartiq.local")
-                              ? s.email
-                              : `${s.username}@cartiq.local`}
-                            {(!s.email || String(s.email).toLowerCase().endsWith("@cartiq.local")) && (
-                              <> <Badge variant="warn">Placeholder</Badge></>
-                            )}
+                          <td className="settings-hide-narrow">{s.username}</td>
+                          <td className="muted small">
+                            <span className="settings-email-cell">
+                              <span>
+                                {s.email && !String(s.email).toLowerCase().endsWith("@cartiq.local")
+                                  ? s.email
+                                  : `${s.username}@cartiq.local`}
+                              </span>
+                              {(!s.email || String(s.email).toLowerCase().endsWith("@cartiq.local")) && (
+                                <Badge variant="warn">Placeholder</Badge>
+                              )}
+                            </span>
                           </td>
-                          <td>{s.location ? s.location.code : "-"}</td>
-                          <td className="muted small">{s.rfidUid ?? "-"}</td>
-                          <td>
-                            <Badge variant={s.active ? "ok" : "danger"}>
-                              {s.active ? "ACTIVE" : "DISABLED"}
-                            </Badge>
+                          <td className="settings-hide-narrow">{s.location ? <Badge variant="info">{s.location.code}</Badge> : <span className="muted">-</span>}</td>
+                          <td className="muted small settings-hide-narrow">{s.rfidUid ?? "-"}</td>
+                          <td className="settings-indicator-cell">
+                            <span className="settings-indicator">
+                              <Badge variant={s.active ? "ok" : "danger"}>
+                                {s.active ? "ACTIVE" : "DISABLED"}
+                              </Badge>
+                            </span>
                           </td>
-                          <td className="t-center nowrap">
-                            <div className="flex items-center justify-center gap-1">
+                          <td className="t-center settings-actions-cell">
+                            <div className="settings-table-actions">
                               <button
                                 className="ghost small-btn"
                                 onClick={() => { setStaffEditing({...s}); setStaffError(""); }}
@@ -1127,7 +1178,7 @@ export default function SettingsPage() {
             </section>
 
             <section className="panel" style={{ padding: "var(--space-5)" }}>
-              <div className="flex items-center justify-between" style={{ marginBottom: "var(--space-4)" }}>
+              <div className="settings-table-heading">
                 <h3 className="section-title m-0 p-0" style={{ borderBottom: "none" }}>Carts</h3>
                 <button onClick={() => { setCartError(""); setCartAddOpen(true); }}>
                   <Plus size={15} /> Add cart
@@ -1135,9 +1186,19 @@ export default function SettingsPage() {
               </div>
 
               {isLoadingOwner ? (
-                <div style={{ marginTop: "var(--space-4)" }}>
-                  <Skeleton rows={4} height={40} />
-                </div>
+                <TableSkeleton
+                  className="settings-table-wrap"
+                  tableClassName="settings-table settings-table-carts"
+                  rows={4}
+                  columns={[
+                    { key: "code", label: "Code" },
+                    { key: "name", label: "Name" },
+                    { key: "items", label: "Items", className: "settings-hide-narrow" },
+                    { key: "status", label: "Status", className: "settings-indicator-heading", skeletonType: "badge" },
+                    { key: "node", label: "Node", skeletonType: "badge" },
+                    { key: "actions", label: "Actions", align: "center" },
+                  ]}
+                />
               ) : carts.length === 0 ? (
                 <EmptyState
                   icon={ShoppingCart}
@@ -1146,16 +1207,16 @@ export default function SettingsPage() {
                   compact
                 />
               ) : (
-                <div className="table-wrap">
-                  <table className="data table-fixed">
+                <div className="table-wrap settings-table-wrap">
+                  <table className="data table-fixed settings-table settings-table-carts">
                     <thead>
                       <tr>
-                        <th style={{ width: 130 }}>Code</th>
+                        <th>Code</th>
                         <th>Name</th>
-                        <th style={{ width: 90 }}>Items</th>
-                        <th style={{ width: 130 }}>Status</th>
-                        <th style={{ width: 170 }}>Node</th>
-                        <th className="t-center" style={{ width: 170 }}>Actions</th>
+                        <th className="settings-hide-narrow">Items</th>
+                        <th className="settings-indicator-heading">Status</th>
+                        <th>Node</th>
+                        <th className="t-center">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1163,21 +1224,28 @@ export default function SettingsPage() {
                         <tr key={c.id} className={c.status === "INACTIVE" ? "row-disabled" : undefined}>
                           <td><strong>{c.code}</strong></td>
                           <td>{c.name}</td>
-                          <td className="muted">{c.itemCount}</td>
-                          <td>
-                            <Badge variant={c.status === "INACTIVE" ? "danger" : "ok"}>
-                              {c.status === "INACTIVE" ? "INACTIVE" : "ACTIVE"}
-                            </Badge>
+                          <td className="muted settings-hide-narrow">{c.itemCount}</td>
+                          <td className="settings-indicator-cell">
+                            <span className="settings-indicator">
+                              <Badge variant={c.status === "INACTIVE" ? "danger" : "ok"}>
+                                {c.status === "INACTIVE" ? "INACTIVE" : "ACTIVE"}
+                              </Badge>
+                            </span>
                           </td>
-                          <td className="muted small">
+                          <td className="settings-node-cell">
                             {c.device ? (
-                              <>{c.device.deviceId} - {c.device.online ? "ONLINE" : "IDLE"}</>
+                              <>
+                                <span>{c.device.deviceId}</span>
+                                <Badge className="settings-node-status" variant={c.device.online ? "ok" : "warn"}>
+                                  {c.device.online ? "ONLINE" : "IDLE"}
+                                </Badge>
+                              </>
                             ) : (
-                              "-"
+                              <Badge variant="neutral">UNASSIGNED</Badge>
                             )}
                           </td>
-                          <td className="t-center nowrap">
-                            <div className="flex items-center justify-center gap-1">
+                          <td className="t-center settings-actions-cell">
+                            <div className="settings-table-actions">
                               <button
                                 className="ghost small-btn"
                                 onClick={() => { setCartEditing({ ...c }); setCartError(""); }}

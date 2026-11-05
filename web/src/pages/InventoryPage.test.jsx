@@ -37,6 +37,8 @@ describe("InventoryPage loading/error states", () => {
     api.get.mockReturnValue(new Promise(() => {}));
     const { container } = renderPage();
     expect(container.querySelector(".skel")).not.toBeNull();
+    expect(screen.getByRole("region", { name: "Loading mobile restock requests" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Loading prep forecast" })).toBeInTheDocument();
     expect(screen.queryByText("No carts configured")).toBeNull();
   });
 

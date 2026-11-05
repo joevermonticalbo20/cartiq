@@ -12,7 +12,7 @@ import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
-import { SkeletonCards, SkeletonChart } from "../components/Skeleton.jsx";
+import { SkeletonCards, TableSkeleton } from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import Select from "../components/Select.jsx";
@@ -1094,22 +1094,85 @@ export default function AnalyticsPage() {
         {/* --- FIXED SKELETON LAYOUT PARA MAG-MATCH SA TOTOONG UI --- */}
         {loading && !trends && (
           <div className="analytics-loading" role="status" aria-label="Loading analytics" style={{ textAlign: "left", padding: 0 }}>
-            
-            {/* 1. Fake Quick Summary Banner */}
-            <div className="skel" style={{ height: 110, borderRadius: "var(--radius-lg)", marginBottom: "var(--space-5)" }} />
-            
-            {/* 2. Apat na Skeleton Cards */}
-            <SkeletonCards count={4} />
-            
-            {/* 3. Dalawang malalaking skeleton chart (Side-by-side) */}
-            <div style={{ 
-              display: "grid", 
-              gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))", 
-              gap: "var(--space-4)",
-              marginTop: "var(--space-4)" 
-            }}>
-              <SkeletonChart />
-              <SkeletonChart />
+            <section className="panel analytics-summary-skeleton" aria-hidden="true">
+              <div className="skel" style={{ width: "32%", height: 22 }} />
+              <div className="skel" style={{ width: "92%", height: 14 }} />
+              <div className="skel" style={{ width: "76%", height: 14 }} />
+            </section>
+
+            <SkeletonCards count={4} className="analytics-kpis" />
+
+            <div className="analytics-loading-sections">
+              <section className="analytics-section panel" aria-hidden="true">
+                <div className="analytics-section-header">
+                  <div className="skel" style={{ width: "28%", height: 18 }} />
+                  <div className="skel" style={{ width: "20%", height: 12 }} />
+                </div>
+                <div className="skel analytics-skeleton-chart" />
+              </section>
+
+              <section className="analytics-section panel" aria-hidden="true">
+                <div className="analytics-section-header">
+                  <div className="skel" style={{ width: "30%", height: 18 }} />
+                  <div className="skel" style={{ width: "24%", height: 12 }} />
+                </div>
+                <div className="skel analytics-skeleton-chart" />
+              </section>
+
+              <section className="analytics-section panel" aria-hidden="true">
+                <div className="analytics-section-header">
+                  <div className="skel" style={{ width: "24%", height: 18 }} />
+                  <div className="skel" style={{ width: "22%", height: 12 }} />
+                </div>
+                <div className="skel analytics-skeleton-chart" />
+              </section>
+
+              <section className="analytics-section panel">
+                <div className="analytics-section-header" aria-hidden="true">
+                  <div className="skel" style={{ width: "22%", height: 18 }} />
+                  <div className="skel" style={{ width: "16%", height: 12 }} />
+                </div>
+                <TableSkeleton
+                  className="analytics-skeleton-table"
+                  rows={5}
+                  fixedLayout
+                  columns={[
+                    { key: "rank", label: "#", width: 60 },
+                    { key: "item", label: "Item" },
+                    { key: "qty", label: "Qty sold", align: "right", width: 120 },
+                    { key: "revenue", label: "Revenue", align: "right", width: 140 },
+                    { key: "total", label: "% of total", align: "right", width: 140 },
+                  ]}
+                />
+              </section>
+
+              <section className="analytics-section panel">
+                <div className="analytics-section-header" aria-hidden="true">
+                  <div className="skel" style={{ width: "28%", height: 18 }} />
+                  <div className="skel" style={{ width: "32%", height: 12 }} />
+                </div>
+                <TableSkeleton
+                  className="analytics-skeleton-table"
+                  rows={5}
+                  fixedLayout
+                  columns={[
+                    { key: "item", label: "Item" },
+                    { key: "stock", label: "Stock" },
+                    { key: "average", label: "Avg/day" },
+                    { key: "depletion", label: "Depletion" },
+                    { key: "smape", label: "sMAPE" },
+                    { key: "risk", label: "Risk", skeletonType: "badge" },
+                  ]}
+                />
+              </section>
+
+              <section className="analytics-section panel" aria-hidden="true">
+                <div className="analytics-section-header">
+                  <div className="skel" style={{ width: "24%", height: 18 }} />
+                  <div className="skel" style={{ width: "28%", height: 12 }} />
+                </div>
+                <div className="skel analytics-skeleton-chart" />
+              </section>
             </div>
           </div>
         )}

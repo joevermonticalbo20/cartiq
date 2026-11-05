@@ -44,6 +44,36 @@
 }
 .pct-bar span { display: block; height: 100%; background: var(--primary); border-radius: 3px; }
 .analytics-loading { text-align: center; padding: 60px 0; color: var(--text-muted); }
+.analytics-summary-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+  padding: var(--space-5) var(--space-6);
+  min-height: 120px;
+}
+.analytics-summary-skeleton .skel,
+.analytics-section-header .skel {
+  margin: 0;
+}
+.analytics-loading-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.analytics-skeleton-chart {
+  display: block;
+  width: 100%;
+  height: 280px;
+  margin: 0;
+  border-radius: var(--radius-sm);
+}
+.analytics-skeleton-table {
+  height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
 
 /* ----- Analytics: recharts overrides (dating 'recharts overrides') ----- */
 /* ================= recharts overrides ================= */

@@ -136,6 +136,10 @@ describe("OTP email content", () => {
     assert.match(change.subject, /change/i);
     assert.match(change.text, /482916/);
     assert.match(change.text, /NOT changed/i);
+    assert.match(change.html, /ACCOUNT SECURITY/);
+    assert.match(change.html, /YOUR VERIFICATION CODE/);
+    assert.match(change.html, />482916</);
+    assert.match(change.html, /CartIQ staff will never ask you for it/);
     assert.deepEqual(viaPurpose, change);
     assert.deepEqual(otpEmailContent("482916"), reset);
   });

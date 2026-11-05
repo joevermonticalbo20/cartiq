@@ -8,7 +8,7 @@ import { usePagedData } from "../hooks/usePagedData.js";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
-import Skeleton from "../components/Skeleton.jsx";
+import { TableSkeleton } from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
@@ -285,7 +285,17 @@ export default function StaffPage() {
             <Badge variant={onShift.length > 0 ? "ok" : "neutral"}>{onShift.length} Active</Badge>
           </div>
           {perfLoading ? (
-            <Skeleton rows={3} />
+            <div className="staff-chip-list-skeleton" aria-hidden="true">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div className="staff-chip staff-chip-skeleton" key={index}>
+                  <span className="staff-avatar skel" />
+                  <span className="staff-chip-skeleton-copy">
+                    <span className="skel" />
+                    <span className="skel" />
+                  </span>
+                </div>
+              ))}
+            </div>
           ) : onShift.length === 0 ? (
             <EmptyState 
               icon={Clock} 
@@ -318,7 +328,18 @@ export default function StaffPage() {
             <span className="muted small">(Last 28 Days)</span>
           </div>
           {perfLoading ? (
-            <Skeleton rows={3} />
+            <TableSkeleton
+              ariaLabel="Loading top performers"
+              rows={5}
+              fixedLayout
+              columns={[
+                { key: "rank", label: "Rank", width: 80, skeletonType: "badge" },
+                { key: "staff", label: "Staff name", skeletonWidth: "68%" },
+                { key: "sales", label: "Sales", align: "right", skeletonWidth: "48%" },
+                { key: "orders", label: "Orders", align: "right", skeletonWidth: "38%" },
+                { key: "average", label: "Avg ticket", align: "right", skeletonWidth: "48%" },
+              ]}
+            />
           ) : !performance || performance.staff.length === 0 ? (
             <EmptyState 
               icon={Trophy} 
@@ -382,9 +403,19 @@ export default function StaffPage() {
           </div>
 
           {tableLoading ? (
-            <div className="table-wrap" style={{ padding: "var(--space-5)" }}>
-              <Skeleton rows={5} />
-            </div>
+            <TableSkeleton
+              ariaLabel="Loading shift history"
+              rows={5}
+              fixedLayout
+              columns={[
+                { key: "time", label: "Time", width: 150, skeletonWidth: "70%" },
+                { key: "staff", label: "Staff", skeletonWidth: "58%" },
+                { key: "cart", label: "Cart", width: 120, skeletonType: "badge" },
+                { key: "event", label: "Event", width: 100, skeletonType: "badge" },
+                { key: "source", label: "Source", width: 100, skeletonType: "badge" },
+                ...(isOwner ? [{ key: "actions", label: "Actions", align: "center", width: 100 }] : []),
+              ]}
+            />
           ) : error ? (
             <ErrorBox message={error} onRetry={handleRefreshAll} />
           ) : (!rows || rows.length === 0) ? (

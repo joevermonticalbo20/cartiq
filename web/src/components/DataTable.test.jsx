@@ -22,6 +22,18 @@ describe("DataTable", () => {
     expect(screen.getByText("Carrot")).toBeInTheDocument();
   });
 
+  it("applies a row class from the rowClassName callback", () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={sample}
+        rowClassName={(row) => row.id === 2 ? "archived-row" : ""}
+      />
+    );
+    expect(screen.getByText("Bread").closest("tr")).toHaveClass("archived-row");
+    expect(screen.getByText("Apple").closest("tr")).not.toHaveClass("archived-row");
+  });
+
   it("renders column headers", () => {
     render(<DataTable columns={columns} data={sample} />);
     expect(screen.getByText("Name")).toBeInTheDocument();

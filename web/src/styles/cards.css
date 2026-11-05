@@ -120,6 +120,134 @@
   animation: shimmer 1.2s infinite linear;
   margin: 9px 0;
 }
+.skeleton-lines {
+  display: flex;
+  flex-direction: column;
+}
+.table-skeleton-cell {
+  display: inline-block;
+  max-width: 100%;
+  margin: 4px 0;
+  vertical-align: middle;
+}
+.table-skeleton-cell.is-badge {
+  height: 22px;
+  border-radius: 99px;
+}
+.table-skeleton-cell.is-checkbox {
+  height: 16px;
+  border-radius: 4px;
+}
+.table-skeleton-actions {
+  display: inline-flex;
+  justify-content: center;
+  gap: 6px;
+}
+.table-skeleton-actions .skel {
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  border-radius: 99px;
+}
+.table-skeleton-button-actions {
+  display: inline-flex;
+  justify-content: center;
+  gap: 4px;
+}
+.table-skeleton-button-actions .skel {
+  width: 62px;
+  height: 26px;
+  margin: 0;
+  border-radius: 99px;
+}
+.skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.skeleton-list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 8px 0;
+}
+.skeleton-list-row.is-card {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--surface);
+}
+.skeleton-list-avatar {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  margin: 0;
+  border-radius: 50%;
+}
+.skeleton-list-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+.skeleton-list-copy .skel:first-child {
+  width: 48%;
+  height: 14px;
+  margin: 0;
+}
+.skeleton-list-copy .skel:last-child {
+  width: 76%;
+  height: 11px;
+  margin: 0;
+}
+.skeleton-list-badge {
+  flex: 0 0 64px;
+  width: 64px;
+  height: 22px;
+  margin: 0;
+  border-radius: 99px;
+}
+.skeleton-kpi-card {
+  cursor: default;
+}
+.kpi-card.skeleton-kpi-card:hover {
+  transform: none;
+}
+.skeleton-kpi-card .skel {
+  display: block;
+  margin: 0;
+}
+.skeleton-kpi-header,
+.skeleton-kpi-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.skeleton-kpi-header .skel:first-child {
+  width: 44%;
+  height: 14px;
+}
+.skeleton-kpi-header .skel:last-child {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+}
+.skeleton-kpi-value {
+  width: 62%;
+  height: 32px;
+}
+.skeleton-kpi-footer .skel:first-child {
+  width: 36%;
+  height: 12px;
+}
+.skeleton-kpi-footer .skel:last-child {
+  width: 28%;
+  height: 24px;
+  border-radius: 99px;
+}
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
 /* ----- Cards: section title + panel action ----- */

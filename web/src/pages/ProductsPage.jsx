@@ -3,7 +3,6 @@ import { Link, useOutletContext } from "react-router-dom";
 import { Plus, Edit2, Trash2, RefreshCw, Tag, AlertTriangle, Archive, ArchiveRestore, Star, ImagePlus } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
-import Badge from "../components/Badge.jsx";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
@@ -768,7 +767,6 @@ export default function ProductsPage() {
                           />
                         )}
                         <strong>{p.name}</strong>
-                        {p.active === false && <Badge variant="neutral">Archived</Badge>}
                       </span>
                     ),
                   },
@@ -862,7 +860,24 @@ export default function ProductsPage() {
                     label: "",
                     width: 168,
                     align: "right",
-                    render: (p) => (
+                    render: (p) => p.active === false ? (
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          className="ghost small-btn"
+                          onClick={() => setArchiving({ product: p, toActive: true })}
+                          title="Unarchive product"
+                        >
+                          <ArchiveRestore size={13} />
+                        </button>
+                        <button
+                          className="danger-ghost small-btn"
+                          onClick={() => setDeleting(p)}
+                          title="Delete product"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    ) : (
                       <div className="flex items-center justify-end gap-1">
                         <button
                           className="ghost small-btn"
@@ -884,10 +899,10 @@ export default function ProductsPage() {
                         </button>
                         <button
                           className="ghost small-btn"
-                          onClick={() => setArchiving({ product: p, toActive: p.active === false })}
-                          title={p.active === false ? "Restore product to POS catalog" : "Archive product (hide from POS)"}
+                          onClick={() => setArchiving({ product: p, toActive: false })}
+                          title="Archive product (hide from POS)"
                         >
-                          {p.active === false ? <ArchiveRestore size={13} /> : <Archive size={13} />}
+                          <Archive size={13} />
                         </button>
                         <button
                           className="danger-ghost small-btn"
@@ -901,6 +916,7 @@ export default function ProductsPage() {
                   },
                 ]}
                 data={products}
+                rowClassName={(product) => product.active === false ? "product-row-archived" : ""}
               />
             </>
           )}

@@ -83,6 +83,45 @@ describe("ProductsPage loading/error states", () => {
   });
 });
 
+describe("ProductsPage archived products", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.get.mockImplementation((url) => {
+      if (url === "/products") {
+        return Promise.resolve({
+          data: {
+            data: [{
+              id: 24,
+              name: "Seasonal Fries",
+              category: "Fries",
+              basePrice: 20,
+              sellingPrice: 45,
+              active: false,
+              imageUrl: null,
+              recipeCount: 0,
+              missingItems: [],
+            }],
+          },
+        });
+      }
+      return Promise.resolve({ data: null });
+    });
+  });
+
+  it("highlights archived rows without a badge and only shows unarchive and delete", async () => {
+    renderPage();
+    const row = (await screen.findByText("Seasonal Fries")).closest("tr");
+
+    expect(row).toHaveClass("product-row-archived");
+    expect(within(row).queryByText("Archived")).toBeNull();
+    expect(within(row).getByTitle("Unarchive product")).toBeInTheDocument();
+    expect(within(row).getByTitle("Delete product")).toBeInTheDocument();
+    expect(within(row).queryByTitle("Edit price and recipe")).toBeNull();
+    expect(within(row).queryByTitle("Rename product")).toBeNull();
+    expect(within(row).queryByTitle("Archive product (hide from POS)")).toBeNull();
+  });
+});
+
 describe("ProductsPage edit change feedback", () => {
   const seedProducts = [
     {
@@ -308,6 +347,7 @@ describe("ProductsPage best sellers + flat catalog", () => {
 
   it("shows the flat Recipes column with the recipe count", async () => {
     renderPage();
+    await screen.findByText("Cheese Fries - Medium");
     expect(await screen.findByText("Recipes")).toBeInTheDocument();
     expect(await screen.findByTitle("1 recipe row(s)")).toHaveTextContent("1");
   });

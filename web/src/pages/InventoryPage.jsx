@@ -12,7 +12,7 @@ import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import Select from "../components/Select.jsx";
 import { useToast } from "../components/Toast.jsx";
-import Skeleton from "../components/Skeleton.jsx";
+import { SkeletonList, TableSkeleton } from "../components/Skeleton.jsx";
 import { sanitizeQtyInput, parseQty } from "../utils/format.js";
 import { sanitizeTextInput, validateItemName } from "../utils/text.js";
 import { LIVE_EVENTS, useLiveEvent } from "../hooks/useLiveStream.js";
@@ -439,29 +439,20 @@ export default function InventoryPage() {
               <p role="status" className="muted small" style={{ margin: "0 0 var(--space-2)" }}>
                 Loading inventory
               </p>
-              <div className="table-wrap" tabIndex={0} aria-label="Loading table">
-                <table className="data">
-                  <thead>
-                    <tr>
-                      <th style={{ width: 40 }}> </th>
-                      <th><span className="th-inner">Item</span></th>
-                      <th><span className="th-inner">Current stock</span></th>
-                      <th><span className="th-inner">Threshold</span></th>
-                      <th><span className="th-inner">Source</span></th>
-                      <th><span className="th-inner">Status</span></th>
-                      <th><span className="th-inner">Forecast</span></th>
-                      <th className="t-center"><span className="th-inner">Action</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td colSpan="8" style={{ padding: "var(--space-4)" }}>
-                        <Skeleton rows={5} height={44} />
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <TableSkeleton
+                ariaLabel="Loading inventory table"
+                rows={7}
+                columns={[
+                  { key: "select", label: "", width: 40, skeletonType: "checkbox" },
+                  { key: "item", label: "Item", skeletonWidth: "70%" },
+                  { key: "stock", label: "Current stock", align: "center", skeletonWidth: "42%" },
+                  { key: "threshold", label: "Threshold", align: "center", skeletonWidth: "42%" },
+                  { key: "source", label: "Source", skeletonType: "badge" },
+                  { key: "status", label: "Status", skeletonType: "badge" },
+                  { key: "forecast", label: "Forecast", skeletonType: "badge" },
+                  { key: "actions", label: "Actions", align: "center", width: 140 },
+                ]}
+              />
             </>
           ) : loadError ? (
             <ErrorBox message={loadError} onRetry={refresh} />
@@ -478,7 +469,7 @@ export default function InventoryPage() {
               subtitle={`Add items to ${selected} to start tracking stock.`}
             />
           ) : (
-            <div className="table-wrap">
+            <div className="table-wrap" tabIndex={0} aria-label="Inventory items table">
               <table className="data">
                 <thead>
                   <tr>
@@ -605,13 +596,28 @@ export default function InventoryPage() {
           )}
         </section>
 
-        {isOwner && restockRequests.length > 0 && (
+        {isOwner && (loading || restockRequests.length > 0) && (
           <section className="panel" style={{ marginTop: "var(--space-3)" }}>
             <h3 className="section-title">Mobile restock requests</h3>
             <p className="muted small">
               Requests remain active until marked restocked or dismissed.
             </p>
-            <div className="table-wrap">
+            {loading ? (
+              <TableSkeleton
+                className="inventory-table-scroll inventory-restock-table"
+                ariaLabel="Loading mobile restock requests"
+                rows={4}
+                columns={[
+                  { key: "ingredient", label: "Ingredient" },
+                  { key: "cart", label: "Cart" },
+                  { key: "urgency", label: "Urgency", skeletonType: "badge" },
+                  { key: "requestedBy", label: "Requested by" },
+                  { key: "note", label: "Note" },
+                  { key: "actions", label: "Action", align: "center", skeletonType: "button-actions" },
+                ]}
+              />
+            ) : (
+            <div className="table-wrap inventory-table-scroll inventory-restock-table" role="region" tabIndex={0} aria-label="Mobile restock requests table">
               <table className="data">
                 <thead>
                   <tr>
@@ -637,8 +643,8 @@ export default function InventoryPage() {
                       </td>
                       <td>{request.requestedByName ?? "Staff"}</td>
                       <td className="muted">{request.notes || "—"}</td>
-                      <td className="t-center nowrap">
-                        <div className="flex items-center justify-center gap-1">
+                      <td className="t-center inventory-restock-actions-cell">
+                        <div className="inventory-restock-actions">
                           {request.status === "pending" && (
                             <button
                               className="ghost small-btn"
@@ -669,6 +675,7 @@ export default function InventoryPage() {
                 </tbody>
               </table>
             </div>
+            )}
           </section>
         )}
 
@@ -706,14 +713,27 @@ export default function InventoryPage() {
           </div>
         )}
 
-        {prep && (
+        {(loading || prep) && (
           <section className="panel" style={{ marginTop: "var(--space-3)" }}>
-            <h3 className="section-title">Prep for the next {prep.days} days</h3>
+            <h3 className="section-title">Prep for the next {prep?.days ?? 3} days</h3>
             <p className="muted small">
               Expected usage from trailing averages scaled by weekday patterns.
               Shortfall = what to prepare beyond current stock.
             </p>
-            <div className="table-wrap">
+            {loading ? (
+              <TableSkeleton
+                className="inventory-table-scroll"
+                ariaLabel="Loading prep forecast"
+                rows={5}
+                columns={[
+                  { key: "item", label: "Item" },
+                  { key: "stock", label: "Stock", align: "center", skeletonWidth: "42%" },
+                  { key: "expected", label: "Expected use", align: "center", skeletonWidth: "48%" },
+                  { key: "shortfall", label: "Shortfall", align: "center", skeletonType: "badge" },
+                ]}
+              />
+            ) : (
+            <div className="table-wrap inventory-table-scroll" role="region" tabIndex={0} aria-label="Prep forecast table">
               <table className="data">
                 <thead>
                   <tr>
@@ -746,8 +766,9 @@ export default function InventoryPage() {
                 </tbody>
               </table>
             </div>
+            )}
             
-            {isOwner && (prep.calibration ?? []).length > 0 && (
+            {!loading && isOwner && (prep.calibration ?? []).length > 0 && (
               <div style={{ marginTop: "var(--space-4)" }}>
                 <h3 className="section-title">Threshold review (owner)</h3>
                 <p className="muted small">
@@ -791,6 +812,12 @@ export default function InventoryPage() {
                     </button>
                   </div>
                 ))}
+              </div>
+            )}
+            {loading && isOwner && (
+              <div style={{ marginTop: "var(--space-4)" }}>
+                <h3 className="section-title">Threshold review (owner)</h3>
+                <SkeletonList rows={3} />
               </div>
             )}
           </section>
