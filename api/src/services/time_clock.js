@@ -13,6 +13,7 @@
 import { db } from "../firestore.js";
 
 const MNL_OFFSET_MS = 8 * 60 * 60 * 1000;
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]; // 0 = Sunday ... 6 = Saturday (UTC getDay convention)
 
 const TIMECLOCK_DEFAULTS = {
   enabled: false,
@@ -21,6 +22,12 @@ const TIMECLOCK_DEFAULTS = {
   outOpen: "17:00",
   outClose: "19:00",
 };
+
+/** Weekday 0-6 in Manila for any instant (0 = Sunday, same as UTC getDay). */
+export function manilaWeekday(nowMs) {
+  const m = new Date(nowMs + MNL_OFFSET_MS);
+  return m.getUTCDay();
+}
 
 /** Minutes since Manila midnight for any instant (server runs UTC). */
 export function manilaMinutesOfDay(nowMs) {
@@ -46,14 +53,27 @@ export function canonicalHm(v) {
   return String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
 }
 
+/** Normalize a days array to a deduped sorted 0-6 array; absent/invalid becomes ALL days (fail-open). */
+export function canonicalDays(v) {
+  if (!Array.isArray(v)) return ALL_DAYS.slice();
+  const set = new Set();
+  for (const n of v) {
+    const n2 = Number(n);
+    if (Number.isInteger(n2) && n2 >= 0 && n2 <= 6) set.add(n2);
+  }
+  const arr = [...set].sort((a, b) => a - b);
+  return arr.length ? arr : ALL_DAYS.slice();
+}
+
 export function normalizeTimeClock(doc) {
-  const out = { ...TIMECLOCK_DEFAULTS, updatedAt: null, updatedByName: null };
+  const out = { ...TIMECLOCK_DEFAULTS, updatedAt: null, updatedByName: null, days: ALL_DAYS.slice() };
   if (doc) {
     out.enabled = doc.enabled === true;
     out.inOpen = canonicalHm(doc.inOpen) ?? out.inOpen;
     out.inClose = canonicalHm(doc.inClose) ?? out.inClose;
     out.outOpen = canonicalHm(doc.outOpen) ?? out.outOpen;
     out.outClose = canonicalHm(doc.outClose) ?? out.outClose;
+    out.days = canonicalDays(doc.days);
     out.updatedAt = doc.updatedAt?.toDate ? doc.updatedAt.toDate().toISOString() : (doc.updatedAt ? String(doc.updatedAt) : null);
     out.updatedByName = doc.updatedByName ?? null;
   }
@@ -75,13 +95,14 @@ export async function readTimeClock() {
  * Upsert settings/timeClock (merge semantics). Normalizes and validates the
  * times. Returns the normalized stored config.
  */
-export async function writeTimeClock({ enabled, inOpen, inClose, outOpen, outClose }, userName) {
+export async function writeTimeClock({ enabled, inOpen, inClose, outOpen, outClose, days }, userName) {
   const snap = {
     enabled: enabled === true,
     inOpen: canonicalHm(inOpen),
     inClose: canonicalHm(inClose),
     outOpen: canonicalHm(outOpen),
     outClose: canonicalHm(outClose),
+    days: canonicalDays(days),
     updatedAt: new Date(),
     updatedByName: userName ?? null,
   };
@@ -98,6 +119,11 @@ export function timeClockVerdict(clock, event, nowMs) {
   const outClose = hmToMinutes(clock.outClose);
   // A hand-edited/corrupt doc must NEVER lock staff out: fall back to open.
   if ([inOpen, inClose, outOpen, outClose].some(Number.isNaN)) return null;
+  // Days the cart does not sell: no clock events at all.
+  if (Array.isArray(clock.days) && !clock.days.includes(manilaWeekday(nowMs))) {
+    const label = event === "OUT" ? "Time out" : "Time in";
+    return `${label} is disabled on closed days. Try again on a selling day.`;
+  }
   const isOut = event === "OUT";
   const openMin = isOut ? outOpen : inOpen;
   const closeMin = isOut ? outClose : inClose;

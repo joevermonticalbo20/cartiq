@@ -250,7 +250,14 @@ describe("SettingsPage cart/device confirmations", () => {
 });
 
 describe("SettingsPage time clock", () => {
-  const clockSeed = { enabled: false, inOpen: "07:00", inClose: "09:00", outOpen: "17:00", outClose: "19:00" };
+  const clockSeed = {
+    enabled: false,
+    inOpen: "07:00",
+    inClose: "09:00",
+    outOpen: "17:00",
+    outClose: "19:00",
+    days: [0, 1, 2, 3, 4, 5, 6],
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -265,7 +272,14 @@ describe("SettingsPage time clock", () => {
     });
     api.put.mockResolvedValue({
       data: {
-        clock: { enabled: true, inOpen: "08:00", inClose: "09:30", outOpen: "17:30", outClose: "19:00" },
+        clock: {
+          enabled: true,
+          inOpen: "08:00",
+          inClose: "09:30",
+          outOpen: "17:30",
+          outClose: "19:00",
+          days: [1, 2, 3, 4, 5, 6],
+        },
       },
     });
   });
@@ -286,33 +300,79 @@ describe("SettingsPage time clock", () => {
     );
   }
 
-  it("loads the stored windows and saves an edited window", async () => {
+  it("renders the OFF state with 12-hour editors and all day chips", async () => {
     renderOwnerPage();
     expect(await screen.findByText("Time clock")).toBeInTheDocument();
-    expect(screen.getByLabelText(/daily window/)).not.toBeChecked();
-    fireEvent.click(screen.getByLabelText(/daily window/));
-    fireEvent.change(screen.getByLabelText("Time in opens"), { target: { value: "08:00" } });
-    fireEvent.change(screen.getByLabelText("Time in closes"), { target: { value: "09:30" } });
-    fireEvent.change(screen.getByLabelText("Time out opens"), { target: { value: "17:30" } });
+    expect(screen.getByRole("switch")).toHaveAttribute("aria-checked", "false");
+    expect(
+      screen.getByText("Schedule is OFF — both buttons always work (current behavior)."),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Time in opens hour")).toBeDisabled();
+    expect(screen.getByLabelText("Time out opens AM or PM")).toBeDisabled();
+    // 12-hour values shown, e.g. 05:00 PM for 17:00.
+    expect(screen.getByLabelText("Time out opens AM or PM")).toHaveValue("PM");
+    expect(screen.getByLabelText("Time out opens hour")).toHaveValue("5");
+    expect(screen.getByLabelText("Time in opens AM or PM")).toHaveValue("AM");
+    expect(screen.getByLabelText("Time in opens hour")).toHaveValue("7");
+    // Every selling day is on.
+    for (const label of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) {
+      expect(screen.getByRole("button", { name: label })).toHaveAttribute("aria-pressed", "true");
+    }
+  });
+
+  it("turning ON enables the 12h editors and day chips", async () => {
+    renderOwnerPage();
+    expect(await screen.findByText("Time clock")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("switch"));
+    expect(screen.getByRole("switch")).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("Schedule is ON")).toBeInTheDocument();
+    expect(screen.getByLabelText("Time in opens hour")).toBeEnabled();
+    expect(screen.getByLabelText("Time out closes hour")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Sun" })).toBeEnabled();
+  });
+
+  it("saves the ON config with the selected selling days", async () => {
+    renderOwnerPage();
+    expect(await screen.findByText("Time clock")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.change(screen.getByLabelText("Time in opens hour"), { target: { value: "8" } });
+    fireEvent.change(screen.getByLabelText("Time out opens hour"), { target: { value: "6" } });
+    fireEvent.change(screen.getByLabelText("Time out opens AM or PM"), {
+      target: { value: "PM" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sun" })); // uncheck Sunday
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
     await vi.waitFor(() =>
       expect(api.put).toHaveBeenCalledWith("/settings/timeclock", {
         enabled: true,
         inOpen: "08:00",
-        inClose: "09:30",
-        outOpen: "17:30",
+        inClose: "09:00",
+        outOpen: "18:00",
         outClose: "19:00",
+        days: [1, 2, 3, 4, 5, 6],
       }),
     );
     expect(await screen.findByText("Time clock saved")).toBeInTheDocument();
   });
 
-  it("blocks saving when Time in opens after it closes, without calling the server", async () => {
+  it("blocks saving with no selling day selected, without calling the server", async () => {
     renderOwnerPage();
     expect(await screen.findByText("Time clock")).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText(/daily window/));
-    fireEvent.change(screen.getByLabelText("Time in opens"), { target: { value: "09:30" } });
-    fireEvent.change(screen.getByLabelText("Time in closes"), { target: { value: "08:00" } });
+    fireEvent.click(screen.getByRole("switch"));
+    for (const label of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) {
+      fireEvent.click(screen.getByRole("button", { name: label }));
+    }
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("at least one day");
+    expect(api.put).not.toHaveBeenCalled();
+  });
+
+  it("blocks saving when Time in opens after it closes", async () => {
+    renderOwnerPage();
+    expect(await screen.findByText("Time clock")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.change(screen.getByLabelText("Time in opens hour"), { target: { value: "9" } });
+    fireEvent.change(screen.getByLabelText("Time in opens minute"), { target: { value: "30" } });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "opening time must be before the closing time",
@@ -320,22 +380,18 @@ describe("SettingsPage time clock", () => {
     expect(api.put).not.toHaveBeenCalled();
   });
 
-  it("blocks saving when Time out opens after it closes, without calling the server", async () => {
+  it("blocks saving when Time out opens after it closes", async () => {
     renderOwnerPage();
     expect(await screen.findByText("Time clock")).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText(/daily window/));
-    fireEvent.change(screen.getByLabelText("Time out opens"), { target: { value: "19:00" } });
-    fireEvent.change(screen.getByLabelText("Time out closes"), { target: { value: "17:00" } });
+    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.change(screen.getByLabelText("Time out opens hour"), { target: { value: "8" } });
+    fireEvent.change(screen.getByLabelText("Time out opens AM or PM"), {
+      target: { value: "PM" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Time out: the opening time must be before the closing time",
     );
     expect(api.put).not.toHaveBeenCalled();
-  });
-
-  it("shows the unrestricted hint while the restriction is off", async () => {
-    renderOwnerPage();
-    expect(await screen.findByText("Time clock")).toBeInTheDocument();
-    expect(screen.getByText(/No restriction/)).toBeInTheDocument();
   });
 });

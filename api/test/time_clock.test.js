@@ -7,9 +7,11 @@ import assert from "node:assert/strict";
 import {
   hmToMinutes,
   canonicalHm,
+  canonicalDays,
   normalizeTimeClock,
   timeClockVerdict,
   manilaMinutesOfDay,
+  manilaWeekday,
 } from "../src/services/time_clock.js";
 
 test("hmToMinutes parses HH:MM and rejects nonsense", () => {
@@ -41,7 +43,32 @@ const CLOCK = {
   inClose: "09:00",
   outOpen: "17:00",
   outClose: "19:00",
+  days: [0, 1, 2, 3, 4, 5, 6],
 };
+
+test("manilaWeekday matches getDay on the Manila wall clock", () => {
+  assert.equal(manilaWeekday(Date.UTC(2026, 10, 5, 15, 59)), 4); // Thu 23:59 Manila
+  assert.equal(manilaWeekday(Date.UTC(2026, 10, 5, 16)), 5);     // Fri 00:00 Manila
+  assert.equal(manilaWeekday(Date.UTC(2026, 10, 7, 16)), 0);     // Sun 00:00 Manila
+});
+
+test("canonicalDays dedupes, sorts and fills defaults", () => {
+  assert.deepEqual(canonicalDays([6, 1, 4, 6, 0]), [0, 1, 4, 6]);
+  assert.deepEqual(canonicalDays(null), [0, 1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(canonicalDays([]), [0, 1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(canonicalDays([9, -1, "x"]), [0, 1, 2, 3, 4, 5, 6]);
+});
+
+test("closed day blocks both events even inside the window", () => {
+  const closedSun = { ...CLOCK, days: [1, 2, 3, 4, 5, 6] }; // every day except Sunday
+  // Sunday 2026-11-08 07:30 Manila (Sat 2026-11-07 23:30 UTC): blocked.
+  const sundayMs = Date.UTC(2026, 10, 7, 23, 30);
+  assert.notEqual(timeClockVerdict(closedSun, "IN", sundayMs), null);
+  assert.notEqual(timeClockVerdict(closedSun, "OUT", sundayMs), null);
+  // Tuesday 2026-11-10 07:30 Manila (Mon 2026-11-09 23:30 UTC): allowed.
+  const tuesdayMs = Date.UTC(2026, 10, 9, 23, 30);
+  assert.equal(timeClockVerdict(closedSun, "IN", tuesdayMs), null);
+});
 
 test("windows are inclusive at open and at close", () => {
   assert.equal(timeClockVerdict(CLOCK, "IN", Date.UTC(2026, 0, 5, 22, 59)) !== null, true); // 06:59 Manila
@@ -66,11 +93,13 @@ test("normalizeTimeClock fills defaults and flags junk", () => {
     inClose: "09:00",
     outOpen: "17:00",
     outClose: "19:00",
+    days: [0, 1, 2, 3, 4, 5, 6],
     updatedAt: null,
     updatedByName: null,
   });
-  const c = normalizeTimeClock({ enabled: true, inOpen: "7:05", inClose: "junk" });
+  const c = normalizeTimeClock({ enabled: true, inOpen: "7:05", inClose: "junk", days: [6, 2, 6] });
   assert.equal(c.enabled, true);
   assert.equal(c.inOpen, "07:05");
   assert.equal(c.inClose, "09:00"); // junk value falls back to default
+  assert.deepEqual(c.days, [2, 6]);
 });

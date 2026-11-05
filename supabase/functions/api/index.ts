@@ -2002,6 +2002,8 @@ function requireOwner(user) {
 // Manila is UTC+8 with no DST, so the offset is a fixed constant - the same
 // thing api/src/services/timezone.js does for the business day.
 const MNL_OFFSET_MS = 8 * 60 * 60 * 1000;
+// 0 = Sunday ... 6 = Saturday (UTC getDay convention).
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 
 const TIMECLOCK_DEFAULTS = {
   enabled: false,
@@ -2010,6 +2012,12 @@ const TIMECLOCK_DEFAULTS = {
   outOpen: "17:00",
   outClose: "19:00",
 };
+
+/** Weekday 0-6 in Manila for any instant (0 = Sunday, same as UTC getDay). */
+function manilaWeekday(nowMs) {
+  const m = new Date(nowMs + MNL_OFFSET_MS);
+  return m.getUTCDay();
+}
 
 /** Minutes since Manila midnight for any instant (server runs UTC). */
 function manilaMinutesOfDay(nowMs) {
@@ -2035,14 +2043,27 @@ function canonicalHm(v) {
   return String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
 }
 
+/** Normalize a days array to a deduped sorted 0-6 array; absent/invalid becomes ALL days (fail-open). */
+function canonicalDays(v) {
+  if (!Array.isArray(v)) return ALL_DAYS.slice();
+  const set = new Set();
+  for (const n of v) {
+    const n2 = Number(n);
+    if (Number.isInteger(n2) && n2 >= 0 && n2 <= 6) set.add(n2);
+  }
+  const arr = [...set].sort((a, b) => a - b);
+  return arr.length ? arr : ALL_DAYS.slice();
+}
+
 function normalizeTimeClock(doc) {
-  const out = { ...TIMECLOCK_DEFAULTS, updatedAt: null, updatedByName: null };
+  const out = { ...TIMECLOCK_DEFAULTS, updatedAt: null, updatedByName: null, days: ALL_DAYS.slice() };
   if (doc) {
     out.enabled = doc.enabled === true;
     out.inOpen = canonicalHm(doc.inOpen) ?? out.inOpen;
     out.inClose = canonicalHm(doc.inClose) ?? out.inClose;
     out.outOpen = canonicalHm(doc.outOpen) ?? out.outOpen;
     out.outClose = canonicalHm(doc.outClose) ?? out.outClose;
+    out.days = canonicalDays(doc.days);
     out.updatedAt = doc.updatedAt instanceof Date ? doc.updatedAt.toISOString() : (doc.updatedAt ? String(doc.updatedAt) : null);
     out.updatedByName = doc.updatedByName ?? null;
   }
@@ -2069,6 +2090,11 @@ function timeClockVerdict(clock, event, nowMs) {
   const outClose = hmToMinutes(clock.outClose);
   // A hand-edited/corrupt doc must NEVER lock staff out: fall back to open.
   if ([inOpen, inClose, outOpen, outClose].some(Number.isNaN)) return null;
+  // Days the cart does not sell: no clock events at all.
+  if (Array.isArray(clock.days) && !clock.days.includes(manilaWeekday(nowMs))) {
+    const label = event === "OUT" ? "Time out" : "Time in";
+    return `${label} is disabled on closed days. Try again on a selling day.`;
+  }
   const isOut = event === "OUT";
   const openMin = isOut ? outOpen : inOpen;
   const closeMin = isOut ? outClose : inClose;
@@ -2106,12 +2132,21 @@ async function handlePutTimeClock(req, origin, user) {
   if (hmToMinutes(outOpen) >= hmToMinutes(outClose)) {
     return jsonRes(origin, { error: "Time out: the opening time must be before the closing time." }, 400);
   }
+  const rawDays = body?.days;
+  if (rawDays === undefined || rawDays === null || !Array.isArray(rawDays)) {
+    return jsonRes(origin, { error: "days must be a non-empty array of weekday numbers (0 = Sunday, 6 = Saturday)." }, 400);
+  }
+  const days = [...new Set(rawDays.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))].sort((a, b) => a - b);
+  if (days.length === 0) {
+    return jsonRes(origin, { error: "days must not be empty - select at least one selling day." }, 400);
+  }
   const saved = await fsPatch("settings", "timeClock", {
     enabled,
     inOpen,
     inClose,
     outOpen,
     outClose,
+    days,
     updatedAt: new Date(),
     updatedByName: user?.name ?? null,
   });
