@@ -59,6 +59,25 @@ unsigned long lastFlush = 0;
 unsigned long wifiAttemptStarted = 0;
 String lastUid = "";
 unsigned long lastTapMs = 0;
+unsigned long lastHeartbeat = 0;
+unsigned long lastReaderCheck = 0;
+bool readerOk = false;
+
+// The RC522 can drop off the SPI bus after a power dip (a weak USB port is
+// enough) and then every register read returns 0x00/0xFF. Keep trying instead
+// of staying dead until someone power-cycles the cart.
+bool initReader() {
+  pinMode(SS_PIN, OUTPUT);
+  digitalWrite(SS_PIN, HIGH);
+  rfid.PCD_Init();
+  delay(50);
+  byte ver = rfid.PCD_ReadRegister(MFRC522::VersionReg);
+  readerOk = (ver == 0x91 || ver == 0x92);
+  Serial.printf("MFRC522 version: 0x%02X %s\n", ver,
+                readerOk ? "(reader OK)" : "(no answer)");
+  if (!readerOk) rfid.PCD_AntennaOff();
+  return readerOk;
+}
 
 void connectWifi() {
   // Marks the start of this attempt so loop() knows when it is safe to retry.
@@ -236,9 +255,18 @@ void setup() {
   Serial.printf("API base: %s\n", API_BASE_URL);
   pinMode(LED_PIN, OUTPUT);
 
-  SPI.begin();
-  rfid.PCD_Init();
-
+  // SCK, MISO, MOSI. SS/CS stays -1 because the MFRC522 library drives GPIO5
+  // itself. (The ESP32 core default is already -1; being explicit keeps this
+  // correct if the core default ever changes.)
+  SPI.begin(18, 19, 23, -1);
+  for (int attempt = 1; attempt <= 3 && !initReader(); attempt++) {
+    delay(300);
+  }
+  if (!readerOk) {
+    Serial.println("Reader missing - will retry every 5s. Check wiring: "
+                   "SDA->GPIO5, SCK->GPIO18, MOSI->GPIO23, MISO->GPIO19, "
+                   "RST->GPIO22, 3.3V, GND.");
+  }
 #if USE_LOAD_CELLS
   scaleLpg.begin(LPG_DT_PIN, LPG_SCK_PIN);
   scaleBin.begin(BIN_DT_PIN, BIN_SCK_PIN);
@@ -260,7 +288,13 @@ void setup() {
 }
 
 void loop() {
-  if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
+  if (!readerOk) {
+    if (millis() - lastReaderCheck > 5000) {
+      lastReaderCheck = millis();
+      Serial.println("Reader retry...");
+      initReader();
+    }
+  } else if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
     String uid = "";
     uid.reserve(11);
     for (byte i = 0; i < rfid.uid.size; i++) {
@@ -270,6 +304,11 @@ void loop() {
     uid.toUpperCase();
     rfid.PICC_HaltA();
     queueShift(uid);
+  }
+
+  if (millis() - lastHeartbeat > 5000) {
+    lastHeartbeat = millis();
+    Serial.printf("[heartbeat] reader %s\n", readerOk ? "OK" : "MISSING");
   }
 
   #if USE_LOAD_CELLS
