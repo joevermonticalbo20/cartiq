@@ -4,6 +4,7 @@ import { Hourglass, Check, Ban, RefreshCw, Square, CheckSquare } from "lucide-re
 
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
+import { useLiveEvent } from "../hooks/useLiveStream.js";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
@@ -60,6 +61,9 @@ export default function VoidRequestsPage() {
     return () => clearTimeout(timer);
   }, [load]);
 
+  useLiveEvent("alert:new", load);
+  useLiveEvent("order:updated", load);
+
   const toggleOne = (id) => {
     setSelected((current) => {
       const next = new Set(current);
@@ -92,6 +96,7 @@ export default function VoidRequestsPage() {
           : `Order #${orderId} stays as paid`,
         "success"
       );
+      await load();
       return true;
     } catch (err) {
       toast(getFriendlyError(err, "Could not record the void decision."), "error");

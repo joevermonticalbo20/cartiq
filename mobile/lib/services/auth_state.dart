@@ -120,6 +120,7 @@ class AuthState extends ChangeNotifier {
     // Pull this staff member's notifications (void decisions, restock
     // acknowledgements) without blocking the session restore.
     refreshMyAlerts().catchError((_) {});
+    _startAlertPoll();
     notifyListeners();
   }
 
@@ -188,6 +189,8 @@ class AuthState extends ChangeNotifier {
   final List<Map<String, dynamic>> myAlerts = [];
   int get myUnreadCount => myAlerts.length;
 
+  Timer? _alertPoll;
+
   Future<void> refreshMyAlerts() async {
     final t = token;
     if (t == null) {
@@ -204,6 +207,19 @@ class AuthState extends ChangeNotifier {
       // Keep whatever was there; offline is expected.
     }
     notifyListeners();
+  }
+
+  void _startAlertPoll() {
+    _alertPoll?.cancel();
+    _alertPoll = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (token == null) return;
+      refreshMyAlerts().catchError((_) {});
+    });
+  }
+
+  void _stopAlertPoll() {
+    _alertPoll?.cancel();
+    _alertPoll = null;
   }
 
   Future<void> markMyAlertRead(int id) async {
@@ -349,6 +365,7 @@ class AuthState extends ChangeNotifier {
     // A different user takes over this device: their PIN setup starts over.
     final pinnedUser = await pin.pinUsername;
     refreshMyAlerts().catchError((_) {});
+    _startAlertPoll();
     final currentUser = user?['username'] as String?;
     // Only a GENUINE user switch re-arms the one-time prompt. This used to be
     // `pinnedUser != currentUser`, which is also true when pinnedUser is null -
@@ -394,6 +411,7 @@ class AuthState extends ChangeNotifier {
     offlineMode = false;
     offlineUnlockRequired = false;
     _stopTimeClockSync();
+    _stopAlertPoll();
     // Signing out revokes the refresh token server-side and clears the two
     // tokens here — but the cached profile, catalog snapshot and last-verified
     // stamp stay so a staff member can still reach the queue-only POS offline
