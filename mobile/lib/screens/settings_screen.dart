@@ -44,6 +44,7 @@ class SettingsScreenState extends State<SettingsScreen> {
     final lastOnline = await auth.lastOnline;
     final eligibility = await auth.checkOfflineEligibility();
     await auth.refreshTimeClock();
+    await auth.refreshMyShifts();
 
     if (mounted) {
       setState(() {
@@ -126,6 +127,19 @@ class SettingsScreenState extends State<SettingsScreen> {
       );
       return;
     }
+    final isIn = event == 'IN';
+    final done = isIn ? auth.myInDone : auth.myOutDone;
+    if (done) {
+      // One session per day: once timed in (or out), the button stays greyed.
+      final at = auth.latestShiftToday(event);
+      AppMessenger.showGlassToast(
+        context: context,
+        message:
+            'You already timed ${isIn ? 'in' : 'out'} today${at == null ? '' : ' at ${ManilaTime.formatClock12(at)}'}.',
+        isSuccess: false,
+      );
+      return;
+    }
     // The button is greyed out while closed — this backstop covers every
     // programmatic path too. The server enforces the same on the claim.
     final open = event == 'IN' ? auth.clockInOpen : auth.clockOutOpen;
@@ -137,7 +151,6 @@ class SettingsScreenState extends State<SettingsScreen> {
       );
       return;
     }
-    final isIn = event == 'IN';
     final result = await RfidClaimDialog.show(
       context,
       token: auth.token!,
@@ -158,6 +171,8 @@ class SettingsScreenState extends State<SettingsScreen> {
       message: RfidRegistrationService.describe(result, event: event),
       isSuccess: ok,
     );
+    // Pull the fresh shift in so the buttons grey out immediately.
+    await auth.refreshMyShifts();
   }
 
   /// RFID card management, and the permanent way back in for anyone who skipped
@@ -1576,12 +1591,15 @@ class _TimeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canIn = auth.clockInOpen;
-    final canOut = auth.clockOutOpen;
-    final lockedIn = !canIn;
-    final lockedOut = !canOut;
+    final inAt = auth.myInAtToday;
+    final outAt = auth.myOutAtToday;
+    final myInDone = inAt != null;
+    final myOutDone = outAt != null;
+    final canIn = auth.clockInOpen && !myInDone;
+    final canOut = auth.clockOutOpen && !myOutDone;
     final scheme = Theme.of(context).colorScheme;
     final bodySmall = Theme.of(context).textTheme.bodySmall;
+    final caption = auth.timeClockCaption();
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.space4,
@@ -1628,7 +1646,35 @@ class _TimeRow extends StatelessWidget {
               ),
             ],
           ),
-          if (lockedIn || lockedOut)
+          if (inAt != null || outAt != null)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.space2),
+              child: Wrap(
+                spacing: AppSpacing.space2,
+                runSpacing: AppSpacing.space2,
+                children: [
+                  if (inAt != null)
+                    _AttendanceChip(
+                      icon: Icons.login_rounded,
+                      accent: AppColors.ok,
+                      text: 'Time in  ${ManilaTime.formatClock12(inAt)}',
+                    ),
+                  if (outAt != null)
+                    _AttendanceChip(
+                      icon: Icons.logout_rounded,
+                      accent: AppColors.danger,
+                      text: 'Time out  ${ManilaTime.formatClock12(outAt)}',
+                    ),
+                  if (inAt != null && outAt != null)
+                    _AttendanceChip(
+                      icon: Icons.check_circle_rounded,
+                      accent: AppColors.ok,
+                      text: 'Shift complete for today',
+                    ),
+                ],
+              ),
+            ),
+          if (caption.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: AppSpacing.space2),
               child: Container(
@@ -1650,7 +1696,7 @@ class _TimeRow extends StatelessWidget {
                     const SizedBox(width: AppSpacing.space2),
                     Expanded(
                       child: Text(
-                        auth.timeClockCaption(),
+                        caption,
                         style: (bodySmall ?? const TextStyle()).copyWith(
                           color: AppColors.muted,
                         ),
@@ -1660,6 +1706,46 @@ class _TimeRow extends StatelessWidget {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "Time in 8:03 AM" pill shown under the row once a shift is on the board.
+class _AttendanceChip extends StatelessWidget {
+  const _AttendanceChip({
+    required this.icon,
+    required this.accent,
+    required this.text,
+  });
+
+  final IconData icon;
+  final Color accent;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.space3,
+        vertical: AppSpacing.space2,
+      ),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        border: Border.all(color: accent.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: accent),
+          const SizedBox(width: AppSpacing.space2),
+          Text(
+            text,
+            style: (Theme.of(context).textTheme.bodySmall ?? const TextStyle())
+                .copyWith(fontWeight: FontWeight.w700, color: accent),
+          ),
         ],
       ),
     );

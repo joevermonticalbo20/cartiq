@@ -30,6 +30,17 @@ class _FakeStore implements KeyValueStore {
 class _FakeApi extends ApiClient {
   _FakeApi({KeyValueStore? store})
     : super(secureStorage: store ?? _FakeStore());
+
+  /// Scripted /shifts/history payload; the refreshMyShifts path consumes it.
+  Map<String, dynamic> historyResponse = const {'data': []};
+
+  @override
+  Future<Map<String, dynamic>> shiftsHistory(
+    String token, {
+    required String code,
+    required String date,
+    int pageSize = 100,
+  }) async => historyResponse;
 }
 
 class _FakeQueue implements OfflineQueue {
@@ -67,6 +78,7 @@ AuthState _staffAuth(_FakeStore store) {
     secureStorage: store,
   );
   auth.user = {
+    'id': 42,
     'name': 'S1',
     'username': 'staff01',
     'role': 'STAFF',
@@ -75,6 +87,16 @@ AuthState _staffAuth(_FakeStore store) {
   };
   return auth;
 }
+
+Map<String, dynamic> _shiftRow(String event, DateTime when) => {
+  'id': 1,
+  'event': event,
+  'ts': when.toUtc().toIso8601String(),
+  'staffId': 42,
+  'staffUid': 'AABBCC11',
+  'staffName': 'S1',
+  'locationId': 1,
+};
 
 void main() {
   testWidgets('closed clock window greys out Time in / Time out with the hint', (
@@ -166,6 +188,76 @@ void main() {
     expect(timeIn.onPressed, isNull);
     expect(timeOut.onPressed, isNull);
     expect(find.text('Closed today - no selling day.'), findsOneWidget);
+  });
+
+  testWidgets('already timed in: Time in disabled, 12h chip and reason shown', (
+    tester,
+  ) async {
+    final store = _FakeStore();
+    final auth = _staffAuth(store);
+    (auth.api as _FakeApi).historyResponse = {
+      'data': [_shiftRow('IN', DateTime.now())],
+    };
+    auth.token = 'tok';
+    await auth.refreshMyShifts();
+
+    await tester.pumpWidget(_settingsHarness(auth));
+    await tester.pumpAndSettle();
+
+    final timeIn = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Time in'),
+    );
+    final timeOut = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Time out'),
+    );
+    expect(timeIn.onPressed, isNull, reason: 'already timed in — cannot do it twice today');
+    expect(timeOut.onPressed, isNotNull, reason: 'Time out must stay tappable');
+    expect(
+      find.byWidgetPredicate(
+        (w) =>
+            w is Text &&
+            (w.data?.startsWith('Time in  ') ?? false) &&
+            (w.data!.contains(' AM') || w.data!.contains(' PM')),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('already timed out: Time out disabled, 12h chip and reason shown', (
+    tester,
+  ) async {
+    final store = _FakeStore();
+    final auth = _staffAuth(store);
+    (auth.api as _FakeApi).historyResponse = {
+      'data': [
+        _shiftRow('IN', DateTime.now().subtract(const Duration(hours: 8))),
+        _shiftRow('OUT', DateTime.now().subtract(const Duration(hours: 4))),
+      ],
+    };
+    auth.token = 'tok';
+    await auth.refreshMyShifts();
+
+    await tester.pumpWidget(_settingsHarness(auth));
+    await tester.pumpAndSettle();
+
+    final timeIn = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Time in'),
+    );
+    final timeOut = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Time out'),
+    );
+    expect(timeIn.onPressed, isNull, reason: 'already timed in today');
+    expect(timeOut.onPressed, isNull, reason: 'already timed out today');
+    expect(find.text('Shift complete for today'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (w) =>
+            w is Text &&
+            (w.data?.startsWith('Time out  ') ?? false) &&
+            (w.data!.contains(' AM') || w.data!.contains(' PM')),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('unrestricted windows keep both buttons tappable', (

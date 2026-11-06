@@ -61,7 +61,7 @@ void main() {
       // Full pipeline: UTC string -> Manila wall-clock -> label.
       // 2020-01-05 00:00 UTC = 2020-01-05 08:00 Manila.
       final manila = ManilaTime.parse('2020-01-05T00:00:00Z')!;
-      expect(ManilaTime.formatTime(manila), '1/5/2020 08:00');
+      expect(ManilaTime.formatTime(manila), '1/5/2020 8:00 AM');
     });
   });
 
@@ -80,7 +80,7 @@ void main() {
     test('formats current-year dates without year', () {
       final year = ManilaTime.now().year;
       final label = ManilaTime.shortLabel('$year-03-04T01:02:00Z');
-      expect(label, '3/4 · 09:02');
+      expect(label, '3/4 · 9:02 AM');
     });
 
     test('empty string for unparsable input', () {

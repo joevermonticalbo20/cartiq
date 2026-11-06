@@ -427,6 +427,25 @@ class ApiClient {
     return body['rfidUid'] as String?;
   }
 
+  /// Attendance history for one cart on one day (Manila date, YYYY-MM-DD).
+  /// Returns the same envelope the web page consumes: `{ data, meta }`.
+  Future<Map<String, dynamic>> shiftsHistory(
+    String token, {
+    required String code,
+    required String date,
+    int pageSize = 100,
+  }) async {
+    final res = await _send(
+      () => _http.get(
+        _uri(
+          '/shifts/history?code=$code&date=$date&pageSize=$pageSize',
+        ),
+        headers: _headers(token: token),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
   /// Announce "someone is at this cart with a card". Returns the claim as
   /// `{claimId, status, expiresAt, locationCode, event}`.
   ///

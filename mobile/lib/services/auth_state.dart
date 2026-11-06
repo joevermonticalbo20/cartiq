@@ -8,6 +8,7 @@ import 'kv_store.dart';
 import 'offline_pin.dart';
 import 'rfid_registration.dart';
 import 'time_clock.dart';
+import '../utils/manila_time.dart';
 
 /// Holds the session token and profile for the whole app.
 class AuthState extends ChangeNotifier {
@@ -537,8 +538,8 @@ class AuthState extends ChangeNotifier {
     final cfg = timeClock ?? TimeClockConfig.defaults;
     if (!cfg.isDayOpen(_clockNow())) return 'Closed today - no selling day.';
     final parts = <String>[];
-    if (!clockInOpen) parts.add(clockHint('IN'));
-    if (!clockOutOpen) parts.add(clockHint('OUT'));
+    if (!clockInOpen && !myInDone) parts.add(clockHint('IN'));
+    if (!clockOutOpen && !myOutDone) parts.add(clockHint('OUT'));
     return parts.join('  ·  ');
   }
 
@@ -617,6 +618,12 @@ class AuthState extends ChangeNotifier {
         notifyListeners();
       }
     }
+    // Piggyback the attendance refresh onto the same 5-minute window.
+    final shiftsFetched = _myShiftsFetchedAt;
+    if (shiftsFetched == null ||
+        DateTime.now().difference(shiftsFetched) > const Duration(minutes: 5)) {
+      await refreshMyShifts();
+    }
   }
 
   void _stopTimeClockSync() {
@@ -626,6 +633,78 @@ class AuthState extends ChangeNotifier {
     _timeClockFetchedAt = null;
     _inOpenCache = true;
     _outOpenCache = true;
+    _myShiftsToday = const [];
+    _myShiftsFetchedAt = null;
+  }
+
+  // -----------------------------------------------------------------------
+  // Attendance: today's own shifts (server: /shifts/history for the cart).
+  //
+  // A staff member who already timed in must not tap Time in again, and the
+  // times they tapped are shown on the row. /shifts/history is fetched with
+  // the cart and today's Manila date and filtered to this account by
+  // staffId — no new endpoint needed.
+  // -----------------------------------------------------------------------
+
+  List<Map<String, dynamic>> _myShiftsToday = const [];
+  DateTime? _myShiftsFetchedAt;
+
+  /// Today's shifts for the signed-in user, Manila wall-clock, oldest first.
+  List<Map<String, dynamic>> get myShiftsToday => _myShiftsToday;
+
+  /// Latest event of [event] ("IN"/"OUT") today for the signed-in user,
+  /// Manila wall-clock. Null when none exists (not yet tapped).
+  DateTime? latestShiftToday(String event) {
+    final ev = event.toUpperCase();
+    DateTime? latest;
+    for (final s in _myShiftsToday) {
+      if ((s['event'] ?? '').toString().toUpperCase() != ev) continue;
+      final ts = ManilaTime.parse(s['ts']);
+      if (ts == null) continue;
+      if (latest == null || ts.isAfter(latest)) latest = ts;
+    }
+    return latest;
+  }
+
+  bool get myInDone => latestShiftToday('IN') != null;
+  bool get myOutDone => latestShiftToday('OUT') != null;
+  DateTime? get myInAtToday => latestShiftToday('IN');
+  DateTime? get myOutAtToday => latestShiftToday('OUT');
+
+  int? _asInt(dynamic v) => v is int ? v : int.tryParse('$v');
+
+  /// Pull today's shifts for this cart and keep the signed-in user's.
+  /// Silent on failure — the UI keeps the last known state.
+  Future<void> refreshMyShifts() async {
+    if (token == null || offlineMode) return;
+    final code = locationCode;
+    if (code == null) return;
+    try {
+      final m = DateTime.now().toUtc().add(const Duration(hours: 8));
+      final date =
+          '${m.year.toString().padLeft(4, '0')}-${m.month.toString().padLeft(2, '0')}-${m.day.toString().padLeft(2, '0')}';
+      final res = await api.shiftsHistory(
+        token!,
+        code: code,
+        date: date,
+        pageSize: 100,
+      );
+      final me = _asInt(user?['id']);
+      final rows = ((res['data'] as List?) ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .where((s) => _asInt(s['staffId']) != null && _asInt(s['staffId']) == me)
+          .toList()
+        ..sort((a, b) {
+          final x = ManilaTime.parse(a['ts']);
+          final y = ManilaTime.parse(b['ts']);
+          return (x ?? DateTime(0)).compareTo(y ?? DateTime(0));
+        });
+      _myShiftsToday = rows;
+      _myShiftsFetchedAt = DateTime.now();
+      notifyListeners();
+    } catch (_) {
+      // Keep the last known state — never wedge the buttons on a flaky fetch.
+    }
   }
 
   /// Run one registration attempt and fold a success back into [user], so the
