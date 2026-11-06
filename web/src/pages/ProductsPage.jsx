@@ -13,9 +13,11 @@ import PageHeader from "../components/PageHeader.jsx";
 import Select from "../components/Select.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { sanitizeMoneyInput, sanitizeQtyInput, parseMoney, parseQty } from "../utils/format.js";
-import { sanitizeTextInput, validateItemName } from "../utils/text.js";
+import { sanitizeTextInput, validateItemName, countLetters } from "../utils/text.js";
 
 let recipeRowSeq = 1;
+let flavorRowSeq = 1;
+
 function newRecipeRowState(overrides = {}) {
   return {
     key: `rr-${Date.now()}-${recipeRowSeq++}`,
@@ -26,8 +28,11 @@ function newRecipeRowState(overrides = {}) {
   };
 }
 
-const MASS_TO_KG = { g: 0.001, kg: 1 };
+function newestProductsFirst(products) {
+  return [...products].sort((a, b) => Number(b.id) - Number(a.id));
+}
 
+const MASS_TO_KG = { g: 0.001, kg: 1 };
 function unitOptionsFor(stockUnit) {
   const u = String(stockUnit ?? "").trim().toLowerCase();
   if (MASS_TO_KG[u] !== undefined) return ["g", "kg"];
@@ -44,11 +49,14 @@ function defaultUnitFor(stockUnit) {
 function toStockUnit(displayAmount, displayUnit, stockUnit) {
   const from = String(displayUnit ?? "").trim().toLowerCase();
   const to = String(stockUnit ?? "").trim().toLowerCase();
+
   if (!from || !to) return { ok: true, value: displayAmount };
   if (from === to) return { ok: true, value: displayAmount };
+
   if (MASS_TO_KG[from] !== undefined && MASS_TO_KG[to] !== undefined) {
     return { ok: true, value: Math.round((displayAmount * MASS_TO_KG[from]) / MASS_TO_KG[to] * 1e6) / 1e6 };
   }
+
   return { ok: false };
 }
 
@@ -59,7 +67,6 @@ export default function ProductsPage() {
 
   const [products, setProducts] = useState([]);
   const [itemNames, setItemNames] = useState([]);
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -68,13 +75,11 @@ export default function ProductsPage() {
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState("");
   const [newProduct, setNewProduct] = useState({ name: "", category: "Fries", basePrice: "", markupPrice: "", sellingPrice: "", imageDraft: null });
+  const [addFlavorRows, setAddFlavorRows] = useState([]);
 
-  // Insert/crop photo dialog: which modal asked for it ("add" | "edit").
   const [cropState, setCropState] = useState({ open: false, target: null });
   const [starring, setStarring] = useState(null);
 
-  // Flat recipe rows (the size-to-product catalog carries recipes on the
-  // product itself — there is no per-variant option anymore).
   const [addRecipeRows, setAddRecipeRows] = useState([]);
 
   const [editing, setEditing] = useState(null);
@@ -98,7 +103,7 @@ export default function ProductsPage() {
     setLoading(true);
     Promise.all([api.get("/products"), api.get("/inventory/names").catch(() => ({ data: { data: [] } }))])
       .then(([p, n]) => {
-        setProducts(p.data?.data ?? []);
+        setProducts(newestProductsFirst(p.data?.data ?? []));
         setItemNames(n.data?.data ?? []);
         setError("");
       })
@@ -135,7 +140,6 @@ export default function ProductsPage() {
     setTimeout(() => { setRenaming(null); setRenameClosing(false); setRenameName(""); }, 150);
   }
 
-  // --- AUTO-COMPUTE HANDLERS FOR PRICING ---
   const handleAddPriceChange = (field, val) => {
     setNewProduct(prev => {
       const next = { ...prev, [field]: val };
@@ -172,29 +176,44 @@ export default function ProductsPage() {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   }
 
-  function flatRecipesEditor(lines, setLines) {
+  function addFlavorRow() {
+    setAddFlavorRows((prev) => [
+      ...prev,
+      {
+        key: `flavor-${Date.now()}-${flavorRowSeq++}`,
+        name: "",
+        recipeRows: [],
+        recipeOpen: false,
+      },
+    ]);
+  }
+
+  function flatRecipesEditor(lines, setLines, listId = "cartiq-inventory-items") {
     const knownItems = new Set(itemNames.map((n) => n.name.toLowerCase()));
     const knownUnitOf = (name) =>
       itemNames.find((n) => n.name.toLowerCase() === String(name ?? "").trim().toLowerCase())?.unit ?? "";
 
     return (
       <div className="flex flex-col gap-3">
-        <datalist id="cartiq-inventory-items">
+        <datalist id={listId}>
           {itemNames.map((n) => (
             <option key={n.name} value={n.name} />
           ))}
         </datalist>
+
         {lines.length === 0 && (
           <p className="muted small">
             No recipe lines yet. The product sells at its selling price and deducts nothing from stock until you add ingredient lines.
           </p>
         )}
+
         {lines.map((line) => {
           const typedName = String(line.itemName ?? "").trim();
           const unknownItem = typedName !== "" && !knownItems.has(typedName.toLowerCase());
           const stockUnit = knownUnitOf(line.itemName);
           const unitChoices = unitOptionsFor(stockUnit);
           const effUnit = line.unit || defaultUnitFor(stockUnit);
+
           return (
             <div key={line.key}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 84px 78px 32px", gap: "8px" }}>
@@ -202,7 +221,7 @@ export default function ProductsPage() {
                   type="text"
                   maxLength={120}
                   placeholder="Ingredient item (e.g. Cheese Powder)"
-                  list="cartiq-inventory-items"
+                  list={listId}
                   title="Must match a stock item name exactly - pick from the list"
                   value={line.itemName}
                   onChange={(e) =>
@@ -246,6 +265,7 @@ export default function ProductsPage() {
             </div>
           );
         })}
+
         <button
           type="button"
           className="ghost small-btn"
@@ -260,28 +280,42 @@ export default function ProductsPage() {
 
   function checkFlatRecipes(lines) {
     const recipes = [];
+    const seenItems = new Set();
     const stockUnitOf = (name) =>
       itemNames.find((n) => n.name.toLowerCase() === String(name ?? "").trim().toLowerCase())?.unit ?? "";
 
     for (const r of lines) {
       const itemName = String(r.itemName ?? "").trim();
       const rawAmount = parseQty(String(r.amount ?? ""));
+
       if (!itemName && rawAmount === null) continue;
+
       if (!itemName || itemName.length > 120) {
         return { ok: false, error: "Recipe lines need an item name (max 120 characters)." };
+      }
+      if (countLetters(itemName) < 2) {
+        return { ok: false, error: `Recipe ingredient "${itemName}" needs at least 2 letters.` };
       }
       if (rawAmount === null || rawAmount <= 0) {
         return { ok: false, error: `Recipe line for "${itemName}" needs an amount above 0.` };
       }
+      
       const stockUnit = stockUnitOf(itemName);
       const dispUnit = r.unit || defaultUnitFor(stockUnit);
       const conv = toStockUnit(rawAmount, dispUnit, stockUnit || dispUnit);
+      
       if (!conv.ok) {
         return { ok: false, error: `"${dispUnit}" can't convert to "${stockUnit}" for "${itemName}" — amounts must use compatible units.` };
       }
       if (conv.value <= 0 || conv.value > 99999.99) {
         return { ok: false, error: `Recipe line for "${itemName}" needs an amount from 0.01 to 99,999.99 (in ${stockUnit || dispUnit}).` };
       }
+      
+      const itemKey = itemName.toLowerCase();
+      if (seenItems.has(itemKey)) {
+        return { ok: false, error: `Recipe item "${itemName}" can only appear once per recipe.` };
+      }
+      seenItems.add(itemKey);
       recipes.push({ itemName, amountPerUnit: conv.value });
     }
     return { ok: true, recipes };
@@ -297,10 +331,23 @@ export default function ProductsPage() {
       return;
     }
 
-    const bp = parseMoney(newProduct.basePrice);
-    const mp = parseMoney(newProduct.markupPrice);
-    const sp = parseMoney(newProduct.sellingPrice);
+    const cat = newProduct.category.trim();
+    if (cat && countLetters(cat) < 2) {
+      setAddError("Category needs at least 2 letters.");
+      return;
+    }
+    const finalCategory = cat || "Fries";
 
+    if (newProduct.basePrice !== "" && parseMoney(newProduct.basePrice) === null) {
+      setAddError("Base Price (Cost) must be a valid number.");
+      return;
+    }
+    if (newProduct.markupPrice !== "" && parseMoney(newProduct.markupPrice) === null) {
+      setAddError("Markup (Tubo) must be a valid number.");
+      return;
+    }
+
+    const sp = parseMoney(newProduct.sellingPrice);
     if (sp === null || sp <= 0) {
       setAddError("Selling price must be valid and greater than zero.");
       return;
@@ -312,15 +359,51 @@ export default function ProductsPage() {
       return;
     }
 
+    const checkedFlavors = [];
+    const seenFlavors = new Set();
+    for (const row of addFlavorRows) {
+      const flavorName = String(row.name ?? "").trim();
+      const hasAnyValue = flavorName || (row.recipeRows ?? []).length > 0;
+      if (!hasAnyValue) continue;
+
+      if (flavorName.length > 60) {
+        setAddError("Each flavor needs a name (max 60 characters).");
+        return;
+      }
+      if (countLetters(flavorName) < 2) {
+        setAddError(`Flavor "${flavorName}" needs at least 2 letters.`);
+        return;
+      }
+      
+      const flavorKey = flavorName.toLowerCase();
+      if (seenFlavors.has(flavorKey)) {
+        setAddError(`Flavor "${flavorName}" is listed more than once.`);
+        return;
+      }
+      seenFlavors.add(flavorKey);
+
+      const flavorRecipes = checkFlatRecipes(row.recipeRows ?? []);
+      if (!flavorRecipes.ok) {
+        setAddError(`${flavorName}: ${flavorRecipes.error}`);
+        return;
+      }
+      checkedFlavors.push({ name: flavorName, recipes: flavorRecipes.recipes });
+    }
+
+    if (checkedFlavors.length > 20) {
+      setAddError("A product can have at most 20 flavors.");
+      return;
+    }
+
     setIsAdding(true);
     try {
       const { data } = await api.post("/products", {
         name: name.value,
-        category: newProduct.category.trim() || "Fries",
-        basePrice: bp,
-        markupPrice: mp,
-        sellingPrice: sp,
+        category: finalCategory,
+        basePrice: sp,
+        ...(checkedFlavors.length > 0 ? { flavors: checkedFlavors } : {}),
       });
+
       const newId = data?.product?.id;
       if (newId && checked.recipes.length > 0) {
         try {
@@ -331,8 +414,7 @@ export default function ProductsPage() {
           toast(getFriendlyError(recErr, "Product created but its recipe lines could not be saved — open Edit and save them again."), "error");
         }
       }
-      // The cropped photo needs the new product's id; a failed upload warns
-      // instead of pretending the whole create failed.
+
       if (newProduct.imageDraft && data?.product?.id) {
         try {
           await uploadProductImage(data.product.id, newProduct.imageDraft);
@@ -340,13 +422,15 @@ export default function ProductsPage() {
           toast(getFriendlyError(imgErr, "Product created, but the photo upload failed."), "error");
         }
       }
+
       toast(
-        `Product "${name.value}" created${checked.recipes.length ? ` with ${checked.recipes.length} recipe line(s)` : ""}`,
+        `Product "${name.value}" created${checkedFlavors.length ? ` with ${checkedFlavors.length} flavor(s)` : ""}${checked.recipes.length ? ` and ${checked.recipes.length} default recipe line(s)` : ""}`,
         "success"
       );
       closeAddModal();
       setNewProduct({ name: "", category: "Fries", basePrice: "", markupPrice: "", sellingPrice: "", imageDraft: null });
       setAddRecipeRows([]);
+      setAddFlavorRows([]);
       load();
     } catch (err) {
       setAddError(getFriendlyError(err, "Failed to create product."));
@@ -359,29 +443,45 @@ export default function ProductsPage() {
     e.preventDefault();
     setEditError("");
 
-    const bp = parseMoney(editing.basePrice);
-    const mp = parseMoney(editing.markupPrice);
-    const sp = parseMoney(editing.sellingPrice);
+    const cat = editing.category.trim();
+    if (cat && countLetters(cat) < 2) {
+      setEditError("Category needs at least 2 letters.");
+      return;
+    }
+    const finalCategory = cat || "Fries";
 
+    if (editing.basePrice !== "" && parseMoney(editing.basePrice) === null) {
+      setEditError("Base Price (Cost) must be a valid number.");
+      return;
+    }
+    if (editing.markupPrice !== "" && parseMoney(editing.markupPrice) === null) {
+      setEditError("Markup (Tubo) must be a valid number.");
+      return;
+    }
+
+    const sp = parseMoney(editing.sellingPrice);
     if (sp === null || sp <= 0) {
       setEditError("Selling price must be valid and greater than zero.");
       return;
     }
 
-    // Flat recipe lines (flavor "" = the product itself).
     const lines = editing.recipeLines ?? [];
     const checked = checkFlatRecipes(lines);
     if (!checked.ok) {
       setEditError(checked.error);
       return;
     }
+
     const baseline = editing._recipeBaseline ?? [];
     const keepPair = (a, b) =>
       a.itemName === b.itemName && Number(a.amountPerUnit) === Number(b.amountPerUnit);
+    
     const unchanged =
       checked.recipes.length === baseline.length &&
       checked.recipes.every((r) => baseline.some((b) => keepPair(r, b)));
+    
     const keptNames = new Set(checked.recipes.map((r) => r.itemName));
+
     const removeRecipes = unchanged
       ? []
       : baseline
@@ -391,15 +491,67 @@ export default function ProductsPage() {
       ? []
       : checked.recipes.map((r) => ({ flavor: "", ...r }));
 
-    // A pending cropped photo is a change even when no field moved.
+    const checkedFlavors = [];
+    const seenFlavors = new Set();
+    for (const row of (editing.flavorRows ?? [])) {
+      const flavorName = String(row.name ?? "").trim();
+      const hasAnyValue = flavorName || (row.recipeRows ?? []).length > 0;
+      if (!hasAnyValue) continue;
+
+      if (flavorName.length > 60) {
+        setEditError("Each flavor needs a name (max 60 characters).");
+        return;
+      }
+      if (countLetters(flavorName) < 2) {
+        setEditError(`Flavor "${flavorName}" needs at least 2 letters.`);
+        return;
+      }
+      
+      const flavorKey = flavorName.toLowerCase();
+      if (seenFlavors.has(flavorKey)) {
+        setEditError(`Flavor "${flavorName}" is listed more than once.`);
+        return;
+      }
+      seenFlavors.add(flavorKey);
+      
+      const flavorRecipes = checkFlatRecipes(row.recipeRows ?? []);
+      if (!flavorRecipes.ok) {
+        setEditError(`${flavorName}: ${flavorRecipes.error}`);
+        return;
+      }
+      checkedFlavors.push({ name: flavorName, recipes: flavorRecipes.recipes, _baseline: row._baseline ?? [] });
+    }
+
+    if (checkedFlavors.length > 20) {
+      setEditError("A product can have at most 20 flavors.");
+      return;
+    }
+
+    for (const f of checkedFlavors) {
+      const fKeptNames = new Set(f.recipes.map((r) => r.itemName));
+      const fUnchanged =
+        f.recipes.length === f._baseline.length &&
+        f.recipes.every((r) => f._baseline.some((b) => keepPair(r, b)));
+
+      if (!fUnchanged) {
+        const fRemove = f._baseline.filter((b) => !fKeptNames.has(b.itemName)).map((b) => ({ flavor: f.name, itemName: b.itemName }));
+        const fAdd = f.recipes.map((r) => ({ flavor: f.name, ...r }));
+        removeRecipes.push(...fRemove);
+        addRecipes.push(...fAdd);
+      }
+    }
+
     const hasImageDraft = Boolean(editing.imageDraft);
+    
+    const originalFlavorNames = (editing.flavors || []).map(f => f.name).join("|");
+    const newFlavorNames = checkedFlavors.map(f => f.name).join("|");
+    const flavorNamesChanged = originalFlavorNames !== newFlavorNames;
 
     if (
-      (editing.category || "Fries") === (editing._category || "Fries") &&
-      bp === Number(editing._basePrice) &&
-      mp === Number(editing._markupPrice) &&
+      finalCategory === (editing._category || "Fries") &&
       sp === Number(editing._sellingPrice) &&
       !hasImageDraft &&
+      !flavorNamesChanged &&
       addRecipes.length === 0 &&
       removeRecipes.length === 0
     ) {
@@ -411,16 +563,15 @@ export default function ProductsPage() {
     setIsEditing(true);
     try {
       const body = {
-        category: editing.category.trim() || "Fries",
-        basePrice: bp,
-        markupPrice: mp,
-        sellingPrice: sp,
+        category: finalCategory,
+        basePrice: sp,
+        flavors: checkedFlavors.map(f => ({ name: f.name, recipes: f.recipes }))
       };
       if (addRecipes.length > 0) body.addRecipes = addRecipes;
       if (removeRecipes.length > 0) body.removeRecipes = removeRecipes;
 
       const { data } = await api.patch(`/products/${editing.id}`, body);
-
+      
       const details = [];
       if ((data?.recipesChanged ?? 0) > 0) {
         details.push(`${data.recipesChanged} recipe row(s) saved`);
@@ -429,8 +580,8 @@ export default function ProductsPage() {
       }
       if (removeRecipes.length > 0) details.push(`${removeRecipes.length} recipe row(s) removed`);
       
-      if ((editing.category || "Fries") !== (editing._category || "Fries")) details.push("category updated");
-      if (sp !== Number(editing._sellingPrice)) details.push(`selling price P${Number(editing._sellingPrice)} ➔ P${sp}`);
+      if (finalCategory !== (editing._category || "Fries")) details.push("category updated");
+      if (sp !== Number(editing._sellingPrice)) details.push(`selling price P${Number(editing._sellingPrice)} \u2192 P${sp}`);
       if (hasImageDraft) {
         try {
           await uploadProductImage(editing.id, editing.imageDraft);
@@ -515,9 +666,6 @@ export default function ProductsPage() {
     }
   }
 
-  // --- PRODUCT PHOTOS ---------------------------------------------------
-  // The cropped photo is uploaded right after the product save lands
-  // (create) or after the PATCH (edit): the endpoints need a product id.
   async function uploadProductImage(productId, draft) {
     const comma = draft.dataUrl.indexOf(",");
     const data = draft.dataUrl.slice(comma + 1);
@@ -542,8 +690,6 @@ export default function ProductsPage() {
     if (!editing) return;
     try {
       await api.del(`/products/${editing.id}/image`);
-      // Seeded products carry a pasted URL instead of an upload; clear it
-      // too so the list stops serving the old photo.
       await api.patch(`/products/${editing.id}`, { imageUrl: null });
       setEditing((prev) => (prev ? { ...prev, imageUrl: "", imageDraft: null } : prev));
       toast("Product photo removed", "success");
@@ -558,9 +704,6 @@ export default function ProductsPage() {
     setEditing((prev) => (prev ? { ...prev, imageDraft: null } : prev));
   }
 
-  // --- BEST SELLER STAR -------------------------------------------------
-  // The POS "Best Sellers" filter reads isBestSeller; the star is the one
-  // control that sets it, so the owner curates that category by hand.
   async function handleBestSellerToggle(p) {
     if (starring) return;
     setStarring(p.id);
@@ -639,8 +782,24 @@ export default function ProductsPage() {
   function openEdit(p) {
     const basePriceSnapshot = Number(p.basePrice) || 0;
     const sellingPriceSnapshot = Number(p.sellingPrice ?? p.basePrice) || 0;
+    
     const flatRecipes = (p.recipes ?? []).map((r) =>
       newRecipeRowState({ itemName: String(r.itemName ?? ""), amount: String(r.amountPerUnit ?? "") }));
+
+    const mappedFlavors = (p.flavors ?? []).map((f) => ({
+      key: `flavor-${Date.now()}-${flavorRowSeq++}`,
+      id: f.id,
+      name: f.name,
+      recipeOpen: false,
+      recipeRows: (f.recipes ?? []).map((r) =>
+        newRecipeRowState({ itemName: String(r.itemName ?? ""), amount: String(r.amountPerUnit ?? "") })
+      ),
+      _baseline: (f.recipes ?? []).map((r) => ({
+        itemName: String(r.itemName ?? ""),
+        amountPerUnit: Number(r.amountPerUnit) || 0
+      }))
+    }));
+
     setEditing({
       ...p,
       category: p.category || "Fries",
@@ -650,16 +809,9 @@ export default function ProductsPage() {
       imageUrl: p.imageUrl ?? "",
       imageDraft: null,
       recipeLines: flatRecipes,
+      flavorRows: mappedFlavors,
       _recipeBaseline: flatRecipes.map((r) => ({ itemName: r.itemName, amountPerUnit: Number(r.amount) || 0 })),
       _category: p.category || "Fries",
-      // The API stores one canonical `basePrice` per product (products.js
-      // accepts basePrice/flavorPrices/unitPrice — there is no markupPrice
-      // or sellingPrice field). Derive the two form values the pricing grid
-      // implies instead of reading fields that never come back. Reading
-      // `p.markupPrice` left _markupPrice permanently undefined, so
-      // `mp === Number(editing._markupPrice)` below compared against NaN,
-      // the no-change guard could never fire, and every "Save Changes"
-      // sent a pointless PATCH.
       _basePrice: basePriceSnapshot,
       _markupPrice: Math.max(0, sellingPriceSnapshot - basePriceSnapshot),
       _sellingPrice: sellingPriceSnapshot,
@@ -695,6 +847,7 @@ export default function ProductsPage() {
                 onClick={() => {
                   setAddError("");
                   setAddRecipeRows([]);
+                  setAddFlavorRows([]);
                   setAddOpen(true);
                 }}
               >
@@ -712,7 +865,7 @@ export default function ProductsPage() {
           }
         />
 
-        <section className="panel sales-panel">
+        <section className="panel sales-panel products-panel">
           {error ? (
             <ErrorBox message={error} onRetry={load} />
           ) : !loading && products.length === 0 ? (
@@ -735,7 +888,7 @@ export default function ProductsPage() {
                   {
                     key: "name",
                     label: "Name",
-                    width: 200,
+                    width: "23%",
                     render: (p) => (
                       <span className="flex flex-wrap items-center gap-1">
                         <button
@@ -766,43 +919,54 @@ export default function ProductsPage() {
                           />
                         )}
                         <strong>{p.name}</strong>
+                        <span className="product-mobile-price muted small">
+                          — P{Number(p.sellingPrice ?? p.basePrice ?? 0).toLocaleString()}
+                        </span>
                       </span>
                     ),
                   },
                   {
                     key: "category",
                     label: "Category",
-                    width: 100,
+                    width: "12%",
                     render: (p) => <span className="muted">{p.category}</span>,
                   },
                   {
-                    key: "basePrice",
-                    label: "Base Price",
-                    width: 86,
-                    align: "right",
-                    render: (p) => <span className="muted">P{Number(p.basePrice ?? 0).toLocaleString()}</span>,
-                  },
-                  {
-                    key: "markupPrice",
-                    label: "Markup",
-                    width: 86,
-                    align: "right",
-                    render: (p) => <span className="muted">P{Number(p.markupPrice ?? 0).toLocaleString()}</span>,
+                    key: "flavors",
+                    label: "Flavor/Variants",
+                    width: "31%",
+                    render: (p) => {
+                      const flavors = p.flavors ?? [];
+                      if (flavors.length === 0) return <span className="muted">—</span>;
+                      return (
+                        <div className="product-flavor-list" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {flavors.map((flavor) => (
+                            <div
+                              key={flavor.id ?? flavor.name}
+                              className="product-flavor-item"
+                              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}
+                            >
+                              <span className="product-flavor-label">
+                                {flavor.name}
+                                <span className="muted small"> — P{Number(flavor.unitPrice ?? p.basePrice ?? 0).toLocaleString()}</span>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    },
                   },
                   {
                     key: "sellingPrice",
-                    label: "Selling Price",
-                    width: 96,
+                    label: "Price",
+                    width: "11%",
                     align: "right",
                     render: (p) => <strong>P{Number(p.sellingPrice ?? p.basePrice ?? 0).toLocaleString()}</strong>,
                   },
                   {
                     key: "recipes",
-                    // The catalog is flat (each size is its own product).
-                    // What matters per product is whether it deducts stock:
-                    // recipe rows and any stock item it can't find.
                     label: "Recipes",
-                    width: 110,
+                    width: "10%",
                     render: (p) => {
                       const count = p.recipeCount ?? 0;
                       const missing = p.missingItems ?? [];
@@ -831,36 +995,12 @@ export default function ProductsPage() {
                     },
                   },
                   {
-                    key: "usage",
-                    label: "Used in",
-                    width: 150,
-                    render: (p) => (
-                      // nowrap + ellipsis: the long count used to wrap under
-                      // the row-action icons in the fixed table layout.
-                      // Short labels so the whole line fits the column instead
-                      // of being cut off; the exact wording stays in the
-                      // tooltip.
-                      <span
-                        className="muted small"
-                        style={{
-                          display: "block",
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                        title={`${p.recipeCount} recipe(s)`}
-                      >
-                        {p.recipeCount} {p.recipeCount === 1 ? "recipe" : "recipes"}
-                      </span>
-                    ),
-                  },
-                  {
                     key: "actions",
-                    label: "",
-                    width: 168,
-                    align: "right",
+                    label: "Actions",
+                    width: "13%",
+                    align: "center",
                     render: (p) => p.active === false ? (
-                      <div className="flex items-center justify-end gap-1">
+                      <div className="product-actions flex items-center justify-end gap-1">
                         <button
                           className="ghost small-btn"
                           onClick={() => setArchiving({ product: p, toActive: true })}
@@ -877,7 +1017,7 @@ export default function ProductsPage() {
                         </button>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-end gap-1">
+                      <div className="product-actions flex items-center justify-end gap-1">
                         <button
                           className="ghost small-btn"
                           onClick={() => openEdit(p)}
@@ -1028,10 +1168,108 @@ export default function ProductsPage() {
                 </div>
                 </section>
                 
+                <section className="product-modal-section">
+                  <div className="product-modal-section-heading">
+                    <h4>Flavor/Variants</h4>
+                    <span>Keep related options under this product instead of creating separate products.</span>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    {addFlavorRows.map((row, index) => (
+                      <div
+                        key={row.key}
+                        style={{
+                          padding: 12,
+                          border: "1px solid var(--border)",
+                          borderRadius: 12,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 10,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "minmax(120px, 1fr) auto auto",
+                            alignItems: "end",
+                            gap: 8,
+                          }}
+                        >
+                          <label className="field">
+                            Flavor name
+                            <input
+                              type="text"
+                              maxLength={60}
+                              placeholder="e.g. Cheese"
+                              value={row.name}
+                              onChange={(e) => setAddFlavorRows((prev) => prev.map((item) =>
+                                item.key === row.key
+                                  ? { ...item, name: sanitizeTextInput(e.target.value, 60) }
+                                  : item
+                              ))}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className="ghost small-btn"
+                            onClick={() => setAddFlavorRows((prev) => prev.map((item) =>
+                              item.key === row.key ? { ...item, recipeOpen: !item.recipeOpen } : item
+                            ))}
+                            aria-expanded={row.recipeOpen}
+                          >
+                            <Edit2 size={13} /> {row.recipeOpen ? "Hide recipe" : "Edit recipe"}
+                          </button>
+                          <button
+                            type="button"
+                            className="danger-ghost small-btn"
+                            title={`Remove flavor ${index + 1}`}
+                            aria-label={`Remove flavor ${index + 1}`}
+                            onClick={() => setAddFlavorRows((prev) => prev.filter((item) => item.key !== row.key))}
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+
+                        {row.recipeOpen && (
+                          <section
+                            aria-label={`${row.name || `Flavor ${index + 1}`} recipe`}
+                            style={{
+                              padding: 12,
+                              border: "1px solid var(--border)",
+                              borderRadius: 10,
+                              background: "var(--surface-alt)",
+                            }}
+                          >
+                            <h5 style={{ margin: "0 0 10px" }}>{row.name || `Flavor ${index + 1}`} recipe</h5>
+                            {flatRecipesEditor(
+                              row.recipeRows,
+                              (updater) => setAddFlavorRows((prev) => prev.map((item) => {
+                                if (item.key !== row.key) return item;
+                                const next = typeof updater === "function" ? updater(item.recipeRows) : updater;
+                                return { ...item, recipeRows: next };
+                              })),
+                              `cartiq-inventory-items-${row.key}`
+                            )}
+                          </section>
+                        )}
+                      </div>
+                    ))}
+
+                    <button
+                      type="button"
+                      className="ghost small-btn"
+                      style={{ alignSelf: "flex-start" }}
+                      onClick={addFlavorRow}
+                      disabled={addFlavorRows.length >= 20}
+                    >
+                      <Plus size={13} /> Add flavor/variant
+                    </button>
+                  </div>
+                </section>
+
                 <section className="product-modal-section product-modal-recipe">
                   <div className="product-modal-section-heading">
-                    <h4>Recipe</h4>
-                    <span>Ingredients deducted per unit sold</span>
+                    <h4>Default recipe</h4>
+                    <span>Ingredients deducted per unit sold. Optional fallback; set flavor-specific recipes above when needed.</span>
                   </div>
                   {flatRecipesEditor(addRecipeRows, setAddRecipeRows)}
                 </section>
@@ -1070,6 +1308,7 @@ export default function ProductsPage() {
               
               <form onSubmit={handleEditProduct} className="product-modal-form">
                 <p className="product-modal-note">Price changes apply to future sales only. Recorded orders keep their original totals.</p>
+
                 <section className="product-modal-section">
                   <div className="product-modal-section-heading">
                     <h4>Product details</h4>
@@ -1141,6 +1380,116 @@ export default function ProductsPage() {
                 </div>
                 </section>
                 
+                <section className="product-modal-section">
+                  <div className="product-modal-section-heading">
+                    <h4>Flavor/Variants</h4>
+                    <span>Keep related options under this product instead of creating separate products.</span>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    {(editing?.flavorRows ?? []).map((row, index) => (
+                      <div
+                        key={row.key}
+                        style={{
+                          padding: 12,
+                          border: "1px solid var(--border)",
+                          borderRadius: 12,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 10,
+                        }}
+                      >
+                        <div style={{ display: "grid", gridTemplateColumns: "minmax(120px, 1fr) auto auto", alignItems: "end", gap: 8 }}>
+                          <label className="field">
+                            Flavor name
+                            <input
+                              type="text"
+                              maxLength={60}
+                              placeholder="e.g. Cheese"
+                              value={row.name}
+                              onChange={(e) =>
+                                setEditing((prev) => ({
+                                  ...prev,
+                                  flavorRows: prev.flavorRows.map((item) =>
+                                    item.key === row.key ? { ...item, name: sanitizeTextInput(e.target.value, 60) } : item
+                                  ),
+                                }))
+                              }
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className="ghost small-btn"
+                            onClick={() =>
+                              setEditing((prev) => ({
+                                ...prev,
+                                flavorRows: prev.flavorRows.map((item) =>
+                                  item.key === row.key ? { ...item, recipeOpen: !item.recipeOpen } : item
+                                ),
+                              }))
+                            }
+                            aria-expanded={row.recipeOpen}
+                          >
+                            <Edit2 size={13} /> {row.recipeOpen ? "Hide recipe" : "Edit recipe"}
+                          </button>
+                          <button
+                            type="button"
+                            className="danger-ghost small-btn"
+                            title={`Remove flavor ${index + 1}`}
+                            aria-label={`Remove flavor ${index + 1}`}
+                            onClick={() =>
+                              setEditing((prev) => ({
+                                ...prev,
+                                flavorRows: prev.flavorRows.filter((item) => item.key !== row.key),
+                              }))
+                            }
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                        
+                        {row.recipeOpen && (
+                          <section
+                            aria-label={`${row.name || `Flavor ${index + 1}`} recipe`}
+                            style={{ padding: 12, border: "1px solid var(--border)", borderRadius: 10, background: "var(--surface-alt)" }}
+                          >
+                            <h5 style={{ margin: "0 0 10px" }}>{row.name || `Flavor ${index + 1}`} recipe</h5>
+                            {flatRecipesEditor(
+                              row.recipeRows,
+                              (updater) =>
+                                setEditing((prev) => ({
+                                  ...prev,
+                                  flavorRows: prev.flavorRows.map((item) => {
+                                    if (item.key !== row.key) return item;
+                                    const next = typeof updater === "function" ? updater(item.recipeRows) : updater;
+                                    return { ...item, recipeRows: next };
+                                  }),
+                                })),
+                              `cartiq-inventory-items-${row.key}`
+                            )}
+                          </section>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="ghost small-btn"
+                      style={{ alignSelf: "flex-start" }}
+                      onClick={() => {
+                        setEditing((prev) => ({
+                          ...prev,
+                          flavorRows: [
+                            ...(prev.flavorRows || []),
+                            { key: `flavor-${Date.now()}-${flavorRowSeq++}`, name: "", recipeRows: [], recipeOpen: true },
+                          ],
+                        }));
+                      }}
+                      disabled={(editing?.flavorRows?.length || 0) >= 20}
+                    >
+                      <Plus size={13} /> Add flavor/variant
+                    </button>
+                  </div>
+                </section>
+
                 <section className="product-modal-section product-modal-recipe">
                   <div className="product-modal-section-heading">
                     <h4>Recipe</h4>

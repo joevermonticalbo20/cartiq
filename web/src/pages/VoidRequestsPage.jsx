@@ -171,23 +171,9 @@ export default function VoidRequestsPage() {
           }
         />
 
-        {error ? (
-          <ErrorBox message={error} onRetry={load} />
-        ) : loading ? (
-          <div className="panel" style={{ padding: "var(--space-5)" }}>
-            <p className="muted small">Loading void requests...</p>
-          </div>
-        ) : voidRequests.length === 0 ? (
-          <EmptyState
-            icon={Check}
-            title="No void requests waiting"
-            subtitle="Approved and denied requests are cleared from this list automatically."
-            compact
-          />
-        ) : (
-          <>
-            <div className="panel" style={{ marginBottom: "var(--space-4)", padding: "var(--space-3) var(--space-4)" }}>
-              <div className="flex items-center justify-between gap-3" style={{ flexWrap: "wrap" }}>
+        <section className="panel void-requests-panel">
+          {!error && !loading && voidRequests.length > 0 && (
+              <div className="void-requests-toolbar">
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
@@ -220,71 +206,86 @@ export default function VoidRequestsPage() {
                   </button>
                 </div>
               </div>
-            </div>
+          )}
 
-            <div className="table-wrap settings-table-wrap">
-              <table className="data table-fixed settings-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: "40px" }}></th>
-                    <th>Order</th>
-                    <th className="settings-hide-narrow">Requester</th>
-                    <th className="settings-hide-narrow">Reason</th>
-                    <th className="settings-hide-narrow">Requested</th>
-                    <th className="t-center">Actions</th>
+          <div
+            className={`table-wrap void-requests-table-wrap${!error && !loading && voidRequests.length === 0 ? " is-empty" : ""}`}
+          >
+            <table className="data table-fixed void-requests-table">
+              <thead>
+                <tr>
+                  <th className="void-requests-select-col" aria-label="Select"></th>
+                  <th className="t-left">Order</th>
+                  <th className="void-requests-hide-narrow t-left">Requester</th>
+                  <th className="void-requests-hide-narrow t-left">Reason</th>
+                  <th className="void-requests-hide-narrow t-left">Requested</th>
+                  <th className="t-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {error ? (
+                  <tr><td colSpan={6}><ErrorBox message={error} onRetry={load} /></td></tr>
+                ) : loading ? (
+                  <tr><td colSpan={6} className="muted small" role="status">Loading void requests...</td></tr>
+                ) : voidRequests.length === 0 ? (
+                  <tr className="void-requests-empty-row">
+                    <td colSpan={6} className="void-requests-empty-cell">
+                      <EmptyState
+                        icon={Check}
+                        title="No void requests waiting"
+                        subtitle="Approved and denied requests are cleared from this list automatically."
+                      />
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {voidRequests.map((req) => {
-                    const orderId = orderIdOf(req);
-                    const busy = deciding === req.id;
-                    return (
-                      <tr key={req.id} className={selected.has(req.id) ? "row-selected" : undefined}>
-                        <td>
-                          <input
-                            type="checkbox"
-                            checked={selected.has(req.id)}
-                            disabled={bulkPending || busy}
-                            onChange={() => toggleOne(req.id)}
-                            aria-label={`Select void request for order ${orderId ?? "?"}`}
-                          />
-                        </td>
-                        <td><strong>#{orderId ?? "?"}</strong></td>
-                        <td className="settings-hide-narrow">{req.requestedByName || "Staff"}</td>
-                        <td className="settings-hide-narrow small muted">
-                          {req.reason || "—"}
-                        </td>
-                        <td className="settings-hide-narrow small muted">
-                          {req.createdAt ? new Date(req.createdAt).toLocaleString() : "—"}
-                        </td>
-                        <td className="t-center settings-actions-cell">
-                          <div className="settings-table-actions">
-                            <button
-                              type="button"
-                              className="danger-ghost small-btn"
-                              disabled={deciding !== null || bulkPending}
-                              onClick={() => decideOne(req, "deny")}
-                            >
-                              <Ban size={13} aria-hidden="true" /> Deny
-                            </button>
-                            <button
-                              type="button"
-                              className="small-btn"
-                              disabled={deciding !== null || bulkPending}
-                              onClick={() => decideOne(req, "approve")}
-                            >
-                              <Check size={13} aria-hidden="true" /> Approve
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
+                ) : voidRequests.map((req) => {
+                  const orderId = orderIdOf(req);
+                  const busy = deciding === req.id;
+                  return (
+                    <tr key={req.id} className={selected.has(req.id) ? "row-selected" : undefined}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(req.id)}
+                          disabled={bulkPending || busy}
+                          onChange={() => toggleOne(req.id)}
+                          aria-label={`Select void request for order ${orderId ?? "?"}`}
+                        />
+                      </td>
+                      <td className="void-requests-order"><strong>#{orderId ?? "?"}</strong></td>
+                      <td className="void-requests-hide-narrow">{req.requestedByName || "Staff"}</td>
+                      <td className="void-requests-hide-narrow small muted">
+                        {req.reason || "—"}
+                      </td>
+                      <td className="void-requests-hide-narrow small muted">
+                        {req.createdAt ? new Date(req.createdAt).toLocaleString() : "—"}
+                      </td>
+                      <td className="t-right">
+                        <div className="void-requests-actions">
+                          <button
+                            type="button"
+                            className="danger-ghost small-btn"
+                            disabled={deciding !== null || bulkPending}
+                            onClick={() => decideOne(req, "deny")}
+                          >
+                            <Ban size={13} aria-hidden="true" /> Deny
+                          </button>
+                          <button
+                            type="button"
+                            className="small-btn"
+                            disabled={deciding !== null || bulkPending}
+                            onClick={() => decideOne(req, "approve")}
+                          >
+                            <Check size={13} aria-hidden="true" /> Approve
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
         <ConfirmDialog
           open={Boolean(confirmBulk)}

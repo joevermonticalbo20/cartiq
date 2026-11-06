@@ -390,7 +390,6 @@ button.flavor-card-toggle--flat {
 
 /* ----- Overlays: toast ----- */
 /* ================= toast ================= */
-/* INO-MODIFIED: Nilipat sa bottom-right at pinalitan ang stacking */
 .toast-host {
   position: fixed;
   bottom: 32px;
@@ -400,67 +399,122 @@ button.flavor-card-toggle--flat {
   gap: 12px;
   z-index: 1000;
   pointer-events: none;
-  align-items: flex-end; /* Para laging nakadikit sa right side ang toast */
+  align-items: flex-end;
 }
 
-/* INO-MODIFIED: Premium Pill Shape, Soft Shadow, and Slide-up Animation */
 .toast {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 20px;
-  border-radius: 99px; /* UPDATED: Perfect Pill Shape */
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.2);
-  font-size: var(--fs-md);
-  font-weight: 600;
+  align-items: flex-start;
+  gap: 14px;
+  width: min(460px, calc(100vw - 32px));
+  padding: 18px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 15px;
+  box-shadow: 0 8px 26px rgba(25, 35, 45, 0.1);
   pointer-events: auto;
   animation: toast-slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  max-width: 380px;
-  line-height: 1.4;
+  max-width: 460px;
+  line-height: 1.45;
 }
 
-/* INO-MODIFIED: Solid Modern Colors para umangat talaga sa paningin */
 .toast.info {
-  background: var(--accent); /* Dark charcoal */
-  color: #fff;
-  border: none;
+  background: #eaf6ff;
+  color: #1d2730;
+  --toast-accent: #22a8dc;
 }
 
 .toast.success {
-  background: var(--success); /* UPDATED: Solid Theme Green */
-  color: #fff;
-  border: none;
+  background: #eaf8f3;
+  color: #1d2730;
+  --toast-accent: #27b987;
 }
 
 .toast.error {
-  background: var(--danger); /* Bright red */
-  color: #fff;
-  border: none;
+  background: #fff0f0;
+  color: #1d2730;
+  --toast-accent: #ef4b55;
+}
+
+.toast.warning {
+  background: #fff8e9;
+  color: #1d2730;
+  --toast-accent: #efa82f;
+}
+
+.toast-icon {
+  display: grid;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.toast-icon { color: var(--toast-accent); }
+
+[data-theme="dark"] .toast {
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+[data-theme="dark"] .toast.success { background: var(--success-bg); }
+[data-theme="dark"] .toast.error { background: var(--danger-bg); }
+[data-theme="dark"] .toast.warning { background: var(--warn-bg); }
+[data-theme="dark"] .toast.info { background: var(--info-bg); }
+[data-theme="dark"] .toast.success { --toast-accent: var(--success); }
+[data-theme="dark"] .toast.error { --toast-accent: var(--danger); }
+[data-theme="dark"] .toast.warning { --toast-accent: var(--warn); }
+[data-theme="dark"] .toast.info { --toast-accent: var(--info); }
+[data-theme="dark"] .toast-icon { background: rgba(255, 255, 255, 0.08); }
+[data-theme="dark"] .toast-msg { color: var(--text-muted); }
+[data-theme="dark"] .toast-close { color: var(--toast-accent); }
+
+.toast-content {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 1px;
+}
+
+.toast-heading {
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 .toast-msg {
-  flex: 1; /* Para itulak ang close button sa dulong kanan */
+  color: #56616b;
+  font-size: 13px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
 }
 
 .toast--clickable {
   cursor: pointer;
 }
 .toast--clickable:hover {
-  filter: brightness(0.94);
+  filter: brightness(0.98);
 }
 .toast--clickable:focus-visible {
-  outline: 2px solid #fff;
+  outline: 2px solid currentColor;
   outline-offset: 2px;
 }
 
-/* Custom styling para sa 'X' button */
-.toast-close {
+.toast--exiting {
+  pointer-events: none;
+  animation: toast-slide-out 220ms ease-in forwards;
+}
+
+.toast .toast-close {
   padding: 6px;
-  margin-right: -6px;
-  color: inherit;
-  opacity: 0.6;
+  margin: -4px -6px 0 0;
+  color: var(--toast-accent);
+  opacity: 0.75;
   border: none;
   background: transparent;
+  box-shadow: none;
   cursor: pointer;
   display: grid;
   place-items: center;
@@ -468,9 +522,17 @@ button.flavor-card-toggle--flat {
   transition: all 0.2s ease;
 }
 
-.toast-close:hover {
+.toast .toast-close:hover:not(:disabled) {
   opacity: 1;
-  background: rgba(255, 255, 255, 0.15);
+  background: color-mix(in srgb, var(--toast-accent) 14%, transparent);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--toast-accent) 24%, transparent);
+  transform: none;
+}
+
+.toast .toast-close:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--toast-accent) 70%, transparent);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--toast-accent) 16%, transparent);
 }
 
 /* Bounce and Fade-up Animation */
@@ -485,17 +547,30 @@ button.flavor-card-toggle--flat {
   }
 }
 
-/* ----- Responsive (max-width: 480px): small phones - toast dock sa ibaba ----- */
+@keyframes toast-slide-out {
+  to {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
 @media (max-width: 480px) {
   .toast-host {
     bottom: 88px;
     right: 16px;
     left: 16px;
-    align-items: stretch; /* Para humaba sa buong screen width sa mobile */
+    align-items: stretch;
   }
   .toast {
     max-width: 100%;
     min-width: 0;
+    padding: 15px 16px;
+    gap: 12px;
+  }
+  .toast-icon {
+    flex-basis: 42px;
+    width: 42px;
+    height: 42px;
   }
   .modal { padding: 20px; }
 }

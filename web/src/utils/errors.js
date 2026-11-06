@@ -27,15 +27,15 @@ export function getFriendlyError(err, fallback = "Request failed") {
   }
   if (!status && (looksOffline || !err?.response)) {
     // No response at all: offline, DNS, CORS, or an Edge cold start
-    // (first request after idle can exceed the 10s client timeout — retry warm).
+    // (first request after inactivity can exceed the 10s client timeout — retry warm).
     if (!serverMsg && (timedOut || /network error|failed to fetch/i.test(raw) || raw === "")) {
-      return "Cannot reach the server. Check your connection — the first load after idle can take about a minute, then try again.";
+      return "Cannot reach the server. Check your connection — the first load after a period of inactivity can take about a minute, then try again.";
     }
     // Plain local errors surface as-is; unsafe transport internals use the
     // caller's operation-specific fallback.
     if (raw && isSafeLocalMessage(raw)) return raw;
     if (raw) return fallback;
-    return "Cannot reach the server. Check your connection — the first load after idle can take about a minute, then try again.";
+    return "Cannot reach the server. Check your connection — the first load after a period of inactivity can take about a minute, then try again.";
   }
   if (status === 401) return "Your session may have expired. Please sign in again.";
   if (status === 403) return "You don't have permission to do that.";

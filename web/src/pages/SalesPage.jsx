@@ -323,32 +323,18 @@ export default function SalesPage() {
           </div>
 
           {isOwner && (
-            <div
-              className="panel"
-              style={{
-                marginBottom: "var(--space-4)",
-                padding: "var(--space-3) var(--space-4)",
-                borderLeft: "4px solid var(--warn)",
-              }}
-              aria-label="Void requests"
-            >
-              <div
-                className="flex items-center justify-between gap-3"
-                style={{ flexWrap: "wrap" }}
-              >
-                <h3
-                  className="section-title"
-                  style={{
-                    padding: 0,
-                    borderBottom: "none",
-                    margin: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                  }}
-                >
-                  <Hourglass size={16} aria-hidden="true" /> Void requests ({voidRequests.length})
-                </h3>
+            <section className="panel sales-void-requests" aria-label="Void requests">
+              <div className="sales-void-requests-head">
+                <div className="sales-void-requests-info">
+                  <h3 className="section-title sales-void-requests-title">
+                    <Hourglass size={16} aria-hidden="true" /> Void requests ({voidRequests.length})
+                  </h3>
+                  {voidRequests.length === 0 && (
+                    <p className="muted small sales-void-requests-empty">
+                      No pending void requests right now.
+                    </p>
+                  )}
+                </div>
                 <button
                   type="button"
                   className="small-btn ghost"
@@ -357,12 +343,7 @@ export default function SalesPage() {
                   See all <ChevronRight size={14} aria-hidden="true" />
                 </button>
               </div>
-              {voidRequests.length === 0 && (
-                <p className="muted small" style={{ margin: "var(--space-2) 0 0" }}>
-                  No pending void requests right now.
-                </p>
-              )}
-            </div>
+            </section>
           )}
 
           {error ? (
@@ -465,9 +446,9 @@ export default function SalesPage() {
                   ? [
                       {
                         key: "actions",
-                        label: "",
+                        label: "Actions",
                         width: 120,
-                        align: "right",
+                        align: "center",
                         render: (o) => (
                           <div className="flex items-center justify-end gap-2">
                             {o.receipt || String(o.paymentMethod ?? "").toUpperCase() === "GCASH" ? (

@@ -115,6 +115,6 @@ Honest answer: "Local emulator for today's demo because the Spark free quota is 
 
 ## After the demo
 
-- Close the dashboard tab (it polls every 60s even idle).
+- Close the dashboard tab (it polls every 60s even when nobody is using it).
 - To go back to prod: stop T0/T1, unset the emulator var, `cd api; npm run dev` with the real `.env`.
 - Do NOT run `seed_history` or phase suites against prod - they write test data.

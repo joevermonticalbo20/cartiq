@@ -109,7 +109,7 @@ export function useSSE(path, { getTicket, onEvent, onStatus } = {}) {
      * The server polls Firestore every 15s for every open stream, so a
      * dashboard left open overnight kept spending the daily read budget for
      * events nobody could see. Closing the connection while hidden makes the
-     * cost of an idle tab ~0 instead of ~2.4k reads/hour, and the stream
+     * cost of an unused tab ~0 instead of ~2.4k reads/hour, and the stream
      * resumes with a fresh ticket as soon as the tab is looked at again.
      *
      * The trade-off: a notification that arrives while the tab is hidden is

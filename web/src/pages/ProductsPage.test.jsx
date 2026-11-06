@@ -303,8 +303,54 @@ describe("ProductsPage flat product add", () => {
     await screen.findByText(/created/);
     expect(api.post).toHaveBeenCalledWith(
       "/products",
-      expect.objectContaining({ name: "Cheese Dip", sellingPrice: 15 })
+      expect.objectContaining({ name: "Cheese Dip", basePrice: 15 })
     );
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it("creates multiple flavors with separate recipe panels and shared product pricing", async () => {
+    api.post.mockResolvedValue({ data: { product: { id: 9, name: "Fries" } } });
+    api.get.mockImplementation((url) => {
+      if (url === "/products") return Promise.resolve({ data: { data: [] } });
+      if (url === "/inventory/names") {
+        return Promise.resolve({ data: { data: [{ name: "Cheese Powder", unit: "kg" }] } });
+      }
+      return Promise.resolve({ data: null });
+    });
+    await openAddModal();
+    fillNameAndPrice("Fries", "50");
+    fireEvent.click(screen.getByText("Add flavor/variant"));
+    const modal = addModal();
+    const flavorPanel = within(modal).getByPlaceholderText("e.g. Cheese").closest("div").parentElement;
+    expect(within(flavorPanel).queryByText("Selling price")).toBeNull();
+    fireEvent.change(within(modal).getAllByPlaceholderText("e.g. Cheese")[0], {
+      target: { value: "Cheese" },
+    });
+    fireEvent.click(within(modal).getByText("Edit recipe"));
+    expect(within(modal).getByRole("region", { name: "Cheese recipe" })).toBeInTheDocument();
+    fireEvent.click(within(modal).getAllByText("+ Recipe line")[0]);
+    fireEvent.change(within(modal).getByPlaceholderText("Ingredient item (e.g. Cheese Powder)"), {
+      target: { value: "Cheese Powder" },
+    });
+    fireEvent.change(within(modal).getByPlaceholderText("Qty"), { target: { value: "12" } });
+    fireEvent.click(within(modal).getByText("Add flavor/variant"));
+    fireEvent.change(within(modal).getAllByPlaceholderText("e.g. Cheese")[1], {
+      target: { value: "BBQ" },
+    });
+    fireEvent.click(within(modal).getByText("Create Product"));
+
+    await screen.findByText(/created/i);
+    expect(api.post).toHaveBeenCalledWith("/products", expect.objectContaining({
+      name: "Fries",
+      basePrice: 50,
+      flavors: [
+        {
+          name: "Cheese",
+          recipes: [{ itemName: "Cheese Powder", amountPerUnit: 0.012 }],
+        },
+        { name: "BBQ", recipes: [] },
+      ],
+    }));
     expect(api.patch).not.toHaveBeenCalled();
   });
 });
@@ -350,6 +396,60 @@ describe("ProductsPage best sellers + flat catalog", () => {
     await screen.findByText("Cheese Fries - Medium");
     expect(await screen.findByText("Recipes")).toBeInTheDocument();
     expect(await screen.findByTitle("1 recipe row(s)")).toHaveTextContent("1");
+  });
+
+  it("lists the most recently added product first", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/products") {
+        return Promise.resolve({
+          data: {
+            data: [
+              { ...seedProducts[0], id: 11 },
+              { ...seedProducts[0], id: 12, name: "New Fries" },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: { data: [] } });
+    });
+    renderPage();
+    const newest = await screen.findByText("New Fries");
+    const rows = newest.closest("tbody").querySelectorAll("tr");
+    expect(rows[0]).toHaveTextContent("New Fries");
+    expect(rows[1]).toHaveTextContent("Cheese Fries - Medium");
+  });
+
+  it("shows variants in the table and lets each flavor recipe be edited", async () => {
+    const variant = {
+      id: 2,
+      name: "Cheese",
+      unitPrice: 60,
+      recipes: [{ itemName: "Cheese Powder", amountPerUnit: 0.01 }],
+      recipeCount: 1,
+    };
+    api.get.mockImplementation((url) => {
+      if (url === "/products") {
+        return Promise.resolve({
+          data: { data: [{ ...seedProducts[0], flavors: [variant] }] },
+        });
+      }
+      return Promise.resolve({ data: { data: [] } });
+    });
+    renderPage();
+    const row = (await screen.findByText("Cheese Fries - Medium")).closest("tr");
+    expect(screen.getByRole("columnheader", { name: "Flavor/Variants" })).toBeInTheDocument();
+    expect(within(row).getByText("Cheese")).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button", { name: "Edit Cheese recipe" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Edit Cheese recipe" });
+    fireEvent.change(within(dialog).getByPlaceholderText("Qty"), { target: { value: "20" } });
+    fireEvent.click(within(dialog).getByText("Save Recipe"));
+
+    await vi.waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith("/products/11", {
+        addRecipes: [{ flavor: "Cheese", itemName: "Cheese Powder", amountPerUnit: 20 }],
+      })
+    );
   });
 
   it("shows the star filled for a best seller and unfills on click", async () => {

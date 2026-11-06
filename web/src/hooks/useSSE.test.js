@@ -135,7 +135,7 @@ describe("useSSE", () => {
   describe("pausing while the tab is hidden", () => {
     // The server polls Firestore for every open stream, so a tab left open
     // overnight kept spending the daily read budget for events nobody could
-    // see. Closing the connection while hidden makes an idle tab cost ~0.
+    // see. Closing the connection while hidden makes an unused tab cost ~0.
 
     let hidden;
 

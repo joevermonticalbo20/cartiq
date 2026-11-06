@@ -27,6 +27,15 @@ items count toward the header badge.
 ### Live sensor chart
 Recent LPG-tank / cheese-bin weight readings from CART-01's node.
 
+### Product catalog
+- Add one main product, then add its flavors/variants in the same form instead
+  of creating a separate product for each flavor. Set the price in the
+  product's Pricing panel; each flavor has its own **Edit recipe** panel for
+  ingredients deducted per unit.
+- The Products table lists variants together under **Flavor/Variants**. Use
+  the flavor's **Recipe** button to update its recipe later. Older products
+  without variants can keep using their default product recipe.
+
 ### Business analytics
 - **Descriptive:** 28-day sales by weekday - spot your best days.
 - **Predictive:** 7-day demand forecast per supply item, depletion date, risk

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { ToastProvider, useToast } from "./Toast.jsx";
 
@@ -62,11 +62,22 @@ describe("ToastProvider flood control", () => {
     expect(screen.getByText("two").closest(".toast")).toHaveAttribute("role", "alert");
   });
 
+  it("renders warning toasts with a heading and warning style", () => {
+    const { push } = renderWithProbe();
+    push("Review this change", "warn");
+    expect(screen.getByText("Heads up")).toBeInTheDocument();
+    expect(screen.getByText("Review this change").closest(".toast")).toHaveClass("warning");
+  });
+
   it("dismisses via the close button", () => {
+    vi.useFakeTimers();
     const { push, count, container } = renderWithProbe();
     push("bye", "info");
     expect(count()).toBe(1);
     fireEvent.click(container.querySelector(".toast-close"));
+    expect(container.querySelector(".toast")).toHaveClass("toast--exiting");
+    act(() => vi.advanceTimersByTime(220));
     expect(count()).toBe(0);
+    vi.useRealTimers();
   });
 });

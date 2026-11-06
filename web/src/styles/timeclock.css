@@ -17,15 +17,18 @@
   padding-bottom: var(--space-4);
   border-bottom: 1px solid var(--border);
 }
+
 .timeclock-head-copy {
   min-width: 0;
 }
+
 .timeclock-title-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-2) var(--space-3);
 }
+
 .timeclock-title {
   margin: 0;
   font-size: var(--fs-xl);
@@ -33,6 +36,7 @@
   color: var(--text);
   line-height: 1.2;
 }
+
 .timeclock-state {
   display: inline-flex;
   align-items: center;
@@ -46,22 +50,26 @@
   font-weight: 700;
   line-height: 1.5;
 }
+
 .timeclock-state-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: currentColor;
 }
+
 .timeclock-state.is-on {
   border-color: var(--success);
   background: var(--success-bg);
   color: var(--success);
 }
+
 .timeclock-state.is-off {
   border-color: var(--border);
   background: var(--surface-alt);
   color: var(--text-muted);
 }
+
 .timeclock-subtitle {
   margin: 6px 0 0;
   color: var(--text-muted);
@@ -85,36 +93,40 @@
   gap: var(--space-4);
   width: 100%;
   padding: var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface-alt);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--surface-alt) 80%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   color: var(--text);
   text-align: left;
-  box-shadow: none;
-  transition:
-    background var(--transition-base),
-    border-color var(--transition-base),
-    box-shadow var(--transition-base);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.03);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
 .timeclock-master.is-on {
-  border-color: var(--success);
-  background: linear-gradient(120deg, var(--success-bg), var(--surface) 88%);
-  box-shadow: inset 3px 0 0 var(--success);
+  border-color: color-mix(in srgb, var(--success) 30%, transparent);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--success-bg) 80%, transparent), color-mix(in srgb, var(--surface) 90%, transparent));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.04);
 }
+
 .timeclock-master:hover:not(:disabled) {
   border-color: var(--border-strong);
   background: var(--surface);
   box-shadow: none;
   transform: none;
 }
+
 .timeclock-master.is-on:hover:not(:disabled) {
   border-color: var(--success);
   background: linear-gradient(120deg, var(--success-bg), var(--surface) 88%);
-  box-shadow: inset 3px 0 0 var(--success);
+  box-shadow: none;
 }
+
 .timeclock-master:active:not(:disabled) {
   transform: none;
 }
+
 .timeclock-master-icon {
   display: grid;
   place-items: center;
@@ -127,14 +139,17 @@
   color: var(--text-muted);
   transition: color var(--transition-fast), border-color var(--transition-fast);
 }
+
 .timeclock-master.is-on .timeclock-master-icon {
   border-color: transparent;
   color: var(--success);
 }
+
 .timeclock-master-copy {
   display: block;
   min-width: 0;
 }
+
 .timeclock-master-title {
   display: block;
   color: var(--text);
@@ -142,6 +157,7 @@
   font-weight: 800;
   line-height: 1.35;
 }
+
 .timeclock-master-hint {
   display: block;
   margin-top: 2px;
@@ -161,10 +177,12 @@
   background: var(--surface);
   transition: background var(--transition-fast), border-color var(--transition-fast);
 }
+
 .timeclock-master.is-on .timeclock-toggle {
   border-color: var(--success);
   background: var(--success);
 }
+
 .timeclock-toggle-knob {
   position: absolute;
   top: 2px;
@@ -173,12 +191,14 @@
   height: 26px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 1px 3px rgba(10, 9, 8, 0.35);
-  transition: transform var(--transition-fast);
+  box-shadow: 0 2px 6px rgba(10, 9, 8, 0.15);
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
+
 .timeclock-master.is-on .timeclock-toggle-knob {
   transform: translateX(32px);
 }
+
 .timeclock-toggle-label {
   position: absolute;
   top: 0;
@@ -189,11 +209,13 @@
   letter-spacing: 0.08em;
   line-height: 30px;
 }
+
 .timeclock-master.is-on .timeclock-toggle-label {
   right: auto;
   left: 9px;
   color: #fff;
 }
+
 [data-theme="dark"] .timeclock-master.is-on .timeclock-toggle-label {
   color: #0A0908;
 }
@@ -204,6 +226,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
 }
+
 .timeclock-window {
   min-width: 0;
   padding: var(--space-4);
@@ -212,15 +235,18 @@
   background: var(--surface-alt);
   transition: opacity var(--transition-fast), border-color var(--transition-fast);
 }
+
 .timeclock-window.is-disabled {
   opacity: 0.85;
 }
+
 .timeclock-window-head {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-bottom: var(--space-3);
 }
+
 .timeclock-window-icon {
   display: grid;
   place-items: center;
@@ -232,14 +258,17 @@
   background: var(--surface);
   color: var(--text);
 }
+
 .timeclock-window.is-disabled .timeclock-window-icon {
   color: var(--text-faint);
 }
+
 .timeclock-window-title {
   color: var(--text);
   font-size: var(--fs-md);
   font-weight: 800;
 }
+
 .timeclock-window-duration {
   margin-left: auto;
   padding: 2px 9px;
@@ -251,12 +280,15 @@
   font-weight: 700;
   white-space: nowrap;
 }
+
 .timeclock-window-times {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+  margin-top: 8px;
 }
+
 .timeclock-arrow {
   display: grid;
   place-items: center;
@@ -270,7 +302,11 @@
 .timefield {
   flex: 0 1 auto;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
 }
+
 .timefield-label {
   display: block;
   margin-bottom: 5px;
@@ -280,37 +316,53 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+
 .timefield-row {
   display: flex;
   align-items: center;
   gap: 4px;
 }
+
 .timefield-select {
-  height: 40px;
+  height: 44px;
   min-width: 0;
-  padding: 0 6px;
+  padding: 0 8px 0 12px;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
+  border-radius: 12px;
+  background: var(--surface-alt);
   color: var(--text);
   font-size: var(--fs-md);
   font-weight: 700;
+  transition: all 0.2s ease;
+  outline: none;
+  cursor: pointer;
 }
+
+.timefield-select:focus {
+  background: var(--surface);
+  border-color: var(--primary);
+  box-shadow: 0 4px 12px rgba(231, 54, 49, 0.1), 0 0 0 3px var(--primary-soft);
+}
+
 .timefield-select:disabled {
   background: var(--surface-alt);
   color: var(--text-muted);
   cursor: not-allowed;
   opacity: 1;
 }
+
 .timefield-hour {
-  width: 54px;
+  width: 68px;
 }
+
 .timefield-minute {
-  width: 60px;
+  width: 72px;
 }
+
 .timefield-ampm {
-  width: 62px;
+  width: 76px;
 }
+
 .timefield-colon {
   color: var(--text-faint);
   font-weight: 800;
@@ -320,12 +372,14 @@
 .timeclock-days {
   padding-top: var(--space-1);
 }
+
 .timeclock-days-head {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-2);
 }
+
 .timeclock-days-title {
   display: inline-flex;
   align-items: center;
@@ -334,6 +388,7 @@
   font-size: var(--fs-sm);
   font-weight: 800;
 }
+
 .timeclock-days-count {
   padding: 2px 9px;
   border: 1px solid var(--border);
@@ -343,12 +398,14 @@
   font-size: var(--fs-xs);
   font-weight: 700;
 }
+
 .timeclock-days-hint {
   margin: 2px 0 0;
   color: var(--text-muted);
   font-size: var(--fs-sm);
   line-height: 1.5;
 }
+
 .timeclock-day-row {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -356,40 +413,41 @@
   max-width: 640px;
   margin-top: var(--space-3);
 }
+
 .timeclock-day {
   min-width: 0;
   height: 42px;
   padding: 0 6px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 99px;
   background: var(--surface);
   color: var(--text-muted);
   font-size: var(--fs-sm);
   font-weight: 700;
   box-shadow: none;
-  transition:
-    background var(--transition-fast),
-    border-color var(--transition-fast),
-    color var(--transition-fast),
-    box-shadow var(--transition-fast);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
 .timeclock-day:hover:not(:disabled) {
   border-color: var(--border-strong);
   background: var(--surface);
   color: var(--text);
-  box-shadow: var(--shadow-sm);
-  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  transform: translateY(-2px);
 }
+
 .timeclock-day.is-active {
   border-color: var(--success);
   background: var(--success-bg);
   color: var(--success);
 }
+
 .timeclock-day.is-active:hover:not(:disabled) {
   border-color: var(--success);
   background: var(--success-bg);
   color: var(--success);
 }
+
 .timeclock-day:disabled {
   opacity: 0.6;
   box-shadow: none;
@@ -400,6 +458,7 @@
 .timeclock-error {
   margin: 0;
 }
+
 .timeclock-footer {
   display: flex;
   align-items: center;
@@ -409,12 +468,14 @@
   padding-top: var(--space-4);
   border-top: 1px solid var(--border);
 }
+
 .timeclock-summary {
   display: flex;
   align-items: flex-start;
   gap: 10px;
   min-width: 0;
 }
+
 .timeclock-summary-icon {
   display: grid;
   place-items: center;
@@ -425,9 +486,11 @@
   background: var(--surface-alt);
   color: var(--text-muted);
 }
+
 .timeclock-summary-copy {
   min-width: 0;
 }
+
 .timeclock-summary-label {
   display: block;
   color: var(--text-faint);
@@ -437,16 +500,19 @@
   line-height: 1.5;
   text-transform: uppercase;
 }
+
 .timeclock-summary-text {
   margin: 2px 0 0;
   color: var(--text-muted);
   font-size: var(--fs-sm);
   line-height: 1.55;
 }
+
 .timeclock-summary-text strong {
   color: var(--text);
   font-weight: 700;
 }
+
 .timeclock-save {
   flex-shrink: 0;
   min-width: 112px;
@@ -470,6 +536,7 @@
     transform: rotate(90deg);
   }
 }
+
 @media (max-width: 900px) {
   .timeclock-panel {
     padding: var(--space-5);
@@ -498,6 +565,7 @@
     align-self: flex-end;
   }
 }
+
 @media (max-width: 700px) {
   .timeclock-window-times {
     flex-direction: column;
@@ -514,6 +582,7 @@
     transform: rotate(90deg);
   }
 }
+
 @media (max-width: 620px) {
   .timeclock-master {
     gap: var(--space-3);
@@ -546,6 +615,7 @@
     width: 100%;
   }
 }
+
 @media (max-width: 560px) {
   .timeclock-master {
     grid-template-columns: auto minmax(0, 1fr);

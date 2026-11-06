@@ -1501,7 +1501,7 @@ export default function SettingsPage() {
                           <td className="settings-indicator-cell">
                             <span className="settings-indicator">
                               <Badge variant={!d.active ? "danger" : d.online ? "ok" : "warn"}>
-                                {d.active ? (d.online ? "ONLINE" : "IDLE") : "DISABLED"}
+                                {d.active ? (d.online ? "ONLINE" : "INACTIVE") : "DISABLED"}
                               </Badge>
                             </span>
                           </td>
@@ -1819,7 +1819,7 @@ export default function SettingsPage() {
                               <>
                                 <span>{c.device.deviceId}</span>
                                 <Badge className="settings-node-status" variant={c.device.online ? "ok" : "warn"}>
-                                  {c.device.online ? "ONLINE" : "IDLE"}
+                                  {c.device.online ? "ONLINE" : "INACTIVE"}
                                 </Badge>
                               </>
                             ) : (

@@ -65,7 +65,7 @@ Local dev only: api/ (Express, npm run dev) + Firestore emulator.
   git. The deploy workflow syncs the four Gmail values from GitHub Actions
   secrets when all four exist; otherwise it warns and leaves existing Supabase
   secrets untouched. `.github/workflows/gmail-keepalive.yml` exchanges the
-  refresh token monthly so Google does not expire it after six idle months.
+  refresh token monthly so Google does not expire it after six months of inactivity.
   Gmail API standard use is free and needs no billing account (Edge Functions
   cannot open SMTP ports, so the HTTPS API is deliberate).
 * **Database:** seeded once (`npm run db:seed` against prod). Never run `seed_history` on prod;
