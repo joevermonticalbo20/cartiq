@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import {
   AlertCircle,
+  ArrowRight,
+  CalendarDays,
   CheckCircle2,
   Clock,
   Cpu,
@@ -11,8 +13,12 @@ import {
   Info,
   KeyRound,
   Lock,
+  LogIn,
+  LogOut,
   Plus,
+  Power,
   RefreshCw,
+  Save,
   ShieldCheck,
   ShoppingCart,
   Trash2,
@@ -55,6 +61,15 @@ const DAY_CHIPS = [
   { value: 5, label: "Fri" },
   { value: 6, label: "Sat" },
   { value: 0, label: "Sun" },
+];
+const DAY_FULL_NAMES = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
 ];
 const TIMECLOCK_HM = /^\s*(\d{1,2}):(\d{2})\s*$/;
 const hmToMinutes = (v) => {
@@ -111,55 +126,48 @@ const format12h = (time) => {
   return `${Number(hour)}:${minute} ${ampm}`;
 };
 
+/** Minutes -> "2h" / "1h 30m" for the window length chip. */
+const formatDuration = (minutes) => {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return [h ? `${h}h` : "", m ? `${m}m` : ""].filter(Boolean).join(" ") || "0m";
+};
+
 /** One 12h time editor: hour : minute AM/PM, backed by a "HH:MM" value. */
-function TimeField12h({ prefix, label, value, onChange, disabled }) {
+function TimeField12h({ prefix, label, caption, value, onChange, disabled }) {
   const { hour, minute, ampm } = to12h(value);
-  const selectStyle = {
-    height: "38px",
-    padding: "2px 8px",
-    fontSize: "0.95rem",
-    fontWeight: 600,
-    borderRadius: "10px",
-    border: "1px solid var(--color-border, #e2e8f0)",
-    background: disabled ? "#f1f5f9" : "#fff",
-  };
   return (
-    <div style={{ minWidth: 150 }}>
-      <span
-        className="field-label"
-        style={{ display: "block", marginBottom: 4, fontSize: "0.8rem", color: "var(--color-text-2, #64748b)" }}
-      >
-        {label}
-      </span>
-      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+    <div className="timefield">
+      <span className="timefield-label">{caption ?? label}</span>
+      <div className="timefield-row">
         <select
           id={`${prefix}-hour`}
           aria-label={`${label} hour`}
+          className="timefield-select timefield-hour"
           value={hour}
           disabled={disabled}
           onChange={(e) => onChange(from12h(e.target.value, minute, ampm))}
-          style={selectStyle}
         >
           {HOURS_12.map((h) => <option key={h} value={String(h)}>{h}</option>)}
         </select>
-        <span aria-hidden="true" style={{ fontWeight: 800, color: "var(--color-text-2, #64748b)" }}>:</span>
+        <span aria-hidden="true" className="timefield-colon">:</span>
         <select
           id={`${prefix}-minute`}
           aria-label={`${label} minute`}
+          className="timefield-select timefield-minute"
           value={minute}
           disabled={disabled}
           onChange={(e) => onChange(from12h(hour, e.target.value, ampm))}
-          style={selectStyle}
         >
           {MINUTES_60.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
         <select
           id={`${prefix}-ampm`}
           aria-label={`${label} AM or PM`}
+          className="timefield-select timefield-ampm"
           value={ampm}
           disabled={disabled}
           onChange={(e) => onChange(from12h(hour, minute, e.target.value))}
-          style={selectStyle}
         >
           <option value="AM">AM</option>
           <option value="PM">PM</option>
@@ -446,15 +454,15 @@ export default function SettingsPage() {
     setTimeClock({ ...timeClock, days });
   }
 
-  const missingDayLabels = TIMECLOCK_ALL_DAYS.filter(
+  const missingDayNames = TIMECLOCK_ALL_DAYS.filter(
     (d) => !timeClock.days.includes(d),
-  ).map((d) => DAY_CHIPS.find((x) => x.value === d)?.label ?? String(d));
+  ).map((d) => DAY_FULL_NAMES[d] ?? String(d));
   const daysCaption =
-    missingDayLabels.length === 0
+    missingDayNames.length === 0
       ? "every day"
-      : missingDayLabels.length === 1
-        ? `every day except ${missingDayLabels[0]}s`
-        : `every day except ${missingDayLabels.join(", ")}`;
+      : missingDayNames.length === 1
+        ? `every day except ${missingDayNames[0]}`
+        : `every day except ${missingDayNames.join(", ")}`;
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional init: profile + catalog defaults on mount/role change
@@ -1199,142 +1207,146 @@ export default function SettingsPage() {
             )}
 
             {/* TIME CLOCK */}
-            <section className="panel" style={{ padding: "var(--space-5)" }}>
-              <div className="settings-table-heading">
-                <div>
-                  <h3 className="section-title m-0 p-0" style={{ borderBottom: "none" }}>Time clock</h3>
-                  <p className="muted small" style={{ margin: "var(--space-1) 0 0" }}>
-                    Buttons open and close every day at these times (Manila time). Flip ON to use them.
+            <section className="panel timeclock-panel">
+              <div className="timeclock-head">
+                <div className="timeclock-head-copy">
+                  <div className="timeclock-title-row">
+                    <h3 className="timeclock-title">Time clock</h3>
+                    <span className={`timeclock-state ${timeClock.enabled ? "is-on" : "is-off"}`}>
+                      <span className="timeclock-state-dot" aria-hidden="true" />
+                      {timeClock.enabled ? "On" : "Off"}
+                    </span>
+                  </div>
+                  <p className="timeclock-subtitle">
+                    Set when the Time in and Time out buttons can be tapped. Manila time.
                   </p>
                 </div>
-                <button className="ghost small-btn" onClick={loadTimeClock} disabled={clockLoading}>
-                  <RefreshCw size={13} /> Refresh
+                <button type="button" className="ghost small-btn" onClick={loadTimeClock} disabled={clockLoading}>
+                  <RefreshCw size={13} aria-hidden="true" /> Refresh
                 </button>
               </div>
 
-              <form onSubmit={saveTimeClock} style={{ marginTop: "var(--space-3)" }}>
-                {/* Big clear ON / OFF — left-aligned, with a real track switch */}
+              <form onSubmit={saveTimeClock} className="timeclock-form">
                 <button
                   type="button"
                   role="switch"
                   aria-checked={timeClock.enabled}
+                  aria-labelledby="timeclock-master-title"
+                  aria-describedby="timeclock-master-hint"
                   id="timeclock-enabled-switch"
+                  className={`timeclock-master ${timeClock.enabled ? "is-on" : "is-off"}`}
                   onClick={() => setTimeClock({ ...timeClock, enabled: !timeClock.enabled })}
-                  style={{
-                    display: "flex", alignItems: "center", justifyContent: "flex-start",
-                    gap: "var(--space-4)", width: "100%",
-                    padding: "var(--space-3) var(--space-4)", borderRadius: "var(--radius-lg)",
-                    cursor: "pointer", textAlign: "left",
-                    border: timeClock.enabled ? "2px solid var(--success)" : "2px solid var(--border)",
-                    background: timeClock.enabled ? "var(--success-bg)" : "var(--surface-alt)",
-                    transition: "background var(--transition-fast), border-color var(--transition-fast)",
-                  }}
                 >
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      position: "relative", flexShrink: 0,
-                      width: 64, height: 34, borderRadius: 999,
-                      background: timeClock.enabled ? "var(--success)" : "var(--surface)",
-                      border: timeClock.enabled ? "2px solid var(--success)" : "2px solid var(--border-strong)",
-                      transition: "background var(--transition-fast), border-color var(--transition-fast)",
-                    }}
-                  >
-                    <span
-                      style={{
-                        position: "absolute", top: 2, left: timeClock.enabled ? 28 : 2,
-                        width: 26, height: 26, borderRadius: "50%", background: "#fff",
-                        boxShadow: "0 1px 3px rgba(10, 9, 8, 0.3)",
-                        transition: "left var(--transition-fast)",
-                      }}
-                    />
-                    <span
-                      style={{
-                        position: "absolute", top: 0, height: "30px", lineHeight: "30px",
-                        fontSize: 11, fontWeight: 800, letterSpacing: "0.08em",
-                        left: timeClock.enabled ? 7 : undefined,
-                        right: timeClock.enabled ? undefined : 5,
-                        color: timeClock.enabled ? "#fff" : "var(--text-muted)",
-                      }}
-                    >
-                      {timeClock.enabled ? "ON" : "OFF"}
-                    </span>
+                  <span className="timeclock-master-icon" aria-hidden="true">
+                    <Power size={19} />
                   </span>
-                  <span style={{ minWidth: 0, flex: 1 }}>
-                    <strong style={{ display: "block", marginBottom: 2, color: "var(--text)" }}>
+                  <span className="timeclock-master-copy">
+                    <strong className="timeclock-master-title" id="timeclock-master-title">
                       Schedule is {timeClock.enabled ? "ON" : "OFF"}
                     </strong>
-                    <span className="muted small">
+                    <span className="timeclock-master-hint" id="timeclock-master-hint">
                       {timeClock.enabled
-                        ? "The buttons open only on the selling days and times below — outside them, Time in / Time out cannot be tapped."
-                        : "Both buttons always work. Flip the switch ON to limit them to the days and times below."}
+                        ? "Time in and Time out only work inside the selling days and windows below."
+                        : "Both buttons always work. Turn the schedule ON to limit them to the days and times below."}
                     </span>
+                  </span>
+                  <span className="timeclock-toggle" aria-hidden="true">
+                    <span className="timeclock-toggle-label">
+                      {timeClock.enabled ? "ON" : "OFF"}
+                    </span>
+                    <span className="timeclock-toggle-knob" />
                   </span>
                 </button>
 
-                {/* Times, 12-hour — one contained row per event */}
-                {[
-                  {
-                    key: "in",
-                    label: "Time in",
-                    open: timeClock.inOpen,
-                    close: timeClock.inClose,
-                    onOpen: (v) => setTimeClock({ ...timeClock, inOpen: v }),
-                    onClose: (v) => setTimeClock({ ...timeClock, inClose: v }),
-                    prefixOpen: "timeclock-in-open",
-                    prefixClose: "timeclock-in-close",
-                    labelOpen: "Time in opens",
-                    labelClose: "Time in closes",
-                  },
-                  {
-                    key: "out",
-                    label: "Time out",
-                    open: timeClock.outOpen,
-                    close: timeClock.outClose,
-                    onOpen: (v) => setTimeClock({ ...timeClock, outOpen: v }),
-                    onClose: (v) => setTimeClock({ ...timeClock, outClose: v }),
-                    prefixOpen: "timeclock-out-open",
-                    prefixClose: "timeclock-out-close",
-                    labelOpen: "Time out opens",
-                    labelClose: "Time out closes",
-                  },
-                ].map((row) => (
-                  <div
-                    key={row.key}
-                    style={{
-                      display: "flex", flexWrap: "wrap", gap: "var(--space-3)",
-                      alignItems: "center", marginTop: "var(--space-4)",
-                      padding: "var(--space-3) var(--space-4)",
-                      borderRadius: "var(--radius-lg)",
-                      border: "1px solid var(--border)",
-                      background: "var(--surface-alt)",
-                    }}
-                  >
-                    <span style={{ minWidth: 72, fontWeight: 800, color: "var(--text)" }}>
-                      {row.label}
-                    </span>
-                    <TimeField12h prefix={row.prefixOpen} label={row.labelOpen} value={row.open}
-                      onChange={row.onOpen} disabled={!timeClock.enabled} />
-                    <span aria-hidden="true" style={{ color: "var(--text-faint)", fontWeight: 700 }}>
-                      →
-                    </span>
-                    <TimeField12h prefix={row.prefixClose} label={row.labelClose} value={row.close}
-                      onChange={row.onClose} disabled={!timeClock.enabled} />
-                  </div>
-                ))}
+                <div className="timeclock-windows">
+                  {[
+                    {
+                      key: "in",
+                      label: "Time in",
+                      icon: <LogIn size={17} aria-hidden="true" />,
+                      open: timeClock.inOpen,
+                      close: timeClock.inClose,
+                      onOpen: (v) => setTimeClock({ ...timeClock, inOpen: v }),
+                      onClose: (v) => setTimeClock({ ...timeClock, inClose: v }),
+                      prefixOpen: "timeclock-in-open",
+                      prefixClose: "timeclock-in-close",
+                      labelOpen: "Time in opens",
+                      labelClose: "Time in closes",
+                    },
+                    {
+                      key: "out",
+                      label: "Time out",
+                      icon: <LogOut size={17} aria-hidden="true" />,
+                      open: timeClock.outOpen,
+                      close: timeClock.outClose,
+                      onOpen: (v) => setTimeClock({ ...timeClock, outOpen: v }),
+                      onClose: (v) => setTimeClock({ ...timeClock, outClose: v }),
+                      prefixOpen: "timeclock-out-open",
+                      prefixClose: "timeclock-out-close",
+                      labelOpen: "Time out opens",
+                      labelClose: "Time out closes",
+                    },
+                  ].map((row) => {
+                    const openMinutes = hmToMinutes(row.open);
+                    const closeMinutes = hmToMinutes(row.close);
+                    const duration =
+                      Number.isFinite(openMinutes) &&
+                      Number.isFinite(closeMinutes) &&
+                      closeMinutes > openMinutes
+                        ? formatDuration(closeMinutes - openMinutes)
+                        : null;
+                    return (
+                      <div
+                        key={row.key}
+                        className={`timeclock-window ${timeClock.enabled ? "" : "is-disabled"}`}
+                      >
+                        <div className="timeclock-window-head">
+                          <span className="timeclock-window-icon">{row.icon}</span>
+                          <span className="timeclock-window-title">{row.label}</span>
+                          {duration && (
+                            <span className="timeclock-window-duration">{duration} window</span>
+                          )}
+                        </div>
+                        <div className="timeclock-window-times">
+                          <TimeField12h
+                            prefix={row.prefixOpen}
+                            label={row.labelOpen}
+                            caption="Opens"
+                            value={row.open}
+                            onChange={row.onOpen}
+                            disabled={!timeClock.enabled}
+                          />
+                          <span className="timeclock-arrow" aria-hidden="true">
+                            <ArrowRight size={15} />
+                          </span>
+                          <TimeField12h
+                            prefix={row.prefixClose}
+                            label={row.labelClose}
+                            caption="Closes"
+                            value={row.close}
+                            onChange={row.onClose}
+                            disabled={!timeClock.enabled}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
 
-                {/* Selling days */}
-                <div style={{ marginTop: "var(--space-4)" }}>
-                  <span
-                    style={{
-                      display: "flex", alignItems: "center", gap: 6,
-                      marginBottom: 8, fontSize: "0.8rem", color: "var(--text-muted)",
-                    }}
-                  >
-                    <Info size={13} aria-hidden="true" />
-                    Selling days — uncheck the days when there are no sales; the buttons stay closed the whole day.
-                  </span>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                <div className="timeclock-days">
+                  <div className="timeclock-days-head">
+                    <span className="timeclock-days-title">
+                      <CalendarDays size={15} aria-hidden="true" />
+                      Selling days
+                    </span>
+                    <span className="timeclock-days-count">
+                      {timeClock.days.length} of 7 days
+                    </span>
+                  </div>
+                  <p className="timeclock-days-hint">
+                    Unchecked days keep both buttons closed the whole day.
+                  </p>
+                  <div className="timeclock-day-row">
                     {DAY_CHIPS.map(({ value, label }) => {
                       const active = timeClock.days.includes(value);
                       return (
@@ -1345,16 +1357,7 @@ export default function SettingsPage() {
                           aria-pressed={active}
                           disabled={!timeClock.enabled}
                           onClick={() => toggleDay(value)}
-                          style={{
-                            width: 52, height: 52, borderRadius: "50%", fontWeight: 800,
-                            fontSize: "0.8rem",
-                            cursor: !timeClock.enabled ? "default" : "pointer",
-                            opacity: !timeClock.enabled ? 0.5 : 1,
-                            border: active ? "2px solid var(--success)" : "2px dashed var(--border-strong)",
-                            background: active ? "var(--success-bg)" : "var(--surface-alt)",
-                            color: active ? "var(--success)" : "var(--text-faint)",
-                            transition: "background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast)",
-                          }}
+                          className={`timeclock-day ${active ? "is-active" : ""}`}
                         >
                           {label}
                         </button>
@@ -1364,33 +1367,32 @@ export default function SettingsPage() {
                 </div>
 
                 {clockError && (
-                  <p className="error-box" role="alert" style={{ marginTop: "var(--space-3)" }}>{clockError}</p>
+                  <p className="error-box timeclock-error" role="alert">{clockError}</p>
                 )}
 
-                <hr
-                  style={{
-                    border: 0,
-                    borderTop: "1px solid var(--border)",
-                    margin: "var(--space-4) 0 0",
-                  }}
-                />
-                <div className="flex items-center justify-between gap-2" style={{ marginTop: "var(--space-3)" }}>
-                  <p className="muted small" style={{ margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
-                    <Clock size={14} aria-hidden="true" />
-                    <span>
-                      {timeClock.enabled ? (
-                        <>
-                          Buttons open <strong>{daysCaption}</strong>: Time in{" "}
-                          <strong>{format12h(timeClock.inOpen)}–{format12h(timeClock.inClose)}</strong> · Time out{" "}
-                          <strong>{format12h(timeClock.outOpen)}–{format12h(timeClock.outClose)}</strong>.
-                        </>
-                      ) : (
-                        "Schedule is OFF — both buttons always work (current behavior)."
-                      )}
+                <div className="timeclock-footer">
+                  <div className="timeclock-summary">
+                    <span className="timeclock-summary-icon" aria-hidden="true">
+                      <Clock size={15} />
                     </span>
-                  </p>
-                  <button type="submit" className="small-btn" disabled={clockSaving || clockLoading}>
-                    <Clock size={13} /> {clockSaving ? "Saving..." : "Save"}
+                    <div className="timeclock-summary-copy">
+                      <span className="timeclock-summary-label">Current schedule</span>
+                      <p className="timeclock-summary-text">
+                        {timeClock.enabled ? (
+                          <>
+                            Buttons open <strong>{daysCaption}</strong>: Time in{" "}
+                            <strong>{format12h(timeClock.inOpen)}–{format12h(timeClock.inClose)}</strong>{" "}
+                            · Time out{" "}
+                            <strong>{format12h(timeClock.outOpen)}–{format12h(timeClock.outClose)}</strong>.
+                          </>
+                        ) : (
+                          "Schedule is OFF — both buttons always work (current behavior)."
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <button type="submit" className="timeclock-save" disabled={clockSaving || clockLoading}>
+                    <Save size={14} aria-hidden="true" /> {clockSaving ? "Saving..." : "Save"}
                   </button>
                 </div>
               </form>

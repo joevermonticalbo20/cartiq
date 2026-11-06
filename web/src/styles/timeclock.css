@@ -1,0 +1,565 @@
+/* ============================================================
+ * PART: timeclock.css  |  SAKOP: Settings > Time clock panel
+ * (schedule switch, clock windows, selling days, save footer)
+ * ============================================================ */
+
+.timeclock-panel {
+  padding: var(--space-5) var(--space-6);
+}
+
+/* ----- Header ----- */
+.timeclock-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.timeclock-head-copy {
+  min-width: 0;
+}
+.timeclock-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+}
+.timeclock-title {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1.2;
+}
+.timeclock-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  line-height: 1.5;
+}
+.timeclock-state-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.timeclock-state.is-on {
+  border-color: var(--success);
+  background: var(--success-bg);
+  color: var(--success);
+}
+.timeclock-state.is-off {
+  border-color: var(--border);
+  background: var(--surface-alt);
+  color: var(--text-muted);
+}
+.timeclock-subtitle {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+/* ----- Form flow ----- */
+.timeclock-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+/* ----- Master ON/OFF row ----- */
+.timeclock-master {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-alt);
+  color: var(--text);
+  text-align: left;
+  box-shadow: none;
+  transition:
+    background var(--transition-base),
+    border-color var(--transition-base),
+    box-shadow var(--transition-base);
+}
+.timeclock-master.is-on {
+  border-color: var(--success);
+  background: linear-gradient(120deg, var(--success-bg), var(--surface) 88%);
+  box-shadow: inset 3px 0 0 var(--success);
+}
+.timeclock-master:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  box-shadow: none;
+  transform: none;
+}
+.timeclock-master.is-on:hover:not(:disabled) {
+  border-color: var(--success);
+  background: linear-gradient(120deg, var(--success-bg), var(--surface) 88%);
+  box-shadow: inset 3px 0 0 var(--success);
+}
+.timeclock-master:active:not(:disabled) {
+  transform: none;
+}
+.timeclock-master-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-muted);
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+.timeclock-master.is-on .timeclock-master-icon {
+  border-color: transparent;
+  color: var(--success);
+}
+.timeclock-master-copy {
+  display: block;
+  min-width: 0;
+}
+.timeclock-master-title {
+  display: block;
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 800;
+  line-height: 1.35;
+}
+.timeclock-master-hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+/* Real switch, drawn without extra markup */
+.timeclock-toggle {
+  position: relative;
+  width: 64px;
+  height: 34px;
+  flex-shrink: 0;
+  border: 2px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.timeclock-master.is-on .timeclock-toggle {
+  border-color: var(--success);
+  background: var(--success);
+}
+.timeclock-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(10, 9, 8, 0.35);
+  transition: transform var(--transition-fast);
+}
+.timeclock-master.is-on .timeclock-toggle-knob {
+  transform: translateX(32px);
+}
+.timeclock-toggle-label {
+  position: absolute;
+  top: 0;
+  right: 8px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 30px;
+}
+.timeclock-master.is-on .timeclock-toggle-label {
+  right: auto;
+  left: 9px;
+  color: #fff;
+}
+[data-theme="dark"] .timeclock-master.is-on .timeclock-toggle-label {
+  color: #0A0908;
+}
+
+/* ----- Clock windows ----- */
+.timeclock-windows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.timeclock-window {
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-alt);
+  transition: opacity var(--transition-fast), border-color var(--transition-fast);
+}
+.timeclock-window.is-disabled {
+  opacity: 0.85;
+}
+.timeclock-window-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: var(--space-3);
+}
+.timeclock-window-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+}
+.timeclock-window.is-disabled .timeclock-window-icon {
+  color: var(--text-faint);
+}
+.timeclock-window-title {
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 800;
+}
+.timeclock-window-duration {
+  margin-left: auto;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.timeclock-window-times {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.timeclock-arrow {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 40px;
+  color: var(--text-faint);
+}
+
+/* ----- 12-hour time editor ----- */
+.timefield {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.timefield-label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.timefield-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.timefield-select {
+  height: 40px;
+  min-width: 0;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+.timefield-select:disabled {
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 1;
+}
+.timefield-hour {
+  width: 54px;
+}
+.timefield-minute {
+  width: 60px;
+}
+.timefield-ampm {
+  width: 62px;
+}
+.timefield-colon {
+  color: var(--text-faint);
+  font-weight: 800;
+}
+
+/* ----- Selling days ----- */
+.timeclock-days {
+  padding-top: var(--space-1);
+}
+.timeclock-days-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.timeclock-days-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 800;
+}
+.timeclock-days-count {
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+.timeclock-days-hint {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.timeclock-day-row {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-2);
+  max-width: 640px;
+  margin-top: var(--space-3);
+}
+.timeclock-day {
+  min-width: 0;
+  height: 42px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  box-shadow: none;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+.timeclock-day:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+.timeclock-day.is-active {
+  border-color: var(--success);
+  background: var(--success-bg);
+  color: var(--success);
+}
+.timeclock-day.is-active:hover:not(:disabled) {
+  border-color: var(--success);
+  background: var(--success-bg);
+  color: var(--success);
+}
+.timeclock-day:disabled {
+  opacity: 0.6;
+  box-shadow: none;
+  transform: none;
+}
+
+/* ----- Error + save footer ----- */
+.timeclock-error {
+  margin: 0;
+}
+.timeclock-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+.timeclock-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.timeclock-summary-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--surface-alt);
+  color: var(--text-muted);
+}
+.timeclock-summary-copy {
+  min-width: 0;
+}
+.timeclock-summary-label {
+  display: block;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+.timeclock-summary-text {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+}
+.timeclock-summary-text strong {
+  color: var(--text);
+  font-weight: 700;
+}
+.timeclock-save {
+  flex-shrink: 0;
+  min-width: 112px;
+  padding: 10px 20px;
+}
+
+/* ----- Responsive ----- */
+@media (max-width: 1280px) {
+  .timeclock-window-times {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .timefield {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+  .timeclock-arrow {
+    align-self: center;
+    height: 16px;
+    transform: rotate(90deg);
+  }
+}
+@media (max-width: 900px) {
+  .timeclock-panel {
+    padding: var(--space-5);
+  }
+  .timeclock-windows {
+    grid-template-columns: 1fr;
+  }
+  .timeclock-window-times {
+    flex-direction: row;
+    align-items: flex-end;
+    gap: var(--space-2);
+  }
+  .timefield {
+    flex: 0 1 auto;
+    width: auto;
+  }
+  .timeclock-arrow {
+    height: 40px;
+    transform: none;
+  }
+  .timeclock-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .timeclock-save {
+    align-self: flex-end;
+  }
+}
+@media (max-width: 700px) {
+  .timeclock-window-times {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .timefield {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+  .timeclock-arrow {
+    align-self: center;
+    height: 16px;
+    transform: rotate(90deg);
+  }
+}
+@media (max-width: 620px) {
+  .timeclock-master {
+    gap: var(--space-3);
+    padding: var(--space-3);
+  }
+  .timeclock-master-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+  }
+  .timeclock-toggle {
+    width: 58px;
+    height: 32px;
+  }
+  .timeclock-toggle-knob {
+    width: 24px;
+    height: 24px;
+  }
+  .timeclock-master.is-on .timeclock-toggle-knob {
+    transform: translateX(26px);
+  }
+  .timeclock-toggle-label {
+    line-height: 28px;
+  }
+  .timeclock-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .timeclock-save {
+    width: 100%;
+  }
+}
+@media (max-width: 560px) {
+  .timeclock-master {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .timeclock-toggle {
+    grid-column: 2;
+    justify-self: end;
+  }
+  .timeclock-day-row {
+    gap: 5px;
+  }
+  .timeclock-day {
+    height: 40px;
+    padding: 0 2px;
+    font-size: var(--fs-xs);
+  }
+}
