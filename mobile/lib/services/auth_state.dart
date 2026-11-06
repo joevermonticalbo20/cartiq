@@ -211,7 +211,7 @@ class AuthState extends ChangeNotifier {
 
   void _startAlertPoll() {
     _alertPoll?.cancel();
-    _alertPoll = Timer.periodic(const Duration(seconds: 30), (_) {
+    _alertPoll = Timer.periodic(const Duration(seconds: 15), (_) {
       if (token == null) return;
       refreshMyAlerts().catchError((_) {});
     });

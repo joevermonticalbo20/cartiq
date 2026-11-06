@@ -31,7 +31,7 @@ class RootShell extends StatefulWidget {
   State<RootShell> createState() => _RootShellState();
 }
 
-class _RootShellState extends State<RootShell> {
+class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   int _index =
       2; // Perfectly centered now! (0: POS, 1: Receipts, 2: Home, 3: History, 4: Settings)
 
@@ -72,6 +72,7 @@ class _RootShellState extends State<RootShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _queueSubscription = _queue.changes.listen((count) {
       if (mounted) setState(() => _queuedOrders = count);
     });
@@ -91,9 +92,18 @@ class _RootShellState extends State<RootShell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _queueSubscription.cancel();
     if (_syncListenerAdded) _sync.removeListener(_onSyncChanged);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final auth = context.read<AuthState>();
+      auth.refreshMyAlerts();
+    }
   }
 
   Future<void> _readQueueCount() async {
