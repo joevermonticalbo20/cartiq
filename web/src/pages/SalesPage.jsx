@@ -322,7 +322,7 @@ export default function SalesPage() {
             </div>
           </div>
 
-          {isOwner && voidRequests.length > 0 && (
+          {isOwner && (
             <div
               className="panel"
               style={{
@@ -357,6 +357,11 @@ export default function SalesPage() {
                   See all <ChevronRight size={14} aria-hidden="true" />
                 </button>
               </div>
+              {voidRequests.length === 0 && (
+                <p className="muted small" style={{ margin: "var(--space-2) 0 0" }}>
+                  No pending void requests right now.
+                </p>
+              )}
             </div>
           )}
 
