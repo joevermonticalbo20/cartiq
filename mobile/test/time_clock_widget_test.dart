@@ -125,8 +125,8 @@ void main() {
     );
     expect(timeIn.onPressed, isNull, reason: 'Time in must be disabled now');
     expect(timeOut.onPressed, isNull, reason: 'Time out must be disabled now');
-    expect(find.textContaining('Time in opens 07:00'), findsOneWidget);
-    expect(find.textContaining('Time out opens 17:00'), findsOneWidget);
+    expect(find.textContaining('Time in opens 7:00 AM'), findsOneWidget);
+    expect(find.textContaining('Time out opens 5:00 PM'), findsOneWidget);
   });
 
   testWidgets('one open window greys out only its own button', (
@@ -156,7 +156,7 @@ void main() {
     expect(timeIn.onPressed, isNotNull, reason: 'Time in window is open');
     expect(timeOut.onPressed, isNull, reason: 'Time out window is closed');
     expect(find.textContaining('Time in opens'), findsNothing);
-    expect(find.textContaining('Time out opens 17:00'), findsOneWidget);
+    expect(find.textContaining('Time out opens 5:00 PM'), findsOneWidget);
   });
 
   testWidgets('closed day disables both buttons with the closed-day hint', (

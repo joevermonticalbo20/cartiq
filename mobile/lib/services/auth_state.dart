@@ -522,15 +522,25 @@ class AuthState extends ChangeNotifier {
   bool get clockOutOpen =>
       (timeClock ?? TimeClockConfig.defaults).isOpenNow('OUT', _clockNow());
 
-  /// "Time in opens 07:00 (closes 09:00)" — greys-out caption for the row.
+  /// "Time in opens 7:00 AM (closes 9:00 AM)" — greys-out caption for the row.
   /// On a closed day (no selling day in the config) every window is off, so
-  /// the caption says so instead of naming a window.
+  /// the caption says so instead of naming a window. Always 12-hour.
   String clockHint(String event) {
     final cfg = timeClock ?? TimeClockConfig.defaults;
     if (!cfg.isDayOpen(_clockNow())) return 'Closed today - no selling day.';
+    String fmt(String hhmm) {
+      final m = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(hhmm);
+      if (m == null) return hhmm;
+      final h = int.parse(m.group(1)!);
+      final minute = m.group(2)!;
+      final period = h < 12 ? 'AM' : 'PM';
+      final h12 = h % 12 == 0 ? 12 : h % 12;
+      return '$h12:$minute $period';
+    }
+
     return event == 'OUT'
-        ? 'Time out opens ${cfg.outOpen} (closes ${cfg.outClose})'
-        : 'Time in opens ${cfg.inOpen} (closes ${cfg.inClose})';
+        ? 'Time out opens ${fmt(cfg.outOpen)} (closes ${fmt(cfg.outClose)})'
+        : 'Time in opens ${fmt(cfg.inOpen)} (closes ${fmt(cfg.inClose)})';
   }
 
   /// The single caption shown under the row when anything is locked.
