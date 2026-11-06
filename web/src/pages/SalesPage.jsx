@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useOutletContext, useSearchParams } from "react-router-dom";
-import { ReceiptText, RefreshCw, X, Download, Edit2, Eye, Hourglass, Check, Ban } from "lucide-react";
+import { useOutletContext, useSearchParams, useNavigate } from "react-router-dom";
+import { ReceiptText, RefreshCw, X, Download, Edit2, Eye, Hourglass, ChevronRight } from "lucide-react";
 
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
@@ -21,6 +21,7 @@ export default function SalesPage() {
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const [locations, setLocations] = useState([]);
 
@@ -46,7 +47,6 @@ export default function SalesPage() {
 
   // Staff void requests: the POS files them, the OWNER decides here.
   const [voidRequests, setVoidRequests] = useState([]);
-  const [deciding, setDeciding] = useState(null);
   // GCash receipt viewer (blob fetched with the session, shown as object URL).
   const [viewingReceipt, setViewingReceipt] = useState(null);
 
@@ -127,34 +127,7 @@ export default function SalesPage() {
     []
   );
 
-  async function decideVoidRequest(request, decision) {
-    if (deciding) return;
-    let orderId = request.orderId ?? null;
-    try {
-      orderId = JSON.parse(request.payload ?? "{}")?.orderId ?? orderId;
-    } catch {
-      /* keep whatever the alert carried at the top level */
-    }
-    if (!orderId) {
-      toast("This request has no order reference.", "error");
-      return;
-    }
-    setDeciding(request.id);
-    try {
-      await api.patch(`/orders/${orderId}/void-request`, { decision });
-      toast(
-        decision === "approve"
-          ? `Order #${orderId} voided - stock restored`
-          : `Order #${orderId} stays as paid`,
-        "success"
-      );
-      handleRefresh();
-    } catch (err) {
-      toast(getFriendlyError(err, "Could not record the void decision."), "error");
-    } finally {
-      setDeciding(null);
-    }
-  }
+  // decideVoidRequest moved to /sales/void-requests page.
 
   async function openReceipt(order) {
     setViewingReceipt({ order, url: null, loading: true, error: "" });
@@ -354,53 +327,35 @@ export default function SalesPage() {
               className="panel"
               style={{
                 marginBottom: "var(--space-4)",
-                padding: "var(--space-4)",
+                padding: "var(--space-3) var(--space-4)",
                 borderLeft: "4px solid var(--warn)",
               }}
               aria-label="Void requests"
             >
-              <h3
-                className="section-title"
-                style={{
-                  padding: 0,
-                  borderBottom: "none",
-                  marginBottom: "var(--space-3)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                }}
+              <div
+                className="flex items-center justify-between gap-3"
+                style={{ flexWrap: "wrap" }}
               >
-                <Hourglass size={16} aria-hidden="true" /> Void requests
-                ({voidRequests.length})
-              </h3>
-              <div className="flex flex-col gap-3">
-                {voidRequests.map((req) => (
-                  <div
-                    key={req.id}
-                    className="flex items-center justify-between gap-3"
-                    style={{ flexWrap: "wrap" }}
-                  >
-                    <span className="small">{req.message}</span>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        className="danger-ghost small-btn"
-                        disabled={deciding === req.id}
-                        onClick={() => decideVoidRequest(req, "deny")}
-                      >
-                        <Ban size={13} /> Deny
-                      </button>
-                      <button
-                        type="button"
-                        className="small-btn"
-                        disabled={deciding === req.id}
-                        onClick={() => decideVoidRequest(req, "approve")}
-                      >
-                        <Check size={13} /> Approve void
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                <h3
+                  className="section-title"
+                  style={{
+                    padding: 0,
+                    borderBottom: "none",
+                    margin: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <Hourglass size={16} aria-hidden="true" /> Void requests ({voidRequests.length})
+                </h3>
+                <button
+                  type="button"
+                  className="small-btn ghost"
+                  onClick={() => navigate("/sales/void-requests")}
+                >
+                  See all <ChevronRight size={14} aria-hidden="true" />
+                </button>
               </div>
             </div>
           )}

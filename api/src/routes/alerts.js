@@ -11,6 +11,11 @@ router.get("/alerts", requireAuth, async (req, res, next) => {
     const page = Math.max(1, Number(req.query.page) || 1);
     const pageSize = Math.min(Number(req.query.pageSize) || 10, 100);
     const where = unread_only === "true" ? { isRead: false } : {};
+    // The bell shows the store's operational feed to OWNER; staff see only the
+    // alerts targeted at them (void decisions, restock confirmations).
+    if (req.user?.role !== "OWNER") {
+      where.userId = req.user.sub;
+    }
     const [total, alerts] = await Promise.all([
       prisma.alert.count({ where }),
       prisma.alert.findMany({
@@ -71,6 +76,8 @@ router.patch("/alerts/read", requireAuth, requireRole("OWNER"), async (req, res,
       : null;
     const where = { isRead: false };
     if (ids && ids.length > 0) where.id = { in: ids };
+    // Staff may only mark their own targeted alerts read.
+    if (req.user?.role !== "OWNER") where.userId = req.user.sub;
     const { count } = await prisma.alert.updateMany({ where, data: { isRead: true } });
     return res.json({ updated: count });
   } catch (err) {
@@ -78,13 +85,19 @@ router.patch("/alerts/read", requireAuth, requireRole("OWNER"), async (req, res,
   }
 });
 
-router.patch("/alerts/:id/read", requireAuth, requireRole("OWNER"), async (req, res, next) => {
+router.patch("/alerts/:id/read", requireAuth, async (req, res, next) => {
   try {
-    const alert = await prisma.alert.update({
+    const alert = await prisma.alert.findUnique({ where: { id: Number(req.params.id) } });
+    if (!alert) return res.status(404).json({ error: "Alert not found" });
+    // Staff may only mark their own targeted alerts read.
+    if (req.user?.role !== "OWNER" && Number(alert.userId) !== Number(req.user.sub)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const updated = await prisma.alert.update({
       where: { id: Number(req.params.id) },
       data: { isRead: true },
     });
-    return res.json({ alert });
+    return res.json({ alert: updated });
   } catch (err) {
     if (err.code === "P2025") {
       return res.status(404).json({ error: "Alert not found" });
@@ -171,6 +184,57 @@ router.patch(
             : {}),
         },
       });
+
+      const requesterId = existing.requestedBy
+        ? Number(existing.requestedBy)
+        : null;
+      if (requesterId && requesterId !== Number(req.user.sub)) {
+        const ingredient = existing.ingredientName
+          ? ` for ${existing.ingredientName}`
+          : "";
+        const title =
+          status === "acknowledged"
+            ? "Restock request seen"
+            : resolution === "dismissed"
+              ? "Restock request declined"
+              : "Restock request restocked";
+        const message =
+          status === "acknowledged"
+            ? `The owner saw your restock request${ingredient} — it's being handled.`
+            : resolution === "dismissed"
+              ? `Your restock request${ingredient} was declined by the owner.`
+              : `Your restock request${ingredient} was marked as restocked.`;
+        const notify = await prisma.alert.create({
+          data: {
+            type: "RESTOCK_UPDATE",
+            title,
+            message,
+            userId: requesterId,
+            locationId: existing.locationId ?? null,
+            ingredientId: existing.ingredientId ?? null,
+            ingredientName: existing.ingredientName ?? null,
+            requestedBy: requesterId,
+            requestedByName: existing.requestedByName ?? null,
+            isRead: false,
+            payload: JSON.stringify({
+              originId: id,
+              ingredientId: existing.ingredientId ?? null,
+              status,
+              resolution: resolution ?? null,
+            }),
+          },
+        });
+        emit("alert:new", {
+          id: notify.id,
+          type: notify.type,
+          title: notify.title ?? null,
+          message: notify.message,
+          isRead: notify.isRead === true,
+          createdAt: notify.createdAt,
+          locationId: notify.locationId ?? null,
+        });
+      }
+
       emit("restock-request:updated", alert);
       return res.json({ alert });
     } catch (err) {

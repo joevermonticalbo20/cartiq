@@ -600,6 +600,21 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
         include: { items: true },
       });
       await resolveAlert();
+      const requesterId = existing.voidRequest?.requestedBy ? Number(existing.voidRequest.requestedBy) : null;
+      if (requesterId && requesterId !== Number(req.user.sub)) {
+        const notify = await prisma.alert.create({
+          data: {
+            type: "VOID_DECISION",
+            title: "Void declined",
+            message: `Order #${existing.id} stays as paid - the owner declined your void request.`,
+            userId: requesterId,
+            locationId: existing.locationId ?? null,
+            payload: JSON.stringify({ orderId: existing.id }),
+            isRead: false,
+          },
+        });
+        emit("alert:new", { id: notify.id, type: notify.type, title: notify.title ?? null, message: notify.message, isRead: notify.isRead === true, createdAt: notify.createdAt, locationId: notify.locationId ?? null });
+      }
       return res.json({ order, restored: [], warnings: [] });
     }
 
@@ -614,6 +629,21 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
       include: { items: true },
     });
     await resolveAlert();
+    const requesterId = existing.voidRequest?.requestedBy ? Number(existing.voidRequest.requestedBy) : null;
+    if (requesterId && requesterId !== Number(req.user.sub)) {
+      const notify = await prisma.alert.create({
+        data: {
+          type: "VOID_DECISION",
+          title: "Void approved",
+          message: `Order #${existing.id} was voided at your request. Stock restored.`,
+          userId: requesterId,
+          locationId: existing.locationId ?? null,
+          payload: JSON.stringify({ orderId: existing.id }),
+          isRead: false,
+        },
+      });
+      emit("alert:new", { id: notify.id, type: notify.type, title: notify.title ?? null, message: notify.message, isRead: notify.isRead === true, createdAt: notify.createdAt, locationId: notify.locationId ?? null });
+    }
     emit("order:updated", { id: existing.id, status: "VOID" });
     return res.json({ order, restored: out.restored, warnings: out.warnings });
   } catch (err) {

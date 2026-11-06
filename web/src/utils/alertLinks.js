@@ -6,7 +6,8 @@
  */
 export function alertLink(alert) {
   const t = String(alert?.type ?? "").toLowerCase();
-  if (t === "sale" || t === "sales" || t === "void_request") return "/sales";
+  if (t === "sale" || t === "sales") return "/sales";
+  if (t === "void_request" || t === "void_decision") return "/sales/void-requests";
   if (t === "restock_request" || t === "restock") return "/inventory";
   if (t === "low_stock" || t === "critical" || t === "inventory") return "/inventory";
   return "/notifications";
@@ -15,7 +16,8 @@ export function alertLink(alert) {
 /** Short affordance for the same target, used as the toast's tooltip. */
 export function alertLinkLabel(alert) {
   const t = String(alert?.type ?? "").toLowerCase();
-  if (t === "sale" || t === "sales" || t === "void_request") return "Open sales";
+  if (t === "sale" || t === "sales") return "Open sales";
+  if (t === "void_request" || t === "void_decision") return "Open void requests";
   if (t === "restock_request" || t === "restock" || t === "low_stock" || t === "critical" || t === "inventory") return "Open inventory";
   return "Open notifications";
 }

@@ -5,8 +5,8 @@ describe("alertLink", () => {
   it("routes sales and void requests to the Sales page", () => {
     expect(alertLink({ type: "SALE" })).toBe("/sales");
     expect(alertLink({ type: "sale" })).toBe("/sales");
-    expect(alertLink({ type: "VOID_REQUEST" })).toBe("/sales");
-    expect(alertLinkLabel({ type: "VOID_REQUEST" })).toBe("Open sales");
+    expect(alertLink({ type: "VOID_REQUEST" })).toBe("/sales/void-requests");
+    expect(alertLinkLabel({ type: "VOID_REQUEST" })).toBe("Open void requests");
   });
 
   it("routes stock alerts to the Inventory page", () => {

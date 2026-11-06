@@ -8,6 +8,7 @@ import Login from "./pages/Login.jsx";
 import ForgotPassword from "./pages/ForgotPassword.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
 import SalesPage from "./pages/SalesPage.jsx";
+import VoidRequestsPage from "./pages/VoidRequestsPage.jsx";
 import InventoryPage from "./pages/InventoryPage.jsx";
 import StaffPage from "./pages/StaffPage.jsx";
 import AnalyticsPage from "./pages/AnalyticsPage.jsx";
@@ -52,6 +53,7 @@ export default function App() {
           >
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/sales" element={<SalesPage />} />
+            <Route path="/sales/void-requests" element={<VoidRequestsPage />} />
             <Route path="/inventory" element={<InventoryPage />} />
             <Route path="/staff" element={<StaffPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />

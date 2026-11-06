@@ -849,6 +849,11 @@ class SettingsScreenState extends State<SettingsScreen> {
           _ServerSection(onChanged: () => setState(() {})),
           const SizedBox(height: AppSpacing.space6),
 
+          const SectionHeader(title: 'Notifications', eyebrow: 'For you'),
+          const SizedBox(height: AppSpacing.space3),
+          const _NotificationsSection(),
+          const SizedBox(height: AppSpacing.space6),
+
           const SectionHeader(title: 'Sync & storage', eyebrow: 'Offline data'),
           const SizedBox(height: AppSpacing.space3),
           _SyncSection(
@@ -1938,6 +1943,205 @@ class _StatusStrip extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _NotificationsSection extends StatefulWidget {
+  const _NotificationsSection();
+
+  @override
+  State<_NotificationsSection> createState() => _NotificationsSectionState();
+}
+
+class _NotificationsSectionState extends State<_NotificationsSection> {
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
+  }
+
+  Future<void> _refresh() async {
+    if (mounted) setState(() => _loading = true);
+    await context.read<AuthState>().refreshMyAlerts();
+    if (mounted) setState(() => _loading = false);
+  }
+
+  IconData _iconFor(Map<String, dynamic> alert) {
+    final t = (alert['type'] as String? ?? '').toLowerCase();
+    if (t.contains('void')) return Icons.cancel_rounded;
+    if (t.contains('restock')) return Icons.inventory_2_outlined;
+    return Icons.notifications_outlined;
+  }
+
+  String _when(String? iso) {
+    final dt = DateTime.tryParse(iso ?? '');
+    if (dt == null) return '';
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = context.watch<AuthState>();
+    final offline = auth.offlineMode || auth.token == null;
+    final items = auth.myAlerts;
+    final surfaceColor = Theme.of(context).colorScheme.surface;
+
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        boxShadow: AppShadow.sm(),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.space4,
+                AppSpacing.space4,
+                AppSpacing.space4,
+                AppSpacing.space2,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.notifications_outlined,
+                    color: AppColors.primary,
+                    size: 20,
+                  ),
+                  const SizedBox(width: AppSpacing.space3),
+                  Expanded(
+                    child: Text(
+                      'Notifications',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                  ),
+                  if (_loading)
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else ...[
+                    if (items.isNotEmpty)
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size(0, 36),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        onPressed: () => auth.markAllMyAlertsRead(),
+                        child: const Text('Mark all read'),
+                      ),
+                    IconButton(
+                      icon: const Icon(Icons.refresh_rounded, size: 20),
+                      tooltip: 'Refresh',
+                      onPressed: offline ? null : _refresh,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (offline) ...[
+              const Divider(height: 1, indent: 72),
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.space4),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.cloud_off_rounded,
+                      size: 18,
+                      color: AppColors.warn,
+                    ),
+                    const SizedBox(width: AppSpacing.space3),
+                    Expanded(
+                      child: Text(
+                        'Notifications refresh when you are online.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: AppColors.warn,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (items.isEmpty) ...[
+              const Divider(height: 1, indent: 72),
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.space4),
+                child: Text(
+                  'No notifications yet.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.muted,
+                      ),
+                ),
+              ),
+            ] else ...[
+              for (int i = 0; i < items.length; i++) ...[
+                const Divider(height: 1, indent: 72),
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.space4,
+                    vertical: AppSpacing.space2,
+                  ),
+                  leading: CircleAvatar(
+                    radius: 18,
+                    backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+                    child: Icon(
+                      _iconFor(items[i]),
+                      size: 18,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  title: Text(
+                    items[i]['title']?.toString() ??
+                        items[i]['type']?.toString() ??
+                        'Update',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (items[i]['message'] != null)
+                        Text(
+                          items[i]['message'].toString(),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _when(items[i]['createdAt']?.toString()),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: AppColors.muted,
+                            ),
+                      ),
+                    ],
+                  ),
+                  trailing: const Icon(
+                    Icons.chevron_right_rounded,
+                    size: 20,
+                    color: Colors.grey,
+                  ),
+                  onTap: () => auth.markMyAlertRead(
+                    (items[i]['id'] as num).toInt(),
+                  ),
+                ),
+              ],
+            ],
+          ],
+        ),
       ),
     );
   }

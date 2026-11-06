@@ -930,6 +930,23 @@ class ApiClient {
     return (r['data'] as List?) ?? [];
   }
 
+  Future<void> markAlertRead(String token, int id) async {
+    await _send(
+      () => _http.patch(
+        _uri('/alerts/$id/read'),
+        headers: _headers(token: token),
+      ),
+    );
+  }
+
+  Future<void> markAllAlertsRead(String token) async {
+    await _send(
+      () => _http.patch(
+        _uri('/alerts/read'),
+        headers: _headers(token: token),
+      ),
+    );
+  }
   Future<Map<String, dynamic>> staffOnShift(String token) async {
     final res = await _send(
       () => _http.get(_uri('/staff/on-shift'), headers: _headers(token: token)),

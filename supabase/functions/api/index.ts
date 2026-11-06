@@ -1903,6 +1903,38 @@ async function handleOrderVoidDecision(req, orderId, user) {
       /* alert already gone is fine */
     }
   };
+  const notifyRequester = async (title, message) => {
+    const requesterId = Number(existing.voidRequest?.requestedBy ?? 0);
+    if (!requesterId || requesterId === Number(user.id)) return;
+    try {
+      const counters = await readCounters(["alerts"]);
+      const { ids, writes } = counterWritesFor(counters, { alerts: 1 });
+      const alertDoc = {
+        id: ids.alerts[0],
+        type: "VOID_DECISION",
+        title,
+        message,
+        userId: requesterId,
+        locationId: existing.locationId ?? null,
+        payload: JSON.stringify({ orderId }),
+        isRead: false,
+        createdAt: new Date(),
+      };
+      writes.push(createWrite("alerts", alertDoc.id, alertDoc));
+      await fsCommit(writes);
+      await broadcastEvent("alert:new", {
+        id: alertDoc.id,
+        type: alertDoc.type,
+        title: alertDoc.title,
+        message: alertDoc.message,
+        isRead: false,
+        createdAt: alertDoc.createdAt.toISOString(),
+        locationId: alertDoc.locationId,
+      }).catch(() => {});
+    } catch {
+      /* notification is best-effort */
+    }
+  };
   if (decision === "deny") {
     const voidRequest = {
       ...(existing.voidRequest || {}),
@@ -1912,6 +1944,10 @@ async function handleOrderVoidDecision(req, orderId, user) {
     };
     await fsPatch("orders", orderId, { voidRequest });
     await resolveAlert();
+    await notifyRequester(
+      "Void declined",
+      `Order #${orderId} stays as paid - the owner declined your void request.`,
+    );
     const order = await fsGet("orders", orderId);
     return { status: 200, body: { order: cleanDoc(order), restored: [], warnings: [] } };
   }
@@ -1927,6 +1963,10 @@ async function handleOrderVoidDecision(req, orderId, user) {
   };
   await fsPatch("orders", orderId, { voidRequest });
   await resolveAlert();
+  await notifyRequester(
+    "Void approved",
+    `Order #${orderId} was voided at your request. Stock restored.`,
+  );
   const order = await fsGet("orders", orderId);
   return { status: 200, body: { order: cleanDoc(order), restored: outcome.restored, warnings: outcome.warnings } };
 }
@@ -2809,18 +2849,75 @@ async function handleRestockRequestStatus(req, id, user) {
           ackedByName: user.name ?? user.username,
         }),
   });
+  const requesterId = Number(existing.requestedBy ?? 0);
+  if (requesterId && requesterId !== Number(user.id)) {
+    const ingredient = existing.ingredientName ? ` for ${existing.ingredientName}` : "";
+    const title =
+      status === "acknowledged"
+        ? "Restock request seen"
+        : resolution === "dismissed"
+          ? "Restock request declined"
+          : "Restock request restocked";
+    const message =
+      status === "acknowledged"
+        ? `The owner saw your restock request${ingredient} — it's being handled.`
+        : resolution === "dismissed"
+          ? `Your restock request${ingredient} was declined by the owner.`
+          : `Your restock request${ingredient} was marked as restocked.`;
+    try {
+      const counters = await readCounters(["alerts"]);
+      const { ids, writes } = counterWritesFor(counters, { alerts: 1 });
+      const alertDoc = {
+        id: ids.alerts[0],
+        type: "RESTOCK_UPDATE",
+        title,
+        message,
+        userId: requesterId,
+        locationId: existing.locationId ?? null,
+        ingredientId: existing.ingredientId ?? null,
+        ingredientName: existing.ingredientName ?? null,
+        requestedBy: requesterId,
+        requestedByName: existing.requestedByName ?? null,
+        isRead: false,
+        payload: JSON.stringify({
+          originId: id,
+          ingredientId: existing.ingredientId ?? null,
+          status,
+          resolution: resolution ?? null,
+        }),
+        createdAt: new Date(),
+      };
+      writes.push(createWrite("alerts", alertDoc.id, alertDoc));
+      await fsCommit(writes);
+      await broadcastEvent("alert:new", {
+        id: alertDoc.id,
+        type: alertDoc.type,
+        title: alertDoc.title,
+        message: alertDoc.message,
+        isRead: false,
+        createdAt: alertDoc.createdAt.toISOString(),
+        locationId: alertDoc.locationId,
+      }).catch(() => {});
+    } catch {
+      /* notification is best-effort */
+    }
+  }
   const alert = cleanDoc(await fsGet("alerts", id));
   await broadcastEvent("restock-request:updated", alert);
   return { status: 200, body: { alert } };
 }
 
 // ---------- alerts + reports (mirror api/src/routes/alerts.js, reports.js) ----------
-async function handleListAlerts(url) {
+async function handleListAlerts(url, user) {
   const unreadOnly = url.searchParams.get("unread_only") === "true";
   const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
   const pageSize = Math.min(Number(url.searchParams.get("pageSize")) || 10, 100);
   const cursor = url.searchParams.get("cursor");
   const filters = unreadOnly ? [{ field: "isRead", op: "EQUAL", value: false }] : [];
+  // Staff see only the alerts targeted at them.
+  if (user?.role !== "OWNER" && user?.id != null) {
+    filters.push({ field: "userId", op: "EQUAL", value: Number(user.id) });
+  }
   const orderBy = [{ field: "createdAt", dir: "DESCENDING" }];
   const total = await fsCount("alerts", filters);
   const decoded = cursor ? decodeCursor(cursor) : null;
@@ -2835,14 +2932,19 @@ async function handleListAlerts(url) {
   };
 }
 
-async function handleAlertsReadAll(req) {
+async function handleAlertsReadAll(req, user) {
   const body = await req.json().catch(() => null);
   const ids = body && Array.isArray(body.ids)
     ? body.ids.map(Number).filter((n) => Number.isInteger(n))
     : null;
   const idSet = ids && ids.length > 0 ? new Set(ids) : null;
   const alerts = await fsQueryEqual("alerts", "isRead", false, 10000);
-  const targets = !idSet ? alerts : alerts.filter((a) => idSet.has(Number(a.id)));
+  const targets = alerts.filter((a) => {
+    if (idSet && !idSet.has(Number(a.id))) return false;
+    // Staff may only mark their own targeted alerts read.
+    if (user?.role !== "OWNER" && Number(a.userId) !== Number(user.id)) return false;
+    return true;
+  });
   const writes = targets.map((a) =>
     updateWrite("alerts", String(a._name.split("/").pop()), { isRead: true }, a._updateTime));
   for (let i = 0; i < writes.length; i += 400) {
@@ -2861,9 +2963,13 @@ async function handleAlertsReadAll(req) {
   return { updated };
 }
 
-async function handleAlertReadOne(id) {
+async function handleAlertReadOne(id, user) {
   const alert = await fsGet("alerts", id);
   if (!alert) return { status: 404, body: { error: "Alert not found" } };
+  // Staff may only mark their own targeted alerts read.
+  if (user?.role !== "OWNER" && Number(alert.userId) !== Number(user.id)) {
+    return { status: 403, body: { error: "Forbidden" } };
+  }
   await fsPatch("alerts", alert.id, { isRead: true });
   return { status: 200, body: { alert: cleanDoc(await fsGet("alerts", alert.id)) } };
 }
@@ -7303,21 +7409,18 @@ Deno.serve(async (req) => {
         const auth = await authUser(req);
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
         let out;
-        if (req.method === "GET" && path === "/alerts") out = { status: 200, body: await handleListAlerts(inUrl) };
+        if (req.method === "GET" && path === "/alerts") out = { status: 200, body: await handleListAlerts(inUrl, auth.user) };
         else if (req.method === "GET" && path === "/alerts/restock-requests") {
           const ownErr = requireOwner(auth.user);
           if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
           out = await handleListRestockRequests(inUrl, auth.user);
         }
         else if (req.method === "PATCH" && path === "/alerts/read") {
-          const ownErr = requireOwner(auth.user);
-          if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
-          out = { status: 200, body: await handleAlertsReadAll(req) };
+          out = { status: 200, body: await handleAlertsReadAll(req, auth.user) };
         }
         else if (req.method === "PATCH" && path.endsWith("/read")) {
-          const ownErr = requireOwner(auth.user);
-          if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
-          out = await handleAlertReadOne(Number(path.split("/")[2]));
+          const alertId = Number(path.split("/")[2]);
+          out = await handleAlertReadOne(alertId, auth.user);
         }
         else if (req.method === "PATCH" && path.endsWith("/ack")) {
           out = await handleAlertAck(req, Number(path.split("/")[2]), auth.user);

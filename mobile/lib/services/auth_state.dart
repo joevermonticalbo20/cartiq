@@ -117,6 +117,9 @@ class AuthState extends ChangeNotifier {
       }
     }
     startTimeClockSync();
+    // Pull this staff member's notifications (void decisions, restock
+    // acknowledgements) without blocking the session restore.
+    refreshMyAlerts().catchError((_) {});
     notifyListeners();
   }
 
@@ -179,6 +182,53 @@ class AuthState extends ChangeNotifier {
     }
   }
 
+  /// Targeted alerts for the signed-in staff account (void decisions, restock
+  /// updates). Refreshed on login and on app resume; the Settings screen shows
+  /// them. Never throws — failures leave the list as-is.
+  final List<Map<String, dynamic>> myAlerts = [];
+  int get myUnreadCount => myAlerts.length;
+
+  Future<void> refreshMyAlerts() async {
+    final t = token;
+    if (t == null) {
+      myAlerts.clear();
+      notifyListeners();
+      return;
+    }
+    try {
+      final rows = await api.stockAlertsList(t, unreadOnly: true);
+      myAlerts
+        ..clear()
+        ..addAll(rows.cast<Map<String, dynamic>>());
+    } catch (_) {
+      // Keep whatever was there; offline is expected.
+    }
+    notifyListeners();
+  }
+
+  Future<void> markMyAlertRead(int id) async {
+    final t = token;
+    if (t == null) return;
+    try {
+      await api.markAlertRead(t, id);
+      myAlerts.removeWhere((a) => a['id'] == id);
+    } catch (_) {
+      /* best-effort */
+    }
+    notifyListeners();
+  }
+
+  Future<void> markAllMyAlertsRead() async {
+    final t = token;
+    if (t == null) return;
+    try {
+      await api.markAllAlertsRead(t);
+      myAlerts.clear();
+    } catch (_) {
+      /* best-effort */
+    }
+    notifyListeners();
+  }
   Future<Map<String, dynamic>?> _readCachedProfile() async {
     try {
       final raw = await storage.read(key: 'cartiq_profile');
@@ -298,6 +348,7 @@ class AuthState extends ChangeNotifier {
     await _persistSession();
     // A different user takes over this device: their PIN setup starts over.
     final pinnedUser = await pin.pinUsername;
+    refreshMyAlerts().catchError((_) {});
     final currentUser = user?['username'] as String?;
     // Only a GENUINE user switch re-arms the one-time prompt. This used to be
     // `pinnedUser != currentUser`, which is also true when pinnedUser is null -

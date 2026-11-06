@@ -143,11 +143,15 @@ class _RootShellState extends State<RootShell> {
     try {
       final result = await _sync.syncAll();
       if (!mounted || result.fullySynced || result.dropped.isNotEmpty) return;
-      if (!result.online || result.errorMessage != null) {
+      // Offline mode: the banner already says sales upload after sign-in, and
+      // an offline session cannot mint a token anyway — retrying to reach
+      // the network is noise, not an action.
+      if (!result.online) return;
+      if (result.errorMessage != null) {
         AppMessenger.showErrorSnackBar(
           context: context,
           error: ApiException(
-            result.errorMessage ?? ApiClient.noInternetMessage,
+            result.errorMessage!,
             statusCode: result.authExpired ? 401 : null,
           ),
           onRetry: _retrySync,
