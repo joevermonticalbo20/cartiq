@@ -234,6 +234,11 @@
 .settings-table-carts th:nth-child(4) { width: 16% !important; }
 .settings-table-carts th:nth-child(5) { width: 20% !important; }
 .settings-table-carts th:nth-child(6) { width: 19% !important; }
+.settings-table-admins th:nth-child(1) { width: 24% !important; }
+.settings-table-admins th:nth-child(2) { width: 14% !important; }
+.settings-table-admins th:nth-child(3) { width: 30% !important; }
+.settings-table-admins th:nth-child(4) { width: 14% !important; }
+.settings-table-admins th:nth-child(5) { width: 18% !important; }
 .settings-table .settings-actions-cell {
   white-space: normal;
 }

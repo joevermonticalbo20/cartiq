@@ -870,7 +870,11 @@ router.get("/staff", requireAuth, requireRole("OWNER"), async (_req, res, next) 
 
 router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const { name, username, password, locationCode, rfidUid, email } = req.body ?? {};
+    const { name, username, password, locationCode, rfidUid, email, role } = req.body ?? {};
+    const cleanRole = String(role ?? "STAFF").trim().toUpperCase();
+    if (cleanRole !== "STAFF" && cleanRole !== "OWNER") {
+      return res.status(400).json({ error: "role must be STAFF or OWNER" });
+    }
     const cleanUsername = String(username ?? "").trim();
     if (!name || !cleanUsername || !password || String(password).length < 6) {
       return res.status(400).json({ error: "name, username and password (min 6 chars) required" });
@@ -894,7 +898,8 @@ router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) 
     }
 
     let locationId = null;
-    if (locationCode) {
+    // Owners have full access; cart assignment and RFID are staff-only.
+    if (cleanRole === "STAFF" && locationCode) {
       const loc = await prisma.location.findUnique({ where: { code: String(locationCode) } });
       if (!loc) return res.status(404).json({ error: "Location not found" });
       locationId = loc.id;
@@ -903,7 +908,7 @@ router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) 
     // later tap matches. An unparseable uid is rejected outright rather than
     // stored, otherwise it would read as registered and never match a tap.
     let cleanRfid = null;
-    if (rfidUid !== undefined && rfidUid !== null && String(rfidUid).trim() !== "") {
+    if (cleanRole === "STAFF" && rfidUid !== undefined && rfidUid !== null && String(rfidUid).trim() !== "") {
       cleanRfid = cleanRfidUid(rfidUid);
       if (!cleanRfid) {
         return res.status(400).json({
@@ -919,7 +924,7 @@ router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) 
         name,
         username: cleanUsername,
         passwordHash: await bcrypt.hash(String(password), 10),
-        role: "STAFF",
+        role: cleanRole,
         active: true,
         locationId,
         rfidUid: cleanRfid,

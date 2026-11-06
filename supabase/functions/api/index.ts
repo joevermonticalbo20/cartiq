@@ -6592,7 +6592,11 @@ async function handleListStaff() {
 
 async function handleCreateStaff(req) {
   const body = await req.json().catch(() => null);
-  const { name, username, password, locationCode, rfidUid, email } = body || {};
+  const { name, username, password, locationCode, rfidUid, email, role } = body || {};
+  const cleanRole = String(role ?? "STAFF").trim().toUpperCase();
+  if (cleanRole !== "STAFF" && cleanRole !== "OWNER") {
+    return { status: 400, body: { error: "role must be STAFF or OWNER" } };
+  }
   const cleanUsername = String(username ?? "").trim();
   if (!name || !cleanUsername || !password || String(password).length < 6) {
     return { status: 400, body: { error: "name, username and password (min 6 chars) required" } };
@@ -6616,7 +6620,8 @@ async function handleCreateStaff(req) {
     }
   }
   let locationId = null;
-  if (locationCode) {
+  // Owners have full access; cart assignment and RFID are staff-only.
+  if (cleanRole === "STAFF" && locationCode) {
     const loc = await fsQueryEqual("locations", "code", String(locationCode), 1).then((r) => r[0]);
     if (!loc) return { status: 404, body: { error: "Location not found" } };
     locationId = loc.id;
@@ -6625,7 +6630,7 @@ async function handleCreateStaff(req) {
   // later tap matches. An unparseable uid is rejected outright rather than
   // stored, otherwise it would read as registered and never match a tap.
   let cleanRfid = null;
-  if (rfidUid !== undefined && rfidUid !== null && String(rfidUid).trim() !== "") {
+  if (cleanRole === "STAFF" && rfidUid !== undefined && rfidUid !== null && String(rfidUid).trim() !== "") {
     cleanRfid = cleanRfidUid(rfidUid);
     if (!cleanRfid) {
       return { status: 400, body: { error: "rfidUid must be 4-10 bytes of hex, e.g. 04A2B3C4" } };
@@ -6643,7 +6648,7 @@ async function handleCreateStaff(req) {
       name,
       username: cleanUsername,
       passwordHash: await bl.hash(String(password), 10),
-      role: "STAFF",
+      role: cleanRole,
       active: true,
       locationId,
       rfidUid: cleanRfid,

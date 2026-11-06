@@ -240,6 +240,19 @@ export default function SettingsPage() {
     email: "",
   });
 
+  // -- ADMIN STATES --
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [adminClosing, setAdminClosing] = useState(false);
+  const [isAdminAdding, setIsAdminAdding] = useState(false);
+  const [adminError, setAdminError] = useState("");
+  const [showNewAdminPw, setShowNewAdminPw] = useState(false);
+  const [newAdmin, setNewAdmin] = useState({
+    name: "",
+    username: "",
+    password: "",
+    email: "",
+  });
+
   // -- IOT DEVICE STATES --
   const [deviceAddOpen, setDeviceAddOpen] = useState(false);
   const [deviceAddClosing, setDeviceAddClosing] = useState(false);
@@ -287,6 +300,10 @@ export default function SettingsPage() {
     setAddClosing(true);
     setTimeout(() => { setAddOpen(false); setAddClosing(false); }, 150);
   }
+  function closeAdminAdd() {
+    setAdminClosing(true);
+    setTimeout(() => { setAdminOpen(false); setAdminClosing(false); }, 150);
+  }
   function closeResetModal() {
     setResetClosing(true);
     setTimeout(() => { setResetting(null); setResetClosing(false); }, 150);
@@ -318,7 +335,8 @@ export default function SettingsPage() {
 
   // Background Scroll Lock
   const isAnyModalOpen = 
-    addOpen || addClosing || 
+    addOpen || addClosing ||
+    adminOpen || adminClosing ||
     resetting || resetClosing || 
     Boolean(disabling) || 
     emailEditing || emailEditClosing ||
@@ -628,6 +646,35 @@ export default function SettingsPage() {
     }
   }
 
+  // --- ADMIN ACTIONS ---
+  async function createAdmin(e) {
+    e.preventDefault();
+    if (newAdmin.password.length < 8) {
+      setAdminError("Password must be at least 8 characters.");
+      return;
+    }
+    setAdminError("");
+    if (isAdminAdding) return;
+
+    setIsAdminAdding(true);
+    try {
+      await api.post("/auth/staff", {
+        ...newAdmin,
+        email: newAdmin.email || null,
+        role: "OWNER",
+      });
+      toast(`Admin account "${newAdmin.username}" created`, "success");
+      closeAdminAdd();
+      setNewAdmin({ name: "", username: "", password: "", email: "" });
+      setShowNewAdminPw(false);
+      loadOwnerData();
+    } catch (err) {
+      setAdminError(getFriendlyError(err, "Create failed - is the username already taken?"));
+    } finally {
+      setIsAdminAdding(false);
+    }
+  }
+
   async function handleEditStaff(e) {
     e.preventDefault();
     setStaffError("");
@@ -728,6 +775,8 @@ export default function SettingsPage() {
   const safeLocations = Array.isArray(locations) ? locations : [];
   const safeDevices = Array.isArray(devices) ? devices : [];
   const safeStaff = Array.isArray(staff) ? staff : [];
+  const safeAdmins = safeStaff.filter((s) => s.role === "OWNER");
+  const currentUserId = profile?.id ?? user?.id ?? null;
   const locationOptions = safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
 
   async function handleEditDevice(e) {
@@ -1488,6 +1537,119 @@ export default function SettingsPage() {
               </p>
             </section>
 
+            {/* ADMINISTRATORS */}
+            <section className="panel" style={{ padding: "var(--space-5)" }}>
+              <div className="settings-table-heading">
+                <div>
+                  <h3 className="section-title m-0 p-0" style={{ borderBottom: "none" }}>Administrators</h3>
+                  <p className="muted small" style={{ margin: "var(--space-1) 0 0" }}>
+                    Owner-level accounts. They have full access to Settings, staff, and the POS.
+                  </p>
+                </div>
+                <button onClick={() => { setAdminError(""); setAdminOpen(true); setShowNewAdminPw(false); }}>
+                  <Plus size={15} /> Add admin
+                </button>
+              </div>
+
+              {isLoadingOwner ? (
+                <TableSkeleton
+                  className="settings-table-wrap"
+                  tableClassName="settings-table settings-table-admins"
+                  rows={2}
+                  columns={[
+                    { key: "name", label: "Name" },
+                    { key: "username", label: "Username", className: "settings-hide-narrow" },
+                    { key: "email", label: "Recovery email" },
+                    { key: "status", label: "Status", className: "settings-indicator-heading", skeletonType: "badge" },
+                    { key: "actions", label: "Actions", align: "center" },
+                  ]}
+                />
+              ) : safeAdmins.length === 0 ? (
+                <EmptyState
+                  icon={ShieldCheck}
+                  title="No other administrators"
+                  subtitle="Add an owner-level account to share administration with someone else."
+                  compact
+                />
+              ) : (
+                <div className="table-wrap settings-table-wrap">
+                  <table className="data table-fixed settings-table settings-table-admins">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th className="settings-hide-narrow">Username</th>
+                        <th>Recovery email</th>
+                        <th className="settings-indicator-heading">Status</th>
+                        <th className="t-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {safeAdmins.map((a) => {
+                        const isSelf = currentUserId != null && a.id === currentUserId;
+                        return (
+                          <tr key={a.id} className={!a.active ? "row-disabled" : undefined}>
+                            <td>
+                              <strong>{a.name}</strong>
+                              {isSelf && <Badge variant="info" style={{ marginLeft: 6 }}>You</Badge>}
+                            </td>
+                            <td className="settings-hide-narrow">{a.username}</td>
+                            <td className="muted small">
+                              <span className="settings-email-cell">
+                                <span>
+                                  {a.email && !String(a.email).toLowerCase().endsWith("@cartiq.local")
+                                    ? a.email
+                                    : `${a.username}@cartiq.local`}
+                                </span>
+                                {(!a.email || String(a.email).toLowerCase().endsWith("@cartiq.local")) && (
+                                  <Badge variant="warn">Placeholder</Badge>
+                                )}
+                              </span>
+                            </td>
+                            <td className="settings-indicator-cell">
+                              <span className="settings-indicator">
+                                <Badge variant={a.active ? "ok" : "danger"}>
+                                  {a.active ? "ACTIVE" : "DISABLED"}
+                                </Badge>
+                              </span>
+                            </td>
+                            <td className="t-center settings-actions-cell">
+                              {isSelf ? (
+                                <span className="muted small" title="Use Settings > Change password for your own account">
+                                  —
+                                </span>
+                              ) : (
+                                <div className="settings-table-actions">
+                                  <button
+                                    className="ghost small-btn"
+                                    onClick={() => {
+                                      setResetting(a);
+                                      setResetPw("");
+                                      setResetError("");
+                                      setShowResetPw(false);
+                                    }}
+                                    title="Reset Password"
+                                  >
+                                    <KeyRound size={13} />
+                                  </button>
+                                  <button
+                                    className={`small-btn ${a.active ? "danger-ghost" : "ghost"}`}
+                                    onClick={() => setDisabling(a)}
+                                    title={a.active ? "Disable" : "Enable"}
+                                  >
+                                    {a.active ? "Disable" : "Enable"}
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
             {/* STAFF ACCOUNTS */}
             <section className="panel" style={{ padding: "var(--space-5)" }}>
               <div className="settings-table-heading">
@@ -1857,6 +2019,84 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* ADD ADMIN MODAL */}
+        {(adminOpen || adminClosing) && (
+          <div className={`modal-backdrop ${adminClosing ? "is-closing" : ""}`}>
+            <div className={`modal ${adminClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
+              <h3><ShieldCheck size={22} className="muted" /> Add admin account</h3>
+              <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
+                Full owner-level access: Settings, staff, devices, products, and carts. Share the sign-in privately.
+              </p>
+              <form onSubmit={createAdmin} className="flex flex-col gap-3">
+                <label className="field">
+                  Full name *
+                  <input
+                    required
+                    value={newAdmin.name}
+                    onChange={(e) => setNewAdmin({ ...newAdmin, name: e.target.value })}
+                    style={{ height: "36px" }}
+                    autoComplete="off"
+                  />
+                </label>
+                <label className="field">
+                  Username *
+                  <input
+                    required
+                    value={newAdmin.username}
+                    onChange={(e) => setNewAdmin({ ...newAdmin, username: e.target.value })}
+                    style={{ height: "36px" }}
+                    autoComplete="off"
+                  />
+                </label>
+                <label className="field">
+                  Password * (min 8)
+                  <div style={{ position: "relative" }}>
+                    <input
+                      required
+                      minLength={8}
+                      type={showNewAdminPw ? "text" : "password"}
+                      value={newAdmin.password}
+                      onChange={(e) => setNewAdmin({ ...newAdmin, password: e.target.value })}
+                      autoComplete="new-password"
+                      style={{ height: "36px", width: "100%", paddingRight: "36px" }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewAdminPw(!showNewAdminPw)}
+                      style={toggleBtnStyle}
+                      aria-label={showNewAdminPw ? "Hide password" : "Show password"}
+                    >
+                      {showNewAdminPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  <PasswordStrengthMeter value={newAdmin.password} minLevel="fair" />
+                </label>
+                <label className="field">
+                  Recovery email (optional — lets them reset their own password)
+                  <input
+                    type="email"
+                    placeholder="owner@example.com"
+                    value={newAdmin.email}
+                    onChange={(e) => setNewAdmin({ ...newAdmin, email: e.target.value })}
+                    autoComplete="email"
+                    style={{ height: "36px" }}
+                  />
+                </label>
+
+                <div className="modal-actions" style={{ marginTop: "var(--space-3)" }}>
+                  <button type="button" className="ghost" onClick={closeAdminAdd} disabled={adminClosing}>
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={adminClosing || isAdminAdding}>
+                    {isAdminAdding ? "Creating..." : "Create account"}
+                  </button>
+                </div>
+                {adminError && <p className="error-box" role="alert">{adminError}</p>}
+              </form>
+            </div>
+          </div>
+        )}
+
         {/* EDIT STAFF MODAL */}
         {(staffEditing || staffEditClosing) && (
           <div className={`modal-backdrop ${staffEditClosing ? "is-closing" : ""}`}>
@@ -1970,8 +2210,8 @@ export default function SettingsPage() {
           title={disabling?.active ? "Disable account?" : "Enable account?"}
           message={
             disabling?.active
-              ? `"${disabling?.username}" will no longer be able to log in. Their sales history is kept.`
-              : `"${disabling?.username}" will regain POS access immediately.`
+              ? `"${disabling?.username}" will no longer be able to log in. Their data is kept.`
+              : `"${disabling?.username}" will regain access immediately.`
           }
           confirmLabel={disabling?.active ? "Disable" : "Enable"}
           danger={Boolean(disabling?.active)}

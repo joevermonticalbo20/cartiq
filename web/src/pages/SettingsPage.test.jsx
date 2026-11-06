@@ -395,3 +395,83 @@ describe("SettingsPage time clock", () => {
     expect(api.put).not.toHaveBeenCalled();
   });
 });
+
+describe("SettingsPage administrators", () => {
+  const ownerRow = {
+    id: 1, name: "Owner", username: "owner", role: "OWNER", active: true,
+    email: "owner@cartiq.local", location: null, rfidUid: null, createdAt: "2026-01-01T00:00:00.000Z",
+  };
+  const secondAdmin = {
+    id: 3, name: "Co Owner", username: "coowner", role: "OWNER", active: true,
+    email: "co@example.com", location: null, rfidUid: null, createdAt: "2026-02-01T00:00:00.000Z",
+  };
+  const staffRow = {
+    id: 2, name: "Stall Staff 1", username: "staff01", role: "STAFF", active: true,
+    email: "staff01@cartiq.local", location: { code: "CART-01", name: "CART-01" }, rfidUid: "1A1336E1",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.get.mockImplementation((url) => {
+      if (url === "/auth/me") {
+        return Promise.resolve({ data: { user: { id: 1, name: "Owner", username: "owner", role: "OWNER" } } });
+      }
+      if (url === "/auth/staff") {
+        return Promise.resolve({ data: { data: [ownerRow, secondAdmin, staffRow] } });
+      }
+      return emptyOk(url);
+    });
+    api.post.mockResolvedValue({
+      data: { user: { id: 4, name: "Co Admin", username: "coadmin", role: "OWNER", active: true, email: "co@example.com" } },
+    });
+  });
+
+  function renderOwnerPage() {
+    return render(
+      <MemoryRouter initialEntries={["/"]}>
+        <ToastProvider>
+          <Routes>
+            <Route
+              element={<Outlet context={{ user: { id: 1, name: "Owner", username: "owner", role: "OWNER" } }} />}
+            >
+              <Route element={<SettingsPage />} path="/" />
+            </Route>
+          </Routes>
+        </ToastProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  it("lists administrators, and hides actions on the current account", async () => {
+    renderOwnerPage();
+    expect(await screen.findByText("Administrators")).toBeInTheDocument();
+    expect(await screen.findByText("Co Owner")).toBeInTheDocument();
+    const panel = screen.getByText("Administrators").closest("section");
+    // Staff are not listed as administrators.
+    expect(within(panel).queryByText("Stall Staff 1")).toBeNull();
+    expect(within(panel).getByText("You")).toBeInTheDocument();
+    expect(within(panel).getAllByTitle("Reset Password")).toHaveLength(1);
+    expect(within(panel).getByRole("button", { name: "Disable" })).toBeInTheDocument();
+  });
+
+  it("creates an owner-level account", async () => {
+    renderOwnerPage();
+    expect(await screen.findByText("Administrators")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Add admin/ }));
+    fireEvent.change(screen.getByLabelText(/Full name/), { target: { value: "Co Admin" } });
+    fireEvent.change(screen.getByLabelText(/^Username/), { target: { value: "coadmin" } });
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: "Str0ngPassw0rd!" } });
+    fireEvent.change(screen.getByLabelText(/Recovery email/), { target: { value: "co@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: /Create account/ }));
+    await vi.waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith("/auth/staff", {
+        name: "Co Admin",
+        username: "coadmin",
+        password: "Str0ngPassw0rd!",
+        email: "co@example.com",
+        role: "OWNER",
+      }),
+    );
+    expect(await screen.findByText('Admin account "coadmin" created')).toBeInTheDocument();
+  });
+});
