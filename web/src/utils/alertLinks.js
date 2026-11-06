@@ -13,6 +13,8 @@ export function alertLink(alert) {
   return "/notifications";
 }
 
+export const toastedAlertIds = new Set();
+
 /** Short affordance for the same target, used as the toast's tooltip. */
 export function alertLinkLabel(alert) {
   const t = String(alert?.type ?? "").toLowerCase();

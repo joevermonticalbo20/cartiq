@@ -3,7 +3,8 @@ import { Bell, Check, PackageSearch, ReceiptText, AlertTriangle, Info, ChevronRi
 import { useNavigate } from "react-router-dom";
 import api from "../api.js";
 import { useLiveEvent } from "../hooks/useLiveStream.js";
-import { alertLink, alertLinkLabel } from "../utils/alertLinks.js";
+import { alertLink, alertLinkLabel, toastedAlertIds } from "../utils/alertLinks.js";
+import { useToast } from "../components/Toast.jsx";
 
 /** Unread is `isRead` from the API (a.status only exists on restock rows). */
 // eslint-disable-next-line react-refresh/only-export-components -- pure helper colocated with its only consumer, unit-tested in place
@@ -23,6 +24,7 @@ function timeAgo(dateString) {
 }
 
 export default function NotificationBell() {
+  const toast = useToast();
   const [open, setOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [alerts, setAlerts] = useState([]);
@@ -34,24 +36,55 @@ export default function NotificationBell() {
   const activeRef = useRef(true);
   const refreshTimer = useRef(null);
 
+  const seenIdsRef = useRef(null);
+
   const refresh = useCallback(async () => {
     try {
       const res = await api.get("/alerts?page=1&pageSize=30");
       if (!activeRef.current) return;
       const data = res.data?.data || [];
+
+      // Toast newly arrived unread alerts even when the live SSE event was
+      // missed (tab hidden, dropped connection). The first load is silent so
+      // historical alerts don't spam on every page refresh.
+      const isFirst = seenIdsRef.current === null;
+      const seen = seenIdsRef.current ?? new Set();
+      if (!isFirst) {
+        for (const a of data) {
+          if (!isUnreadAlert(a) || seen.has(a.id) || toastedAlertIds.has(a.id)) continue;
+          toastedAlertIds.add(a.id);
+          const type = String(a.type ?? "").toLowerCase();
+          if (type === "sale" || type === "sales") continue; // already toasted as an order
+          const message = a.message || "New alert";
+          const link = alertLink(a);
+          toast(`Alert: ${message}`, "warn", {
+            onClick: () => {
+              if (a.id != null) api.patch(`/alerts/${a.id}/read`).catch(() => {});
+              navigate(link);
+            },
+            title: alertLinkLabel(a),
+          });
+        }
+      }
+      seenIdsRef.current = new Set(data.map((a) => a.id));
+
       setAlerts(data);
       setUnreadCount(data.filter(isUnreadAlert).length);
     } catch {
       // Background fetch, ignore errors
     }
-  }, []);
+  }, [navigate, toast]);
 
   useEffect(() => {
     activeRef.current = true;
     const timer = setTimeout(refresh, 0);
+    const interval = setInterval(() => {
+      if (activeRef.current) refresh();
+    }, 15000);
     return () => {
       activeRef.current = false;
       clearTimeout(timer);
+      clearInterval(interval);
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
     };
   }, [refresh]);

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "../components/Toast.jsx";
 import { useLiveEvent } from "./useLiveStream.js";
-import { alertLink, alertLinkLabel } from "../utils/alertLinks.js";
+import { alertLink, alertLinkLabel, toastedAlertIds } from "../utils/alertLinks.js";
 import api from "../api.js";
 
 /**
@@ -147,6 +147,8 @@ export function useOrderNotifications({ onOrder, playSound } = {}) {
     // toast (and browser notification) above; the SALE alert would only
     // duplicate it. The bell still shows the alert.
     if (isDuplicateSaleAlert(data)) return;
+    if (data?.id != null && toastedAlertIds.has(data.id)) return;
+    if (data?.id != null) toastedAlertIds.add(data.id);
     const message = data?.message ?? "New alert";
     const link = alertLink(data);
     toast(`Alert: ${message}`, "warn", {
