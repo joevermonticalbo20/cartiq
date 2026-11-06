@@ -162,6 +162,11 @@ class ApiClient {
     }
   }
 
+  /// The persisted catalog regardless of age, or null when nothing is cached.
+  /// Used when a signed-out/offline device has no session to fetch with —
+  /// losing the cached menu is worse than showing a stale one.
+  Future<Map<String, dynamic>?> catalogCache() => _readCatalogCache();
+
   /// Drop the cached catalog (next POS open refetches).
   Future<void> clearCatalogCache() async {
     try {

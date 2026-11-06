@@ -9,6 +9,8 @@ import 'package:provider/provider.dart';
 import '../services/auth_state.dart';
 import '../services/api_client.dart';
 import '../services/data_refresh.dart';
+import '../services/list_cache.dart';
+import '../services/receipt_file_cache.dart';
 import '../theme.dart';
 import '../utils/app_messenger.dart';
 import '../utils/haptics.dart';
@@ -148,10 +150,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
       final auth = context.read<AuthState>();
       final token = auth.token;
       if (token == null) {
-        if (!mounted) {
-          return;
-        }
-        setState(() => _error = 'Session expired. Please log in again.');
+        // Signed out / offline unlock: no session to fetch with — serve the
+        // saved list instead of "Session expired.".
+        await _loadFromCache(seq: seq);
         return;
       }
       final data = await auth.api.ordersPaged(
@@ -176,7 +177,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
         _page = reset ? 2 : _page + 1;
         _done = batch.length < 10;
       });
+      await _persistRows();
     } on ApiException catch (e) {
+      // No signal (or the session dropped): fall back to the saved list
+      // rather than replacing it with "Session expired".
+      if (e.statusCode == null && await _loadFromCache(seq: seq)) {
+        return;
+      }
       if (seq != _requestSeq) {
         return;
       }
@@ -195,6 +202,43 @@ class _HistoryScreenState extends State<HistoryScreen> {
       if (mounted && seq == _requestSeq) {
         setState(() => _loading = false);
       }
+    }
+  }
+
+  /// Replace the visible rows with the persisted copy when there is no way
+  /// to reach the server. Returns true when handled.
+  Future<bool> _loadFromCache({required int seq}) async {
+    final auth = context.read<AuthState>();
+    final cached = await ListCache.load(auth.storage, ListCache.historyKey);
+    if (!mounted || seq != _requestSeq) {
+      return true; // Stale request; nothing to do either way.
+    }
+    if (cached.isEmpty) {
+      setState(() => _error =
+          'You are offline and this device has no saved sales yet. Connect once to load the history.');
+      return true;
+    }
+    setState(() {
+      _rows
+        ..clear()
+        ..addAll(cached);
+      _page = 2;
+      _done = true;
+      _error = null;
+    });
+    return true;
+  }
+
+  /// Save the visible rows (merged with what was stored) for the next
+  /// offline session.
+  Future<void> _persistRows() async {
+    try {
+      final auth = context.read<AuthState>();
+      final cached = await ListCache.load(auth.storage, ListCache.historyKey);
+      final merged = ListCache.merge(_rows, cached);
+      await ListCache.save(auth.storage, ListCache.historyKey, merged);
+    } catch (_) {
+      // The cache is best-effort; never disrupt the live list.
     }
   }
 
@@ -415,15 +459,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     // server. Try the authenticated GET whenever a photo is plausible and
     // report honestly if there is none.
     final mayHavePhoto = payMethod == 'GCASH' || order['receipt'] != null;
-    if (!mayHavePhoto || rawId is! num || token == null) {
-      if (token == null) {
-        AppMessenger.showGlassToast(
-          context: context,
-          message: 'Session expired. Please log in again.',
-          isSuccess: false,
-        );
-        return;
-      }
+    if (!mayHavePhoto || rawId is! num) {
       AppMessenger.showGlassToast(
         context: context,
         message: 'No receipt image uploaded for this order.',
@@ -431,22 +467,44 @@ class _HistoryScreenState extends State<HistoryScreen> {
       );
       return;
     }
-    List<int> bytes;
-    try {
-      bytes = await auth.api.fetchOrderReceipt(token, rawId.toInt());
-    } on ApiException catch (e) {
-      if (!context.mounted) return;
-      AppMessenger.showErrorSnackBar(context: context, error: e);
-      return;
-    } catch (_) {
-      if (!context.mounted) return;
-      AppMessenger.showGlassToast(
-        context: context,
-        message: 'Could not load the receipt.',
-        isSuccess: false,
-      );
+
+    final receiptId = 'order_${rawId.toInt()}';
+    List<int>? bytes;
+    ApiException? fetchError;
+    if (token != null) {
+      try {
+        bytes = await auth.api.fetchOrderReceipt(token, rawId.toInt());
+        await ReceiptFileCache.save(receiptId, bytes);
+      } on ApiException catch (e) {
+        fetchError = e;
+      } catch (_) {
+        fetchError = null;
+      }
+    }
+    // Offline (or the fetch failed): fall back to the disk copy saved from a
+    // previous online view.
+    bytes ??= await ReceiptFileCache.load(receiptId);
+    if (bytes == null) {      if (!context.mounted) return;
+      if (token == null) {
+        AppMessenger.showGlassToast(
+          context: context,
+          message: 'You are offline - this receipt photo was not saved on this device.',
+          isSuccess: false,
+        );
+      } else if (fetchError != null) {
+        AppMessenger.showErrorSnackBar(context: context, error: fetchError);
+      } else {
+        AppMessenger.showGlassToast(
+          context: context,
+          message: 'Could not load the receipt.',
+          isSuccess: false,
+        );
+      }
       return;
     }
+    // Snapshot the bytes for the builder closure (promotion would not hold
+    // across closure capture).
+    final photo = Uint8List.fromList(bytes);
     if (!context.mounted) return;
 
     showDialog(
@@ -471,7 +529,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(AppRadius.l),
                       child: Image.memory(
-                        Uint8List.fromList(bytes),
+                        photo,
                         fit: BoxFit.contain,
                         errorBuilder: (_, _, _) => const Center(
                           child: Icon(

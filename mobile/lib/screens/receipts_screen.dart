@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../services/data_refresh.dart';
+import '../services/list_cache.dart';
 import '../theme.dart';
 import '../utils/app_messenger.dart';
 import '../utils/haptics.dart';
@@ -158,10 +159,9 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
       final auth = context.read<AuthState>();
       final token = auth.token;
       if (token == null) {
-        if (!mounted) {
-          return;
-        }
-        setState(() => _error = 'Session expired. Please log in again.');
+        // Signed out / offline unlock: serve the saved list instead of
+        // "Session expired.".
+        await _loadFromCache();
         return;
       }
       final data = await auth.api.expensesPaged(
@@ -180,7 +180,13 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
         _page = reset ? 2 : _page + 1;
         _done = batch.length < 10;
       });
+      await _persistRows();
     } on ApiException catch (e) {
+      // No signal (or the session dropped): fall back to the saved list
+      // rather than replacing it with "Session expired".
+      if (e.statusCode == null && await _loadFromCache()) {
+        return;
+      }
       _fail(e.message);
     } on FormatException {
       _fail('Server returned an unexpected response.');
@@ -188,6 +194,41 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
       _fail('Unexpected error: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Replace the visible rows with the persisted copy when there is no way
+  /// to reach the server. Returns true when handled.
+  Future<bool> _loadFromCache() async {
+    final auth = context.read<AuthState>();
+    final cached = await ListCache.load(auth.storage, ListCache.expensesKey);
+    if (!mounted) return true;
+    if (cached.isEmpty) {
+      setState(() => _error =
+          'You are offline and this device has no saved receipts yet. Connect once to load them.');
+      return true;
+    }
+    setState(() {
+      _rows
+        ..clear()
+        ..addAll(cached);
+      _page = 2;
+      _done = true;
+      _error = null;
+    });
+    return true;
+  }
+
+  /// Save the visible rows (merged with what was stored) for the next
+  /// offline session.
+  Future<void> _persistRows() async {
+    try {
+      final auth = context.read<AuthState>();
+      final cached = await ListCache.load(auth.storage, ListCache.expensesKey);
+      final merged = ListCache.merge(_rows, cached);
+      await ListCache.save(auth.storage, ListCache.expensesKey, merged);
+    } catch (_) {
+      // The cache is best-effort; never disrupt the live list.
     }
   }
 

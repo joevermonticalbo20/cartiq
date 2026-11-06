@@ -41,5 +41,7 @@ sensor items (LPG tank, cheese powder) show live weights from the load cell.
 - **Logged out at the canteen?** If you set an Offline PIN in Settings while
   online, you can still open the POS with no internet — tap **Continue
   offline**, enter the PIN; queued sales upload after the next online sign-in.
+  The last known POS catalog, History and Receipts load from this device, so
+  you can still sell and review sales offline.
 - **Wrong flavor tapped?** Use +/- in the order sheet to remove lines before paying.
 - **Card not recognized?** Ask the owner to register your card UID.

@@ -228,8 +228,17 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     final auth = context.read<AuthState>();
     var token = auth.token;
 
+    // Signed out (or offline unlock): no session to fetch with — the cached
+    // catalog is the only truth the POS has. Products persist; sales queue.
     if (token == null) {
-      throw ApiException('Session expired. Please log in again.');
+      final cached = await auth.api.catalogCache();
+      if (cached != null && cached['products'] is List) {
+        _rememberCatalogVersion(cached);
+        return (cached['products'] as List).cast<Map<String, dynamic>>();
+      }
+      throw ApiException(
+        'No saved product list on this device. Connect once to load the catalog.',
+      );
     }
 
     try {
