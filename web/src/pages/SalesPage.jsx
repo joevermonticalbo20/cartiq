@@ -420,12 +420,7 @@ export default function SalesPage() {
                   label: "Payment",
                   width: 178,
                   render: (o) => (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <Badge variant="neutral">{o.paymentMethod || "CASH"}</Badge>
-                      {o.voidRequest?.status === "pending" && (
-                        <Badge variant="warn">Void requested</Badge>
-                      )}
-                    </span>
+                    <Badge variant="neutral">{o.paymentMethod || "CASH"}</Badge>
                   ),
                 },
                 {

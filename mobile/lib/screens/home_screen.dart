@@ -156,6 +156,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _weekSales = weekSales;
         _loading = false;
       });
+      unawaited(auth.refreshMyAlerts());
     } catch (_) {
       if (!mounted) {
         return;
@@ -181,6 +182,119 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
     ).showSnackBar(SnackBar(content: Text(result.message)));
     _refresh();
+  }
+
+  Future<void> _openNotifications(AuthState auth) async {
+    await auth.refreshMyAlerts();
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height * 0.6,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.space5,
+              AppSpacing.space4,
+              AppSpacing.space5,
+              AppSpacing.space6,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.notifications_outlined),
+                    const SizedBox(width: AppSpacing.space2),
+                    Expanded(
+                      child: Text(
+                        'Notifications',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    if (auth.myUnreadCount > 0)
+                      TextButton(
+                        onPressed: () async {
+                          await auth.markAllMyAlertsRead();
+                          if (sheetContext.mounted) setState(() {});
+                        },
+                        child: const Text('Mark all read'),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.space3),
+                if (auth.offlineMode || auth.token == null)
+                  Padding(
+                    padding: const EdgeInsets.all(AppSpacing.space4),
+                    child: Text(
+                      'Notifications refresh when you are online.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  )
+                else if (auth.myAlerts.isEmpty)
+                  Expanded(
+                    child: Center(
+                      child: Text(
+                        'No notifications yet.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  )
+                else
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: auth.myAlerts.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (_, i) {
+                        final a = auth.myAlerts[i];
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.notifications_outlined),
+                          title: Text(
+                            (a['title'] ?? a['type'] ?? 'Update').toString(),
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: Text(
+                            (a['message'] ?? '').toString(),
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: Text(
+                            _when(a['createdAt']?.toString()),
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          onTap: () async {
+                            await auth.markMyAlertRead(
+                              (a['id'] as num).toInt(),
+                            );
+                            if (sheetContext.mounted) setState(() {});
+                          },
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _when(String? iso) {
+    final dt = DateTime.tryParse(iso ?? '');
+    if (dt == null) return '';
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
   }
 
   double get _avgTicket => _todayOrders > 0 ? _todaySales / _todayOrders : 0;
@@ -257,6 +371,21 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   );
                 },
+              ),
+              const SizedBox(width: AppSpacing.space2),
+              Badge(
+                isLabelVisible: auth.myUnreadCount > 0,
+                label: Text('${auth.myUnreadCount}'),
+                backgroundColor: AppColors.warn,
+                offset: const Offset(-2, 2),
+                child: _GlassIconButton(
+                  tooltip: 'Notifications',
+                  icon: Icons.notifications_outlined,
+                  color: auth.myUnreadCount > 0
+                      ? AppColors.warn
+                      : AppColors.info,
+                  onTap: () => _openNotifications(auth),
+                ),
               ),
               const SizedBox(width: AppSpacing.space2),
               _GlassIconButton(
