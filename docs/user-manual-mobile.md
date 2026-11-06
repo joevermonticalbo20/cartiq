@@ -38,5 +38,8 @@ sensor items (LPG tank, cheese powder) show live weights from the load cell.
 
 ## FAQ
 - **Sync failed?** The server may be off. Your sales are safe in the queue.
+- **Logged out at the canteen?** If you set an Offline PIN in Settings while
+  online, you can still open the POS with no internet — tap **Continue
+  offline**, enter the PIN; queued sales upload after the next online sign-in.
 - **Wrong flavor tapped?** Use +/- in the order sheet to remove lines before paying.
 - **Card not recognized?** Ask the owner to register your card UID.

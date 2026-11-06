@@ -366,7 +366,12 @@ class _CartIQAppState extends State<CartIQApp> {
                   if (snap.hasError) {
                     return LoginScreen();
                   }
-                  if (!auth.isLoggedIn) return const LoginScreen();
+                  // A PIN-unlocked offline session counts as signed in even
+                  // when the tokens were revoked (the staff member logged out
+                  // online, then opened the canteen POS with no signal).
+                  if (!auth.isLoggedIn && !auth.offlineMode) {
+                    return const LoginScreen();
+                  }
                   // Offline cold start with a device PIN: unlock with the
                   // PIN before the POS opens (or fall back to the full login
                   // screen; the cached session stays until an online sign-in).

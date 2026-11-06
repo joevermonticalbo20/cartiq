@@ -61,7 +61,7 @@ class SyncResult {
   bool get fullySynced => allDone && dropped.isEmpty;
 
   String get message {
-    if (!online) return ApiClient.noInternetMessage;
+    if (!online) return errorMessage ?? ApiClient.noInternetMessage;
     if (authExpired) return ApiClient.sessionExpiredMessage;
     final stockFailure = dropped.where((d) => d.code == 'INSUFFICIENT_STOCK');
     if (stockFailure.isNotEmpty) return stockFailure.first.reason;
@@ -137,7 +137,14 @@ class SyncService extends ChangeNotifier {
   Future<SyncResult> _doSync() async {
     final startToken = auth.token;
     if (startToken == null) {
-      return SyncResult(online: false, synced: 0, remaining: await queue.count);
+      // A signed-out device can still hold a queued offline session; say
+      // plainly what is needed instead of blaming the network.
+      return SyncResult(
+        online: false,
+        synced: 0,
+        remaining: await queue.count,
+        errorMessage: 'Sign in online to upload queued sales.',
+      );
     }
     // Reachability gate: reports offline WITHOUT attempting any upload when
     // the server is known-unreachable (see sync_service_test "unreachable

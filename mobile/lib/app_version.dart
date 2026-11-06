@@ -1,7 +1,7 @@
 /// The app version shown in the UI.
 ///
-/// Single source of truth on purpose. pubspec.yaml carries `version: 1.0.2+6`
-/// (the `+4` is the Android versionCode), but Dart cannot read pubspec at
+/// Single source of truth on purpose. pubspec.yaml carries `version: 1.0.3+14`
+/// (the `+N` is the Android versionCode), but Dart cannot read pubspec at
 /// runtime without a plugin, so the same number is kept here by hand.
 ///
 /// Bump BOTH on every release: the version in pubspec.yaml and the constant
@@ -9,4 +9,4 @@
 /// 1.0.0+2, and the UI said v1.0.0 - three different numbers for one app.
 library;
 
-const String appVersion = '1.0.2';
+const String appVersion = '1.0.3';

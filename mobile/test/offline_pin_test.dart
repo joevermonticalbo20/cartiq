@@ -243,49 +243,57 @@ void main() {
       );
     });
 
-    test('signOut wipes session state but KEEPS the device PIN', () async {
+    test('signOut drops the tokens but KEEPS the device PIN and the offline state', () async {
       final store = FakeStore();
       store.values.addAll({
         'cartiq_token': 't',
         'cartiq_refresh_token': 'r',
-        'cartiq_profile': '{}',
+        'cartiq_profile':
+            '{"name":"S","username":"staff01","role":"STAFF","location":{"code":"CART-01"}}',
         'cartiq_last_online': DateTime.now().toIso8601String(),
         'cartiq_catalog_json': '{}',
         'cartiq_pin_prompted': '1',
       });
       final auth = AuthState(apiClient: FakeApi(store: store), secureStorage: store);
-      await auth.pin.setupPin(username: 'u', pin: '123456');
+      await auth.pin.setupPin(username: 'staff01', pin: '123456');
       await auth.signOut();
 
       expect(auth.isLoggedIn, isFalse);
-      // Session-scoped keys are gone...
-      for (final k in [
-        'cartiq_token',
-        'cartiq_refresh_token',
-        'cartiq_profile',
-        'cartiq_last_online',
-        'cartiq_catalog_json',
-      ]) {
+      // Authority is gone...
+      for (final k in ['cartiq_token', 'cartiq_refresh_token']) {
         expect(store.values.containsKey(k), isFalse, reason: '$k should be wiped');
       }
-      // ...but the PIN and the already-prompted flag are device state. Wiping
+      // ...but the device keeps its identity and the POS snapshot, which is
+      // what lets a PIN unlock work offline on a shared cart phone.
+      for (final k in ['cartiq_profile', 'cartiq_last_online', 'cartiq_catalog_json']) {
+        expect(store.values.containsKey(k), isTrue, reason: '$k must survive sign-out');
+      }
+      // ...and the PIN and the already-prompted flag are device state. Wiping
       // them on sign-out is what made staff invent a new PIN every login.
       expect(await auth.pin.hasPin, isTrue);
       expect(store.values['cartiq_pin_prompted'], '1');
     });
 
-    test('a leftover PIN cannot unlock once the session is gone', () async {
-      // The PIN is inert without a cached token+profile, so keeping it across
-      // sign-out carries no authority.
+    test('a sign-out does NOT strand offline mode: profile + PIN still unlock', () async {
+      // Repro of the field report: "I log in online, then log out, then the
+      // canteen has no signal - Continue offline says I need to log in first."
       final store = FakeStore();
+      store.values['cartiq_profile'] =
+          '{"name":"S1","username":"staff01","role":"STAFF","location":{"code":"CART-01"}}';
+      store.values['cartiq_last_online'] =
+          DateTime.now().toIso8601String();
       final auth = AuthState(apiClient: FakeApi(store: store), secureStorage: store);
-      await auth.pin.setupPin(username: 'u', pin: '123456');
+      await auth.pin.setupPin(username: 'staff01', pin: '123456');
       await auth.signOut();
 
-      await expectLater(
-        auth.unlockOffline('123456'),
-        throwsA(isA<PinException>()),
-      );
+      final eligibility = await auth.checkOfflineEligibility();
+      expect(eligibility.eligible, isTrue);
+      expect(eligibility.code, 'ready');
+
+      await auth.unlockOffline('123456');
+      expect(auth.offlineMode, isTrue);
+      expect(auth.locationCode, 'CART-01');
+      expect(auth.displayName, 'S1');
     });
 
     test('needsPinSetupPrompt: staff without PIN, once', () async {

@@ -192,17 +192,21 @@ class AuthState extends ChangeNotifier {
   /// Precheck used to gate the Continue offline button BEFORE any PIN pad
   /// is shown. Never throws — returns the specific reason when ineligible.
   Future<PinEligibility> checkOfflineEligibility() async {
-    if (token == null || refreshToken == null) {
+    // A signed-out device keeps its cached profile (see signOut), so the
+    // question is never "is a live session stored?" but "is a fresh enough
+    // online verification cached, and is there a PIN for it?".
+    final profile = await _readCachedProfile();
+    final role = profile?['role'] as String?;
+    final username = profile?['username'] as String?;
+    if (username == null || username.isEmpty) {
       // Fresh install, new package name, or wiped app data: nothing to unlock
       // with yet. Online sign-in is the only cure — and it only has to happen once.
       return const PinEligibility(
         false,
         'noSession',
-        'No saved session on this device yet. Sign in online once, then Continue offline works.',
+        'No saved login on this device yet. Sign in online once, then Continue offline works.',
       );
     }
-    final profile = await _readCachedProfile();
-    final role = profile?['role'] as String?;
     if (role != 'STAFF') {
       return const PinEligibility(
         false,
@@ -210,6 +214,10 @@ class AuthState extends ChangeNotifier {
         'Offline login is for staff accounts. Owners need internet.',
       );
     }
+    // Fresh install, new package name, or wiped app data: nothing to unlock
+    // with yet. Online sign-in is the only cure — and it only has to happen once.
+    // (The username check above covers this; this branch keeps the message if
+    // a stored profile is ever incomplete.)
     final last = await lastOnline;
     if (last == null ||
         DateTime.now().difference(last) > OfflinePinService.maxOfflineAge) {
@@ -217,14 +225,6 @@ class AuthState extends ChangeNotifier {
         false,
         'expired',
         'Your offline window expired. Sign in online once to verify, then Continue offline works again.',
-      );
-    }
-    final username = profile?['username'] as String?;
-    if (username == null || username.isEmpty) {
-      return const PinEligibility(
-        false,
-        'noProfile',
-        'No saved profile on this device. Sign in online first.',
       );
     }
     final storedUser = await pin.pinUsername;
@@ -249,15 +249,18 @@ class AuthState extends ChangeNotifier {
 
   /// Unlock a cached STAFF session offline via PIN. Sets [offlineMode] and
   /// restores the cached profile. Throws [PinException] when not eligible.
+  /// Works on a signed-out device, provided a fresh enough online verification
+  /// and a PIN were left behind — a log-out is a network boundary, not a
+  /// guarantee that the canteen has signal.
   Future<void> unlockOffline(String pinCode) async {
-    if (token == null || refreshToken == null) {
-      throw const PinException(
-        'noSession',
-        'No saved session on this device yet. Sign in online once, then Continue offline works.',
-      );
-    }
     await _restoreCachedProfile();
     final role = user?['role'] as String?;
+    if (user == null) {
+      throw const PinException(
+        'noSession',
+        'No saved login on this device yet. Sign in online once, then Continue offline works.',
+      );
+    }
     if (role != 'STAFF') {
       throw const PinException(
         'notStaff',
@@ -340,13 +343,16 @@ class AuthState extends ChangeNotifier {
     offlineMode = false;
     offlineUnlockRequired = false;
     _stopTimeClockSync();
+    // Signing out revokes the refresh token server-side and clears the two
+    // tokens here — but the cached profile, catalog snapshot and last-verified
+    // stamp stay so a staff member can still reach the queue-only POS offline
+    // on a PIN unlock (shared cart phones rely on this when the canteen has no
+    // signal). Nothing sensitive is kept: no token, no refresh token, and the
+    // PIN verifier lives separately. Sales recorded in offline mode queue and
+    // sync after the next online sign-in.
     for (final k in [
       'cartiq_token',
       'cartiq_refresh_token',
-      'cartiq_profile',
-      'cartiq_last_online',
-      'cartiq_catalog_json',
-      'cartiq_catalog_ts',
     ]) {
       // NOTE: cartiq_pin_prompted is deliberately NOT here. It records that
       // this device already offered PIN setup - device state, not session
