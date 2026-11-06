@@ -102,7 +102,10 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       final auth = context.read<AuthState>();
-      auth.refreshMyAlerts();
+      auth.resumeAlertPoll();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      context.read<AuthState>().pauseAlertPoll();
     }
   }
 

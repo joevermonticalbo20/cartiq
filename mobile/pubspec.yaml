@@ -20,7 +20,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # Android refuses to install over the app already on the phone. 1.0.0+1 and
 # 1.0.0+2 are the builds that shipped; this is +3.
 # Keep in sync with the appVersion constant in lib/app_version.dart.
-version: 1.0.7+18
+version: 1.0.8+19
 
 environment:
   sdk: ^3.12.2

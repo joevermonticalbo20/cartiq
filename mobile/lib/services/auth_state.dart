@@ -211,7 +211,7 @@ class AuthState extends ChangeNotifier {
 
   void _startAlertPoll() {
     _alertPoll?.cancel();
-    _alertPoll = Timer.periodic(const Duration(seconds: 15), (_) {
+    _alertPoll = Timer.periodic(const Duration(seconds: 3), (_) {
       if (token == null) return;
       refreshMyAlerts().catchError((_) {});
     });
@@ -220,6 +220,16 @@ class AuthState extends ChangeNotifier {
   void _stopAlertPoll() {
     _alertPoll?.cancel();
     _alertPoll = null;
+  }
+
+  /// Suspend the 3-second alert poll while the app is in the background to
+  /// avoid waking the radio every few seconds for nothing. Resumed in
+  /// [resumeAlertPoll].
+  void pauseAlertPoll() => _stopAlertPoll();
+  void resumeAlertPoll() {
+    if (token == null) return;
+    refreshMyAlerts().catchError((_) {});
+    _startAlertPoll();
   }
 
   Future<void> markMyAlertRead(int id) async {
