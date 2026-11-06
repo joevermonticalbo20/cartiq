@@ -9,6 +9,7 @@ import 'package:cartiq_mobile/services/offline_queue.dart';
 import 'package:cartiq_mobile/services/sync_service.dart';
 import 'package:cartiq_mobile/services/time_clock.dart';
 import 'package:cartiq_mobile/state/theme_controller.dart';
+import 'package:cartiq_mobile/utils/manila_time.dart';
 
 class _FakeStore implements KeyValueStore {
   final Map<String, String?> values = {};
@@ -98,6 +99,17 @@ Map<String, dynamic> _shiftRow(String event, DateTime when) => {
   'locationId': 1,
 };
 
+/// The tappable part of one attendance tile.
+InkWell _clockTile(WidgetTester tester, String key) => tester.widget<InkWell>(
+  find.descendant(
+    of: find.byKey(ValueKey(key)),
+    matching: find.byType(InkWell),
+  ),
+);
+
+String _clock12(Map<String, dynamic> shift) =>
+    ManilaTime.formatClock12(ManilaTime.parse(shift['ts'])!);
+
 void main() {
   testWidgets('closed clock window greys out Time in / Time out with the hint', (
     tester,
@@ -117,14 +129,16 @@ void main() {
     await tester.pumpWidget(_settingsHarness(auth));
     await tester.pumpAndSettle();
 
-    final timeIn = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Time in'),
+    expect(
+      _clockTile(tester, 'attendance-time-in').onTap,
+      isNull,
+      reason: 'Time in must be disabled now',
     );
-    final timeOut = tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, 'Time out'),
+    expect(
+      _clockTile(tester, 'attendance-time-out').onTap,
+      isNull,
+      reason: 'Time out must be disabled now',
     );
-    expect(timeIn.onPressed, isNull, reason: 'Time in must be disabled now');
-    expect(timeOut.onPressed, isNull, reason: 'Time out must be disabled now');
     expect(find.textContaining('Time in opens 7:00 AM'), findsOneWidget);
     expect(find.textContaining('Time out opens 5:00 PM'), findsOneWidget);
   });
@@ -147,14 +161,10 @@ void main() {
     await tester.pumpWidget(_settingsHarness(auth));
     await tester.pumpAndSettle();
 
-    final timeIn = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Time in'),
-    );
-    final timeOut = tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, 'Time out'),
-    );
-    expect(timeIn.onPressed, isNotNull, reason: 'Time in window is open');
-    expect(timeOut.onPressed, isNull, reason: 'Time out window is closed');
+    final timeIn = _clockTile(tester, 'attendance-time-in');
+    final timeOut = _clockTile(tester, 'attendance-time-out');
+    expect(timeIn.onTap, isNotNull, reason: 'Time in window is open');
+    expect(timeOut.onTap, isNull, reason: 'Time out window is closed');
     expect(find.textContaining('Time in opens'), findsNothing);
     expect(find.textContaining('Time out opens 5:00 PM'), findsOneWidget);
   });
@@ -179,24 +189,21 @@ void main() {
     await tester.pumpWidget(_settingsHarness(auth));
     await tester.pumpAndSettle();
 
-    final timeIn = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Time in'),
-    );
-    final timeOut = tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, 'Time out'),
-    );
-    expect(timeIn.onPressed, isNull);
-    expect(timeOut.onPressed, isNull);
+    final timeIn = _clockTile(tester, 'attendance-time-in');
+    final timeOut = _clockTile(tester, 'attendance-time-out');
+    expect(timeIn.onTap, isNull);
+    expect(timeOut.onTap, isNull);
     expect(find.text('Closed today - no selling day.'), findsOneWidget);
   });
 
-  testWidgets('already timed in: Time in disabled, 12h chip and reason shown', (
+  testWidgets('already timed in: Time in disabled, 12h time and reason shown', (
     tester,
   ) async {
     final store = _FakeStore();
     final auth = _staffAuth(store);
+    final inShift = _shiftRow('IN', DateTime.now());
     (auth.api as _FakeApi).historyResponse = {
-      'data': [_shiftRow('IN', DateTime.now())],
+      'data': [inShift],
     };
     auth.token = 'tok';
     await auth.refreshMyShifts();
@@ -204,35 +211,36 @@ void main() {
     await tester.pumpWidget(_settingsHarness(auth));
     await tester.pumpAndSettle();
 
-    final timeIn = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Time in'),
-    );
-    final timeOut = tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, 'Time out'),
-    );
-    expect(timeIn.onPressed, isNull, reason: 'already timed in — cannot do it twice today');
-    expect(timeOut.onPressed, isNotNull, reason: 'Time out must stay tappable');
     expect(
-      find.byWidgetPredicate(
-        (w) =>
-            w is Text &&
-            (w.data?.startsWith('Time in  ') ?? false) &&
-            (w.data!.contains(' AM') || w.data!.contains(' PM')),
-      ),
-      findsOneWidget,
+      _clockTile(tester, 'attendance-time-in').onTap,
+      isNull,
+      reason: 'already timed in — cannot do it twice today',
     );
+    expect(
+      _clockTile(tester, 'attendance-time-out').onTap,
+      isNotNull,
+      reason: 'Time out must stay tappable',
+    );
+    expect(find.text(_clock12(inShift)), findsOneWidget);
+    expect(find.text('Recorded'), findsOneWidget);
+    expect(find.text('On shift'), findsOneWidget);
   });
 
-  testWidgets('already timed out: Time out disabled, 12h chip and reason shown', (
+  testWidgets('already timed out: Time out disabled, 12h time and reason shown', (
     tester,
   ) async {
     final store = _FakeStore();
     final auth = _staffAuth(store);
+    final inShift = _shiftRow(
+      'IN',
+      DateTime.now().subtract(const Duration(hours: 8)),
+    );
+    final outShift = _shiftRow(
+      'OUT',
+      DateTime.now().subtract(const Duration(hours: 4)),
+    );
     (auth.api as _FakeApi).historyResponse = {
-      'data': [
-        _shiftRow('IN', DateTime.now().subtract(const Duration(hours: 8))),
-        _shiftRow('OUT', DateTime.now().subtract(const Duration(hours: 4))),
-      ],
+      'data': [inShift, outShift],
     };
     auth.token = 'tok';
     await auth.refreshMyShifts();
@@ -240,24 +248,14 @@ void main() {
     await tester.pumpWidget(_settingsHarness(auth));
     await tester.pumpAndSettle();
 
-    final timeIn = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Time in'),
-    );
-    final timeOut = tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, 'Time out'),
-    );
-    expect(timeIn.onPressed, isNull, reason: 'already timed in today');
-    expect(timeOut.onPressed, isNull, reason: 'already timed out today');
+    final timeIn = _clockTile(tester, 'attendance-time-in');
+    final timeOut = _clockTile(tester, 'attendance-time-out');
+    expect(timeIn.onTap, isNull, reason: 'already timed in today');
+    expect(timeOut.onTap, isNull, reason: 'already timed out today');
     expect(find.text('Shift complete for today'), findsOneWidget);
-    expect(
-      find.byWidgetPredicate(
-        (w) =>
-            w is Text &&
-            (w.data?.startsWith('Time out  ') ?? false) &&
-            (w.data!.contains(' AM') || w.data!.contains(' PM')),
-      ),
-      findsOneWidget,
-    );
+    expect(find.text(_clock12(inShift)), findsOneWidget);
+    expect(find.text(_clock12(outShift)), findsOneWidget);
+    expect(find.text('Complete'), findsOneWidget);
   });
 
   testWidgets('unrestricted windows keep both buttons tappable', (
@@ -271,14 +269,11 @@ void main() {
     await tester.pumpWidget(_settingsHarness(auth));
     await tester.pumpAndSettle();
 
-    final timeIn = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Time in'),
-    );
-    final timeOut = tester.widget<OutlinedButton>(
-      find.widgetWithText(OutlinedButton, 'Time out'),
-    );
-    expect(timeIn.onPressed, isNotNull);
-    expect(timeOut.onPressed, isNotNull);
+    final timeIn = _clockTile(tester, 'attendance-time-in');
+    final timeOut = _clockTile(tester, 'attendance-time-out');
+    expect(timeIn.onTap, isNotNull);
+    expect(timeOut.onTap, isNotNull);
+    expect(find.text('Tap card'), findsNWidgets(2));
     expect(find.textContaining('opens'), findsNothing);
   });
 }

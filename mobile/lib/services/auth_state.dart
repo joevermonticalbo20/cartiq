@@ -522,6 +522,11 @@ class AuthState extends ChangeNotifier {
   bool get clockOutOpen =>
       (timeClock ?? TimeClockConfig.defaults).isOpenNow('OUT', _clockNow());
 
+  /// True when today is one of the configured selling days (unrestricted when
+  /// the feature is unconfigured).
+  bool get timeClockDayOpen =>
+      (timeClock ?? TimeClockConfig.defaults).isDayOpen(_clockNow());
+
   /// "Time in opens 7:00 AM (closes 9:00 AM)" — greys-out caption for the row.
   /// On a closed day (no selling day in the config) every window is off, so
   /// the caption says so instead of naming a window. Always 12-hour.

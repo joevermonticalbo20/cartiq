@@ -691,6 +691,19 @@ class SettingsScreenState extends State<SettingsScreen> {
           _AccountCard(auth: auth, lastOnline: _lastOnline),
           const SizedBox(height: AppSpacing.space6),
 
+          // Attendance gets its own card rather than sitting in the middle of
+          // the Session list: it is the staff member's main daily action, and
+          // the two clock states need room to read at a glance.
+          if (auth.hasRfidCard) ...[
+            const SectionHeader(title: 'Attendance', eyebrow: 'Time clock'),
+            const SizedBox(height: AppSpacing.space3),
+            _TimeRow(
+              auth: auth,
+              onPressed: (event) => _clockFlow(auth, event),
+            ),
+            const SizedBox(height: AppSpacing.space6),
+          ],
+
           const SectionHeader(title: 'Session', eyebrow: 'This device'),
           const SizedBox(height: AppSpacing.space3),
           Container(
@@ -721,15 +734,7 @@ class SettingsScreenState extends State<SettingsScreen> {
                         : null,
                     onTap: () => _rfidFlow(auth),
                   ),
-                  // Time in / out, only once a card exists: without one there
-                  // is nothing for the reader to identify.
-                  if (auth.hasRfidCard) ...[
-                    _TimeRow(
-                      auth: auth,
-                      onPressed: (event) => _clockFlow(auth, event),
-                    ),
-                    const SizedBox(height: AppSpacing.space2),
-                  ],
+                  const Divider(height: 1, indent: 72),
                   _PremiumTile(
                     icon: Icons.mail_outline_rounded,
                     iconColor: auth.hasRealEmail
@@ -745,6 +750,7 @@ class SettingsScreenState extends State<SettingsScreen> {
                           ),
                     onTap: () => _editEmailFlow(auth),
                   ),
+                  const Divider(height: 1, indent: 72),
                   _PremiumTile(
                     icon: Icons.password_outlined,
                     iconColor: AppColors.info,
@@ -752,6 +758,7 @@ class SettingsScreenState extends State<SettingsScreen> {
                     subtitle: 'Email code required',
                     onTap: () => _changePasswordFlow(auth),
                   ),
+                  const Divider(height: 1, indent: 72),
                   _PremiumTile(
                     icon: Icons.logout_rounded,
                     iconColor: AppColors.danger,
@@ -1589,162 +1596,346 @@ class _TimeRow extends StatelessWidget {
   final AuthState auth;
   final void Function(String event) onPressed;
 
+  static const _weekdays = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
+  static const _months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+
+  String _todayLabel() {
+    final now = ManilaTime.now();
+    return '${_weekdays[now.weekday - 1]}, ${_months[now.month - 1]} ${now.day}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final inAt = auth.myInAtToday;
     final outAt = auth.myOutAtToday;
-    final myInDone = inAt != null;
-    final myOutDone = outAt != null;
-    final canIn = auth.clockInOpen && !myInDone;
-    final canOut = auth.clockOutOpen && !myOutDone;
-    final scheme = Theme.of(context).colorScheme;
-    final bodySmall = Theme.of(context).textTheme.bodySmall;
+    final inDone = inAt != null;
+    final outDone = outAt != null;
+    final canIn = auth.clockInOpen && !inDone;
+    final canOut = auth.clockOutOpen && !outDone;
+    final dayOpen = auth.timeClockDayOpen;
     final caption = auth.timeClockCaption();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.space4,
-        AppSpacing.space3,
-        AppSpacing.space4,
-        AppSpacing.space3,
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final okColor = isDark ? const Color(0xFF4ADE80) : AppColors.ok;
+    final dangerColor = isDark ? const Color(0xFFF87171) : AppColors.danger;
+
+    final String badge;
+    final AppBadgeVariant badgeVariant;
+    if (inDone && outDone) {
+      badge = 'Complete';
+      badgeVariant = AppBadgeVariant.ok;
+    } else if (inDone) {
+      badge = 'On shift';
+      badgeVariant = AppBadgeVariant.ok;
+    } else if (outDone) {
+      badge = 'Timed out';
+      badgeVariant = AppBadgeVariant.neutral;
+    } else if (!dayOpen) {
+      badge = 'Closed';
+      badgeVariant = AppBadgeVariant.neutral;
+    } else {
+      badge = 'Not clocked in';
+      badgeVariant = AppBadgeVariant.neutral;
+    }
+
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        boxShadow: AppShadow.sm(),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: Material(
+        color: Colors.transparent,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.space4),
+          child: Column(
             children: [
-              Expanded(
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(0, 48),
-                    backgroundColor: AppColors.ok,
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor:
-                        AppColors.ok.withValues(alpha: 0.28),
-                    disabledForegroundColor: Colors.white,
-                  ),
-                  // Disabled during the closed window: the server refuses the
-                  // claim and the tap too — double gating.
-                  onPressed: canIn ? () => onPressed('IN') : null,
-                  icon: const Icon(Icons.login_rounded, size: 18),
-                  label: const Text('Time in'),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.space2),
-              Expanded(
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, 48),
-                    foregroundColor: AppColors.danger,
-                    side: const BorderSide(color: AppColors.danger),
-                    disabledForegroundColor:
-                        AppColors.danger.withValues(alpha: 0.38),
-                  ),
-                  onPressed: canOut ? () => onPressed('OUT') : null,
-                  icon: const Icon(Icons.logout_rounded, size: 18),
-                  label: const Text('Time out'),
-                ),
-              ),
-            ],
-          ),
-          if (inAt != null || outAt != null)
-            Padding(
-              padding: const EdgeInsets.only(top: AppSpacing.space2),
-              child: Wrap(
-                spacing: AppSpacing.space2,
-                runSpacing: AppSpacing.space2,
+              Row(
                 children: [
-                  if (inAt != null)
-                    _AttendanceChip(
-                      icon: Icons.login_rounded,
-                      accent: AppColors.ok,
-                      text: 'Time in  ${ManilaTime.formatClock12(inAt)}',
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(AppRadius.m),
                     ),
-                  if (outAt != null)
-                    _AttendanceChip(
-                      icon: Icons.logout_rounded,
-                      accent: AppColors.danger,
-                      text: 'Time out  ${ManilaTime.formatClock12(outAt)}',
+                    child: const Icon(
+                      Icons.schedule_rounded,
+                      color: AppColors.primary,
+                      size: 21,
                     ),
-                  if (inAt != null && outAt != null)
-                    _AttendanceChip(
-                      icon: Icons.check_circle_rounded,
-                      accent: AppColors.ok,
-                      text: 'Shift complete for today',
+                  ),
+                  const SizedBox(width: AppSpacing.space3),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _todayLabel(),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Tap your card on the reader',
+                          style: textTheme.bodySmall,
+                        ),
+                      ],
                     ),
+                  ),
+                  const SizedBox(width: AppSpacing.space2),
+                  AppBadge(label: badge, variant: badgeVariant),
                 ],
               ),
-            ),
-          if (caption.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: AppSpacing.space2),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.space3,
-                  vertical: AppSpacing.space2,
-                ),
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerHighest
-                      .withValues(alpha: 0.6),
-                  borderRadius: BorderRadius.circular(AppRadius.s),
-                ),
+              const SizedBox(height: AppSpacing.space4),
+              IntrinsicHeight(
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Icon(Icons.schedule_rounded,
-                        size: 16, color: AppColors.muted),
+                    Expanded(
+                      child: _ClockTile(
+                        key: const Key('attendance-time-in'),
+                        label: 'Time in',
+                        icon: Icons.login_rounded,
+                        accent: okColor,
+                        done: inDone,
+                        at: inAt,
+                        onTap: canIn ? () => onPressed('IN') : null,
+                      ),
+                    ),
                     const SizedBox(width: AppSpacing.space2),
                     Expanded(
-                      child: Text(
-                        caption,
-                        style: (bodySmall ?? const TextStyle()).copyWith(
-                          color: AppColors.muted,
-                        ),
+                      child: _ClockTile(
+                        key: const Key('attendance-time-out'),
+                        label: 'Time out',
+                        icon: Icons.logout_rounded,
+                        accent: dangerColor,
+                        done: outDone,
+                        at: outAt,
+                        onTap: canOut ? () => onPressed('OUT') : null,
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
-        ],
+              if (inDone && outDone)
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.space3),
+                  child: _StatusStrip(
+                    icon: Icons.verified_rounded,
+                    color: okColor,
+                    text: 'Shift complete for today',
+                  ),
+                )
+              else if (caption.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.space3),
+                  child: _StatusStrip(
+                    icon: Icons.schedule_rounded,
+                    color: null,
+                    text: caption,
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
 }
 
-/// "Time in 8:03 AM" pill shown under the row once a shift is on the board.
-class _AttendanceChip extends StatelessWidget {
-  const _AttendanceChip({
+/// One half of the attendance card: a tappable clock state with the recorded
+/// time at display size. Locked and recorded states are visibly distinct, so
+/// staff can tell at a glance whether the action is still available.
+class _ClockTile extends StatelessWidget {
+  const _ClockTile({
+    super.key,
+    required this.label,
     required this.icon,
     required this.accent,
+    required this.done,
+    required this.at,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color accent;
+  final bool done;
+  final DateTime? at;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final active = onTap != null;
+    final accentColor = done || active ? accent : AppColors.muted;
+    final background = done
+        ? accent.withValues(alpha: 0.09)
+        : active
+        ? accent.withValues(alpha: 0.07)
+        : scheme.onSurface.withValues(alpha: 0.045);
+    final border = done
+        ? accent.withValues(alpha: 0.28)
+        : active
+        ? accent.withValues(alpha: 0.32)
+        : scheme.onSurface.withValues(alpha: 0.12);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.l),
+        child: Container(
+          padding: const EdgeInsets.all(AppSpacing.space3),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(AppRadius.l),
+            border: Border.all(color: border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, size: 15, color: accentColor),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      label.toUpperCase(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.labelSmall?.copyWith(
+                        color: accentColor,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                  if (done)
+                    Icon(Icons.check_circle_rounded, size: 16, color: accent),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.space2),
+              Text(
+                done ? ManilaTime.formatClock12(at!) : '—',
+                maxLines: 1,
+                style: textTheme.headlineSmall?.copyWith(
+                  fontSize: 23,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.4,
+                  height: 1.05,
+                  color: done
+                      ? null
+                      : AppColors.muted.withValues(alpha: 0.55),
+                ),
+              ),
+              const SizedBox(height: 3),
+              Row(
+                children: [
+                  Icon(
+                    done
+                        ? Icons.check_rounded
+                        : active
+                        ? Icons.contactless_rounded
+                        : Icons.lock_clock_rounded,
+                    size: 13,
+                    color: done || active ? accent : AppColors.muted,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      done
+                          ? 'Recorded'
+                          : active
+                          ? 'Tap card'
+                          : 'Locked',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.labelSmall?.copyWith(
+                        color: done || active ? accent : AppColors.muted,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11.5,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-width footer used for "shift complete" and the closed-window hint.
+class _StatusStrip extends StatelessWidget {
+  const _StatusStrip({
+    required this.icon,
+    required this.color,
     required this.text,
   });
 
   final IconData icon;
-  final Color accent;
+
+  /// Null uses the neutral surface tone instead of a semantic color.
+  final Color? color;
   final String text;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final accent = color ?? scheme.onSurface.withValues(alpha: 0.62);
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.space3,
         vertical: AppSpacing.space2,
       ),
       decoration: BoxDecoration(
-        color: accent.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-        border: Border.all(color: accent.withValues(alpha: 0.35)),
+        color: color == null
+            ? scheme.onSurface.withValues(alpha: 0.045)
+            : color!.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(AppRadius.m),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 16, color: accent),
+          Icon(icon, size: 15, color: accent),
           const SizedBox(width: AppSpacing.space2),
-          Text(
-            text,
-            style: (Theme.of(context).textTheme.bodySmall ?? const TextStyle())
-                .copyWith(fontWeight: FontWeight.w700, color: accent),
+          Expanded(
+            child: Text(
+              text,
+              style: (Theme.of(context).textTheme.bodySmall ?? const TextStyle())
+                  .copyWith(color: accent, fontWeight: FontWeight.w600),
+            ),
           ),
         ],
       ),
