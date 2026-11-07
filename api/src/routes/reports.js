@@ -5,6 +5,31 @@ import { manilaDayRange, manilaDayStart } from "../services/timezone.js";
 
 const router = Router();
 
+// GET /api/public/sales-today — read-only aggregate for the unauthenticated
+// login preview. No items, carts, or staff details are exposed.
+router.get("/public/sales-today", async (_req, res, next) => {
+  try {
+    const day = manilaDayStart(0);
+    const nextDay = new Date(day.getTime() + 24 * 60 * 60 * 1000);
+    const orders = await prisma.order.findMany({
+      where: { createdAt: { gte: day, lt: nextDay }, status: "PAID" },
+      select: { total: true },
+    });
+    const totalSales = orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const pad = (n) => String(n).padStart(2, "0");
+    const manilaDay = new Date(day.getTime() + 8 * 60 * 60 * 1000);
+    res.setHeader("Cache-Control", "public, max-age=300");
+    return res.json({
+      date: `${manilaDay.getUTCFullYear()}-${pad(manilaDay.getUTCMonth() + 1)}-${pad(manilaDay.getUTCDate())}`,
+      total_sales: Number(totalSales.toFixed(2)),
+      orders: orders.length,
+      asOf: new Date().toISOString(),
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // GET /api/reports/daily?date=YYYY-MM-DD&code=CART-01&daysAgo=N
 // All day boundaries are Asia/Manila (server runs on UTC in prod).
 router.get("/reports/daily", requireAuth, async (req, res, next) => {

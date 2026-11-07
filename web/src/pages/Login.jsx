@@ -13,14 +13,28 @@ import RecoveryFlow from "./RecoveryFlow.jsx";
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.1.0";
 
-function TiltedPreviewCard({ className = "" }) {
+function TiltedPreviewCard({ className = "", salesToday }) {
+  const totalSales = salesToday?.total_sales;
+  const orderCount = Number.isFinite(Number(salesToday?.orders))
+    ? Number(salesToday.orders)
+    : null;
+
   return (
     <div className={`login-preview ${className}`} aria-hidden="true">
       <div className="login-preview-header">
-        <span className="login-preview-label">SALES TODAY · SAMPLE</span>
+        <span className="login-preview-label">SALES TODAY</span>
         <div className="login-preview-row">
-          <strong className="login-preview-value"> 12,450</strong>
-          <span className="login-preview-trend">  +8.2%</span>
+          <strong className="login-preview-value">
+            {totalSales == null
+              ? "—"
+              : `P${Number(totalSales).toLocaleString(undefined, {
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 2,
+                })}`}
+          </strong>
+          <span className="login-preview-trend">
+            {orderCount == null ? "" : `${orderCount} order${orderCount === 1 ? "" : "s"}`}
+          </span>
         </div>
       </div>
       <div className="login-preview-chart-area">
@@ -70,12 +84,30 @@ export default function Login() {
   const [mode, setMode] = useState("login");
   const [userFocused, setUserFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
+  const [salesToday, setSalesToday] = useState(null);
   // Server lockout is per username. Track which username it belongs to so
   // another staff member can sign in on the same shared device.
   const [lockoutUntilMs, setLockoutUntilMs] = useState(null);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [lockoutUsername, setLockoutUsername] = useState("");
   const passwordRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSalesToday = async () => {
+      try {
+        const { data } = await api.get("/public/sales-today", { cacheTtl: 30000 });
+        if (!cancelled) setSalesToday(data ?? null);
+      } catch {
+        if (!cancelled) setSalesToday(null);
+      }
+    };
+    const timer = setTimeout(loadSalesToday, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, []);
 
   useEffect(() => {
     if (!lockoutUntilMs) return undefined;
@@ -163,7 +195,7 @@ export default function Login() {
             <img src="/logo.png" alt="CartIQ Logo" className="logo-icon-large" />
             <span style={{ fontSize: "24px", fontWeight: "800", color: "var(--text)" }}>CartIQ</span>
           </div>
-          <TiltedPreviewCard className="mobile-card" />
+          <TiltedPreviewCard className="mobile-card" salesToday={salesToday} />
         </div>
       </div>
 
@@ -321,7 +353,7 @@ export default function Login() {
               <span className="pill-dot" /> All Systems Operational
             </div>
             
-            <TiltedPreviewCard className="desktop-card glass-panel" />
+            <TiltedPreviewCard className="desktop-card glass-panel" salesToday={salesToday} />
             
             <div className="floating-pill pill-2">
               <Zap size={16} color="var(--highlight)" fill="var(--highlight)" /> 

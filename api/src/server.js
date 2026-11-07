@@ -81,6 +81,7 @@ const exportLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 30, message: li
 const analyticsLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, message: limitMsg });
 const passwordLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, message: limitMsg });
 const expensesLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, message: limitMsg });
+const publicLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, message: limitMsg });
 app.use("/api/auth/refresh", refreshLimiter);
 app.use("/api/auth/logout", refreshLimiter);
 app.use("/api/orders", ordersLimiter);
@@ -93,6 +94,7 @@ app.use("/api/export", exportLimiter);
 app.use("/api/analytics", analyticsLimiter);
 app.use("/api/reorders", analyticsLimiter);
 app.use("/api/auth/change-password", passwordLimiter);
+app.use("/api/public/sales-today", publicLimiter);
 app.use("/api/expenses", expensesLimiter);
 
 app.use("/api/auth", authRoutes);

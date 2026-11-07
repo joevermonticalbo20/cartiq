@@ -3117,6 +3117,31 @@ function manilaDayStart(daysAgo) {
   return new Date(manilaNow.getTime() - MANILA_OFFSET_MS);
 }
 
+async function handlePublicSalesToday() {
+  const day = manilaDayStart(0);
+  const nextDay = new Date(day.getTime() + 24 * 60 * 60 * 1000);
+  const allOrders = await fsRunQuery("orders", {
+    filters: [
+      { field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: day },
+      { field: "createdAt", op: "LESS_THAN", value: nextDay },
+    ],
+    limit: 5000,
+  });
+  const orders = allOrders.filter((o) => o.status === "PAID");
+  const totalSales = orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+  const pad = (n) => String(n).padStart(2, "0");
+  const manilaDay = new Date(day.getTime() + 8 * 60 * 60 * 1000);
+  return {
+    status: 200,
+    body: {
+      date: `${manilaDay.getUTCFullYear()}-${pad(manilaDay.getUTCMonth() + 1)}-${pad(manilaDay.getUTCDate())}`,
+      total_sales: Number(totalSales.toFixed(2)),
+      orders: orders.length,
+      asOf: new Date().toISOString(),
+    },
+  };
+}
+
 async function handleDailyReport(url) {
   const params = url.searchParams;
   const date = params.get("date");
@@ -7640,6 +7665,15 @@ Deno.serve(async (req) => {
         else return notFoundRes(origin, req, path);
         return jsonRes(origin, out.body, out.status);
       }
+      // Public, aggregate-only preview data for the unauthenticated login page.
+      if (path === "/public/sales-today") {
+        if (req.method !== "GET") return notFoundRes(origin, req, path);
+        const out = await handlePublicSalesToday();
+        return jsonRes(origin, out.body, out.status, {
+          "Cache-Control": "public, max-age=300",
+        });
+      }
+
       // Reports.
       if (path === "/reports/daily") {
         const auth = await authUser(req);

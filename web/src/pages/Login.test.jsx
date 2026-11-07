@@ -49,6 +49,15 @@ describe("Login remember-me row", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows the live Sales Today total from the public aggregate", async () => {
+    api.get.mockResolvedValueOnce({
+      data: { total_sales: 1234, orders: 56 },
+    });
+    renderPage();
+    expect((await screen.findAllByText("P1,234")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("56 orders").length).toBeGreaterThan(0);
+  });
+
   it("persists the session when remembered (default)", async () => {
     renderPage();
     fillLogin();
