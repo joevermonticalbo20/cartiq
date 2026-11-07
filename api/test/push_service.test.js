@@ -45,7 +45,7 @@ describe("push service (staff FCM)", () => {
     );
     assert.equal(sent.length, 1);
     assert.deepEqual(sent[0].tokens, ["token-a"]);
-    assert.equal(sent[0].collapseKey, "42");
+    assert.equal(sent[0].android.collapseKey, "42");
     assert.equal(sent[0].notification.title, "Void approved");
     assert.equal(sent[0].notification.body, "Order #123 voided.");
     assert.equal(sent[0].data.alertId, "42");

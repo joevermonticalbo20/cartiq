@@ -75,7 +75,6 @@ export async function sendTargetedPush(alert, { db = prisma, messaging = undefin
     const alertTag = alert.id == null ? null : String(alert.id);
     const message = {
       tokens,
-      collapseKey: alertTag ?? "",
       notification: { title, body },
       data: {
         alertId: alertTag ?? "",
@@ -85,6 +84,7 @@ export async function sendTargetedPush(alert, { db = prisma, messaging = undefin
       },
       android: {
         priority: "high",
+        collapseKey: alertTag ?? "",
         notification: {
           channelId: CHANNEL_ID,
           tag: alertTag,

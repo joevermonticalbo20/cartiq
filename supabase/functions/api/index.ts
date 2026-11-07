@@ -677,7 +677,6 @@ async function sendTargetedPush(alert) {
             body: JSON.stringify({
               message: {
                 token,
-                collapse_key: alert.id == null ? "" : String(alert.id),
                 notification: { title, body },
                 data: {
                   alertId: alert.id == null ? "" : String(alert.id),
@@ -686,6 +685,7 @@ async function sendTargetedPush(alert) {
                   body,
                 },
                 android: {
+                  collapse_key: alert.id == null ? "" : String(alert.id),
                   priority: "high",
                   notification: {
                     channel_id: FCM_CHANNEL_ID,
