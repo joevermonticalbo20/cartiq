@@ -439,16 +439,24 @@ describe("ProductsPage best sellers + flat catalog", () => {
     const row = (await screen.findByText("Cheese Fries - Medium")).closest("tr");
     expect(screen.getByRole("columnheader", { name: "Flavor/Variants" })).toBeInTheDocument();
     expect(within(row).getByText("Cheese")).toBeInTheDocument();
-    fireEvent.click(within(row).getByRole("button", { name: "Edit Cheese recipe" }));
+    fireEvent.click(within(row).getByTitle("Edit price and recipe"));
 
-    const dialog = await screen.findByRole("dialog", { name: "Edit Cheese recipe" });
-    fireEvent.change(within(dialog).getByPlaceholderText("Qty"), { target: { value: "20" } });
-    fireEvent.click(within(dialog).getByText("Save Recipe"));
+    const dialog = await screen.findByRole("dialog", { name: "Edit Cheese Fries - Medium" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit recipe" }));
+    const recipePanel = within(dialog).getByRole("region", { name: "Cheese recipe" });
+    fireEvent.change(within(recipePanel).getByPlaceholderText("Qty"), { target: { value: "20" } });
+    fireEvent.click(within(dialog).getByText("Save Changes"));
 
     await vi.waitFor(() =>
-      expect(api.patch).toHaveBeenCalledWith("/products/11", {
-        addRecipes: [{ flavor: "Cheese", itemName: "Cheese Powder", amountPerUnit: 20 }],
-      })
+      expect(api.patch).toHaveBeenCalledWith(
+        "/products/11",
+        expect.objectContaining({
+          flavors: [
+            { name: "Cheese", recipes: [{ itemName: "Cheese Powder", amountPerUnit: 20 }] },
+          ],
+          addRecipes: [{ flavor: "Cheese", itemName: "Cheese Powder", amountPerUnit: 20 }],
+        })
+      )
     );
   });
 
