@@ -247,6 +247,7 @@ router.patch(
         emit("alert:new", {
           id: notify.id,
           type: notify.type,
+          userId: notify.userId ?? null,
           title: notify.title ?? null,
           message: notify.message,
           isRead: notify.isRead === true,

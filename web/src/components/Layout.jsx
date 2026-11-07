@@ -60,7 +60,7 @@ export default function Layout() {
   // notifications work from every screen - not just the Dashboard.
   useLiveStream();
   const { play: playOrderSound } = useOrderSound();
-  useOrderNotifications({ playSound: playOrderSound });
+  useOrderNotifications({ playSound: playOrderSound, user });
 
   // Card registrations happen on a phone at the cart, so the dashboard is where
   // the owner needs to see them land.

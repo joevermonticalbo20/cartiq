@@ -645,7 +645,7 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
             isRead: false,
           },
         });
-        emit("alert:new", { id: notify.id, type: notify.type, title: notify.title ?? null, message: notify.message, isRead: notify.isRead === true, createdAt: notify.createdAt, locationId: notify.locationId ?? null });
+        emit("alert:new", { id: notify.id, type: notify.type, userId: notify.userId ?? null, title: notify.title ?? null, message: notify.message, isRead: notify.isRead === true, createdAt: notify.createdAt, locationId: notify.locationId ?? null });
         sendTargetedPush(notify).catch(() => {});
       }
       return res.json({ order, restored: [], warnings: [] });
@@ -675,7 +675,7 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
           isRead: false,
         },
       });
-      emit("alert:new", { id: notify.id, type: notify.type, title: notify.title ?? null, message: notify.message, isRead: notify.isRead === true, createdAt: notify.createdAt, locationId: notify.locationId ?? null });
+      emit("alert:new", { id: notify.id, type: notify.type, userId: notify.userId ?? null, title: notify.title ?? null, message: notify.message, isRead: notify.isRead === true, createdAt: notify.createdAt, locationId: notify.locationId ?? null });
       sendTargetedPush(notify).catch(() => {});
     }
     emit("order:updated", { id: existing.id, status: "VOID" });

@@ -104,7 +104,7 @@ export function isDuplicateSaleAlert(alert) {
  * Mount once in the app shell. Notifies on every order regardless of the
  * current page or filters.
  */
-export function useOrderNotifications({ onOrder, playSound } = {}) {
+export function useOrderNotifications({ onOrder, playSound, user } = {}) {
   const orderRef = useRef(onOrder);
   const soundRef = useRef(playSound);
   const navigate = useNavigate();
@@ -143,6 +143,20 @@ export function useOrderNotifications({ onOrder, playSound } = {}) {
   useLiveEvent("order:new", handleOrder);
 
   const handleAlert = useCallback((data) => {
+    const type = String(data?.type ?? "").toUpperCase();
+    const targetUserId = data?.userId == null ? null : Number(data.userId);
+    const currentUserId = Number(user?.sub ?? user?.id);
+    // VOID_DECISION and RESTOCK_UPDATE are notifications for the staff account
+    // that requested the action. Toasting them on the owner's web shell would
+    // duplicate the app notification and confuse the action owner.
+    if (targetUserId != null && targetUserId !== currentUserId) return;
+    if (
+      user?.role === "OWNER" &&
+      (type === "VOID_DECISION" || type === "RESTOCK_UPDATE")
+    ) {
+      return;
+    }
+
     // One sale = one notification. `order:new` already raised the richer
     // toast (and browser notification) above; the SALE alert would only
     // duplicate it. The bell still shows the alert.
@@ -162,7 +176,7 @@ export function useOrderNotifications({ onOrder, playSound } = {}) {
       title: alertLinkLabel(data),
     });
     pushBrowserNotification("CartIQ alert", message, link);
-  }, [navigate]);
+  }, [navigate, user]);
 
   useLiveEvent("alert:new", handleAlert);
 }

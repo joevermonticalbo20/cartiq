@@ -90,6 +90,19 @@ describe("live notification dedupe", () => {
     expect(mocks.toast).not.toHaveBeenCalled();
   });
 
+  it("does not toast a staff-targeted void decision on the owner shell", () => {
+    renderHook(() =>
+      useOrderNotifications({ user: { id: 1, role: "OWNER" } })
+    );
+    mocks.handlers.get("alert:new")({
+      id: 22,
+      type: "VOID_DECISION",
+      userId: 2,
+      message: "Order #22 was voided at your request. Stock restored.",
+    });
+    expect(mocks.toast).not.toHaveBeenCalled();
+  });
+
   it("still toasts alerts that have no order event", () => {
     renderHook(() => useOrderNotifications());
     mocks.handlers.get("alert:new")({

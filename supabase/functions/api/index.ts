@@ -2019,6 +2019,7 @@ async function handleOrderVoidDecision(req, orderId, user) {
       await broadcastEvent("alert:new", {
         id: alertDoc.id,
         type: alertDoc.type,
+        userId: alertDoc.userId ?? null,
         title: alertDoc.title,
         message: alertDoc.message,
         isRead: false,
@@ -3042,6 +3043,7 @@ async function handleRestockRequestStatus(req, id, user) {
       await broadcastEvent("alert:new", {
         id: alertDoc.id,
         type: alertDoc.type,
+        userId: alertDoc.userId ?? null,
         title: alertDoc.title,
         message: alertDoc.message,
         isRead: false,
