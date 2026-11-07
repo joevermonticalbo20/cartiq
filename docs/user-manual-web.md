@@ -32,8 +32,9 @@ Recent LPG-tank / cheese-bin weight readings from CART-01's node.
   of creating a separate product for each flavor. Set the price in the
   product's Pricing panel; each flavor has its own **Edit recipe** panel for
   ingredients deducted per unit.
-- The Products table lists variants together under **Flavor/Variants**. Use
-  the flavor's **Recipe** button to update its recipe later. Older products
+- The Products table lists variants together under **Flavor/Variants**. Open the
+  product's **Edit price and recipe** dialog to update each flavor's recipe
+  later. Older products
   without variants can keep using their default product recipe.
 
 ### Business analytics
