@@ -55,6 +55,7 @@ const NAV_GROUPS = [
 export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [user, setUser] = useState(null);
 
   // One SSE connection for the whole app, mounted in the shell so live order
   // notifications work from every screen - not just the Dashboard.
@@ -69,7 +70,6 @@ export default function Layout() {
     () => localStorage.getItem("cartiq_sidebar_collapsed") === "1"
   );
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [user, setUser] = useState(null);
   const [confirmingLogout, setConfirmingLogout] = useState(false);
   const [dark, setDark] = useState(
     () => document.documentElement.dataset.theme === "dark"
