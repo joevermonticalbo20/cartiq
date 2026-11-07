@@ -3,13 +3,13 @@
  * ============================================================ */
 
 .login-split {
-  min-height: 100vh;
+  min-height: 100dvh;
   background: var(--surface);
   display: flex;
   flex-direction: column;
   position: relative;
 }
-@media (min-width: 1024px) {
+@media (min-width: 900px) {
   .login-split {
     flex-direction: row;
   }
@@ -29,14 +29,14 @@
   box-shadow: var(--shadow-lg);
   z-index: 0;
 }
-@media (min-width: 1024px) {
+@media (min-width: 900px) {
   .login-mobile-header {
     display: none;
   }
 }
 /* Keep the primary sign-in action reachable on phones: the brand card
    shares the viewport with the form, so the preview gets compacted here. */
-@media (max-width: 1023px) {
+@media (max-width: 899px) {
   .login-mobile-header {
     padding: 24px 20px 72px;
     border-radius: 0 0 2rem 2rem;
@@ -113,11 +113,11 @@
   z-index: 10;
   margin-top: -64px; 
 }
-@media (min-width: 1024px) {
+@media (min-width: 900px) {
   .login-form-side {
     width: 50%; /* EXACT 50/50 SPLIT */
     margin-top: 0;
-    min-height: 100vh;
+    min-height: 100dvh;
     padding: 32px;
   }
 }
@@ -130,7 +130,7 @@
   box-shadow: var(--shadow);
   border: 1px solid var(--border);
 }
-@media (min-width: 1024px) {
+@media (min-width: 900px) {
   .login-form-container {
     background: transparent;
     padding: 0 16px;
@@ -141,7 +141,7 @@
 .login-logo-desktop {
   display: none;
 }
-@media (min-width: 1024px) {
+@media (min-width: 900px) {
   .login-logo-desktop {
     display: flex;
     align-items: center;
@@ -153,7 +153,7 @@
   margin-bottom: 32px;
   text-align: center;
 }
-@media (min-width: 1024px) {
+@media (min-width: 900px) {
   .login-form-header {
     text-align: left;
   }
@@ -516,7 +516,7 @@ button.recovery-back:active:not(:disabled) {
   color: var(--text-muted);
   opacity: 0.6;
 }
-@media (min-width: 1024px) {
+@media (min-width: 900px) {
   .login-footer {
     text-align: left;
     margin-top: 48px;
@@ -529,10 +529,11 @@ button.recovery-back:active:not(:disabled) {
 .login-brand-side {
   display: none;
 }
-@media (min-width: 1024px) {
+@media (min-width: 900px) {
   .login-brand-side {
     display: flex;
     width: 50%; /* EXACT 50/50 SPLIT */
+    min-height: 100dvh;
     background: var(--bg);
     position: relative;
     overflow: hidden;

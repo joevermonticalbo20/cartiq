@@ -922,9 +922,22 @@ button.settings-pw-submit:disabled {
   width: 100%;
   flex: none; 
   overflow-y: auto;
+  overflow-x: auto;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background-color: var(--surface);
+}
+
+/* Keep the Items column readable when the dashboard is viewed in a narrow
+   Chrome window (including Desktop Site on a phone). The table scrolls
+   horizontally instead of squeezing every column into the viewport. */
+.sales-panel .table-wrap .data {
+  min-width: 1080px;
+}
+
+.sales-items {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .sales-panel .table-wrap table.data th {

@@ -467,7 +467,9 @@ button.notif-item-btn:focus-visible {
 
 .hamburger { display: none; }
 .backdrop { display: none; }
-@media (max-width: 900px) {
+/* Chrome Desktop Site often reports ~980–1100 CSS px on a phone; use the
+   drawer layout there instead of squeezing the content next to a sidebar. */
+@media (max-width: 1100px) {
   .sidebar { transform: translateX(-120%); box-shadow: var(--shadow); }
   .sidebar.mobile-open { transform: translateX(0); width: var(--sidebar-w); }
   .main-area { margin-left: 0 !important; }
@@ -580,8 +582,8 @@ button.notif-item-btn:focus-visible {
   flex-wrap: wrap;
 }
 
-/* ----- Responsive (max-width: 900px): tablet portrait - page header ----- */
-@media (max-width: 900px) {
+/* ----- Responsive (max-width: 1100px): tablet / Chrome Desktop Site ----- */
+@media (max-width: 1100px) {
   .page-header { flex-direction: column; align-items: flex-start; }
   .page-header-actions { width: 100%; }
   .page-header-actions select, .page-header-actions button { flex: 1; }

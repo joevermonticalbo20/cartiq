@@ -388,8 +388,9 @@ export default function SalesPage() {
                 {
                   key: "items",
                   label: "Items",
+                  width: 260,
                   render: (o) => (
-                    <span className="muted small" style={{ display: "block" }}>
+                    <span className="sales-items muted small" style={{ display: "block" }}>
                       {(o.items ?? [])
                         .map(
                           (i) =>
