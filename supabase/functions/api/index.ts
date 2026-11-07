@@ -644,6 +644,7 @@ async function withRetry(fn, attempts) {
 }
 
 // ---------- FCM push for targeted staff alerts ----------
+const FCM_CHANNEL_ID = "cartiq_alerts";
 const PUSH_ALERT_TYPES = new Set(["VOID_DECISION", "RESTOCK_UPDATE"]);
 
 /** Best-effort push for the targeted-alert types the mobile app registers for. */
@@ -677,6 +678,7 @@ async function sendTargetedPush(alert) {
               message: {
                 token,
                 collapse_key: alert.id == null ? "" : String(alert.id),
+                notification: { title, body },
                 data: {
                   alertId: alert.id == null ? "" : String(alert.id),
                   type: String(alert.type),
@@ -685,6 +687,12 @@ async function sendTargetedPush(alert) {
                 },
                 android: {
                   priority: "high",
+                  notification: {
+                    channel_id: FCM_CHANNEL_ID,
+                    tag: alert.id == null ? null : String(alert.id),
+                    visibility: "public",
+                    click_action: "FLUTTER_NOTIFICATION_CLICK",
+                  },
                 },
               },
             }),

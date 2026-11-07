@@ -5,6 +5,11 @@ const require = createRequire(import.meta.url);
 const { getMessaging } = require("firebase-admin/messaging");
 
 const PUSH_TYPES = new Set(["VOID_DECISION", "RESTOCK_UPDATE"]);
+// Mobile displays these through the `cartiq_alerts` channel in both paths:
+// native display in the background, and app-owned local notification in the
+// foreground. Android collapses messages with the same collapse key/tag into
+// one visible notification per alert.
+const CHANNEL_ID = "cartiq_alerts";
 
 function cleanToken(token) {
   const value = String(token ?? "").trim();
@@ -67,17 +72,25 @@ export async function sendTargetedPush(alert, { db = prisma, messaging = undefin
 
     const title = pushTitle(alert);
     const body = pushBody(alert);
+    const alertTag = alert.id == null ? null : String(alert.id);
     const message = {
       tokens,
-      collapseKey: alert.id == null ? "" : String(alert.id),
+      collapseKey: alertTag ?? "",
+      notification: { title, body },
       data: {
-        alertId: alert.id == null ? "" : String(alert.id),
+        alertId: alertTag ?? "",
         type,
         title,
         body,
       },
       android: {
         priority: "high",
+        notification: {
+          channelId: CHANNEL_ID,
+          tag: alertTag,
+          visibility: "public",
+          clickAction: "FLUTTER_NOTIFICATION_CLICK",
+        },
       },
     };
 

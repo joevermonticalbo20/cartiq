@@ -28,9 +28,9 @@ class CartIQPushPayload {
 ///    `cartiq_alerts` channel.
 /// 4. Taps on FCM or local notifications, which just refresh alerts.
 ///
-/// Background/terminated messages use data-only FCM payloads so Android
-/// does not also post a native notification. The background isolate shows
-/// the single app-owned notification with the same alert id/tag.
+/// Background/terminated messages use FCM notification payloads so Android
+/// displays them directly. The Dart background handler returns for those and
+/// only handles data-only fallbacks with the same alert id/tag.
 class CartIQPushService {
   CartIQPushService({
     FirebaseMessaging? messaging,
@@ -167,7 +167,7 @@ class CartIQPushService {
         importance: Importance.max,
         priority: Priority.max,
         icon: '@mipmap/ic_launcher',
-        tag: payload.alertId == null ? null : 'cartiq-alert-${payload.alertId}',
+        tag: payload.alertId?.toString(),
       );
       final notificationDetails = NotificationDetails(android: androidDetails);
       await _notifications.show(
@@ -257,7 +257,7 @@ Future<void> _backgroundMessageHandler(RemoteMessage message) async {
       importance: Importance.max,
       priority: Priority.max,
       icon: '@mipmap/ic_launcher',
-      tag: alertId == null ? null : 'cartiq-alert-$alertId',
+      tag: alertId?.toString(),
     );
     await plugin.show(
       id: alertId ?? 0,
