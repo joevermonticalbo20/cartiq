@@ -3125,6 +3125,41 @@ async function resolveFlavorEntries(entries) {
   return { ids, byId, idByName, created };
 }
 
+async function applyFullFlavorList({ existing, flavors, removeRecipes }) {
+  if (!Array.isArray(flavors)) return { error: "flavors must be an array" };
+  const resolved = await resolveFlavorEntries(flavors);
+  if (resolved.error) return { error: resolved.error };
+  const nextIds = resolved.ids.map(Number);
+  const priorIds = (existing.flavorIds ?? existing.flavors.map((f) => f.id)).map(Number);
+  const removedIds = priorIds.filter((id) => !nextIds.includes(id));
+  const removedNames = removedIds
+    .map((id) => (existing.flavors ?? []).find((f) => Number(f.id) === Number(id))?.name)
+    .filter(Boolean);
+  if (removedIds.length > 0) {
+    const maps = await fsQueryEqual("ingredientMaps", "productName", existing.name, 10000);
+    const requestedDeletes = Array.isArray(removeRecipes) ? removeRecipes : [];
+    const guarded = removedIds
+      .map((id) => (existing.flavors ?? []).find((f) => Number(f.id) === Number(id)))
+      .filter(Boolean)
+      .filter((f) => maps.some((m) => m.flavor === f.name &&
+        !requestedDeletes.some((r) =>
+          String(r?.flavor ?? "").trim() === f.name &&
+          String(r?.itemName ?? "").trim() === m.itemName)))
+      .map((f) => f.name);
+    if (guarded.length > 0) return { error: "guarded", guarded };
+  }
+  const identical =
+    nextIds.length === priorIds.length &&
+    nextIds.every((id) => priorIds.includes(id));
+  return {
+    nextIds,
+    removedNames,
+    flavorsChanged: identical
+      ? 0
+      : nextIds.filter((id) => !priorIds.includes(id)).length + removedIds.length,
+  };
+}
+
 async function flavorIdsExist(ids) {
   if (!ids || ids.length === 0) return true;
   const flavors = await fsListAll("flavors");
@@ -3406,10 +3441,10 @@ async function handleCreateProduct(req) {
 
 async function handlePatchProduct(req, id) {
   const body = await req.json().catch(() => null);
-  const { category, basePrice, active, addFlavorIds, removeFlavorIds, flavorPrices, addRecipes, removeRecipes, imageUrl, isBestSeller } = body || {};
+  const { category, basePrice, active, addFlavorIds, removeFlavorIds, flavors, flavorPrices, addRecipes, removeRecipes, imageUrl, isBestSeller } = body || {};
   if (
     category === undefined && basePrice === undefined && active === undefined &&
-    addFlavorIds === undefined && removeFlavorIds === undefined &&
+    addFlavorIds === undefined && removeFlavorIds === undefined && flavors === undefined &&
     flavorPrices === undefined && addRecipes === undefined && removeRecipes === undefined &&
     imageUrl === undefined && isBestSeller === undefined
   ) {
@@ -3452,6 +3487,22 @@ async function handlePatchProduct(req, id) {
   const byId = new Map(allFlavors.map((f) => [Number(f.id), f]));
   const linkedIds = new Set((existing.flavorIds ?? []).map(Number));
   const linkedFlavors = [...linkedIds].map((fid) => byId.get(fid)).filter(Boolean);
+  let fullFlavorUpdate = null;
+  if (flavors !== undefined) {
+    fullFlavorUpdate = await applyFullFlavorList({ existing, flavors, removeRecipes });
+    if (fullFlavorUpdate.error && fullFlavorUpdate.error !== "guarded") {
+      return { status: 400, body: { error: fullFlavorUpdate.error } };
+    }
+    if (fullFlavorUpdate.error === "guarded") {
+      return {
+        status: 409,
+        body: {
+          error: `Cannot remove flavor(s) ${fullFlavorUpdate.guarded.join(", ")}: recipe rows still reference them — delete the rows first`,
+          flavors: fullFlavorUpdate.guarded,
+        },
+      };
+    }
+  }
   if (addFlavorIds !== undefined || removeFlavorIds !== undefined) {
     const adds = Array.isArray(addFlavorIds) ? addFlavorIds.map(Number) : [];
     const removes = new Set(Array.isArray(removeFlavorIds) ? removeFlavorIds.map(Number) : []);
@@ -3484,6 +3535,25 @@ async function handlePatchProduct(req, id) {
       const merged = { ...(data.flavorPrices ?? existing.flavorPrices ?? {}) };
       for (const n of removedNames) delete merged[n];
       data.flavorPrices = merged;
+    }
+  }
+  // Full-list `flavors` update (Products edit form). Already guarded by
+  // applyFullFlavorList above: any flavor still referenced by recipe
+  // rows was rejected with 409 before this point.
+  let flavorsChanged = 0;
+  if (fullFlavorUpdate) {
+    if (fullFlavorUpdate.flavorsChanged > 0) {
+      data.flavorIds = fullFlavorUpdate.nextIds;
+      flavorsChanged = fullFlavorUpdate.flavorsChanged;
+      linkedIds.clear();
+      for (const id of fullFlavorUpdate.nextIds) linkedIds.add(id);
+      // Unlinked flavors must drop any price overrides so stale keys
+      // can't linger. (Explicit flavorPrices in this request wins below.)
+      if (fullFlavorUpdate.removedNames.length > 0 && data.flavorPrices === undefined) {
+        const merged = { ...(existing.flavorPrices ?? {}) };
+        for (const n of fullFlavorUpdate.removedNames) delete merged[n];
+        data.flavorPrices = merged;
+      }
     }
   }
   if (flavorPrices !== undefined) {
@@ -3565,7 +3635,7 @@ async function handlePatchProduct(req, id) {
     }
   }
   await bumpCatalogVersion().catch(() => {});
-  return { status: 200, body: { product: cleanDoc(product), recipesChanged, unmatchedItems } };
+  return { status: 200, body: { product: cleanDoc(product), flavorsChanged, recipesChanged, unmatchedItems } };
 }
 
 async function handleRenameProduct(req, id) {

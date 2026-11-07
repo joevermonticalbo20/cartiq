@@ -460,6 +460,36 @@ describe("ProductsPage best sellers + flat catalog", () => {
     );
   });
 
+  it("adds a new flavor through the edit dialog and sends the full list", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/products") {
+        return Promise.resolve({
+          data: { data: [{ ...seedProducts[0], flavors: [] }] },
+        });
+      }
+      return Promise.resolve({ data: { data: [] } });
+    });
+    renderPage();
+    const row = (await screen.findByText("Cheese Fries - Medium")).closest("tr");
+    fireEvent.click(within(row).getByTitle("Edit price and recipe"));
+
+    const dialog = await screen.findByRole("dialog", { name: "Edit Cheese Fries - Medium" });
+    fireEvent.click(within(dialog).getByText("Add flavor/variant"));
+    fireEvent.change(within(dialog).getByPlaceholderText("e.g. Cheese"), {
+      target: { value: "BBQ" },
+    });
+    fireEvent.click(within(dialog).getByText("Save Changes"));
+
+    await vi.waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith(
+        "/products/11",
+        expect.objectContaining({
+          flavors: [{ name: "BBQ", recipes: [] }],
+        })
+      )
+    );
+  });
+
   it("shows the star filled for a best seller and unfills on click", async () => {
     api.get.mockImplementation((url) => {
       if (url === "/products") {

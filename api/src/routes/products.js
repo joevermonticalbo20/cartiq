@@ -95,6 +95,50 @@ async function resolveFlavorEntries(entries) {
   return { ids, byId, idByName, created };
 }
 
+// Resolve the full desired flavor link list for PATCH /products/:id exactly
+// as the Products edit form sends it (`flavors: [{ name, recipes }]`).
+// Unknown names are auto-created, like POST /products. Returns
+// { nextIds, removedNames, flavorsChanged } or { error }.
+//
+// Removal guard: a flavor that still has recipe rows for this product
+// (after any removeRecipes cleanup in the same request) is rejected with
+// { error, guarded }, matching the existing addFlavorIds/removeFlavorIds
+// 409 so the edit form never leaves orphan recipe rows.
+async function applyFullFlavorList({ existing, flavors, removeRecipes }) {
+  if (!Array.isArray(flavors)) return { error: "flavors must be an array" };
+  const resolved = await resolveFlavorEntries(flavors);
+  if (resolved.error) return { error: resolved.error };
+  const nextIds = resolved.ids.map(Number);
+  const priorIds = (existing.flavorIds ?? existing.flavors.map((f) => f.id)).map(Number);
+  const removedIds = priorIds.filter((id) => !nextIds.includes(id));
+  const removedNames = removedIds
+    .map((id) => (existing.flavors ?? []).find((f) => Number(f.id) === Number(id))?.name)
+    .filter(Boolean);
+  if (removedIds.length > 0) {
+    const maps = await prisma.ingredientMap.findMany({ where: { productName: existing.name } });
+    const requestedDeletes = Array.isArray(removeRecipes) ? removeRecipes : [];
+    const guarded = removedIds
+      .map((id) => (existing.flavors ?? []).find((f) => Number(f.id) === Number(id)))
+      .filter(Boolean)
+      .filter((f) => maps.some((m) => m.flavor === f.name &&
+        !requestedDeletes.some((r) =>
+          String(r?.flavor ?? "").trim() === f.name &&
+          String(r?.itemName ?? "").trim() === m.itemName)))
+      .map((f) => f.name);
+    if (guarded.length > 0) return { error: "guarded", guarded };
+  }
+  const identical =
+    nextIds.length === priorIds.length &&
+    nextIds.every((id) => priorIds.includes(id));
+  return {
+    nextIds,
+    removedNames,
+    flavorsChanged: identical
+      ? 0
+      : nextIds.filter((id) => !priorIds.includes(id)).length + removedIds.length,
+  };
+}
+
 // Validate one recipe row { itemName, amountPerUnit }. Returns the cleaned
 // row or null.
 function validRecipeRow(r) {
@@ -332,19 +376,24 @@ router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, nex
 // prices, and per-flavor recipe rows.
 // Price applies to future sales only; history keeps its recorded totals.
 // Body: { category?, basePrice?, addFlavorIds?[], removeFlavorIds?[],
-//   flavorPrices? { [flavorName]: price | null }, addRecipes?[], removeRecipes?[] }
+//   flavors?[], flavorPrices? { [flavorName]: price | null }, addRecipes?[], removeRecipes?[] }
+// flavors[] = the full desired flavor link list: numeric ids, bare name
+// strings, or { flavorId?, name? } (unknown names auto-created, same as POST).
+// A flavor removed while recipe rows still reference it is rejected with 409
+// (delete the rows first via removeRecipes in the same request).
 // addRecipes[] = { flavor*, itemName*, amountPerUnit* } (upsert);
 // removeRecipes[] = { flavor*, itemName* }. Removing a flavor that still has
 // recipe rows is rejected with 409 (delete the rows first).
 router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const { category, basePrice, active, addFlavorIds, removeFlavorIds, flavorPrices, addRecipes, removeRecipes, imageUrl, isBestSeller } = req.body ?? {};
+    const { category, basePrice, active, addFlavorIds, removeFlavorIds, flavors, flavorPrices, addRecipes, removeRecipes, imageUrl, isBestSeller } = req.body ?? {};
     if (
       category === undefined &&
       basePrice === undefined &&
       active === undefined &&
       addFlavorIds === undefined &&
       removeFlavorIds === undefined &&
+      flavors === undefined &&
       flavorPrices === undefined &&
       addRecipes === undefined &&
       removeRecipes === undefined &&
@@ -392,6 +441,19 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
       data.isBestSeller = isBestSeller;
     }
     const current = new Set(existing.flavorIds ?? existing.flavors.map((f) => f.id));
+    let fullFlavorUpdate = null;
+    if (flavors !== undefined) {
+      fullFlavorUpdate = await applyFullFlavorList({ existing, flavors, removeRecipes });
+      if (fullFlavorUpdate.error && fullFlavorUpdate.error !== "guarded") {
+        return res.status(400).json({ error: fullFlavorUpdate.error });
+      }
+      if (fullFlavorUpdate.error === "guarded") {
+        return res.status(409).json({
+          error: `Cannot remove flavor(s) ${fullFlavorUpdate.guarded.join(", ")}: recipe rows still reference them — delete the rows first`,
+          flavors: fullFlavorUpdate.guarded,
+        });
+      }
+    }
     if (addFlavorIds !== undefined || removeFlavorIds !== undefined) {
       const adds = Array.isArray(addFlavorIds) ? addFlavorIds.map(Number) : [];
       const removes = new Set(
@@ -424,6 +486,23 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
       const merged = { ...(data.flavorPrices ?? existing.flavorPrices ?? {}) };
         for (const n of removedNames) delete merged[n];
         data.flavorPrices = merged;
+      }
+    }
+    // Full-list `flavors` update (Products edit form). Already guarded by
+    // applyFullFlavorList above: any flavor still referenced by recipe
+    // rows was rejected with 409 before this point.
+    let flavorsChanged = 0;
+    if (fullFlavorUpdate) {
+      if (fullFlavorUpdate.flavorsChanged > 0) {
+        data.flavorIds = fullFlavorUpdate.nextIds;
+        flavorsChanged = fullFlavorUpdate.flavorsChanged;
+        // Unlinked flavors must drop any price overrides so stale keys
+        // can't linger. (Explicit flavorPrices in this request wins below.)
+        if (fullFlavorUpdate.removedNames.length > 0 && data.flavorPrices === undefined) {
+          const merged = { ...(existing.flavorPrices ?? {}) };
+          for (const n of fullFlavorUpdate.removedNames) delete merged[n];
+          data.flavorPrices = merged;
+        }
       }
     }
     if (flavorPrices !== undefined) {
@@ -511,7 +590,7 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
       }
     }
     await touchCatalog();
-    return res.json({ product, recipesChanged, unmatchedItems });
+    return res.json({ product, flavorsChanged, recipesChanged, unmatchedItems });
   } catch (err) {
     return next(err);
   }
@@ -772,3 +851,7 @@ router.delete("/flavors/:id", requireAuth, requireRole("OWNER"), async (req, res
 });
 
 export default router;
+
+// The PATCH /products/:id handler tests the `flavors` full-list update
+// through this export (unit-testable without HTTP machinery).
+export { applyFullFlavorList };

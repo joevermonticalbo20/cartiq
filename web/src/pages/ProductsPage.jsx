@@ -581,7 +581,8 @@ export default function ProductsPage() {
       if (removeRecipes.length > 0) details.push(`${removeRecipes.length} recipe row(s) removed`);
       
       if (finalCategory !== (editing._category || "Fries")) details.push("category updated");
-      if (sp !== Number(editing._sellingPrice)) details.push(`selling price P${Number(editing._sellingPrice)} \u2192 P${sp}`);
+      if (sp !== Number(editing._sellingPrice)) details.push(`selling price P${Number(editing._sellingPrice)} → P${sp}`);
+      if ((data?.flavorsChanged ?? 0) > 0) details.push(`${data.flavorsChanged} flavor(s) updated`);
       if (hasImageDraft) {
         try {
           await uploadProductImage(editing.id, editing.imageDraft);
