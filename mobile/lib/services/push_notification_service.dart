@@ -28,9 +28,9 @@ class CartIQPushPayload {
 ///    `cartiq_alerts` channel.
 /// 4. Taps on FCM or local notifications, which just refresh alerts.
 ///
-/// Background/terminated messages need no Dart handler: the server sends a
-/// notification payload, so FCM (Android) displays it directly. Adding an
-/// `onBackgroundMessage` handler on top would double-post the same alert.
+/// Background/terminated messages use data-only FCM payloads so Android
+/// does not also post a native notification. The background isolate shows
+/// the single app-owned notification with the same alert id/tag.
 class CartIQPushService {
   CartIQPushService({
     FirebaseMessaging? messaging,
@@ -53,6 +53,7 @@ class CartIQPushService {
   Future<void> Function(String type, int? alertId)? onNotificationOpened;
 
   bool _ready = false;
+  Future<bool>? _registrationFuture;
   StreamSubscription<RemoteMessage>? _foregroundSubscription;
   StreamSubscription<RemoteMessage>? _openedSubscription;
   StreamSubscription<String>? _tokenSubscription;
@@ -65,6 +66,19 @@ class CartIQPushService {
   /// invoke [onToken] with it so [AuthState] can register it with the API.
   /// Never throws — push is an enhancement, never a login blocker.
   Future<bool> initializeAndRegister({
+    required Future<void> Function(String token) onToken,
+  }) {
+    final inFlight = _registrationFuture;
+    if (inFlight != null) return inFlight;
+    final future = _initializeAndRegister(onToken: onToken);
+    _registrationFuture = future;
+    future.whenComplete(() {
+      if (identical(_registrationFuture, future)) _registrationFuture = null;
+    });
+    return future;
+  }
+
+  Future<bool> _initializeAndRegister({
     required Future<void> Function(String token) onToken,
   }) async {
     if (_ready) {
@@ -112,7 +126,7 @@ class CartIQPushService {
       // ignore: deprecated_member_use
       final current = token ?? await _messaging.getToken();
       if (current == null || current.isEmpty) return;
-      if (token != null && token == _registeredToken) return;
+      if (current == _registeredToken) return;
       await onToken(current);
       _registeredToken = current;
     } catch (_) {
@@ -146,13 +160,14 @@ class CartIQPushService {
   Future<void> _showForeground(RemoteMessage message) async {
     final payload = _payloadFor(message);
     try {
-      const androidDetails = AndroidNotificationDetails(
+      final androidDetails = AndroidNotificationDetails(
         channelId,
         'CartIQ Alerts',
         channelDescription: 'Void decisions and restock updates',
         importance: Importance.max,
         priority: Priority.max,
         icon: '@mipmap/ic_launcher',
+        tag: payload.alertId == null ? null : 'cartiq-alert-${payload.alertId}',
       );
       final notificationDetails = NotificationDetails(android: androidDetails);
       await _notifications.show(
@@ -222,9 +237,13 @@ class CartIQPushService {
 @pragma('vm:entry-point')
 Future<void> _backgroundMessageHandler(RemoteMessage message) async {
   try {
-    // Notification-payload messages are displayed by FCM itself when the app
-    // is backgrounded/terminated. This fallback is for data-only messages.
+    // The server's CartIQ data-only payload is the single source for title
+    // and body; a bare notification payload is handled by FCM itself.
     if (message.notification != null) return;
+    final title = (message.data['title'] ?? '').toString().trim();
+    final body = (message.data['body'] ?? '').toString().trim();
+    if (title.isEmpty && body.isEmpty) return;
+    final alertId = int.tryParse((message.data['alertId'] ?? '').toString());
     await Firebase.initializeApp();
     final plugin = FlutterLocalNotificationsPlugin();
     await plugin.initialize(
@@ -232,18 +251,19 @@ Future<void> _backgroundMessageHandler(RemoteMessage message) async {
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
       ),
     );
-    const androidDetails = AndroidNotificationDetails(
+    final androidDetails = AndroidNotificationDetails(
       CartIQPushService.channelId,
       'CartIQ Alerts',
       importance: Importance.max,
       priority: Priority.max,
       icon: '@mipmap/ic_launcher',
+      tag: alertId == null ? null : 'cartiq-alert-$alertId',
     );
     await plugin.show(
-      id: int.tryParse(message.data['alertId'] ?? '') ?? 0,
-      title: message.notification?.title ?? 'CartIQ',
-      body: message.notification?.body ?? 'You have a CartIQ update.',
-      notificationDetails: const NotificationDetails(android: androidDetails),
+      id: alertId ?? 0,
+      title: title.isEmpty ? 'CartIQ update' : title,
+      body: body,
+      notificationDetails: NotificationDetails(android: androidDetails),
     );
   } catch (_) {}
 }

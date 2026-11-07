@@ -1,44 +1,56 @@
 import { describe, it, expect, vi } from "vitest";
 import { fetchAllVoidRequests } from "./voidRequests.js";
 
+function order(id, status, voidRequest) {
+  return {
+    id,
+    status,
+    total: 30,
+    createdAt: "2026-11-07T15:00:00.000Z",
+    staff: { name: "Stall Staff 1" },
+    voidRequest,
+  };
+}
+
 describe("fetchAllVoidRequests", () => {
-  it("walks every alerts page and keeps only pending VOID_REQUEST rows", async () => {
+  it("maps pending order voidRequests into page rows and ignores decisions", async () => {
     const api = {
-      get: vi.fn()
-        .mockResolvedValueOnce({
-          data: {
-            data: [
-              { id: 1, type: "VOID_REQUEST", isRead: false },
-              { id: 2, type: "SALE", isRead: false },
-            ],
-            meta: { total: 3, page: 1, pageSize: 100, totalPages: 2 },
-          },
-        })
-        .mockResolvedValueOnce({
-          data: {
-            data: [{ id: 3, type: "VOID_REQUEST", isRead: false }],
-            meta: { total: 3, page: 2, pageSize: 100, totalPages: 2 },
-          },
-        }),
-    };
-
-    await expect(fetchAllVoidRequests(api)).resolves.toEqual([
-      { id: 1, type: "VOID_REQUEST", isRead: false },
-      { id: 3, type: "VOID_REQUEST", isRead: false },
-    ]);
-    expect(api.get).toHaveBeenCalledTimes(2);
-    expect(api.get).toHaveBeenNthCalledWith(1, "/alerts?page=1&pageSize=100");
-    expect(api.get).toHaveBeenNthCalledWith(2, "/alerts?page=2&pageSize=100");
-  });
-
-  it("still works when the API omits meta", async () => {
-    const api = {
-      get: vi.fn().mockResolvedValueOnce({
-        data: { data: [{ id: 9, type: "VOID_REQUEST", isRead: true }] },
+      get: vi.fn().mockResolvedValue({
+        data: {
+          data: [
+            order(20, "PAID", {
+              status: "pending",
+              alertId: 44,
+              requestedByName: "Stall Staff 1",
+              reason: "Wrong item punched",
+              requestedAt: "2026-11-07T15:12:33.000Z",
+            }),
+            order(21, "PAID", { status: "approved" }),
+            order(22, "VOID", { status: "pending" }),
+          ],
+        },
       }),
     };
 
+    await expect(fetchAllVoidRequests(api)).resolves.toEqual([
+      {
+        id: 44,
+        orderId: 20,
+        requestedByName: "Stall Staff 1",
+        reason: "Wrong item punched",
+        createdAt: "2026-11-07T15:12:33.000Z",
+        payload: JSON.stringify({
+          orderId: 20,
+          total: 30,
+          reason: "Wrong item punched",
+        }),
+      },
+    ]);
+    expect(api.get).toHaveBeenCalledWith("/orders/pending-void-requests");
+  });
+
+  it("returns an empty list when the endpoint has no rows", async () => {
+    const api = { get: vi.fn().mockResolvedValue({ data: { data: [] } }) };
     await expect(fetchAllVoidRequests(api)).resolves.toEqual([]);
-    expect(api.get).toHaveBeenCalledTimes(1);
   });
 });

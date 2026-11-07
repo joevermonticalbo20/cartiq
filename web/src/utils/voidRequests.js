@@ -1,32 +1,34 @@
 /**
- * Fetch all pending void requests across alert pages.
+ * Fetch pending void requests from the order action queue.
  *
- * The alerts endpoint pages at 100 rows. A single page would silently drop
- * older requests when many unread alerts exist; this walks the page range
- * returned by `meta.totalPages` and keeps the same filter everywhere.
+ * This is intentionally order-based, not alert-based. Clicking a void
+ * notification marks its VOID_REQUEST alert read; that read state must
+ * never make a still-pending order disappear from the owner's queue.
  */
 export async function fetchAllVoidRequests(api) {
-  const pending = [];
-  let page = 1;
-  let totalPages = 1;
+  const res = await api.get("/orders/pending-void-requests");
+  const rows = res.data?.data ?? [];
 
-  while (page <= totalPages) {
-    const res = await api.get(`/alerts?page=${page}&pageSize=100`);
-    const rows = res.data?.data ?? [];
-    pending.push(
-      ...rows.filter(
-        (alert) => alert.type === "VOID_REQUEST" && alert.isRead !== true
-      )
-    );
-
-    const metaTotalPages = Number(res.data?.meta?.totalPages);
-    totalPages =
-      Number.isInteger(metaTotalPages) && metaTotalPages > 0
-        ? metaTotalPages
-        : 1;
-    if (rows.length === 0) break;
-    page += 1;
-  }
-
-  return pending;
+  return rows
+    .filter(
+      (order) =>
+        order.status === "PAID" && order.voidRequest?.status === "pending"
+    )
+    .map((order) => {
+      const voidRequest = order.voidRequest ?? {};
+      const reason = voidRequest.reason || "";
+      return {
+        id: voidRequest.alertId ?? order.id,
+        orderId: order.id,
+        requestedByName:
+          voidRequest.requestedByName || order.staff?.name || "Staff",
+        reason,
+        createdAt: voidRequest.requestedAt || order.createdAt,
+        payload: JSON.stringify({
+          orderId: order.id,
+          total: order.total,
+          reason,
+        }),
+      };
+    });
 }

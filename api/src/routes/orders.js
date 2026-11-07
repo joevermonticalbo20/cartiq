@@ -291,6 +291,37 @@ router.post("/orders", requireAuth, async (req, res, next) => {
   }
 });
 
+// GET /api/orders/pending-void-requests (OWNER) — the live action queue.
+// `pending` is `order.voidRequest.status`, NOT the alert's read state.
+// A notification click marks the VOID_REQUEST alert read; that must never
+// remove an order that is still awaiting an owner decision.
+router.get(
+  "/orders/pending-void-requests",
+  requireAuth,
+  requireRole("OWNER"),
+  async (_req, res, next) => {
+    try {
+      const paidOrders = await prisma.order.findMany({
+        where: { status: "PAID" },
+        include: {
+          items: true,
+          location: { select: { code: true, name: true } },
+          staff: { select: { name: true } },
+        },
+        orderBy: { createdAt: "asc" },
+        take: 5000,
+      });
+      const data = paidOrders.filter(
+        (order) => order.voidRequest?.status === "pending"
+      );
+      return res.json({ data, meta: { total: data.length } });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// GET /orders
 router.get("/orders", requireAuth, async (req, res, next) => {
   try {
     const { location_code, date } = req.query;

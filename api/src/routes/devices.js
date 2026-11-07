@@ -22,11 +22,13 @@ router.post("/devices/push-token", requireAuth, requireRole("STAFF"), async (req
     const userId = Number(req.user.sub);
     const existing = await prisma.pushTokens.findMany({ where: { token } });
     if (existing.length > 0) {
-      for (const row of existing) {
-        await prisma.pushTokens.update({
-          where: { id: row.id },
-          data: { userId, platform, lastSeenAt: new Date() },
-        });
+      const [primary, ...duplicates] = existing;
+      await prisma.pushTokens.update({
+        where: { id: primary.id },
+        data: { userId, platform, lastSeenAt: new Date() },
+      });
+      for (const duplicate of duplicates) {
+        await prisma.pushTokens.delete({ where: { id: duplicate.id } }).catch(() => {});
       }
     } else {
       await prisma.pushTokens.create({

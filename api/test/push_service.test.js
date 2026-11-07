@@ -27,7 +27,8 @@ describe("push service (staff FCM)", () => {
     const alert = { type: "VOID_DECISION", title: "Void approved", message: "Order #1 voided." };
     assert.equal(__pushTestHelpers.pushTitle(alert), "Void approved");
     assert.equal(__pushTestHelpers.pushBody(alert), "Order #1 voided.");
-    assert.equal(__pushTestHelpers.pushTitle({ type: "RESTOCK_UPDATE" }), "CartIQ update");
+    assert.equal(__pushTestHelpers.pushTitle({ type: "RESTOCK_UPDATE" }), "Restock request update");
+    assert.equal(__pushTestHelpers.pushBody({ type: "RESTOCK_UPDATE", title: "Restocked", message: "" }), "");
   });
 
   it("sends a high-priority FCM payload only for targeted alert types", async () => {
@@ -44,12 +45,13 @@ describe("push service (staff FCM)", () => {
     );
     assert.equal(sent.length, 1);
     assert.deepEqual(sent[0].tokens, ["token-a"]);
-    assert.equal(sent[0].notification.title, "Void approved");
+    assert.equal(sent[0].collapseKey, "42");
+    assert.equal(sent[0].notification, undefined);
     assert.equal(sent[0].data.alertId, "42");
     assert.equal(sent[0].data.type, "VOID_DECISION");
+    assert.equal(sent[0].data.title, "Void approved");
+    assert.equal(sent[0].data.body, "Order #123 voided.");
     assert.equal(sent[0].android.priority, "high");
-    assert.equal(sent[0].android.notification.channelId, "cartiq_alerts");
-    assert.equal(sent[0].android.notification.clickAction, "FLUTTER_NOTIFICATION_CLICK");
   });
 
   it("does not send for owner-feed alert types", async () => {

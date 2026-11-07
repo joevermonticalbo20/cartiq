@@ -5,7 +5,6 @@ const require = createRequire(import.meta.url);
 const { getMessaging } = require("firebase-admin/messaging");
 
 const PUSH_TYPES = new Set(["VOID_DECISION", "RESTOCK_UPDATE"]);
-const CHANNEL_ID = "cartiq_alerts";
 
 function cleanToken(token) {
   const value = String(token ?? "").trim();
@@ -21,15 +20,13 @@ function cleanUserId(value) {
 function pushTitle(alert) {
   const title = String(alert?.title ?? "").trim();
   if (title) return title.slice(0, 200);
-  return alert?.type === "VOID_DECISION" ? "Void decision" : "CartIQ update";
+  return alert?.type === "VOID_DECISION"
+    ? "Void request update"
+    : "Restock request update";
 }
 
 function pushBody(alert) {
-  const body = String(alert?.message ?? "").trim();
-  if (body) return body.slice(0, 1000);
-  return alert?.type === "VOID_DECISION"
-    ? "The owner decided your void request."
-    : "You have a CartIQ update.";
+  return String(alert?.message ?? "").trim().slice(0, 1000);
 }
 
 function alertType(alert) {
@@ -72,7 +69,7 @@ export async function sendTargetedPush(alert, { db = prisma, messaging = undefin
     const body = pushBody(alert);
     const message = {
       tokens,
-      notification: { title, body },
+      collapseKey: alert.id == null ? "" : String(alert.id),
       data: {
         alertId: alert.id == null ? "" : String(alert.id),
         type,
@@ -81,11 +78,6 @@ export async function sendTargetedPush(alert, { db = prisma, messaging = undefin
       },
       android: {
         priority: "high",
-        notification: {
-          channelId: CHANNEL_ID,
-          visibility: "public",
-          clickAction: "FLUTTER_NOTIFICATION_CLICK",
-        },
       },
     };
 

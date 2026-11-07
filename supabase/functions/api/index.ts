@@ -644,7 +644,6 @@ async function withRetry(fn, attempts) {
 }
 
 // ---------- FCM push for targeted staff alerts ----------
-const FCM_CHANNEL_ID = "cartiq_alerts";
 const PUSH_ALERT_TYPES = new Set(["VOID_DECISION", "RESTOCK_UPDATE"]);
 
 /** Best-effort push for the targeted-alert types the mobile app registers for. */
@@ -659,9 +658,10 @@ async function sendTargetedPush(alert) {
       .map((row) => row.token);
     if (!tokens.length) return;
     const title = String(alert.title ?? "").trim().slice(0, 200) ||
-      (alert.type === "VOID_DECISION" ? "Void decision" : "CartIQ update");
-    const body = String(alert.message ?? "").trim().slice(0, 1000) ||
-      "You have a CartIQ update.";
+      (alert.type === "VOID_DECISION"
+        ? "Void request update"
+        : "Restock request update");
+    const body = String(alert.message ?? "").trim().slice(0, 1000);
     const accessToken = await googleAccessToken("https://www.googleapis.com/auth/firebase.messaging");
     for (const token of tokens) {
       try {
@@ -676,7 +676,7 @@ async function sendTargetedPush(alert) {
             body: JSON.stringify({
               message: {
                 token,
-                notification: { title, body },
+                collapse_key: alert.id == null ? "" : String(alert.id),
                 data: {
                   alertId: alert.id == null ? "" : String(alert.id),
                   type: String(alert.type),
@@ -685,11 +685,6 @@ async function sendTargetedPush(alert) {
                 },
                 android: {
                   priority: "high",
-                  notification: {
-                    channel_id: FCM_CHANNEL_ID,
-                    visibility: "public",
-                    click_action: "FLUTTER_NOTIFICATION_CLICK",
-                  },
                 },
               },
             }),
@@ -1692,6 +1687,28 @@ function emptyOrderMeta(page, pageSize) {
   return { total: 0, page, pageSize, totalPages: 1 };
 }
 
+async function handlePendingVoidRequests() {
+  const orders = await fsListAll("orders");
+  const [locations, users] = await Promise.all([
+    fsListAll("locations"),
+    fsListAll("users"),
+  ]);
+  const locById = new Map(locations.map((l) => [l.id, l]));
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const data = orders
+    .filter((o) => o.status === "PAID" && o.voidRequest?.status === "pending")
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+    .map((o) => {
+      const c = cleanDoc(o);
+      const loc = locById.get(o.locationId);
+      const staff = userById.get(o.staffId);
+      c.location = loc ? { code: loc.code, name: loc.name } : null;
+      c.staff = staff ? { name: staff.name } : null;
+      return c;
+    });
+  return { status: 200, body: { data, meta: { total: data.length } } };
+}
+
 async function handleListOrders(_req, origin, url) {
   const params = url.searchParams;
   const location_code = params.get("location_code");
@@ -2518,12 +2535,14 @@ async function handleRegisterPushToken(req, user) {
   const userId = Number(user.id);
   const existing = await fsQueryEqual("pushTokens", "token", token, 10000);
   if (existing.length > 0) {
-    for (const row of existing) {
-      await fsPatch("pushTokens", String(row._name.split("/").pop()), {
-        userId,
-        platform,
-        lastSeenAt: new Date(),
-      });
+    const [primary, ...duplicates] = existing;
+    await fsPatch("pushTokens", String(primary._name.split("/").pop()), {
+      userId,
+      platform,
+      lastSeenAt: new Date(),
+    });
+    for (const duplicate of duplicates) {
+      if (duplicate._name) await fsDeleteByName(duplicate._name).catch(() => {});
     }
   } else {
     await fsCreate("pushTokens", null, {
@@ -7504,6 +7523,12 @@ Deno.serve(async (req) => {
         const auth = await authUser(req);
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
         if (req.method === "POST" && path === "/orders") return await handleCreateOrder(req, origin, auth.user);
+        if (req.method === "GET" && path === "/orders/pending-void-requests") {
+          const ownErr = requireOwner(auth.user);
+          if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
+          const out = await handlePendingVoidRequests();
+          return jsonRes(origin, out.body, out.status);
+        }
         if (req.method === "GET" && path === "/orders") return await handleListOrders(req, origin, inUrl);
         // Receipt + void-request subpaths (before the generic :id patch).
         const receiptMatch = path.match(/^\/orders\/(\d+)\/receipt$/);
