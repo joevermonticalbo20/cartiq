@@ -125,7 +125,9 @@ class _RfidClaimDialogState extends State<RfidClaimDialog> {
         children: [
           Text(
             widget.message ??
-                'Hold your staff card against the reader on the cart to clock in and out without typing.',
+                (widget.event == null
+                    ? 'Hold your staff card against the reader on the cart to register it to your staff account. This tap only registers the card and does not log a shift.'
+                    : 'Hold your staff card against the reader on the cart to clock in and out without typing.'),
           ),
           const SizedBox(height: AppSpacing.space4),
           Row(

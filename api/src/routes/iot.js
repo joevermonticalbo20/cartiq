@@ -202,10 +202,13 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
       const bound = await bindClaimedTag({ rawUid: uid, locationId: location.id });
       if (!bound) continue;
       registrations.push(bound);
-      // The person pressed Time In or Time Out in the app, so the shift must
-      // record THAT. The firmware only knows how to toggle, and toggling would
-      // silently log someone OUT when they meant to clock IN.
-      if (bound.outcome === "bound" && bound.desiredEvent) {
+      // The person pressed Time In or Time Out in the app. The firmware only
+      // knows how to toggle, and toggling would silently log someone OUT when
+      // they meant to clock IN. A registration-only tap has no event, so it
+      // must never run through the clock window, shift, unknown-card path.
+      if (!bound.desiredEvent) {
+        e._registrationOnly = true;
+      } else if (bound.outcome === "bound") {
         e.event = bound.desiredEvent;
       }
     }
@@ -241,6 +244,7 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
       const newAlerts = [];
       for (const e of rows) {
         const uid = String(e.staff_uid ?? "").trim();
+        if (e._registrationOnly) continue;
         const event = String(e.event ?? "").toUpperCase();
         if (!uid || uid.length > 64 || !EVENTS.includes(event)) {
           rejected.push({ staff_uid: uid || null, reason: "invalid uid or event" });

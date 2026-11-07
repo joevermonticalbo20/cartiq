@@ -233,7 +233,7 @@ class SettingsScreenState extends State<SettingsScreen> {
       onBound: auth.applyRfidBound,
       title: auth.hasRfidCard ? 'Tap your new card' : 'Tap your RFID card',
       message: auth.hasRfidCard
-          ? 'Card ${auth.rfidUid} will be replaced by whichever card you tap next.'
+          ? 'Card ${auth.rfidUid} will be replaced by whichever card you tap next. This tap only registers the new card; it does not log a shift.'
           : null,
     );
     if (!mounted) return;
