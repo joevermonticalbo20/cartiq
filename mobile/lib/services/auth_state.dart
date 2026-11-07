@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'api_client.dart';
 import 'kv_store.dart';
 import 'offline_pin.dart';
+import 'push_notification_service.dart';
 import 'rfid_registration.dart';
 import 'time_clock.dart';
 import '../utils/manila_time.dart';
@@ -16,6 +17,7 @@ class AuthState extends ChangeNotifier {
 
   final ApiClient api;
   final KeyValueStore storage;
+  final CartIQPushService push;
   late final OfflinePinService pin;
 
   String? token;
@@ -31,11 +33,18 @@ class AuthState extends ChangeNotifier {
   /// the shell and the PIN was never used — the bug reported from the field.
   bool offlineUnlockRequired = false;
 
-  AuthState({ApiClient? apiClient, KeyValueStore? secureStorage})
-    : api = apiClient ?? ApiClient(),
-      storage =
-          secureStorage ?? const SecureStoreAdapter(FlutterSecureStorage()) {
+  AuthState({
+    ApiClient? apiClient,
+    KeyValueStore? secureStorage,
+    CartIQPushService? pushService,
+  })  : api = apiClient ?? ApiClient(),
+        storage =
+            secureStorage ?? const SecureStoreAdapter(FlutterSecureStorage()),
+        push = pushService ?? CartIQPushService() {
     pin = OfflinePinService(storage);
+    push.onNotificationOpened = (_, _) async {
+      refreshMyAlerts().catchError((_) {});
+    };
   }
 
   bool get isLoggedIn => token != null;
@@ -70,6 +79,15 @@ class AuthState extends ChangeNotifier {
         user = jsonDecode(raw) as Map<String, dynamic>;
       }
     } catch (_) {}
+  }
+
+  Future<void> _registerPushTokenBestEffort() async {
+    final t = token;
+    if (t == null || offlineMode) return;
+    if ((user?['role'] as String?) != 'STAFF') return;
+    await push.initializeAndRegister(
+      onToken: (pushToken) => api.registerPushToken(t, pushToken),
+    );
   }
 
   Future<void> restoreSession() async {
@@ -120,6 +138,7 @@ class AuthState extends ChangeNotifier {
     // Pull this staff member's notifications (void decisions, restock
     // acknowledgements) without blocking the session restore.
     refreshMyAlerts().catchError((_) {});
+    _registerPushTokenBestEffort().catchError((_) {});
     _startAlertPoll();
     notifyListeners();
   }
@@ -375,6 +394,7 @@ class AuthState extends ChangeNotifier {
     // A different user takes over this device: their PIN setup starts over.
     final pinnedUser = await pin.pinUsername;
     refreshMyAlerts().catchError((_) {});
+    _registerPushTokenBestEffort().catchError((_) {});
     _startAlertPoll();
     final currentUser = user?['username'] as String?;
     // Only a GENUINE user switch re-arms the one-time prompt. This used to be
@@ -415,6 +435,19 @@ class AuthState extends ChangeNotifier {
     try {
       await api.logout(refreshToken);
     } catch (_) {}
+    final activeToken = token;
+    if (activeToken != null) {
+      try {
+        final pushToken = await push.currentRegisteredToken();
+        await push.unregister(
+          removeFromApi: () async {
+            if (pushToken != null && pushToken.isNotEmpty) {
+              await api.unregisterPushToken(activeToken, pushToken);
+            }
+          },
+        );
+      } catch (_) {}
+    }
     token = null;
     refreshToken = null;
     user = null;

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { emit } from "./events.js";
+import { sendTargetedPush } from "../services/push.js";
 
 const router = Router();
 
@@ -233,6 +234,7 @@ router.patch(
           createdAt: notify.createdAt,
           locationId: notify.locationId ?? null,
         });
+        sendTargetedPush(notify).catch(() => {});
       }
 
       emit("restock-request:updated", alert);

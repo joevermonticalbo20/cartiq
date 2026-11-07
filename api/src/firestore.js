@@ -103,6 +103,14 @@ const MODELS = {
     defaults: () => ({ active: true, lastSeenAt: null }),
     uniques: ["deviceId"],
   },
+  pushTokens: {
+    // FCM device tokens for the mobile app (auto-ID docs). Each row binds a
+    // token to exactly one user; registration updates on user switch/token
+    // rotation, and FCM invalid-token errors prune rows.
+    numeric: false,
+    defaults: () => ({ platform: "android", lastSeenAt: now() }),
+    uniques: ["token"],
+  },
   products: {
     numeric: true,
     defaults: () => ({ category: "Fries", flavorIds: [], active: true, imageUrl: null }),

@@ -20,7 +20,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # Android refuses to install over the app already on the phone. 1.0.0+1 and
 # 1.0.0+2 are the builds that shipped; this is +3.
 # Keep in sync with the appVersion constant in lib/app_version.dart.
-version: 1.0.8+19
+version: 1.0.9+20
 
 environment:
   sdk: ^3.12.2
@@ -47,6 +47,9 @@ dependencies:
   image_picker: ^1.1.2
   google_mlkit_text_recognition: ^0.17.1
   dropdown_button2: ^3.1.0
+  firebase_core: ^5.1.0
+  firebase_messaging: ^17.0.1
+  flutter_local_notifications: ^23.0.0
 
 dev_dependencies:
   flutter_test:

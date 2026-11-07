@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
@@ -44,6 +45,13 @@ Future<void> main() async {
     }
   } catch (e) {
     startupWarnings.add('Offline storage unavailable ($e).');
+  }
+
+  // Push notifications must never blank the POS.
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    startupWarnings.add('Push notifications unavailable ($e).');
   }
 
   final api = ApiClient();

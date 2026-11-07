@@ -6,6 +6,7 @@ import { lowStockDedupeKey, shouldOpenLowStockAlert } from "../services/low_stoc
 import { manilaDayRange } from "../services/timezone.js";
 import { IMAGE_MAX_BYTES, IMAGE_PREFIX } from "../services/product_images.js";
 import { emit } from "./events.js";
+import { sendTargetedPush } from "../services/push.js";
 
 const router = Router();
 
@@ -614,6 +615,7 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
           },
         });
         emit("alert:new", { id: notify.id, type: notify.type, title: notify.title ?? null, message: notify.message, isRead: notify.isRead === true, createdAt: notify.createdAt, locationId: notify.locationId ?? null });
+        sendTargetedPush(notify).catch(() => {});
       }
       return res.json({ order, restored: [], warnings: [] });
     }
@@ -643,6 +645,7 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
         },
       });
       emit("alert:new", { id: notify.id, type: notify.type, title: notify.title ?? null, message: notify.message, isRead: notify.isRead === true, createdAt: notify.createdAt, locationId: notify.locationId ?? null });
+      sendTargetedPush(notify).catch(() => {});
     }
     emit("order:updated", { id: existing.id, status: "VOID" });
     return res.json({ order, restored: out.restored, warnings: out.warnings });

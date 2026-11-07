@@ -167,15 +167,15 @@ function pemToDer(pem) {
   return out;
 }
 
-async function googleAccessToken() {
-  if (_gTok && _gTok.expMs - 60000 > Date.now()) return _gTok.token;
+async function googleAccessToken(scope = "https://www.googleapis.com/auth/datastore") {
+  if (_gTok && _gTok.scope === scope && _gTok.expMs - 60000 > Date.now()) return _gTok.token;
   const sa = getServiceAccount();
   if (!sa) throw Object.assign(new Error("Firestore not configured"), { status: 503 });
   const now = Math.floor(Date.now() / 1000);
   const head = b64urlEncode(new TextEncoder().encode(JSON.stringify({ alg: "RS256", typ: "JWT" })));
   const claims = b64urlEncode(new TextEncoder().encode(JSON.stringify({
     iss: sa.client_email,
-    scope: "https://www.googleapis.com/auth/datastore",
+    scope,
     aud: "https://oauth2.googleapis.com/token",
     iat: now,
     exp: now + 3600,
@@ -193,7 +193,7 @@ async function googleAccessToken() {
   });
   if (!res.ok) throw Object.assign(new Error("Google auth failed"), { status: 503 });
   const data = await res.json();
-  _gTok = { token: data.access_token, expMs: Date.now() + (Number(data.expires_in) || 3600) * 1000 };
+  _gTok = { token: data.access_token, expMs: Date.now() + (Number(data.expires_in) || 3600) * 1000, scope };
   return _gTok.token;
 }
 
@@ -641,6 +641,75 @@ async function withRetry(fn, attempts) {
     }
   }
   throw lastErr;
+}
+
+// ---------- FCM push for targeted staff alerts ----------
+const FCM_CHANNEL_ID = "cartiq_alerts";
+const PUSH_ALERT_TYPES = new Set(["VOID_DECISION", "RESTOCK_UPDATE"]);
+
+/** Best-effort push for the targeted-alert types the mobile app registers for. */
+async function sendTargetedPush(alert) {
+  try {
+    if (!alert || !PUSH_ALERT_TYPES.has(String(alert.type ?? "").toUpperCase())) return;
+    const userId = Number(alert.userId ?? 0);
+    if (!Number.isInteger(userId) || userId <= 0) return;
+    const rows = await fsListAll("pushTokens");
+    const tokens = rows
+      .filter((row) => Number(row?.userId) === userId && typeof row?.token === "string" && row.token)
+      .map((row) => row.token);
+    if (!tokens.length) return;
+    const title = String(alert.title ?? "").trim().slice(0, 200) ||
+      (alert.type === "VOID_DECISION" ? "Void decision" : "CartIQ update");
+    const body = String(alert.message ?? "").trim().slice(0, 1000) ||
+      "You have a CartIQ update.";
+    const accessToken = await googleAccessToken("https://www.googleapis.com/auth/firebase.messaging");
+    for (const token of tokens) {
+      try {
+        const res = await fetch(
+          "https://fcm.googleapis.com/v1/projects/" + getProjectId() + "/messages:send",
+          {
+            method: "POST",
+            headers: {
+              Authorization: "Bearer " + accessToken,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              message: {
+                token,
+                notification: { title, body },
+                data: {
+                  alertId: alert.id == null ? "" : String(alert.id),
+                  type: String(alert.type),
+                  title,
+                  body,
+                },
+                android: {
+                  priority: "high",
+                  notification: {
+                    channel_id: FCM_CHANNEL_ID,
+                    visibility: "public",
+                    click_action: "FLUTTER_NOTIFICATION_CLICK",
+                  },
+                },
+              },
+            }),
+          },
+        );
+        if (!res.ok) {
+          let detail = "";
+          try { detail = await res.text(); } catch { /* detail is best-effort */ }
+          if (/UNREGISTERED|NOT_FOUND|invalid-argument|registration-token-not-registered/i.test(detail)) {
+            const row = rows.find((r) => r.token === token);
+            if (row?._name) await fsDeleteByName(row._name).catch(() => {});
+          }
+        }
+      } catch {
+        // Best-effort: alerts remain in the inbox and the 3s poll sees them.
+      }
+    }
+  } catch {
+    // Push must never fail the order/restock mutation.
+  }
 }
 
 // ---------- shared business rules (copies of api/src/services/*.js) ----------
@@ -1931,6 +2000,7 @@ async function handleOrderVoidDecision(req, orderId, user) {
         createdAt: alertDoc.createdAt.toISOString(),
         locationId: alertDoc.locationId,
       }).catch(() => {});
+      await sendTargetedPush(alertDoc).catch(() => {});
     } catch {
       /* notification is best-effort */
     }
@@ -2024,6 +2094,14 @@ function randomHex(n) {
 /** OWNER gate (mirrors requireRole("OWNER")). */
 function requireOwner(user) {
   if (!user || user.role !== "OWNER") {
+    return { status: 403, body: { error: "Forbidden: insufficient role" } };
+  }
+  return null;
+}
+
+/** STAFF gate (mirrors requireRole("STAFF")); owner stays web-only. */
+function requireStaff(user) {
+  if (!user || user.role !== "STAFF") {
     return { status: 403, body: { error: "Forbidden: insufficient role" } };
   }
   return null;
@@ -2426,6 +2504,51 @@ async function handleDeleteDevice(id) {
   if (!device) return { status: 404, body: { error: "Device not found" } };
   await fsDeleteByName(device._name);
   return { status: 200, body: { deleted: true } };
+}
+
+/** POST /devices/push-token (STAFF) — bind a device's FCM token to this user. */
+async function handleRegisterPushToken(req, user) {
+  const staffErr = requireStaff(user);
+  if (staffErr) return { status: staffErr.status, body: staffErr.body };
+  const body = await req.json().catch(() => null);
+  const token = String(body?.token ?? "").trim();
+  const platform = String(body?.platform ?? "android").trim().toLowerCase();
+  if (!token || token.length > 4096) return { status: 400, body: { error: "token is required" } };
+  if (platform !== "android") return { status: 400, body: { error: "platform must be android" } };
+  const userId = Number(user.id);
+  const existing = await fsQueryEqual("pushTokens", "token", token, 10000);
+  if (existing.length > 0) {
+    for (const row of existing) {
+      await fsPatch("pushTokens", String(row._name.split("/").pop()), {
+        userId,
+        platform,
+        lastSeenAt: new Date(),
+      });
+    }
+  } else {
+    await fsCreate("pushTokens", null, {
+      userId,
+      token,
+      platform,
+      lastSeenAt: new Date(),
+    });
+  }
+  return { status: 200, body: { registered: true } };
+}
+
+/** DELETE /devices/push-token (STAFF) — remove tokens for this user. */
+async function handleUnregisterPushToken(req, user, url) {
+  const staffErr = requireStaff(user);
+  if (staffErr) return { status: staffErr.status, body: staffErr.body };
+  const body = await req.json().catch(() => null);
+  const token = String(body?.token ?? url.searchParams.get("token") ?? "").trim();
+  const userId = Number(user.id);
+  const rows = await fsQueryEqual("pushTokens", "userId", userId, 10000);
+  const targets = token ? rows.filter((row) => row.token === token) : rows;
+  for (const row of targets) {
+    if (row._name) await fsDeleteByName(row._name).catch(() => {});
+  }
+  return { status: 200, body: { removed: targets.length } };
 }
 
 // ---------- inventory (mirror api/src/routes/inventory.js) ----------
@@ -2898,6 +3021,7 @@ async function handleRestockRequestStatus(req, id, user) {
         createdAt: alertDoc.createdAt.toISOString(),
         locationId: alertDoc.locationId,
       }).catch(() => {});
+      await sendTargetedPush(alertDoc).catch(() => {});
     } catch {
       /* notification is best-effort */
     }
@@ -7393,6 +7517,17 @@ Deno.serve(async (req) => {
         }
         return notFoundRes(origin, req, path);
       }
+      // Push tokens (STAFF app only; owner remains web-only).
+      if (path === "/devices/push-token") {
+        const auth = await authUser(req);
+        if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
+        let out;
+        if (req.method === "POST") out = await handleRegisterPushToken(req, auth.user);
+        else if (req.method === "DELETE") out = await handleUnregisterPushToken(req, auth.user, url);
+        else return notFoundRes(origin, req, path);
+        return jsonRes(origin, out.body, out.status);
+      }
+
       // Locations + devices (OWNER only).
       if (path === "/locations" || path.startsWith("/locations/") ||
           path === "/devices" || path.startsWith("/devices/")) {

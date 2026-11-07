@@ -7,6 +7,53 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 const router = Router();
 const DEVICE_ID_RE = /^[A-Za-z0-9_-]{3,40}$/;
 
+// POST /devices/push-token — bind this device's FCM token to the signed-in
+// staff account. OWNER accounts never call this (owner is web-only).
+router.post("/devices/push-token", requireAuth, requireRole("STAFF"), async (req, res, next) => {
+  try {
+    const token = String(req.body?.token ?? "").trim();
+    const platform = String(req.body?.platform ?? "android").trim().toLowerCase();
+    if (!token || token.length > 4096) {
+      return res.status(400).json({ error: "token is required" });
+    }
+    if (platform !== "android") {
+      return res.status(400).json({ error: "platform must be android" });
+    }
+    const userId = Number(req.user.sub);
+    const existing = await prisma.pushTokens.findMany({ where: { token } });
+    if (existing.length > 0) {
+      for (const row of existing) {
+        await prisma.pushTokens.update({
+          where: { id: row.id },
+          data: { userId, platform, lastSeenAt: new Date() },
+        });
+      }
+    } else {
+      await prisma.pushTokens.create({
+        data: { userId, token, platform, lastSeenAt: new Date() },
+      });
+    }
+    return res.json({ registered: true });
+  } catch (err) {
+    if (err.code === "P2002") return res.json({ registered: true });
+    return next(err);
+  }
+});
+
+// DELETE /devices/push-token — remove the caller's token(s). With a token,
+// remove only that registration; without one, remove all current-user tokens.
+router.delete("/devices/push-token", requireAuth, requireRole("STAFF"), async (req, res, next) => {
+  try {
+    const userId = Number(req.user.sub);
+    const token = String(req.body?.token ?? req.query?.token ?? "").trim();
+    const where = token ? { userId, token } : { userId };
+    const { count } = await prisma.pushTokens.deleteMany({ where });
+    return res.json({ removed: count ?? 0 });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // GET /api/devices - IoT node registry with last-seen heartbeat (OWNER only)
 router.get("/devices", requireAuth, requireRole("OWNER"), async (_req, res, next) => {
   try {

@@ -452,4 +452,40 @@ void main() {
       expect(captured.url.path, endsWith('/catalog/version'));
     });
   });
+
+  group('push token registration', () {
+    test('registerPushToken POSTs the FCM token to /devices/push-token', () async {
+      late http.Request captured;
+      final client = _clientWith((req) async {
+        captured = req;
+        return http.Response('{"registered":true}', 200);
+      });
+
+      await client.registerPushToken('tok', 'fcm-token-123');
+
+      expect(captured.method, 'POST');
+      expect(captured.url.path, endsWith('/devices/push-token'));
+      expect(
+        jsonDecode(captured.body),
+        {'token': 'fcm-token-123', 'platform': 'android'},
+      );
+    });
+
+    test('unregisterPushToken DELETEs the FCM token', () async {
+      late http.Request captured;
+      final client = _clientWith((req) async {
+        captured = req;
+        return http.Response('{"removed":1}', 200);
+      });
+
+      await client.unregisterPushToken('tok', 'fcm-token-123');
+
+      expect(captured.method, 'DELETE');
+      expect(captured.url.path, endsWith('/devices/push-token'));
+      expect(
+        jsonDecode(captured.body),
+        {'token': 'fcm-token-123', 'platform': 'android'},
+      );
+    });
+  });
 }

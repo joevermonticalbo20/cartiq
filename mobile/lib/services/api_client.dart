@@ -947,6 +947,39 @@ class ApiClient {
       ),
     );
   }
+
+  /// Register/replace this device's FCM token for the signed-in staff user.
+  /// Best-effort from the caller's point of view — failure must never block
+  /// login, and the 3s poll remains the fallback.
+  Future<void> registerPushToken(
+    String token,
+    String pushToken, {
+    String platform = 'android',
+  }) async {
+    await _send(
+      () => _http.post(
+        _uri('/devices/push-token'),
+        headers: _headers(token: token),
+        body: jsonEncode({'token': pushToken, 'platform': platform}),
+      ),
+    );
+  }
+
+  /// Remove a stale push token (sign-out / account switch).
+  Future<void> unregisterPushToken(
+    String token,
+    String pushToken, {
+    String platform = 'android',
+  }) async {
+    await _send(
+      () => _http.delete(
+        _uri('/devices/push-token'),
+        headers: _headers(token: token),
+        body: jsonEncode({'token': pushToken, 'platform': platform}),
+      ),
+    );
+  }
+
   Future<Map<String, dynamic>> staffOnShift(String token) async {
     final res = await _send(
       () => _http.get(_uri('/staff/on-shift'), headers: _headers(token: token)),
