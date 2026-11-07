@@ -34,6 +34,15 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Taps on FCM notification payloads (cartiq_alerts channel) carry
+                 this click action. Without this filter the tap has no handler
+                 and does nothing; with it MainActivity opens and the Flutter
+                 push plugin forwards the tap to onMessageOpenedApp /
+                 getInitialMessage so the alert list refreshes. -->
+            <intent-filter>
+                <action android:name="FLUTTER_NOTIFICATION_CLICK"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
         </activity>
         <!-- Default channel for FCM notification payloads sent while the app is
              in the background/terminated. The channel itself is created by
