@@ -181,7 +181,7 @@
   position: absolute;
   top: calc(100% + 12px);
   right: 0;
-  width: 340px; /* Reduced width */
+  width: min(340px, calc(100vw - 32px));
   height: 420px; /* Reduced height */
   display: flex;
   flex-direction: column;
@@ -600,6 +600,16 @@ button.notif-item-btn:focus-visible {
 /* ----- Responsive (max-width: 640px): mobile - page container ----- */
 @media (max-width: 640px) {
   .page-container { padding: var(--space-4); }
+
+  /* The absolutely positioned panel starts off the left edge on phones.
+     Pin it to the viewport instead. */
+  .notif-panel {
+    position: fixed;
+    top: 76px;
+    right: 12px;
+    width: min(340px, calc(100vw - 24px));
+    height: min(420px, calc(100dvh - 88px));
+  }
 }
 
 /* ----- Responsive (max-width: 480px): small phones - page container + topbar ----- */

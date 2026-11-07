@@ -367,7 +367,7 @@ export default function ExpensesPage() {
             <div className="error-box" role="alert">{error}</div>
           ) : !loading && (!rows || rows.length === 0) ? (
             // EXPANDED MANUAL EMPTY TABLE SHELL
-            <div className="table-wrap" style={{ height: "500px", display: "flex", flexDirection: "column" }}>
+            <div className="table-wrap" style={{ height: "min(500px, 55dvh)", display: "flex", flexDirection: "column" }}>
               <style>{`
                 .expenses-empty-wrapper .empty-state-card {
                   flex: 1;

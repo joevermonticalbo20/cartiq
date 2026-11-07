@@ -8,7 +8,7 @@
   background: var(--surface);
   /* INO-MODIFIED: Fixed height para hindi humaba ang page pababa */
   height: calc(100vh - 140px);
-  min-height: 500px;
+  min-height: min(500px, 52dvh);
   display: flex;
   flex-direction: column;
 }

@@ -4,6 +4,7 @@ import { ReceiptText, RefreshCw, X, Download, Edit2, Eye, Hourglass, ChevronRigh
 
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
+import { fetchAllVoidRequests } from "../utils/voidRequests.js";
 import Badge from "../components/Badge.jsx";
 import { useLiveEvent } from "../hooks/useLiveStream.js";
 import { usePagedData } from "../hooks/usePagedData.js";
@@ -86,10 +87,7 @@ export default function SalesPage() {
   const loadVoidRequests = useCallback(async () => {
     if (!isOwner) return;
     try {
-      const res = await api.get("/alerts?page=1&pageSize=100");
-      const pending = (res.data?.data ?? []).filter(
-        (a) => a.type === "VOID_REQUEST" && a.isRead !== true
-      );
+      const pending = await fetchAllVoidRequests(api);
       setVoidRequests(pending);
     } catch {
       // background fetch; the table error surface owns failures

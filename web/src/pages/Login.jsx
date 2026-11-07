@@ -17,7 +17,7 @@ function TiltedPreviewCard({ className = "" }) {
   return (
     <div className={`login-preview ${className}`} aria-hidden="true">
       <div className="login-preview-header">
-        <span className="login-preview-label">SALES TODAY</span>
+        <span className="login-preview-label">SALES TODAY · SAMPLE</span>
         <div className="login-preview-row">
           <strong className="login-preview-value"> 12,450</strong>
           <span className="login-preview-trend">  +8.2%</span>

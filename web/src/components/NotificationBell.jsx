@@ -236,7 +236,11 @@ export default function NotificationBell() {
           {/* List Area */}
           <div className="notif-list-container">
             {displayAlerts.length === 0 ? (
-              <p className="notif-empty">No {activeTab.toLowerCase()} notifications</p>
+              <p className="notif-empty">
+                {activeTab === "All"
+                  ? "No notifications yet"
+                  : `No ${activeTab.toLowerCase()} notifications`}
+              </p>
             ) : (
               <ul className="notif-list">
                 {displayAlerts.map((alert) => {

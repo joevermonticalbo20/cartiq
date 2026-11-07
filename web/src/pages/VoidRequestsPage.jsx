@@ -4,6 +4,7 @@ import { Hourglass, Check, Ban, RefreshCw, Square, CheckSquare } from "lucide-re
 
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
+import { fetchAllVoidRequests } from "../utils/voidRequests.js";
 import { useLiveEvent } from "../hooks/useLiveStream.js";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import EmptyState from "../components/EmptyState.jsx";
@@ -40,10 +41,7 @@ export default function VoidRequestsPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await api.get("/alerts?page=1&pageSize=100");
-      const pending = (res.data?.data ?? []).filter(
-        (a) => a.type === "VOID_REQUEST" && a.isRead !== true
-      );
+      const pending = await fetchAllVoidRequests(api);
       setVoidRequests(pending);
       setSelected((current) => {
         const valid = new Set(pending.map((r) => r.id));
@@ -164,7 +162,7 @@ export default function VoidRequestsPage() {
           eyebrow="Operations"
           title="Void requests"
           sub="Staff-filed void requests waiting for your decision."
-          action={
+          actions={
             <button type="button" className="ghost small-btn" onClick={load} disabled={loading}>
               <RefreshCw size={13} aria-hidden="true" /> Refresh
             </button>

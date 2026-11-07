@@ -918,7 +918,7 @@ button.settings-pw-submit:disabled {
 }
 
 .sales-panel .table-wrap {
-  height: 500px;
+  height: min(500px, 55dvh);
   width: 100%;
   flex: none; 
   overflow-y: auto;
@@ -950,7 +950,7 @@ button.settings-pw-submit:disabled {
   margin-bottom: var(--space-4);
 }
 .void-requests-table-wrap {
-  height: 500px;
+  height: min(500px, 52dvh);
   width: 100%;
   flex: none;
   overflow: auto;
@@ -987,7 +987,7 @@ button.settings-pw-submit:disabled {
 .void-requests-table .void-requests-empty-cell { padding: var(--space-3); }
 .void-requests-table .void-requests-empty-cell .empty-state-card {
   width: 100%;
-  min-height: 420px;
+  min-height: min(420px, 36dvh);
   box-sizing: border-box;
   justify-content: center;
   margin: 0;

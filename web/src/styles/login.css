@@ -34,6 +34,38 @@
     display: none;
   }
 }
+/* Keep the primary sign-in action reachable on phones: the brand card
+   shares the viewport with the form, so the preview gets compacted here. */
+@media (max-width: 1023px) {
+  .login-mobile-header {
+    padding: 24px 20px 72px;
+    border-radius: 0 0 2rem 2rem;
+  }
+  .login-logo-header {
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .login-preview-header {
+    margin-bottom: 12px;
+  }
+  .login-preview-chart-area {
+    padding-top: 8px;
+    margin-bottom: 12px;
+  }
+  .login-preview-bars {
+    height: 76px;
+  }
+  .login-preview-carts {
+    padding-top: 8px;
+  }
+  .login-form-side {
+    margin-top: -48px;
+    padding: 0 16px 24px;
+  }
+  .login-form-container {
+    padding: 24px;
+  }
+}
 .login-mobile-content {
   position: relative;
   z-index: 10;

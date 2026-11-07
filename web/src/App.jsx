@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { useNavigate, Navigate, Route, Routes } from "react-router-dom";
 import { ToastProvider } from "./components/Toast.jsx";
 import { setupAuthInterceptor, isTokenExpired, readSessionToken, readRefreshToken } from "./api.js";
@@ -6,17 +6,30 @@ import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import Layout from "./components/Layout.jsx";
 import Login from "./pages/Login.jsx";
 import ForgotPassword from "./pages/ForgotPassword.jsx";
-import DashboardPage from "./pages/DashboardPage.jsx";
-import SalesPage from "./pages/SalesPage.jsx";
-import VoidRequestsPage from "./pages/VoidRequestsPage.jsx";
-import InventoryPage from "./pages/InventoryPage.jsx";
-import StaffPage from "./pages/StaffPage.jsx";
-import AnalyticsPage from "./pages/AnalyticsPage.jsx";
-import ExpensesPage from "./pages/ExpensesPage.jsx";
-import DataPage from "./pages/DataPage.jsx";
-import ProductsPage from "./pages/ProductsPage.jsx";
-import SettingsPage from "./pages/SettingsPage.jsx";
-import NotificationsPage from "./pages/NotificationsPage.jsx"; 
+
+// Route-split authenticated pages so the login screen's initial bundle stays
+// small. Each page is still loaded from the same production build.
+const DashboardPage = lazy(() => import("./pages/DashboardPage.jsx"));
+const SalesPage = lazy(() => import("./pages/SalesPage.jsx"));
+const VoidRequestsPage = lazy(() => import("./pages/VoidRequestsPage.jsx"));
+const InventoryPage = lazy(() => import("./pages/InventoryPage.jsx"));
+const StaffPage = lazy(() => import("./pages/StaffPage.jsx"));
+const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage.jsx"));
+const ExpensesPage = lazy(() => import("./pages/ExpensesPage.jsx"));
+const DataPage = lazy(() => import("./pages/DataPage.jsx"));
+const ProductsPage = lazy(() => import("./pages/ProductsPage.jsx"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage.jsx"));
+const NotificationsPage = lazy(() => import("./pages/NotificationsPage.jsx"));
+
+function PageFallback() {
+  return (
+    <div className="page-container wide">
+      <div className="panel" style={{ padding: "var(--space-5)" }}>
+        <p className="muted small" role="status">Loading page…</p>
+      </div>
+    </div>
+  );
+}
 
 function RequireAuth({ children }) {
   const token = readSessionToken();
@@ -42,6 +55,7 @@ export default function App() {
     <ErrorBoundary fallbackComponent={<div className="error-boundary"><h3>System Error</h3><p>Please refresh the page or contact support.</p></div>}>
       <a href="#main-content" className="skip-link">Skip to main content</a>
       <ToastProvider>
+        <Suspense fallback={<PageFallback />}>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route
@@ -75,6 +89,7 @@ export default function App() {
             }
           />
         </Routes>
+        </Suspense>
       </ToastProvider>
     </ErrorBoundary>
   );
