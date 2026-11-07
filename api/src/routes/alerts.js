@@ -11,13 +11,16 @@ router.get("/alerts", requireAuth, async (req, res, next) => {
     const { unread_only } = req.query;
     const page = Math.max(1, Number(req.query.page) || 1);
     const pageSize = Math.min(Number(req.query.pageSize) || 10, 100);
+    // The bell shows the store's operational feed to OWNER; VOID_DECISION and
+    // RESTOCK_UPDATE alerts are targeted to the requesting staff member, not
+    // the owner who issued the decision.
+    const STAFF_TARGETED_TYPES = ["VOID_DECISION", "RESTOCK_UPDATE"];
     const where = unread_only === "true" ? { isRead: false } : {};
-    // The bell shows the store's operational feed to OWNER; staff see only the
-    // alerts targeted at them (void decisions, restock confirmations).
-    if (req.user?.role !== "OWNER") {
+    const isOwner = req.user?.role === "OWNER";
+    if (!isOwner) {
       where.userId = req.user.sub;
     }
-    const [total, alerts] = await Promise.all([
+    const [total, alerts, targetedTotal] = await Promise.all([
       prisma.alert.count({ where }),
       prisma.alert.findMany({
         where,
@@ -25,10 +28,26 @@ router.get("/alerts", requireAuth, async (req, res, next) => {
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
+      isOwner
+        ? prisma.alert.count({
+            where: { ...where, type: { in: STAFF_TARGETED_TYPES } },
+          })
+        : 0,
     ]);
+    const data = isOwner
+      ? alerts.filter((alert) => !STAFF_TARGETED_TYPES.includes(alert.type))
+      : alerts;
     return res.json({
-      data: alerts,
-      meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+      data,
+      meta: {
+        total: Math.max(0, total - targetedTotal),
+        page,
+        pageSize,
+        totalPages: Math.max(
+          1,
+          Math.ceil(Math.max(0, total - targetedTotal) / pageSize)
+        ),
+      },
     });
   } catch (err) {
     return next(err);

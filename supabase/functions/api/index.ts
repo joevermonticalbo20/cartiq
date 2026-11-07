@@ -3057,19 +3057,33 @@ async function handleListAlerts(url, user) {
   const pageSize = Math.min(Number(url.searchParams.get("pageSize")) || 10, 100);
   const cursor = url.searchParams.get("cursor");
   const filters = unreadOnly ? [{ field: "isRead", op: "EQUAL", value: false }] : [];
+  const isOwner = user?.role === "OWNER";
   // Staff see only the alerts targeted at them.
-  if (user?.role !== "OWNER" && user?.id != null) {
+  if (!isOwner && user?.id != null) {
     filters.push({ field: "userId", op: "EQUAL", value: Number(user.id) });
   }
+  const STAFF_TARGETED_TYPES = ["VOID_DECISION", "RESTOCK_UPDATE"];
+  let total = await fsCount("alerts", filters);
+  if (isOwner) {
+    for (const type of STAFF_TARGETED_TYPES) {
+      total -= await fsCount("alerts", [
+        ...filters,
+        { field: "type", op: "EQUAL", value: type },
+      ]);
+    }
+    total = Math.max(0, total);
+  }
   const orderBy = [{ field: "createdAt", dir: "DESCENDING" }];
-  const total = await fsCount("alerts", filters);
   const decoded = cursor ? decodeCursor(cursor) : null;
   const slice = decoded
     ? await fsRunQuery("alerts", { filters, orderBy, limit: pageSize, startAt: { values: [fsEncodeValue(decoded.t)] } })
     : await fsRunQuery("alerts", { filters, orderBy, limit: pageSize, offset: (page - 1) * pageSize });
-  const last = slice[slice.length - 1];
+  const data = isOwner
+    ? slice.filter((alert) => !STAFF_TARGETED_TYPES.includes(alert.type))
+    : slice;
+  const last = data[data.length - 1];
   return {
-    data: slice.map(cleanDoc),
+    data: data.map(cleanDoc),
     meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
     ...(last ? { nextCursor: encodeCursor(last, "createdAt") } : {}),
   };
