@@ -7370,6 +7370,7 @@ async function handleEventStream(req, origin, inUrl) {
             send(sseEncode("alert:new", {
               id: a.id,
               type: a.type,
+              userId: a.userId ?? null,
               title: a.title ?? null,
               message: a.message,
               isRead: a.isRead === true,

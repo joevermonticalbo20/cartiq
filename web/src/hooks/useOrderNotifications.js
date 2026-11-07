@@ -122,7 +122,17 @@ export function useOrderNotifications({ onOrder, playSound, user } = {}) {
     ensurePermission();
   }, []);
 
-  const handleOrder = useCallback((data) => {
+  // Dedupe across the two delivery paths (SSE + poll below): whichever fires
+  // first wins, the second is dropped. Keyed by order id.
+  const notifiedOrderIds = useRef(new Set());
+  const seededRef = useRef(false);
+
+  const notifyOrder = useCallback((data) => {
+    const id = data?.id;
+    if (id != null) {
+      if (notifiedOrderIds.current.has(id)) return;
+      notifiedOrderIds.current.add(id);
+    }
     const notice = formatOrderNotice(data);
     const cart = data?.locationCode ?? "";
     const link = cart ? `/sales?cart=${encodeURIComponent(cart)}` : "/sales";
@@ -140,7 +150,93 @@ export function useOrderNotifications({ onOrder, playSound, user } = {}) {
     orderRef.current?.(data);
   }, [navigate]);
 
+  const handleOrder = useCallback((data) => {
+    notifyOrder(data);
+  }, [notifyOrder]);
+
   useLiveEvent("order:new", handleOrder);
+
+  // Polling fallback: the live SSE stream can stay "Connecting" (ticket /
+  // reconnect failure) while sales keep flowing. Polling the top orders page
+  // every few seconds guarantees the toast + sound still fire, deduped
+  // against the SSE path by order id. The first fetch only seeds the ids so
+  // history never toasts on mount.
+  useEffect(() => {
+    let cancelled = false;
+    const POLL_MS = 8000;
+
+    const mapOrderRow = (o) => ({
+      id: o?.id,
+      total: o?.total,
+      locationCode: o?.location?.code ?? o?.locationCode ?? "",
+      itemCount: Array.isArray(o?.items) ? o.items.length : (o?.itemCount ?? 0),
+      staffName: o?.staff?.name ?? o?.staffName ?? null,
+    });
+
+    const poll = async () => {
+      if (cancelled) return;
+      if (typeof document !== "undefined" && document.hidden) return;
+      try {
+        const res = await api.get("/orders?page=1&pageSize=5");
+        if (cancelled) return;
+        const rows = Array.isArray(res.data?.data) ? res.data.data : [];
+        // Only real sales toast; voided rows are history, not news.
+        const fresh = rows
+          .filter((o) => o && o.status !== "VOID")
+          .map(mapOrderRow);
+        if (!seededRef.current) {
+          fresh.forEach((o) => {
+            if (o.id != null) notifiedOrderIds.current.add(o.id);
+          });
+          seededRef.current = true;
+          return;
+        }
+        // Orders without an id cannot be deduped; API rows always carry one,
+        // so anything else is ignored rather than re-toast every poll.
+        const unseen = fresh.filter(
+          (o) => o.id != null && !notifiedOrderIds.current.has(o.id)
+        );
+        if (!unseen.length) return;
+        unseen.sort((a, b) => Number(b.id ?? 0) - Number(a.id ?? 0));
+        if (unseen.length === 1) {
+          // notifyOrder dedupes AND marks; marking here first would make it
+          // drop the toast itself.
+          notifyOrder(unseen[0]);
+          return;
+        }
+        // Offline queue syncing can land several sales at once: mark them all
+        // (no per-order notify), then one sound + one summary toast describing
+        // the latest instead of N toasts.
+        unseen.forEach((o) => {
+          if (o.id != null) notifiedOrderIds.current.add(o.id);
+        });
+        const latest = unseen[0];
+        const notice = formatOrderNotice(latest);
+        const link = "/sales";
+        soundRef.current?.();
+        toast(
+          `${unseen.length} new orders. Latest: ${notice.message}`,
+          "success",
+          { onClick: () => navigate(link), title: "Go to sales" }
+        );
+        pushBrowserNotification(
+          `${unseen.length} new orders`,
+          notice.body,
+          link
+        );
+        orderRef.current?.(latest);
+      } catch {
+        /* offline / 401 / network - SSE (if up) and the next poll still cover us */
+      }
+    };
+
+    const t = setInterval(() => { void poll(); }, POLL_MS);
+    void poll();
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [notifyOrder, navigate]);
 
   const handleAlert = useCallback((data) => {
     const type = String(data?.type ?? "").toUpperCase();

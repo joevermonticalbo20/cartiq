@@ -6,6 +6,9 @@ const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
   navigate: vi.fn(),
   patch: vi.fn(() => Promise.resolve()),
+  // Reads return an empty top page by default so the mount-time seed is
+  // silent; the poll-fallback test overrides this per case.
+  get: vi.fn(async () => ({ data: { data: [] } })),
 }));
 
 vi.mock("./useLiveStream.js", () => ({
@@ -13,7 +16,7 @@ vi.mock("./useLiveStream.js", () => ({
 }));
 vi.mock("../components/Toast.jsx", () => ({ toast: mocks.toast }));
 vi.mock("react-router-dom", () => ({ useNavigate: () => mocks.navigate }));
-vi.mock("../api.js", () => ({ default: { patch: mocks.patch } }));
+vi.mock("../api.js", () => ({ default: { patch: mocks.patch, get: mocks.get } }));
 
 import { formatOrderNotice, useOrderNotifications } from "./useOrderNotifications.js";
 
@@ -126,5 +129,108 @@ describe("live notification dedupe", () => {
     expect(mocks.toast.mock.calls[0][0]).toBe(
       "New order on CART-01 - ₱20.00 (1 item) - Stall Staff 1"
     );
+  });
+
+  it("does not toast the same order twice when SSE replays an id", () => {
+    renderHook(() => useOrderNotifications());
+    const payload = {
+      id: 31,
+      total: 25,
+      locationCode: "CART-02",
+      itemCount: 1,
+      staffName: "Stall Staff 1",
+    };
+    mocks.handlers.get("order:new")(payload);
+    mocks.handlers.get("order:new")(payload);
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * SSE is the instant path, but the screenshot report showed the stream stuck
+ * on "Connecting" while an order still landed. The hook therefore polls
+ * /orders and toasts anything the stream missed, deduped by order id. The
+ * first poll only seeds history so a dashboard refresh never spams toasts.
+ */
+describe("order poll fallback", () => {
+  beforeEach(() => {
+    mocks.handlers.clear();
+    mocks.toast.mockClear();
+    mocks.get.mockClear();
+    mocks.get.mockReset();
+    mocks.get.mockResolvedValue({ data: { data: [] } });
+  });
+
+  it("stays silent on mount, then toasts a newly appeared order", async () => {
+    vi.useFakeTimers();
+    const hiddenDesc = Object.getOwnPropertyDescriptor(document, "hidden");
+    Object.defineProperty(document, "hidden", { value: false, configurable: true });
+    try {
+      // Queue before mount so the mount-time seed deterministically sees an
+      // empty page no matter when React flushes the effect, and the next
+      // tick sees the new order.
+      mocks.get
+        .mockResolvedValueOnce({ data: { data: [] } })
+        .mockResolvedValue({
+          data: {
+            data: [
+              {
+                id: 41,
+                total: 20,
+                status: "PAID",
+                location: { code: "CART-01" },
+                items: [{ productName: "BBQ Fries - Medium" }],
+                staff: { name: "Stall Staff 1" },
+              },
+            ],
+          },
+        });
+      const { unmount } = renderHook(() => useOrderNotifications());
+      await vi.advanceTimersByTimeAsync(8100);
+      expect(mocks.toast).toHaveBeenCalledTimes(1);
+      expect(mocks.toast.mock.calls[0][0]).toContain("New order on CART-01");
+      expect(mocks.toast.mock.calls[0][0]).toContain("₱20.00");
+
+      // Same order still on the page next tick: no re-toast.
+      await vi.advanceTimersByTimeAsync(8100);
+      expect(mocks.toast).toHaveBeenCalledTimes(1);
+      unmount();
+    } finally {
+      vi.useRealTimers();
+      if (hiddenDesc) Object.defineProperty(document, "hidden", hiddenDesc);
+      else delete document.hidden;
+    }
+  });
+
+  it("ignores voided rows from the poll", async () => {
+    vi.useFakeTimers();
+    const hiddenDesc = Object.getOwnPropertyDescriptor(document, "hidden");
+    Object.defineProperty(document, "hidden", { value: false, configurable: true });
+    try {
+      mocks.get
+        .mockResolvedValueOnce({ data: { data: [] } })
+        .mockResolvedValue({
+          data: {
+            data: [
+              {
+                id: 42,
+                total: 20,
+                status: "VOID",
+                location: { code: "CART-01" },
+                items: [{}],
+                staff: { name: "Stall Staff 1" },
+              },
+            ],
+          },
+        });
+      const { unmount } = renderHook(() => useOrderNotifications());
+      await vi.advanceTimersByTimeAsync(8100);
+      expect(mocks.toast).not.toHaveBeenCalled();
+      unmount();
+    } finally {
+      vi.useRealTimers();
+      if (hiddenDesc) Object.defineProperty(document, "hidden", hiddenDesc);
+      else delete document.hidden;
+    }
   });
 });
