@@ -55,10 +55,11 @@ Future<void> main() async {
   }
 
   final api = ApiClient();
-  final auth = AuthState(apiClient: api);
   final dataRefresh = DataRefresh();
+  final auth = AuthState(apiClient: api, dataRefresh: dataRefresh);
   // GCash proof photos whose upload failed are kept on the device and
   // retried on every sync drain — never silently dropped.
+
   final receiptStore = FailedReceiptsStore(
     const SecureStoreAdapter(FlutterSecureStorage()),
   );

@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'data_refresh.dart';
 import 'api_client.dart';
 import 'kv_store.dart';
 import 'offline_pin.dart';
@@ -18,7 +19,11 @@ class AuthState extends ChangeNotifier {
   final ApiClient api;
   final KeyValueStore storage;
   final CartIQPushService push;
+  final DataRefresh? dataRefresh;
   late final OfflinePinService pin;
+
+  final Set<int> _seenRestockUpdateIds = {};
+  bool _restockUpdatePrimed = false;
 
   String? token;
   String? refreshToken;
@@ -37,6 +42,7 @@ class AuthState extends ChangeNotifier {
     ApiClient? apiClient,
     KeyValueStore? secureStorage,
     CartIQPushService? pushService,
+    this.dataRefresh,
   })  : api = apiClient ?? ApiClient(),
         storage =
             secureStorage ?? const SecureStoreAdapter(FlutterSecureStorage()),
@@ -214,16 +220,41 @@ class AuthState extends ChangeNotifier {
     final t = token;
     if (t == null) {
       myAlerts.clear();
+      _seenRestockUpdateIds.clear();
+      _restockUpdatePrimed = false;
       notifyListeners();
       return;
     }
+    var sawRestockUpdate = false;
     try {
       final rows = await api.stockAlertsList(t, unreadOnly: true);
       myAlerts
         ..clear()
         ..addAll(rows.cast<Map<String, dynamic>>());
+      // Owner action against a restock we asked for arrives here as a
+      // RESTOCK_UPDATE. The first successful fetch only primes the seen set;
+      // later, a newly-seen RESTOCK_UPDATE asks Live Stock to re-read its
+      // requests (and signals Home too) without a manual refresh.
+      final updateIds = <int>{};
+      for (final row in myAlerts) {
+        if (row['type'] == 'RESTOCK_UPDATE' && row['id'] is num) {
+          updateIds.add((row['id'] as num).toInt());
+        }
+      }
+      if (_restockUpdatePrimed) {
+        if (updateIds.difference(_seenRestockUpdateIds).isNotEmpty) {
+          sawRestockUpdate = true;
+        }
+      }
+      _seenRestockUpdateIds
+        ..clear()
+        ..addAll(updateIds);
+      _restockUpdatePrimed = true;
     } catch (_) {
       // Keep whatever was there; offline is expected.
+    }
+    if (sawRestockUpdate) {
+      dataRefresh?.bump('restock');
     }
     notifyListeners();
   }

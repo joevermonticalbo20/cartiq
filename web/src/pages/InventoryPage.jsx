@@ -153,8 +153,35 @@ export default function InventoryPage() {
       .finally(() => setLoading(false));
   }, [selected]);
 
-  useLiveEvent(LIVE_EVENTS.restockRequestNew, refresh);
-  useLiveEvent(LIVE_EVENTS.restockRequestUpdated, refresh);
+  // New requests add a row without refetching the stock table.
+  const loadRestockRequests = useCallback(async () => {
+    const targetCode = selected || "CART-01";
+    try {
+      const res = await api.get(`/inventory/restock-requests?code=${encodeURIComponent(targetCode)}`);
+      setRestockRequests(res.data?.data ?? []);
+    } catch {
+      /* silent: the next full refresh will recover */
+    }
+  }, [selected]);
+
+  useLiveEvent(LIVE_EVENTS.restockRequestNew, loadRestockRequests);
+  // Live stock-request updates land locally instead of refetching every
+  // inventory section (that used to flash the whole page's skeletons).
+  function applyRestockUpdated(alert) {
+    const id = alert?.id;
+    if (id == null) return;
+    const nextStatus = alert?.status;
+    setRestockRequests((prev) => {
+      if (nextStatus !== "acknowledged") {
+        return prev.filter((row) => row.id !== id);
+      }
+      return prev.map((row) =>
+        row.id === id ? { ...row, status: "acknowledged" } : row
+      );
+    });
+  }
+
+  useLiveEvent(LIVE_EVENTS.restockRequestUpdated, applyRestockUpdated);
 
   useEffect(() => {
     const timer = setTimeout(refresh, 0);
@@ -196,9 +223,17 @@ export default function InventoryPage() {
   async function updateRestockRequest(request, resolution) {
     setResolvingRequest(request.id);
     try {
-      await api.patch(`/alerts/${request.id}/restock-status`, {
+      const { data } = await api.patch(`/alerts/${request.id}/restock-status`, {
         status: resolution === "acknowledged" ? "acknowledged" : "fulfilled",
         ...(resolution === "acknowledged" ? {} : { resolution }),
+      });
+      const updated = data?.alert ?? {};
+      const isDone = resolution === "restocked" || resolution === "dismissed";
+      applyRestockUpdated({
+        ...updated,
+        id: request.id,
+        status: isDone ? "fulfilled" : "acknowledged",
+        resolution,
       });
       toast(
         resolution === "dismissed"
@@ -208,7 +243,6 @@ export default function InventoryPage() {
             : "Restock request marked as restocked.",
         "success",
       );
-      refresh();
     } catch (err) {
       toast(getFriendlyError(err, "Unable to update restock request."), "error");
     } finally {

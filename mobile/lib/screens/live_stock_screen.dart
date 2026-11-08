@@ -64,6 +64,33 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
   void _onDataRefresh() {
     if (_dataRefresh?.lastReason == 'sale') {
       _loadInventory();
+    } else if (_dataRefresh?.lastReason == 'restock') {
+      _reloadRestockRequests();
+    }
+  }
+
+  /// Re-read only the restock-request badges: an owner decision (restocked /
+  /// dismissed / acknowledged) should clear the "Pending" chip without a
+  /// manual pull-to-refresh or a full inventory skeleton flash.
+  Future<void> _reloadRestockRequests() async {
+    final auth = context.read<AuthState>();
+    final token = auth.token;
+    if (token == null || !mounted) return;
+    try {
+      final requests = await auth.api.restockRequests(
+        token,
+        locationCode: _selectedCode ?? auth.locationCode,
+      );
+      if (!mounted) return;
+      setState(() {
+        _requestsByItem = {
+          for (final request in requests.cast<Map<String, dynamic>>())
+            if (request['ingredientId'] is num)
+              (request['ingredientId'] as num).toInt(): request,
+        };
+      });
+    } catch (_) {
+      // Keep the current badges; the next update or refresh will recover.
     }
   }
 
