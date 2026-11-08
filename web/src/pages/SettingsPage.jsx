@@ -386,13 +386,27 @@ export default function SettingsPage() {
       .catch(() => {});
   }
 
+  function reloadDevices() {
+    api
+      .get("/devices")
+      .then(({ data }) => setDevices(data?.data ?? []))
+      .catch(() => {});
+  }
+
+  function reloadCarts() {
+    api
+      .get("/locations")
+      .then(({ data }) => setCarts(data?.data ?? []))
+      .catch(() => {});
+  }
+
   // Mounted here (not only in the shell) so a registration lands straight in
   // the card column of the table below.
   useRfidEvents({ onChange: reloadStaff });
 
-  function loadOwnerData() {
+  function loadOwnerData(initial = false) {
     if (!isOwner) return;
-    setIsLoadingOwner(true);
+    if (initial) setIsLoadingOwner(true);
     setOwnerError([]);
     
     const track = (key, promise, apply) => {
@@ -406,7 +420,7 @@ export default function SettingsPage() {
       track("staff", api.get("/auth/staff"), ({ data }) => setStaff(data?.data ?? [])),
       track("carts", api.get("/locations"), ({ data }) => setCarts(data?.data ?? []))
     ]).finally(() => {
-      setIsLoadingOwner(false);
+      if (initial) setIsLoadingOwner(false);
     });
   }
 
@@ -506,7 +520,7 @@ export default function SettingsPage() {
       }
     }).catch(() => {});
     
-    loadOwnerData();
+    loadOwnerData(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOwner]);
 
@@ -689,7 +703,7 @@ export default function SettingsPage() {
       closeAddModal();
       setNewStaff({ name: "", username: "", password: "", locationCode: safeLocations[0]?.code || "", rfidUid: "", email: "" });
       setShowNewStaffPw(false);
-      loadOwnerData();
+      reloadStaff();
     } catch (err) {
       setStaffError(getFriendlyError(err, "Create failed - is the username or RFID already taken?"));
     } finally {
@@ -730,7 +744,7 @@ export default function SettingsPage() {
       closeAdminAdd();
       setNewAdmin({ name: "", username: "", password: "", email: "" });
       setShowNewAdminPw(false);
-      loadOwnerData();
+      reloadStaff();
     } catch (err) {
       setAdminError(getFriendlyError(err, "Create failed - is the username already taken?"));
     } finally {
@@ -786,7 +800,7 @@ export default function SettingsPage() {
       });
       toast(`Admin account "${cleanUsername}" updated`, "success");
       closeAdminEditModal();
-      loadOwnerData();
+      reloadStaff();
     } catch (err) {
       setAdminEditError(getFriendlyError(err, "Update failed - is the username or email already taken?"));
     } finally {
@@ -827,7 +841,7 @@ export default function SettingsPage() {
       
       toast(`Staff account "${staffEditing.username}" updated`, "success");
       closeStaffEditModal();
-      loadOwnerData();
+      reloadStaff();
     } catch (err) {
       setStaffError(getFriendlyError(err, "Update failed - username or RFID may already exist."));
     } finally {
@@ -841,7 +855,7 @@ export default function SettingsPage() {
     try {
       await api.patch(`/auth/staff/${s.id}`, { active: !s.active });
       toast(`${s.username} ${s.active ? "disabled" : "enabled"}`, "success");
-      loadOwnerData();
+      reloadStaff();
     } catch (err) {
       toast(getFriendlyError(err, "Update failed"), "error");
     } finally {
@@ -888,7 +902,7 @@ export default function SettingsPage() {
       setDeviceTokenCopied(false);
 
       toast(`Device ${newDevice.deviceId} registered`, "success");
-      loadOwnerData();
+      reloadDevices();
     } catch (err) {
       setDeviceError(getFriendlyError(err, "Registration failed. Device ID may already exist."));
     } finally {
@@ -915,7 +929,7 @@ export default function SettingsPage() {
       });
       toast(`Device reassigned successfully`, "success");
       closeDeviceEditModal();
-      loadOwnerData();
+      reloadDevices();
     } catch (err) {
       setDeviceError(getFriendlyError(err, "Update failed."));
     } finally {
@@ -929,7 +943,7 @@ export default function SettingsPage() {
     try {
       await api.del(`/devices/${deviceDeleting.id}`);
       toast(`Device ${deviceDeleting.device_id} deleted`, "success");
-      loadOwnerData();
+      reloadDevices();
     } catch (err) {
       toast(getFriendlyError(err, "Failed to delete device"), "error");
     } finally {
@@ -973,7 +987,7 @@ export default function SettingsPage() {
       
       setCartTokenCopied(false);
       setCartToken({ code, deviceId: data?.device?.deviceId ?? "", token: data?.deviceToken ?? "" });
-      loadOwnerData();
+      reloadCarts();
     } catch (err) {
       setCartError(getFriendlyError(err, "Create failed - is the code already taken?"));
     } finally {
@@ -1030,7 +1044,7 @@ export default function SettingsPage() {
       });
       toast(`Cart ${original?.code ?? ""} updated`, "success");
       closeCartEditModal();
-      loadOwnerData();
+      reloadCarts();
     } catch (err) {
       setCartError(getFriendlyError(err, "Update failed."));
     } finally {
@@ -1048,7 +1062,7 @@ export default function SettingsPage() {
         status: toInactive ? "INACTIVE" : "ACTIVE",
       });
       toast(`Cart ${cartToggling.code} ${toInactive ? "deactivated" : "reactivated"}`, "success");
-      loadOwnerData();
+      reloadCarts();
     } catch (err) {
       toast(getFriendlyError(err, "Update failed"), "error");
     } finally {
