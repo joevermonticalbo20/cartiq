@@ -829,6 +829,7 @@ button.recovery-back:active:not(:disabled) {
 }
 .login-preview-carts .dot.ok { background: var(--success); }
 .login-preview-carts .dot.warn { background: var(--highlight-strong); }
+.login-preview-carts .dot.bad { background: var(--danger); }
 
 /* --- CLEAN QUOTE (Centered, No Line, No Citation) --- */
 .login-quote {

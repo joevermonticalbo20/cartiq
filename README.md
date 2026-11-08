@@ -76,8 +76,9 @@ Local dev only: api/ (Express, npm run dev) + Firestore emulator.
   added but never deployed passes every test and then fails in production.
   By hand: `firebase deploy --only firestore:indexes,firestore:rules --project cartiq-8e46f`.
 * **Free-tier notes:** Supabase Edge Functions (no sleep; SSE streams poll
-  Firestore per connection and reconnect automatically); Firestore reads are
-  uncached for correctness (Spark 50k/day quota — dashboard polls every 60s).
+  Firestore per connection every 8s and reconnect automatically); Firestore
+  reads are uncached for correctness (Spark 50k/day quota — dashboard polls
+  every 60s).
 * **Email OTP check:** `cd api && npm run email:check` prints the provider and
   whether the Gmail token exchange works (never secrets); add
   `-- --send you@example.com` to deliver a real test code. Locally

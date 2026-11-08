@@ -95,6 +95,7 @@ app.use("/api/analytics", analyticsLimiter);
 app.use("/api/reorders", analyticsLimiter);
 app.use("/api/auth/change-password", passwordLimiter);
 app.use("/api/public/sales-today", publicLimiter);
+app.use("/api/public/carts", publicLimiter);
 app.use("/api/expenses", expensesLimiter);
 
 app.use("/api/auth", authRoutes);

@@ -85,11 +85,12 @@ silently changing the password.
 | `/inventory/restock-requests` | GET | Active requests for the signed-in staff member's cart; OWNER may pass `?code=` to scope a cart or omit it for all carts. Returns `{data:[{id, ingredientId, ingredientName, locationId, locationCode, urgency, notes, requestedBy, requestedByName, status}]}`. |
 | `/inventory/restock-request` | POST | STAFF requests apply to the assigned cart; OWNER may pass `locationCode`. Body `{ingredientId, urgency?, notes?}` for one item, or `{allLowStock:true, urgency?, notes?}` for all items at or below threshold. `urgency` is `normal\|urgent\|critical`; notes are optional, max 500 characters. At most one active (`pending` or `acknowledged`) request exists per cart and ingredient; duplicates return the existing request in `activeRequests`. Success returns `{data, activeRequests, skipped}`. |
 | `/alerts/restock-requests?code&active` | GET | OWNER-only web queue; active requests by default. Set `active=false` to include fulfilled/dismissed history. |
-| `/alerts/:id/restock-status` | PATCH | OWNER-only `{status:"acknowledged"}` to acknowledge or `{status:"fulfilled", resolution:"restocked"\|"dismissed"}` to close the request cooldown. Emits `restock-request:updated` on the live stream. New requests emit `restock-request:new`; Edge Function streams poll alerts and may deliver within 15 seconds. |
+| `/alerts/:id/restock-status` | PATCH | OWNER-only `{status:"acknowledged"}` to acknowledge or `{status:"fulfilled", resolution:"restocked"\|"dismissed"}` to close the request cooldown. Emits `restock-request:updated` on the live stream. New requests emit `restock-request:new`; Edge Function streams poll alerts and may deliver within 8 seconds. |
 | `/alerts?unread_only=true&limit` | GET | Alert feed, newest first. Types: `LOW_STOCK`, `RESTOCK_REQUEST`, `SALE` (one written per recorded sale - feeds the notification bell), `VOID_REQUEST` (staff asked the owner to void a sale; `payload` carries `{orderId}`). Unread is the `isRead` field. |
 | `/alerts/:id/read` | PATCH | OWNER-only mark-read. |
 | `/alerts/read` | PATCH | OWNER-only mark-all-read (`{ids?[]}` optional subset, omits to clear all unread; returns `{updated}`). Dashboard Stock alerts panel exposes it as “Mark all read”. |
 | `/reports/daily?date&code` | GET | `{total_sales, orders, top_items[5]}` for one cart or ALL. |
+| `/public/sales-today` | GET | **Public** (no auth — login page only): `{date, total_sales, orders, carts:[{code, status}], asOf}`. `status` is the worst inventory status across the cart's items (`ok`, `low`, or `critical`); only public cart codes are exposed—no names, items, quantities, or staff data. Cache-Control: public, max-age=300. |
 
 ## Phase 2 - IoT (IMPLEMENTED - hardware pending, use `iot/simulator.mjs`)
 
@@ -162,7 +163,7 @@ envelope `{ data:[...], meta:{ total, page, pageSize, totalPages } }`.
 | `/auth/change-password` | POST | Self-service: verifies current password + the 6-digit code emailed to the recovery address, min 6 new chars; success revokes all sessions/codes. |
 | `/auth/staff` | GET | OWNER-only staff list incl. location, rfidUid, active, recovery email. |
 | `/auth/staff` | POST | OWNER creates STAFF account (unique username, optional RFID UID + cart + recovery email for password reset). |
-| `/auth/staff/:id` | PATCH | OWNER enables/disables account, resets password, reassigns cart/RFID/email (unique address, empty clears). Disabled accounts are rejected at login. A password reset revokes sessions + codes; an email change revokes codes. Your OWN password/email must go through Settings (`/auth/change-password`, `PATCH /auth/me`) so the email code/current password is enforced. |
+| `/auth/staff/:id` | PATCH | OWNER enables/disables account, resets password, reassigns cart/RFID/email (unique address, empty clears), and can correct the account's **name and username** (username is trimmed, must be non-empty, and conflicts return 409). Disabled accounts are rejected at login. A password reset revokes sessions + codes; an email change revokes codes. Your OWN password/email must go through Settings (`/auth/change-password`, `PATCH /auth/me`) so the email code/current password is enforced. |
 
 Web UI rebuilt as a multi-page app shell: collapsible sidebar (Dashboard,
 Sales, Inventory, Staff & Shifts, Analytics, Expenses, Import & Export, Settings),

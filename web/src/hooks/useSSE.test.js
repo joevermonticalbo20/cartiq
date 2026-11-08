@@ -103,7 +103,8 @@ describe("useSSE", () => {
     expect(onStatus).toHaveBeenCalledWith("down");
     expect(FakeEventSource.instances).toHaveLength(1);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      // Reconnect has ±25% jitter around the 1s backoff.
+      await vi.advanceTimersByTimeAsync(1300);
     });
     expect(getTicket).toHaveBeenCalledTimes(2);
     expect(FakeEventSource.instances).toHaveLength(2);

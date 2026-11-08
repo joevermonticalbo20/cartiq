@@ -16,6 +16,31 @@ router.get("/public/sales-today", async (_req, res, next) => {
       select: { total: true },
     });
     const totalSales = orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    // Login preview cart chips: only the cart code plus the worst stock
+    // status across its items. No names, quantities, or item details.
+    const inventoryStatus = (stock, threshold) => {
+      if (stock <= threshold / 2) return "critical";
+      if (stock <= threshold) return "low";
+      return "ok";
+    };
+    const locations = await prisma.location.findMany({
+      include: { inventory: { select: { stock: true, threshold: true } } },
+      orderBy: { code: "asc" },
+    });
+    const carts = locations
+      .filter((loc) => loc.status !== "INACTIVE")
+      .map((loc) => {
+        let status = "ok";
+        for (const item of loc.inventory ?? []) {
+          const itemStatus = inventoryStatus(Number(item.stock) || 0, Number(item.threshold) || 0);
+          if (itemStatus === "critical") {
+            status = "critical";
+            break;
+          }
+          if (itemStatus === "low") status = "low";
+        }
+        return { code: loc.code, status };
+      });
     const pad = (n) => String(n).padStart(2, "0");
     const manilaDay = new Date(day.getTime() + 8 * 60 * 60 * 1000);
     res.setHeader("Cache-Control", "public, max-age=300");
@@ -23,6 +48,7 @@ router.get("/public/sales-today", async (_req, res, next) => {
       date: `${manilaDay.getUTCFullYear()}-${pad(manilaDay.getUTCMonth() + 1)}-${pad(manilaDay.getUTCDate())}`,
       total_sales: Number(totalSales.toFixed(2)),
       orders: orders.length,
+      carts,
       asOf: new Date().toISOString(),
     });
   } catch (err) {

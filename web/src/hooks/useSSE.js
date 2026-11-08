@@ -36,7 +36,10 @@ export function useSSE(path, { getTicket, onEvent, onStatus } = {}) {
     const scheduleReconnect = () => {
       if (cancelled || paused) return;
       onStatusRef.current?.("down");
-      timer = setTimeout(open, backoff);
+      // Jitter the retry so every open tab does not reconnect in lock-step
+      // after a server restart. ±25% of the nominal backoff, capped 30s.
+      const jitter = backoff * (0.75 + Math.random() * 0.5);
+      timer = setTimeout(open, Math.min(Math.round(jitter), 30000));
       backoff = Math.min(backoff * 2, 30000);
     };
 

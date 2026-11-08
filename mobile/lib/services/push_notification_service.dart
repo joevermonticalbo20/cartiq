@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -167,6 +168,9 @@ class CartIQPushService {
         importance: Importance.max,
         priority: Priority.max,
         icon: '@mipmap/ic_launcher',
+        // Short, double-buzz on every targeted alert so the counter
+        // notices it even on mute-adjacent devices.
+        vibrationPattern: Int64List.fromList([0, 180, 80, 180]),
         tag: payload.alertId?.toString(),
       );
       final notificationDetails = NotificationDetails(android: androidDetails);
@@ -257,6 +261,7 @@ Future<void> _backgroundMessageHandler(RemoteMessage message) async {
       importance: Importance.max,
       priority: Priority.max,
       icon: '@mipmap/ic_launcher',
+      vibrationPattern: Int64List.fromList([0, 180, 80, 180]),
       tag: alertId?.toString(),
     );
     await plugin.show(

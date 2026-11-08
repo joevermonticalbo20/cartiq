@@ -3,6 +3,7 @@ import { renderHook } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
   handlers: new Map(),
+  status: null,
   toast: vi.fn(),
   navigate: vi.fn(),
   patch: vi.fn(() => Promise.resolve()),
@@ -13,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./useLiveStream.js", () => ({
   useLiveEvent: (event, handler) => mocks.handlers.set(event, handler),
-  useLiveStatus: () => {},
+  useLiveStatus: (handler) => { mocks.status = handler; },
 }));
 vi.mock("../components/Toast.jsx", () => ({ toast: mocks.toast }));
 vi.mock("react-router-dom", () => ({ useNavigate: () => mocks.navigate }));
@@ -227,6 +228,47 @@ describe("order poll fallback", () => {
       const { unmount } = renderHook(() => useOrderNotifications());
       await vi.advanceTimersByTimeAsync(8100);
       expect(mocks.toast).not.toHaveBeenCalled();
+      unmount();
+    } finally {
+      vi.useRealTimers();
+      if (hiddenDesc) Object.defineProperty(document, "hidden", hiddenDesc);
+      else delete document.hidden;
+    }
+  });
+
+  it("runs a catch-up poll on reconnect so orders in the gap still toast", async () => {
+    vi.useFakeTimers();
+    const hiddenDesc = Object.getOwnPropertyDescriptor(document, "hidden");
+    Object.defineProperty(document, "hidden", { value: false, configurable: true });
+    try {
+      mocks.get
+        .mockResolvedValueOnce({ data: { data: [] } })
+        .mockResolvedValue({
+          data: {
+            data: [
+              {
+                id: 43,
+                total: 30,
+                status: "PAID",
+                location: { code: "CART-03" },
+                items: [{ productName: "Cheese Fries - Medium" }],
+                staff: { name: "Stall Staff 1" },
+              },
+            ],
+          },
+        });
+      const { unmount } = renderHook(() => useOrderNotifications());
+      await vi.advanceTimersByTimeAsync(0);
+      mocks.status("down");
+      mocks.status("open");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.toast).toHaveBeenCalledTimes(1);
+      expect(mocks.toast.mock.calls[0][0]).toContain("New order on CART-03");
+      // A second reconnect catch-up does not re-toast the same order.
+      mocks.status("down");
+      mocks.status("open");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.toast).toHaveBeenCalledTimes(1);
       unmount();
     } finally {
       vi.useRealTimers();

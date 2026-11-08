@@ -18,6 +18,12 @@ function TiltedPreviewCard({ className = "", salesToday }) {
   const orderCount = Number.isFinite(Number(salesToday?.orders))
     ? Number(salesToday.orders)
     : null;
+  const previewCarts = Array.isArray(salesToday?.carts) ? salesToday.carts : [];
+  const previewStatusMeta = {
+    ok: { label: "Active", className: "ok" },
+    low: { label: "Low", className: "warn" },
+    critical: { label: "Critical", className: "bad" },
+  };
 
   return (
     <div className={`login-preview ${className}`} aria-hidden="true">
@@ -59,9 +65,14 @@ function TiltedPreviewCard({ className = "", salesToday }) {
         </div>
       </div>
       <div className="login-preview-carts">
-        <span><i className="dot ok" /> CART-01 Active</span>
-        <span><i className="dot warn" /> CART-02 Low</span>
-        <span><i className="dot ok" /> CART-03 Active</span>
+        {previewCarts.slice(0, 3).map((cart) => {
+          const meta = previewStatusMeta[cart.status] ?? previewStatusMeta.ok;
+          return (
+            <span key={cart.code}>
+              <i className={`dot ${meta.className}`} /> {cart.code} {meta.label}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
@@ -160,6 +171,8 @@ export default function Login() {
       // Fire-and-forget: a chunk failure must not break the login.
       import("./DashboardPage.jsx").catch(() => {});
       import("./SalesPage.jsx").catch(() => {});
+      import("./InventoryPage.jsx").catch(() => {});
+      import("./ProductsPage.jsx").catch(() => {});
       navigate("/dashboard");
     } catch (err) {
       const status = err?.status ?? err?.response?.status ?? null;

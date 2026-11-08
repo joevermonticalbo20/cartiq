@@ -99,6 +99,12 @@ export default function DashboardPage() {
   }, []);
 
   const refresh = useCallback(async () => {
+    const startedAt = performance.now();
+    const schedule = () => {
+      if (import.meta.env.DEV) {
+        console.debug(`[perf] Dashboard refresh completed in ${Math.round(performance.now() - startedAt)}ms`);
+      }
+    };
     setRefreshing(true);
     const errs = {};
     const settle = async (key, promise, apply) => {
@@ -132,6 +138,7 @@ export default function DashboardPage() {
     if (Object.keys(errs).length < 7) setLastUpdated(new Date());
     setLoading(false);
     setRefreshing(false);
+    schedule();
   }, [dateFilter, cartFilter]);
 
   useEffect(() => {

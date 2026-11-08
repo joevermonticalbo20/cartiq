@@ -109,10 +109,19 @@ export function useOrderNotifications({ onOrder, playSound, user } = {}) {
   const soundRef = useRef(playSound);
   const navigate = useNavigate();
   // The SSE stream is the instant channel. Polling only runs while it is
-  // down/paused, so a healthy live connection costs zero poll reads.
+  // down/paused, so a healthy live connection costs zero poll reads. On a
+  // reconnect, run one catch-up poll: an order created during the short
+  // disconnected gap is otherwise missed forever by the server-side cursor.
   const streamOpenRef = useRef(false);
+  const wasOpenRef = useRef(false);
+  const pollOnceRef = useRef(() => {});
   useLiveStatus((status) => {
-    streamOpenRef.current = status === "open";
+    const open = status === "open";
+    streamOpenRef.current = open;
+    if (open && !wasOpenRef.current) {
+      void Promise.resolve(pollOnceRef.current()).catch(() => {});
+    }
+    wasOpenRef.current = open;
   });
 
   // Ref writes belong in effects, not during render (react-hooks/refs).
@@ -181,10 +190,10 @@ export function useOrderNotifications({ onOrder, playSound, user } = {}) {
       staffName: o?.staff?.name ?? o?.staffName ?? null,
     });
 
-    const poll = async () => {
+    const poll = async ({ force = false } = {}) => {
       if (cancelled) return;
       if (typeof document !== "undefined" && document.hidden) return;
-      if (streamOpenRef.current) return; // SSE is delivering already (instant).
+      if (!force && streamOpenRef.current) return; // SSE is delivering already (instant).
       try {
         const res = await api.get("/orders?page=1&pageSize=5");
         if (cancelled) return;
@@ -239,11 +248,13 @@ export function useOrderNotifications({ onOrder, playSound, user } = {}) {
       }
     };
 
+    pollOnceRef.current = () => poll({ force: true });
     const t = setInterval(() => { void poll(); }, POLL_MS);
     void poll();
     return () => {
       cancelled = true;
       clearInterval(t);
+      pollOnceRef.current = () => {};
     };
   }, [notifyOrder, navigate]);
 

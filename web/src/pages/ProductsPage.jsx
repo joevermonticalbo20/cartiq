@@ -32,6 +32,13 @@ function newestProductsFirst(products) {
   return [...products].sort((a, b) => Number(b.id) - Number(a.id));
 }
 
+function marginPercent(base, selling) {
+  const b = Number(base);
+  const s = Number(selling);
+  if (!Number.isFinite(b) || !Number.isFinite(s) || s <= 0) return "—";
+  return `${(((s - b) / s) * 100).toFixed(1)}%`;
+}
+
 const MASS_TO_KG = { g: 0.001, kg: 1 };
 function unitOptionsFor(stockUnit) {
   const u = String(stockUnit ?? "").trim().toLowerCase();
@@ -1167,6 +1174,9 @@ export default function ProductsPage() {
                     />
                   </label>
                 </div>
+                <p className="muted small" aria-live="polite" style={{ margin: "10px 0 0" }}>
+                  Margin: {marginPercent(newProduct.basePrice, newProduct.sellingPrice)}
+                </p>
                 </section>
                 
                 <section className="product-modal-section">
@@ -1379,6 +1389,9 @@ export default function ProductsPage() {
                     />
                   </label>
                 </div>
+                <p className="muted small" aria-live="polite" style={{ margin: "10px 0 0" }}>
+                  Margin: {marginPercent(editing?.basePrice, editing?.sellingPrice)}
+                </p>
                 </section>
                 
                 <section className="product-modal-section">

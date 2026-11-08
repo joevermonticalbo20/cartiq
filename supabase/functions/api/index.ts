@@ -3163,15 +3163,47 @@ function manilaDayStart(daysAgo) {
 async function handlePublicSalesToday() {
   const day = manilaDayStart(0);
   const nextDay = new Date(day.getTime() + 24 * 60 * 60 * 1000);
-  const allOrders = await fsRunQuery("orders", {
-    filters: [
-      { field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: day },
-      { field: "createdAt", op: "LESS_THAN", value: nextDay },
-    ],
-    limit: 5000,
-  });
+  const [allOrders, locations, inventoryItems] = await Promise.all([
+    fsRunQuery("orders", {
+      filters: [
+        { field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: day },
+        { field: "createdAt", op: "LESS_THAN", value: nextDay },
+      ],
+      limit: 5000,
+    }),
+    fsListAll("locations"),
+    fsListAll("inventoryItems"),
+  ]);
   const orders = allOrders.filter((o) => o.status === "PAID");
   const totalSales = orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+  const inventoryStatus = (stock, threshold) => {
+    if (stock <= threshold / 2) return "critical";
+    if (stock <= threshold) return "low";
+    return "ok";
+  };
+  const itemsByLocation = new Map();
+  for (const item of inventoryItems) {
+    const id = Number(item.locationId);
+    if (!Number.isInteger(id)) continue;
+    const list = itemsByLocation.get(id) ?? [];
+    list.push(item);
+    itemsByLocation.set(id, list);
+  }
+  const carts = locations
+    .filter((loc) => loc.status !== "INACTIVE")
+    .sort((a, b) => String(a.code).localeCompare(String(b.code)))
+    .map((loc) => {
+      let status = "ok";
+      for (const item of itemsByLocation.get(Number(loc.id)) ?? []) {
+        const itemStatus = inventoryStatus(Number(item.stock) || 0, Number(item.threshold) || 0);
+        if (itemStatus === "critical") {
+          status = "critical";
+          break;
+        }
+        if (itemStatus === "low") status = "low";
+      }
+      return { code: loc.code, status };
+    });
   const pad = (n) => String(n).padStart(2, "0");
   const manilaDay = new Date(day.getTime() + 8 * 60 * 60 * 1000);
   return {
@@ -3180,6 +3212,7 @@ async function handlePublicSalesToday() {
       date: `${manilaDay.getUTCFullYear()}-${pad(manilaDay.getUTCMonth() + 1)}-${pad(manilaDay.getUTCDate())}`,
       total_sales: Number(totalSales.toFixed(2)),
       orders: orders.length,
+      carts,
       asOf: new Date().toISOString(),
     },
   };
