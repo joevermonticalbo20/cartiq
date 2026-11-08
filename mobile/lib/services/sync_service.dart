@@ -104,6 +104,12 @@ class SyncService extends ChangeNotifier {
   bool _running = false;
   bool _appResumed = true;
   bool get isSyncing => _running;
+
+  /// Last successful reachability check. The health call itself is a full
+  /// round trip, so we reuse a recent success instead of re-pinging on every
+  /// drain (the acceptance path after a sale calls syncAll immediately).
+  DateTime? _lastHealthOk;
+  static const _healthFreshness = Duration(seconds: 10);
   SyncResult? lastResult;
 
   /// Bumped on logout. An in-flight drain checks it before every upload and
@@ -149,8 +155,14 @@ class SyncService extends ChangeNotifier {
     // Reachability gate: reports offline WITHOUT attempting any upload when
     // the server is known-unreachable (see sync_service_test "unreachable
     // server reports offline"). Skipping this would burn an upload attempt
-    // per drain and misreport online:true on total network failure.
-    if (!await api.health()) {
+    // per drain and misreport online:true on total network failure. A recent
+    // successful ping is reused (see _lastHealthOk).
+    final lastOk = _lastHealthOk;
+    final freshOk = lastOk != null &&
+        DateTime.now().difference(lastOk).abs() < _healthFreshness;
+    final healthy = freshOk ? true : await api.health();
+    if (healthy) _lastHealthOk = DateTime.now();
+    if (!healthy) {
       return SyncResult(online: false, synced: 0, remaining: await queue.count);
     }
 

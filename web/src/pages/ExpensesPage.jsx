@@ -59,7 +59,7 @@ export default function ExpensesPage() {
   const [editError, setEditError] = useState("");
 
   useEffect(() => {
-    api.get("/catalog", { cacheTtl: 60000 }).then(({ data }) => setLocations(data?.locations ?? [])).catch(() => {});
+    api.get("/catalog", { cacheTtl: 120000 }).then(({ data }) => setLocations(data?.locations ?? [])).catch(() => {});
   }, []);
 
   const path = (p) =>

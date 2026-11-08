@@ -52,7 +52,7 @@ export default function SalesPage() {
   const [viewingReceipt, setViewingReceipt] = useState(null);
 
   useEffect(() => {
-      api.get("/catalog", { cacheTtl: 60000 }).then(({ data }) => setLocations(data?.locations ?? [])).catch(() => {});
+      api.get("/catalog", { cacheTtl: 120000 }).then(({ data }) => setLocations(data?.locations ?? [])).catch(() => {});
   }, []);
 
   const { rows, meta, loading, error, gotoPage, refresh } = usePagedData(

@@ -95,7 +95,7 @@ export default function DashboardPage() {
   const [livePulse, setLivePulse] = useState(0);
 
   useEffect(() => {
-    api.get("/catalog", { cacheTtl: 60000 }).then(({ data }) => setLocations(data.locations)).catch(() => {});
+    api.get("/catalog", { cacheTtl: 120000 }).then(({ data }) => setLocations(data.locations)).catch(() => {});
   }, []);
 
   const refresh = useCallback(async () => {

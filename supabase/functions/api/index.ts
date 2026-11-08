@@ -7239,12 +7239,13 @@ const TICKET_TTL_MS = 60 * 1000;
 // collection it cost ~36,000 reads per hour PER CONNECTED TAB, which exhausts
 // the 50,000/day allowance in well under two hours of watching the dashboard.
 //
-// 15s with 5 docs per collection is ~2,400 reads/hour - about 15x cheaper. The
-// client already reconnects with backoff and the UI treats the stream as a
-// "something happened" hint that triggers a refetch, so a few seconds of extra
-// latency costs nothing visible.
+// 8s with 5 docs per collection is ~3,600 reads/hour (vs ~2,400 at 15s) —
+// about 1.5x. Worth it: the worst-case order-toast latency halves from 15s to
+// 8s, and the page size stays at 5 so a burst of fresh orders still fits one
+// poll window. The client fallback poll closes the gap entirely when the
+// stream is down.
 const STREAM_MAX_MS = 50 * 1000;
-const STREAM_POLL_MS = 15000;
+const STREAM_POLL_MS = 8000;
 const STREAM_PAGE = 5;
 
 function randomHexToken(n) {

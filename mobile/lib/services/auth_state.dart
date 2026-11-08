@@ -230,7 +230,9 @@ class AuthState extends ChangeNotifier {
 
   void _startAlertPoll() {
     _alertPoll?.cancel();
-    _alertPoll = Timer.periodic(const Duration(seconds: 3), (_) {
+    // 2s foreground poll: the first thing a staff member sees after a void
+    // decision, with FCM in the background. Paused by pauseAlertPoll().
+    _alertPoll = Timer.periodic(const Duration(seconds: 2), (_) {
       if (token == null) return;
       refreshMyAlerts().catchError((_) {});
     });
@@ -241,7 +243,7 @@ class AuthState extends ChangeNotifier {
     _alertPoll = null;
   }
 
-  /// Suspend the 3-second alert poll while the app is in the background to
+  /// Suspend the foreground alert poll while the app is in the background to
   /// avoid waking the radio every few seconds for nothing. Resumed in
   /// [resumeAlertPoll].
   void pauseAlertPoll() => _stopAlertPoll();

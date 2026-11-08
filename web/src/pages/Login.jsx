@@ -155,6 +155,11 @@ export default function Login() {
         refreshToken: data.refreshToken,
         remember,
       });
+      // Warm the next routes while the operator is still on this screen, so
+      // navigating after login is as close to instant as the network allows.
+      // Fire-and-forget: a chunk failure must not break the login.
+      import("./DashboardPage.jsx").catch(() => {});
+      import("./SalesPage.jsx").catch(() => {});
       navigate("/dashboard");
     } catch (err) {
       const status = err?.status ?? err?.response?.status ?? null;

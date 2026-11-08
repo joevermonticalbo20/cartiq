@@ -113,7 +113,7 @@ export default function AnalyticsPage() {
   };
 
   useEffect(() => {
-    api.get("/catalog", { cacheTtl: 60000 }).then(({ data }) => setCarts(data.locations ?? [])).catch(() => {});
+    api.get("/catalog", { cacheTtl: 120000 }).then(({ data }) => setCarts(data.locations ?? [])).catch(() => {});
   }, []);
 
   useEffect(() => {

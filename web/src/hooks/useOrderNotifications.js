@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "../components/Toast.jsx";
-import { useLiveEvent } from "./useLiveStream.js";
+import { useLiveEvent, useLiveStatus } from "./useLiveStream.js";
 import { alertLink, alertLinkLabel, toastedAlertIds } from "../utils/alertLinks.js";
 import api from "../api.js";
 
@@ -108,6 +108,12 @@ export function useOrderNotifications({ onOrder, playSound, user } = {}) {
   const orderRef = useRef(onOrder);
   const soundRef = useRef(playSound);
   const navigate = useNavigate();
+  // The SSE stream is the instant channel. Polling only runs while it is
+  // down/paused, so a healthy live connection costs zero poll reads.
+  const streamOpenRef = useRef(false);
+  useLiveStatus((status) => {
+    streamOpenRef.current = status === "open";
+  });
 
   // Ref writes belong in effects, not during render (react-hooks/refs).
   useLayoutEffect(() => {
@@ -163,7 +169,9 @@ export function useOrderNotifications({ onOrder, playSound, user } = {}) {
   // history never toasts on mount.
   useEffect(() => {
     let cancelled = false;
-    const POLL_MS = 8000;
+    // 3s keeps the order toast < 3s even when SSE is disconnected. The poll
+    // is skipped while the tab is hidden, so there is no background cost.
+    const POLL_MS = 3000;
 
     const mapOrderRow = (o) => ({
       id: o?.id,
@@ -176,6 +184,7 @@ export function useOrderNotifications({ onOrder, playSound, user } = {}) {
     const poll = async () => {
       if (cancelled) return;
       if (typeof document !== "undefined" && document.hidden) return;
+      if (streamOpenRef.current) return; // SSE is delivering already (instant).
       try {
         const res = await api.get("/orders?page=1&pageSize=5");
         if (cancelled) return;

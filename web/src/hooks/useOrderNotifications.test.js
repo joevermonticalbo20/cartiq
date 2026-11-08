@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./useLiveStream.js", () => ({
   useLiveEvent: (event, handler) => mocks.handlers.set(event, handler),
+  useLiveStatus: () => {},
 }));
 vi.mock("../components/Toast.jsx", () => ({ toast: mocks.toast }));
 vi.mock("react-router-dom", () => ({ useNavigate: () => mocks.navigate }));
