@@ -419,6 +419,7 @@
 }
 
 /* Empty state layout fixes */
+.dashboard-middle-row .panel .empty-state-card,
 .dashboard-ops-row .panel .empty-state-card,
 .dashboard-bottom-row .panel .empty-state-card,
 .dashboard-trend-panel .empty-state-card {
