@@ -3443,7 +3443,7 @@ async function applyFullFlavorList({ existing, flavors, removeRecipes }) {
   const resolved = await resolveFlavorEntries(flavors);
   if (resolved.error) return { error: resolved.error };
   const nextIds = resolved.ids.map(Number);
-  const priorIds = (existing.flavorIds ?? existing.flavors.map((f) => f.id)).map(Number);
+  const priorIds = (existing.flavorIds ?? (existing.flavors ?? [])).map(Number);
   const removedIds = priorIds.filter((id) => !nextIds.includes(id));
   const removedNames = removedIds
     .map((id) => (existing.flavors ?? []).find((f) => Number(f.id) === Number(id))?.name)
@@ -6553,7 +6553,7 @@ const DISPOSABLE_EMAIL_DOMAINS = new Set([
   "temp-mail.org",
   "dispostable.com",
 ]);
-const NAME_RE = /^[\p{L}\p{N}\p{M}][\p{L}\p{N}\p{M}\p{Pc}\p{Pd}'.\-&#\/ ]*$/u;
+const NAME_RE = /^[\p{L}\p{N}\p{M}][\p{L}\p{N}\p{M}\p{Pc}\p{Pd}'.\-&#\/()+:* ]*$/u;
 function emailDomain(v) {
   const e = normalizeEmailAddr(v);
   const at = e.lastIndexOf("@");

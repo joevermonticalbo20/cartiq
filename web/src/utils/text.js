@@ -60,7 +60,7 @@ export function validateItemName(raw) {
 }
 
 // Mirrors api/src/services/validation.js (keep both in sync).
-const NAME_PATTERN = /^[\p{L}\p{N}\p{M}][\p{L}\p{N}\p{M}\p{Pc}\p{Pd}'.\-&#/ ]*$/u;
+const NAME_PATTERN = /^[\p{L}\p{N}\p{M}][\p{L}\p{N}\p{M}\p{Pc}\p{Pd}'.\-&#/()+:* ]*$/u;
 // eslint-disable-next-line no-control-regex
 const CONTROL_PATTERN = /[\u0000-\u001F\u007F]/g;
 

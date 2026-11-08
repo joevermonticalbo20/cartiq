@@ -21,6 +21,7 @@ test("cleanName collapses whitespace and strips control characters", () => {
 test("validateName accepts normal names", () => {
   assert.equal(validateName("María-Clara Reyes Jr.").ok, true);
   assert.equal(validateName("Pota Fries - Medium").ok, true);
+  assert.equal(validateName("Fries (frozen packs)").ok, true);
   assert.equal(validateName("XL 40").ok, true);
 });
 

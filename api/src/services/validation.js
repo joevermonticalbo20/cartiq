@@ -97,9 +97,10 @@ export async function validateRecoveryEmail(raw) {
 
 const CONTROL_RE = /[\u0000-\u001F\u007F]/g;
 // Allow letters (any script), numbers, spaces, hyphen, apostrophe, period,
-// ampersand, hash, and slash. Everything else (control chars, HTML markup,
-// emoji) is rejected so names cannot be smuggled as code.
-const NAME_RE = /^[\p{L}\p{N}\p{M}][\p{L}\p{N}\p{M}\p{Pc}\p{Pd}'.\-&#\/ ]*$/u;
+// ampersand, hash, parentheses, colon, plus, asterisk, and slash. Everything
+// else (control chars, HTML markup, emoji) is rejected so names cannot be
+// smuggled as code.
+const NAME_RE = /^[\p{L}\p{N}\p{M}][\p{L}\p{N}\p{M}\p{Pc}\p{Pd}'.\-&#\/()+:* ]*$/u;
 const LETTER_RE = /\p{L}/gu;
 
 /** Trim, strip control characters, and collapse repeated whitespace. */
