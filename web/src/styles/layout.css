@@ -599,6 +599,38 @@ button.notif-item-btn:focus-visible {
 }
 .page-container.wide { max-width: 1280px; }
 
+/* ----- Page Loader (PotaFries pop + bounce) ----- */
+.page-loader-wrap {
+  min-height: 60dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 48px 20px;
+}
+.page-loader-img {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  display: block;
+  animation:
+    pageLoaderPop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+    pageLoaderBounce 1.4s ease-in-out 0.55s infinite;
+}
+.page-loader-text { margin: 0; }
+@keyframes pageLoaderPop {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes pageLoaderBounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-14px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-loader-img { animation: none; }
+}
+
 /* ----- Responsive (max-width: 640px): mobile - page container ----- */
 @media (max-width: 640px) {
   .page-container { padding: var(--space-4); }

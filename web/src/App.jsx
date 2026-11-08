@@ -23,10 +23,9 @@ const NotificationsPage = lazy(() => import("./pages/NotificationsPage.jsx"));
 
 function PageFallback() {
   return (
-    <div className="page-container wide">
-      <div className="panel" style={{ padding: "var(--space-5)" }}>
-        <p className="muted small" role="status">Loading page…</p>
-      </div>
+    <div className="page-loader-wrap" role="status">
+      <img src="/logo.png" alt="" className="page-loader-img" />
+      <p className="page-loader-text muted small">Loading page…</p>
     </div>
   );
 }
