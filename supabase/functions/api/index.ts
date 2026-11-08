@@ -2106,11 +2106,6 @@ const INVENTORY_TEMPLATE = [
   { name: "Honey Butter Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
 ];
 
-function countLetters(s) {
-  const m = String(s ?? "").match(/\p{L}/gu);
-  return m ? m.length : 0;
-}
-
 function randomHex(n) {
   const b = new Uint8Array(n);
   crypto.getRandomValues(b);
@@ -6498,6 +6493,7 @@ async function validateRecoveryEmailEdge(raw) {
   }
   return { ok: true, email };
 }
+// deno-lint-ignore no-control-regex
 const _NAME_CONTROL_RE = /[\u0000-\u001F\u007F]/g;
 function cleanNameEdge(raw, max = 100) {
   let s = String(raw ?? "").replace(_NAME_CONTROL_RE, "").replace(/\s+/g, " ").trim();
