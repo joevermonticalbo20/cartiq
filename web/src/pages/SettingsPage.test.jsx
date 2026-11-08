@@ -238,15 +238,13 @@ describe("SettingsPage cart/device confirmations", () => {
     expect(await screen.findByText("Cart CART-01 deactivated")).toBeInTheDocument();
   });
 
-  it("disables edit actions for inactive carts and disabled devices", async () => {
+  it("disables edit actions for inactive carts", async () => {
     api.get.mockImplementation((url) => {
       if (url === "/auth/me") {
         return Promise.resolve({ data: { user: { name: "Owner", role: "OWNER" } } });
       }
       if (url === "/devices") {
-        return Promise.resolve({
-          data: { data: [{ id: 22, device_id: "ESP32-OFF", cart: "CART-02", active: false, online: false, last_seen_at: null }] },
-        });
+        return Promise.resolve({ data: { data: seedDevices } });
       }
       if (url === "/auth/staff") return Promise.resolve({ data: { data: [] } });
       if (url === "/locations") {
@@ -260,8 +258,6 @@ describe("SettingsPage cart/device confirmations", () => {
     expect(await screen.findByText("UNASSIGNED")).toBeInTheDocument();
     const cartPanel = screen.getByText("Carts").closest("section");
     expect(within(cartPanel).getByTitle("Activate the cart before renaming")).toBeDisabled();
-    const devicePanel = screen.getByText("IoT device registry").closest("section");
-    expect(within(devicePanel).getByTitle("Enable the device before editing")).toBeDisabled();
   });
 
   it("asks for confirmation before deleting a device", async () => {

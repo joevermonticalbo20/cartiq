@@ -1572,8 +1572,7 @@ export default function SettingsPage() {
                               <button
                                 className="ghost small-btn"
                                 onClick={() => { setDeviceEditing(d); setDeviceError(""); }}
-                                disabled={!d.active}
-                                title={d.active ? "Edit/Reassign Device" : "Enable the device before editing"}
+                                title="Edit/Reassign Device"
                               >
                                 <Edit2 size={13} />
                               </button>
