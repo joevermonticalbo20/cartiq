@@ -11,10 +11,10 @@ router.get("/alerts", requireAuth, async (req, res, next) => {
     const { unread_only } = req.query;
     const page = Math.max(1, Number(req.query.page) || 1);
     const pageSize = Math.min(Number(req.query.pageSize) || 10, 100);
-    // The bell shows the store's operational feed to OWNER; VOID_DECISION and
-    // RESTOCK_UPDATE alerts are targeted to the requesting staff member, not
-    // the owner who issued the decision.
-    const STAFF_TARGETED_TYPES = ["VOID_DECISION", "RESTOCK_UPDATE"];
+    // The bell shows the store's operational feed to OWNER; targeted staff
+    // decisions and per-cart low-stock notices are for the assigned staff,
+    // not the owner who issued the decision.
+    const STAFF_TARGETED_TYPES = ["VOID_DECISION", "RESTOCK_UPDATE", "LOW_STOCK_NOTIFY"];
     const where = unread_only === "true" ? { isRead: false } : {};
     const isOwner = req.user?.role === "OWNER";
     if (!isOwner) {

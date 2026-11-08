@@ -6,6 +6,7 @@ import {
   restockRequestKey,
   shouldCreateRestockRequest,
 } from "../services/low_stock_alert.js";
+import { notifyAssignedStaffOfLowStock } from "../services/staff_low_stock_notify.js";
 import { validateName } from "../services/validation.js";
 
 const router = Router();
@@ -421,6 +422,15 @@ router.post("/inventory/adjustments", requireAuth, async (req, res, next) => {
         createdAt: alert.createdAt,
         locationId: alert.locationId ?? null,
       });
+      await notifyAssignedStaffOfLowStock({
+        locationId: item.locationId,
+        locationCode: updated.location?.code ?? "",
+        inventoryItemId: item.id,
+        itemName: item.name,
+        stock: updated.stock,
+        threshold: updated.threshold,
+        unit: updated.unit ?? "",
+      }).catch(() => {});
     }
     return res.json({
       item: decorate([updated])[0],

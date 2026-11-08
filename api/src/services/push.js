@@ -4,7 +4,7 @@ import { db as prisma } from "../firestore.js";
 const require = createRequire(import.meta.url);
 const { getMessaging } = require("firebase-admin/messaging");
 
-const PUSH_TYPES = new Set(["VOID_DECISION", "RESTOCK_UPDATE"]);
+const PUSH_TYPES = new Set(["VOID_DECISION", "RESTOCK_UPDATE", "LOW_STOCK_NOTIFY"]);
 // Mobile displays these through the `cartiq_alerts` channel in both paths:
 // native display in the background, and app-owned local notification in the
 // foreground. Android collapses messages with the same collapse key/tag into
@@ -25,9 +25,9 @@ function cleanUserId(value) {
 function pushTitle(alert) {
   const title = String(alert?.title ?? "").trim();
   if (title) return title.slice(0, 200);
-  return alert?.type === "VOID_DECISION"
-    ? "Void request update"
-    : "Restock request update";
+  if (alert?.type === "VOID_DECISION") return "Void request update";
+  if (alert?.type === "LOW_STOCK_NOTIFY") return "Low stock";
+  return "Restock request update";
 }
 
 function pushBody(alert) {

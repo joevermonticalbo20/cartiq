@@ -645,7 +645,7 @@ async function withRetry(fn, attempts) {
 
 // ---------- FCM push for targeted staff alerts ----------
 const FCM_CHANNEL_ID = "cartiq_alerts";
-const PUSH_ALERT_TYPES = new Set(["VOID_DECISION", "RESTOCK_UPDATE"]);
+const PUSH_ALERT_TYPES = new Set(["VOID_DECISION", "RESTOCK_UPDATE", "LOW_STOCK_NOTIFY"]);
 
 /** Best-effort push for the targeted-alert types the mobile app registers for. */
 async function sendTargetedPush(alert) {
@@ -661,7 +661,9 @@ async function sendTargetedPush(alert) {
     const title = String(alert.title ?? "").trim().slice(0, 200) ||
       (alert.type === "VOID_DECISION"
         ? "Void request update"
-        : "Restock request update");
+        : alert.type === "LOW_STOCK_NOTIFY"
+          ? "Low stock"
+          : "Restock request update");
     const body = String(alert.message ?? "").trim().slice(0, 1000);
     const accessToken = await googleAccessToken("https://www.googleapis.com/auth/firebase.messaging");
     for (const token of tokens) {
@@ -712,6 +714,70 @@ async function sendTargetedPush(alert) {
     }
   } catch {
     // Push must never fail the order/restock mutation.
+  }
+}
+
+async function notifyAssignedStaffLowStockEdge({ locationId, locationCode, inventoryItemId, itemName, stock, threshold, unit }) {
+  try {
+    if (!locationId || !inventoryItemId) return [];
+    const users = await fsListAll("users");
+    const staff = users.filter(
+      (u) => Number(u.locationId) === Number(locationId) && u.role === "STAFF" && u.active !== false && Number(u.id) > 0,
+    );
+    const created = [];
+    for (const user of staff) {
+      const prior = await fsQueryEqual("alerts", "userId", user.id, 100).catch(() => []);
+      const duplicate = prior.some(
+        (a) =>
+          String(a.type) === "LOW_STOCK_NOTIFY" &&
+          Number(a.ingredientId) === Number(inventoryItemId) &&
+          Number(a.locationId) === Number(locationId) &&
+          a.isRead === false,
+      );
+      if (duplicate) continue;
+      const counters = await readCounters(["alerts"]);
+      const { ids, writes } = counterWritesFor(counters, { alerts: 1 });
+      const alert = {
+        id: ids.alerts[0],
+        type: "LOW_STOCK_NOTIFY",
+        title: "Low stock",
+        message: `${itemName} @ ${locationCode} at ${stock} ${unit} (threshold ${threshold}) — tap to request restock.`,
+        userId: user.id,
+        locationId: Number(locationId),
+        ingredientId: Number(inventoryItemId),
+        ingredientName: itemName,
+        requestedBy: user.id,
+        requestedByName: user.name ?? user.username ?? null,
+        isRead: false,
+        payload: JSON.stringify({
+          dedupeKey: `low:${locationId}:${inventoryItemId}:staff-${user.id}`,
+          inventoryItemId: Number(inventoryItemId),
+          locationId: Number(locationId),
+          locationCode,
+          stock,
+          threshold,
+          unit,
+        }),
+        createdAt: new Date(),
+      };
+      writes.push(createWrite("alerts", alert.id, alert));
+      await fsCommit(writes);
+      created.push(alert);
+      broadcastEvent("alert:new", {
+        id: alert.id,
+        type: alert.type,
+        userId: alert.userId,
+        title: alert.title,
+        message: alert.message,
+        isRead: false,
+        createdAt: alert.createdAt instanceof Date ? alert.createdAt.toISOString() : new Date().toISOString(),
+        locationId: alert.locationId,
+      }).catch(() => {});
+      sendTargetedPush(alert).catch(() => {});
+    }
+    return created;
+  } catch {
+    return [];
   }
 }
 
@@ -1678,6 +1744,7 @@ async function handleCreateOrder(req, origin, user) {
         createdAt: now, syncedAt: now, voidedBy: null, voidedAt: null, voidReason: null,
       },
       warnings,
+      newAlerts,
     };
   }, 4);
 
@@ -1687,6 +1754,23 @@ async function handleCreateOrder(req, origin, user) {
       return jsonRes(origin, { duplicate: true, order: cleanDoc(winner), warnings: [] }, 200);
     }
     return jsonRes(origin, { error: "Order commit did not persist" }, 500);
+  }
+  for (const low of outcome.newAlerts ?? []) {
+    try {
+      if (String(low?.type) !== "LOW_STOCK") continue;
+      const payload = JSON.parse(low.payload ?? "{}");
+      await notifyAssignedStaffLowStockEdge({
+        locationId: payload.locationId ?? location.id,
+        locationCode: location.code,
+        inventoryItemId: payload.inventoryItemId,
+        itemName: String(low.message ?? "").split(" @ ")[0] || "Item",
+        stock: payload.stock,
+        threshold: payload.threshold,
+        unit: payload.unit ?? "",
+      });
+    } catch {
+      // Targeted push must never fail the sale.
+    }
   }
   return jsonRes(origin, { duplicate: false, order: outcome.order, warnings: outcome.warnings, locationCode: location.code }, 201);
 }
@@ -2778,6 +2862,15 @@ async function handleInventoryAdjustment(req, user) {
     };
     writes.push(createWrite("alerts", alert.id, alert));
     await fsCommit(writes).catch(() => {});
+    await notifyAssignedStaffLowStockEdge({
+      locationId: item.locationId,
+      locationCode: updated.location?.code ?? "",
+      inventoryItemId: item.id,
+      itemName: item.name,
+      stock: updated.stock,
+      threshold: updated.threshold,
+      unit: updated.unit ?? "",
+    });
   }
   return {
     status: 200,
@@ -3069,7 +3162,7 @@ async function handleListAlerts(url, user) {
   if (!isOwner && user?.id != null) {
     filters.push({ field: "userId", op: "EQUAL", value: Number(user.id) });
   }
-  const STAFF_TARGETED_TYPES = ["VOID_DECISION", "RESTOCK_UPDATE"];
+  const STAFF_TARGETED_TYPES = ["VOID_DECISION", "RESTOCK_UPDATE", "LOW_STOCK_NOTIFY"];
   let total = await fsCount("alerts", filters);
   if (isOwner) {
     for (const type of STAFF_TARGETED_TYPES) {
@@ -4230,9 +4323,25 @@ async function handleIotReadings(req, _origin, device) {
     });
     writes.push(updateWrite("devices", device.id, { lastSeenAt: now }, null));
     await fsCommit(writes);
-    return { accepted, rejected };
+    return { accepted, rejected, newAlerts };
   }, 4);
 
+  for (const low of outcome.newAlerts ?? []) {
+    try {
+      const payload = JSON.parse(low.payload ?? "{}");
+      await notifyAssignedStaffLowStockEdge({
+        locationId: payload.locationId ?? location.id,
+        locationCode: location.code,
+        inventoryItemId: payload.inventoryItemId,
+        itemName: String(low.message ?? "").split(" @ ")[0] || "Item",
+        stock: payload.stock,
+        threshold: payload.threshold,
+        unit: payload.unit ?? "",
+      });
+    } catch {
+      // Targeted push must never fail the reading batch.
+    }
+  }
   return { status: 201, body: { accepted: outcome.accepted, rejected: outcome.rejected } };
 }
 

@@ -4,6 +4,7 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import { requireDevice } from "../middleware/device.js";
 import { manilaDayRange, manilaDayStart } from "../services/timezone.js";
 import { lowStockDedupeKey, shouldOpenLowStockAlert } from "../services/low_stock_alert.js";
+import { notifyAssignedStaffOfLowStock } from "../services/staff_low_stock_notify.js";
 import { lookupUid, normalizeRfidUid } from "../services/rfid.js";
 import { readTimeClock, timeClockVerdict } from "../services/time_clock.js";
 import { CLAIM_BOUND, resolveClaim } from "../services/rfid_claims.js";
@@ -164,9 +165,25 @@ router.post("/iot/readings", requireDevice, async (req, res, next) => {
         where: { id: req.device.id },
         data: { lastSeenAt: new Date() },
       });
-      return { accepted, rejected };
+      return { accepted, rejected, newAlerts };
     });
 
+    for (const low of outcome.newAlerts ?? []) {
+      try {
+        const payload = JSON.parse(low.payload ?? "{}");
+        await notifyAssignedStaffOfLowStock({
+          locationId: payload.locationId ?? location.id,
+          locationCode: location.code,
+          inventoryItemId: payload.inventoryItemId,
+          itemName: String(low.message ?? "").split(" @ ")[0] || "Item",
+          stock: payload.stock,
+          threshold: payload.threshold,
+          unit: payload.unit ?? "",
+        });
+      } catch {
+        // Push must never fail a reading batch.
+      }
+    }
     return res.status(201).json({ accepted: outcome.accepted, rejected: outcome.rejected });
   } catch (err) {
     return next(err);

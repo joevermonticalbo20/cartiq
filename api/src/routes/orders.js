@@ -3,6 +3,7 @@ import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole, assertOwnLocation } from "../middleware/auth.js";
 import { flavorSharesForOrderLine, fmtStock, mapsForOrderLine, oversellShortage, planVoidRestores } from "../services/inventory_rules.js";
 import { lowStockDedupeKey, shouldOpenLowStockAlert } from "../services/low_stock_alert.js";
+import { notifyAssignedStaffOfLowStock } from "../services/staff_low_stock_notify.js";
 import { manilaDayRange } from "../services/timezone.js";
 import { IMAGE_MAX_BYTES, IMAGE_PREFIX } from "../services/product_images.js";
 import { emit } from "./events.js";
@@ -223,7 +224,7 @@ router.post("/orders", requireAuth, async (req, res, next) => {
         for (const a of newAlerts) {
           await tx.alert.create({ data: a });
         }
-        return { dup: false, order, warnings };
+        return { dup: false, order, warnings, newAlerts };
       });
 
       if (outcome.dup) {
@@ -236,7 +237,7 @@ router.post("/orders", requireAuth, async (req, res, next) => {
         }
         return next(new Error("Order commit did not persist"));
       }
-      result = { order: outcome.order, warnings: outcome.warnings };
+      result = { order: outcome.order, warnings: outcome.warnings, newAlerts: outcome.newAlerts ?? [] };
     } catch (err) {
       return next(err);
     }
@@ -275,6 +276,7 @@ router.post("/orders", requireAuth, async (req, res, next) => {
       emit("alert:new", {
         id: alert.id,
         type: alert.type,
+        userId: alert.userId ?? null,
         title: alert.title ?? null,
         message: alert.message,
         isRead: alert.isRead === true,
@@ -283,6 +285,23 @@ router.post("/orders", requireAuth, async (req, res, next) => {
       });
     } catch {
       // best-effort only
+    }
+
+    for (const low of result.newAlerts ?? []) {
+      try {
+        const payload = JSON.parse(low.payload ?? "{}");
+        await notifyAssignedStaffOfLowStock({
+          locationId: payload.locationId ?? location.id,
+          locationCode: location.code,
+          inventoryItemId: payload.inventoryItemId,
+          itemName: String(low.message ?? "").split(" @ ")[0] || "Item",
+          stock: payload.stock,
+          threshold: payload.threshold,
+          unit: payload.unit ?? "",
+        });
+      } catch {
+        // Targeted push must never fail the sale.
+      }
     }
 
     return res.status(201).json({ duplicate: false, ...result, locationCode: location.code });
