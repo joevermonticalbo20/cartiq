@@ -113,5 +113,5 @@
 .row-disabled { opacity: 0.55; }
 .hidden { display: none; }
 
-/* ----- Utilities: segmented control row — SensorPanel + DataPage (dating 'misc' block) ----- */
+/* ----- Utilities: segmented control row — DataPage (dating 'misc' block) ----- */
 .seg { display: flex; gap: 6px; flex-wrap: wrap; }

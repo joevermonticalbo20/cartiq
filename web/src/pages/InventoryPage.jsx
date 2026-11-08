@@ -4,7 +4,6 @@ import { CheckSquare, SlidersHorizontal, Square, Boxes, RefreshCw, Plus, Package
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
-import SensorPanel from "../components/SensorPanel.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
@@ -822,10 +821,6 @@ export default function InventoryPage() {
             )}
           </section>
         )}
-
-        <div style={{ marginTop: "var(--space-3)" }}>
-          <SensorPanel code={selected} />
-        </div>
 
         {/* MODALS */}
         

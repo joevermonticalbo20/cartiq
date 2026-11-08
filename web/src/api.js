@@ -224,7 +224,7 @@ export function setupAuthInterceptor(navigate) {
       // error UI (error boxes, empty states, or an explicit toast call), and
       // background reads deliberately swallow failures. A global toast caused
       // phantom "error" popups on page open (e.g. staff hitting owner-only
-      // endpoints in the background, SensorPanel's 5s poll) plus double
+      // endpoints in the background) plus double
       // reporting next to each page's own error display.
       return Promise.reject(error);
     }

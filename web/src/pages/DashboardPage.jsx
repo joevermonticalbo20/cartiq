@@ -23,7 +23,6 @@ import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import Skeleton, { SkeletonCards, SkeletonList, TableSkeleton } from "../components/Skeleton.jsx";
-import SensorPanel from "../components/SensorPanel.jsx";
 import Select from "../components/Select.jsx";
 import { useLiveEvent, useLiveStatus } from "../hooks/useLiveStream.js";
 
@@ -294,16 +293,6 @@ export default function DashboardPage() {
           <div className="dashboard-ops-row">
             <section className="panel" style={{ display: "flex", flexDirection: "column", minHeight: "280px" }}>
               <div className="panel-head" style={{ marginBottom: "16px" }}>
-                <div style={{ width: "120px" }}><Skeleton rows={1} height={24} /></div>
-                <div style={{ width: "90px" }}><Skeleton rows={1} height={28} /></div>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px", flex: 1 }}>
-                <SkeletonList rows={4} />
-              </div>
-            </section>
-            
-            <section className="panel" style={{ display: "flex", flexDirection: "column", minHeight: "280px" }}>
-              <div className="panel-head" style={{ marginBottom: "16px" }}>
                 <div style={{ width: "110px" }}><Skeleton rows={1} height={24} /></div>
                 <div style={{ width: "70px" }}><Skeleton rows={1} height={24} /></div>
               </div>
@@ -395,7 +384,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* ROW 2: TRENDS & LIVE */}
+          {/* ROW 2: TRENDS & STOCK ALERTS */}
           <div className="dashboard-middle-row">
             {trends && trends.by_weekday ? (
               <section className="panel dashboard-trend-panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -423,13 +412,6 @@ export default function DashboardPage() {
               </div>
             )}
             
-            <div style={{ height: "100%" }}>
-              <SensorPanel code={cartFilter || "CART-01"} />
-            </div>
-          </div>
-
-          {/* ROW 3: OPS SUMMARY */}
-          <div className="dashboard-ops-row">
             <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
               <div className="panel-head" style={{ marginBottom: "12px" }}>
                 <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
@@ -444,7 +426,7 @@ export default function DashboardPage() {
                   <button className="ghost small-btn" onClick={() => navigate("/inventory")}>View</button>
                 </div>
               </div>
-              
+
               {activeInventory.length === 0 ? (
                 <EmptyState icon={Boxes} title="No carts configured" subtitle="Stock alerts appear as soon as a cart reports readings." compact />
               ) : (
@@ -479,7 +461,10 @@ export default function DashboardPage() {
                 </div>
               )}
             </section>
-            
+          </div>
+
+          {/* ROW 3: OPS SUMMARY */}
+          <div className="dashboard-ops-row">
             <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
               <div className="panel-head" style={{ marginBottom: "12px" }}>
                 <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
