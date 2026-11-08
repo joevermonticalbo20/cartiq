@@ -457,7 +457,7 @@ describe("SettingsPage administrators", () => {
   it("edits another administrator's name, username and recovery email", async () => {
     api.patch.mockResolvedValue({ data: { user: { id: 3 } } });
     renderOwnerPage();
-    expect(await screen.findByText("Administrators")).toBeInTheDocument();
+    expect(await screen.findByText("Co Owner")).toBeInTheDocument();
     fireEvent.click(screen.getByTitle("Edit admin"));
     const dialog = await screen.findByRole("dialog", { name: "Edit admin account" });
     fireEvent.change(within(dialog).getByLabelText(/Full name/), { target: { value: "Corrected Owner" } });
