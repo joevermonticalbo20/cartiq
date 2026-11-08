@@ -7039,7 +7039,7 @@ async function handleCreateStaff(req) {
 
 async function handlePatchStaff(req, id, me) {
   const body = await req.json().catch(() => null);
-  const { active, password, name, locationCode, rfidUid, email } = body || {};
+  const { active, password, name, username, locationCode, rfidUid, email } = body || {};
   const user = await fsGet("users", id);
   if (!user) return { status: 404, body: { error: "User not found" } };
   if (Number(id) === Number(me.id) && active === false) {
@@ -7048,6 +7048,19 @@ async function handlePatchStaff(req, id, me) {
   const data = {};
   if (active !== undefined) data.active = Boolean(active);
   if (name !== undefined && String(name).trim()) data.name = String(name).trim();
+  if (username !== undefined) {
+    const cleanUsername = String(username ?? "").trim();
+    if (!cleanUsername) {
+      return { status: 400, body: { error: "username cannot be empty" } };
+    }
+    if (cleanUsername !== user.username) {
+      const existing = await fsQueryEqual("users", "username", cleanUsername, 1).then((r) => r[0]).catch(() => null);
+      if (existing && Number(existing.id) !== Number(user.id)) {
+        return { status: 409, body: { error: `Username "${cleanUsername}" already exists` } };
+      }
+      data.username = cleanUsername;
+    }
+  }
   if (password !== undefined) {
     // Resetting staff is intentionally OTP-free. Changing your OWN password
     // is not: that path must use Settings + the recovery-email code.

@@ -939,7 +939,7 @@ router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) 
 
 router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const { active, password, name, locationCode, rfidUid, email } = req.body ?? {};
+    const { active, password, name, username, locationCode, rfidUid, email } = req.body ?? {};
     const user = await prisma.user.findUnique({ where: { id: Number(req.params.id) } });
     if (!user) return res.status(404).json({ error: "User not found" });
     // Owners must not lock themselves out: deactivating your own account
@@ -951,6 +951,19 @@ router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, n
     const data = {};
     if (active !== undefined) data.active = Boolean(active);
     if (name !== undefined && String(name).trim()) data.name = String(name).trim();
+    if (username !== undefined) {
+      const cleanUsername = String(username ?? "").trim();
+      if (!cleanUsername) {
+        return res.status(400).json({ error: "username cannot be empty" });
+      }
+      if (cleanUsername !== user.username) {
+        const occupied = await prisma.user.findUnique({ where: { username: cleanUsername } });
+        if (occupied && occupied.id !== user.id) {
+          return res.status(409).json({ error: `Username "${cleanUsername}" already exists` });
+        }
+        data.username = cleanUsername;
+      }
+    }
     if (password !== undefined) {
       // The owner route is for resetting staff. Changing your OWN password
       // must go through Settings so the recovery-email OTP is required.

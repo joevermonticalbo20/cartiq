@@ -454,6 +454,26 @@ describe("SettingsPage administrators", () => {
     expect(within(panel).getByRole("button", { name: "Disable" })).toBeInTheDocument();
   });
 
+  it("edits another administrator's name, username and recovery email", async () => {
+    api.patch.mockResolvedValue({ data: { user: { id: 3 } } });
+    renderOwnerPage();
+    expect(await screen.findByText("Administrators")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Edit admin"));
+    const dialog = await screen.findByRole("dialog", { name: "Edit admin account" });
+    fireEvent.change(within(dialog).getByLabelText(/Full name/), { target: { value: "Corrected Owner" } });
+    fireEvent.change(within(dialog).getByLabelText(/^Username/), { target: { value: "correctedowner" } });
+    fireEvent.change(within(dialog).getByLabelText(/Recovery email/), { target: { value: "corrected@example.com" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Save Changes/ }));
+    await vi.waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith("/auth/staff/3", {
+        name: "Corrected Owner",
+        username: "correctedowner",
+        email: "corrected@example.com",
+      }),
+    );
+    expect(await screen.findByText('Admin account "correctedowner" updated')).toBeInTheDocument();
+  });
+
   it("creates an owner-level account", async () => {
     renderOwnerPage();
     expect(await screen.findByText("Administrators")).toBeInTheDocument();

@@ -245,6 +245,10 @@ export default function SettingsPage() {
   const [adminClosing, setAdminClosing] = useState(false);
   const [isAdminAdding, setIsAdminAdding] = useState(false);
   const [adminError, setAdminError] = useState("");
+  const [adminEditing, setAdminEditing] = useState(null);
+  const [adminEditClosing, setAdminEditClosing] = useState(false);
+  const [isAdminEditing, setIsAdminEditing] = useState(false);
+  const [adminEditError, setAdminEditError] = useState("");
   const [showNewAdminPw, setShowNewAdminPw] = useState(false);
   const [newAdmin, setNewAdmin] = useState({
     name: "",
@@ -304,6 +308,10 @@ export default function SettingsPage() {
     setAdminClosing(true);
     setTimeout(() => { setAdminOpen(false); setAdminClosing(false); }, 150);
   }
+  function closeAdminEditModal() {
+    setAdminEditClosing(true);
+    setTimeout(() => { setAdminEditing(null); setAdminEditClosing(false); }, 150);
+  }
   function closeResetModal() {
     setResetClosing(true);
     setTimeout(() => { setResetting(null); setResetClosing(false); }, 150);
@@ -337,6 +345,7 @@ export default function SettingsPage() {
   const isAnyModalOpen = 
     addOpen || addClosing ||
     adminOpen || adminClosing ||
+    adminEditing || adminEditClosing ||
     resetting || resetClosing || 
     Boolean(disabling) || 
     emailEditing || emailEditClosing ||
@@ -672,6 +681,56 @@ export default function SettingsPage() {
       setAdminError(getFriendlyError(err, "Create failed - is the username already taken?"));
     } finally {
       setIsAdminAdding(false);
+    }
+  }
+
+  function openEditAdmin(admin) {
+    setAdminEditing({
+      ...admin,
+      email: isPlaceholderEmail(admin?.email) ? "" : admin?.email || "",
+    });
+    setAdminEditError("");
+  }
+
+  async function handleEditAdmin(e) {
+    e.preventDefault();
+    if (!adminEditing) return;
+    const cleanName = String(adminEditing.name ?? "").trim();
+    const cleanUsername = String(adminEditing.username ?? "").trim();
+    if (!cleanName || !cleanUsername) {
+      setAdminEditError("Name and username are required.");
+      return;
+    }
+    setAdminEditError("");
+
+    const original = staff.find((s) => s.id === adminEditing.id);
+    const originalEmail = isPlaceholderEmail(original?.email) ? "" : original?.email || "";
+    if (
+      original &&
+      cleanName === original.name &&
+      cleanUsername === original.username &&
+      String(adminEditing.email || "").trim() === originalEmail
+    ) {
+      toast("No changes - admin details are already up to date.", "info");
+      closeAdminEditModal();
+      return;
+    }
+
+    if (isAdminEditing) return;
+    setIsAdminEditing(true);
+    try {
+      await api.patch(`/auth/staff/${adminEditing.id}`, {
+        name: cleanName,
+        username: cleanUsername,
+        email: String(adminEditing.email || "").trim() || null,
+      });
+      toast(`Admin account "${cleanUsername}" updated`, "success");
+      closeAdminEditModal();
+      loadOwnerData();
+    } catch (err) {
+      setAdminEditError(getFriendlyError(err, "Update failed - is the username or email already taken?"));
+    } finally {
+      setIsAdminEditing(false);
     }
   }
 
@@ -1621,6 +1680,13 @@ export default function SettingsPage() {
                                 <div className="settings-table-actions">
                                   <button
                                     className="ghost small-btn"
+                                    onClick={() => openEditAdmin(a)}
+                                    title="Edit admin"
+                                  >
+                                    <Edit2 size={13} />
+                                  </button>
+                                  <button
+                                    className="ghost small-btn"
                                     onClick={() => {
                                       setResetting(a);
                                       setResetPw("");
@@ -2092,6 +2158,58 @@ export default function SettingsPage() {
                   </button>
                 </div>
                 {adminError && <p className="error-box" role="alert">{adminError}</p>}
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* EDIT ADMIN MODAL */}
+        {(adminEditing || adminEditClosing) && (
+          <div className={`modal-backdrop ${adminEditClosing ? "is-closing" : ""}`}>
+            <div className={`modal ${adminEditClosing ? "is-closing" : ""}`} role="dialog" aria-modal="true" aria-label="Edit admin account" onClick={(e) => e.stopPropagation()}>
+              <h3><Edit2 size={22} className="muted" /> Edit admin account</h3>
+              <form onSubmit={handleEditAdmin} className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
+                <label className="field">
+                  Full name *
+                  <input
+                    required
+                    value={adminEditing?.name || ""}
+                    onChange={(e) => setAdminEditing({ ...adminEditing, name: e.target.value })}
+                    style={{ height: "36px" }}
+                    autoComplete="off"
+                  />
+                </label>
+                <label className="field">
+                  Username *
+                  <input
+                    required
+                    value={adminEditing?.username || ""}
+                    onChange={(e) => setAdminEditing({ ...adminEditing, username: e.target.value })}
+                    style={{ height: "36px" }}
+                    autoComplete="off"
+                  />
+                </label>
+                <label className="field">
+                  Recovery email (optional — lets them reset their own password)
+                  <input
+                    type="email"
+                    placeholder={`${adminEditing?.username || "admin"}@cartiq.local`}
+                    value={adminEditing?.email || ""}
+                    onChange={(e) => setAdminEditing({ ...adminEditing, email: e.target.value })}
+                    autoComplete="email"
+                    style={{ height: "36px" }}
+                  />
+                </label>
+
+                <div className="modal-actions" style={{ marginTop: "var(--space-3)" }}>
+                  <button type="button" className="ghost" onClick={closeAdminEditModal} disabled={isAdminEditing || adminEditClosing}>
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={isAdminEditing || adminEditClosing}>
+                    {isAdminEditing ? "Saving..." : "Save Changes"}
+                  </button>
+                </div>
+                {adminEditError && <p className="error-box" role="alert">{adminEditError}</p>}
               </form>
             </div>
           </div>
