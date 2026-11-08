@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { Trash2, ReceiptText, RefreshCw, X, Plus, Edit2, Wallet } from "lucide-react";
 import api from "../api.js";
@@ -100,6 +100,19 @@ export default function ExpensesPage() {
     return () => clearTimeout(timer);
   }, [loadSummary]);
 
+  // Modal close animations run on a 150ms timer. The timer id is kept so the
+  // timer is cleared on unmount - otherwise it fires setState after teardown
+  // (in tests: "window is not defined" unhandled error, flaky CI).
+  const addCloseTimerRef = useRef(null);
+  const editCloseTimerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (addCloseTimerRef.current) clearTimeout(addCloseTimerRef.current);
+      if (editCloseTimerRef.current) clearTimeout(editCloseTimerRef.current);
+    };
+  }, []);
+
   function handleRefresh() {
     refresh();
     loadSummary();
@@ -115,12 +128,14 @@ export default function ExpensesPage() {
 
   function closeAddModal() {
     setAddClosing(true);
-    setTimeout(() => { setAddOpen(false); setAddClosing(false); }, 150);
+    if (addCloseTimerRef.current) clearTimeout(addCloseTimerRef.current);
+    addCloseTimerRef.current = setTimeout(() => { setAddOpen(false); setAddClosing(false); }, 150);
   }
 
   function closeEditModal() {
     setEditClosing(true);
-    setTimeout(() => { setEditing(null); setEditClosing(false); }, 150);
+    if (editCloseTimerRef.current) clearTimeout(editCloseTimerRef.current);
+    editCloseTimerRef.current = setTimeout(() => { setEditing(null); setEditClosing(false); }, 150);
   }
 
   // --- ADD EXPENSE HANDLER ---
