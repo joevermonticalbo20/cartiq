@@ -474,6 +474,23 @@ describe("SettingsPage administrators", () => {
     expect(await screen.findByText('Admin account "correctedowner" updated')).toBeInTheDocument();
   });
 
+  it("disables edit and reset actions for disabled staff accounts", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/auth/me") {
+        return Promise.resolve({ data: { user: { id: 1, name: "Owner", username: "owner", role: "OWNER" } } });
+      }
+      if (url === "/auth/staff") {
+        return Promise.resolve({ data: { data: [ownerRow, { ...staffRow, active: false }] } });
+      }
+      return emptyOk(url);
+    });
+    renderOwnerPage();
+    expect(await screen.findByText("Stall Staff 1")).toBeInTheDocument();
+    const panel = screen.getByText("Staff accounts").closest("section");
+    expect(within(panel).getByTitle("Enable the account before editing")).toBeDisabled();
+    expect(within(panel).getByTitle("Enable the account before resetting password")).toBeDisabled();
+  });
+
   it("creates an owner-level account", async () => {
     renderOwnerPage();
     expect(await screen.findByText("Administrators")).toBeInTheDocument();

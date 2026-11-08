@@ -1681,7 +1681,8 @@ export default function SettingsPage() {
                                   <button
                                     className="ghost small-btn"
                                     onClick={() => openEditAdmin(a)}
-                                    title="Edit admin"
+                                    disabled={!a.active}
+                                    title={a.active ? "Edit admin" : "Enable the account before editing"}
                                   >
                                     <Edit2 size={13} />
                                   </button>
@@ -1693,7 +1694,8 @@ export default function SettingsPage() {
                                       setResetError("");
                                       setShowResetPw(false);
                                     }}
-                                    title="Reset Password"
+                                    disabled={!a.active}
+                                    title={a.active ? "Reset Password" : "Enable the account before resetting password"}
                                   >
                                     <KeyRound size={13} />
                                   </button>
@@ -1792,7 +1794,8 @@ export default function SettingsPage() {
                               <button
                                 className="ghost small-btn"
                                 onClick={() => { setStaffEditing({...s}); setStaffError(""); }}
-                                title="Edit Staff Details"
+                                disabled={!s.active}
+                                title={s.active ? "Edit Staff Details" : "Enable the account before editing"}
                               >
                                 <Edit2 size={13} />
                               </button>
@@ -1804,7 +1807,8 @@ export default function SettingsPage() {
                                   setResetError("");
                                   setShowResetPw(false);
                                 }}
-                                title="Reset Password"
+                                disabled={!s.active}
+                                title={s.active ? "Reset Password" : "Enable the account before resetting password"}
                               >
                                 <KeyRound size={13} />
                               </button>
