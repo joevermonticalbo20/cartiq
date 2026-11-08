@@ -353,18 +353,38 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
-  /// Change the signed-in account's recovery email. The current password is
-  /// required so a stolen session cannot redirect password recovery.
+  /// Change the signed-in account's recovery email. A 6-digit ownership code
+  /// sent to the NEW inbox is mandatory so a stolen session alone cannot
+  /// redirect password recovery.
+  Future<Map<String, dynamic>> sendEmailVerificationCode(
+    String token, {
+    required String email,
+  }) async {
+    final res = await _send(
+      () => _http.post(
+        _uri('/auth/me/email-otp'),
+        headers: _headers(token: token),
+        body: jsonEncode({'email': email}),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> updateProfile(
     String token, {
     required String email,
     required String currentPassword,
+    required String code,
   }) async {
     final res = await _send(
       () => _http.patch(
         _uri('/auth/me'),
         headers: _headers(token: token),
-        body: jsonEncode({'email': email, 'currentPassword': currentPassword}),
+        body: jsonEncode({
+          'email': email,
+          'currentPassword': currentPassword,
+          'code': code,
+        }),
       ),
     );
     return jsonDecode(res.body) as Map<String, dynamic>;

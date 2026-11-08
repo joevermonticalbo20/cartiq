@@ -18,12 +18,19 @@ import {
   OTP_RESEND_COOLDOWN_MS,
   OTP_PURPOSE_RESET,
   OTP_PURPOSE_CHANGE,
+  OTP_PURPOSE_VERIFY,
   FORGOT_GENERIC_MESSAGE,
   RESET_INVALID_MESSAGE,
   CHANGE_INVALID_MESSAGE,
+  EMAIL_VERIFY_REQUIRED_MESSAGE,
   APP_UPDATE_REQUIRED_MESSAGE,
   RECOVERY_EMAIL_REQUIRED_MESSAGE,
 } from "../services/password_reset.js";
+import {
+  validateName,
+  validateUsername,
+  validateRecoveryEmail,
+} from "../services/validation.js";
 import { emailStatus, sendOtpEmail } from "../services/gmail.js";
 import {
   LOGIN_IP_MAX_ATTEMPTS,
@@ -250,12 +257,90 @@ router.get("/me", requireAuth, async (req, res, next) => {
   }
 });
 
-// PATCH /auth/me { email, currentPassword } - change your own recovery email.
+// POST /auth/me/email-otp - send an ownership code to the NEW recovery
+// email before it can be saved. Bearer + the current password is not needed
+// here (clients require the password at save time); the code itself is the
+// proof that this inbox belongs to the caller.
+router.post("/me/email-otp", requireAuth, changeOtpLimiter, async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const emailCheck = await validateRecoveryEmail(req.body?.email);
+    if (!emailCheck.ok) {
+      return res.status(400).json({ error: emailCheck.error });
+    }
+    const cleanEmail = emailCheck.email;
+    if (cleanEmail === normalizeEmail(user.email)) {
+      return res.json({
+        sent: true,
+        cooldown: true,
+        email: maskEmail(cleanEmail),
+        message: "This address is already your current recovery email.",
+      });
+    }
+    const taken = await prisma.user.findFirst({
+      where: { email: cleanEmail, id: { not: user.id } },
+    });
+    if (taken) return res.status(409).json({ error: "Email already registered" });
+
+    const records = await prisma.passwordReset.findMany({
+      where: { userId: user.id },
+    });
+    const unused = records.filter((r) => !r.used);
+    const freshVerify = unused
+      .filter((r) => otpPurpose(r) === OTP_PURPOSE_VERIFY && normalizeEmail(r.email) === cleanEmail)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+    if (freshVerify && Date.now() - new Date(freshVerify.createdAt).getTime() < OTP_RESEND_COOLDOWN_MS) {
+      const retryAfterMs = OTP_RESEND_COOLDOWN_MS - (Date.now() - new Date(freshVerify.createdAt).getTime());
+      return res.json({
+        sent: true,
+        cooldown: true,
+        retryAfterMs,
+        email: maskEmail(cleanEmail),
+        message: "A code was sent recently. Check your inbox.",
+      });
+    }
+
+    for (const r of unused.filter((x) => otpPurpose(x) === OTP_PURPOSE_VERIFY)) {
+      await prisma.passwordReset.delete({ where: { id: r.id } });
+    }
+    const code = generateOtp();
+    const rec = await prisma.passwordReset.create({
+      data: {
+        userId: user.id,
+        email: cleanEmail,
+        purpose: OTP_PURPOSE_VERIFY,
+        tokenHash: hashOtp(code),
+        expiresAt: new Date(Date.now() + OTP_TTL_MS),
+      },
+    });
+    try {
+      await sendOtpEmail({ to: cleanEmail, code, purpose: OTP_PURPOSE_VERIFY });
+    } catch (err) {
+      await prisma.passwordReset.delete({ where: { id: rec.id } }).catch(() => {});
+      console.error(`[api:email-otp] email delivery failed for user #${user.id}:`, err.message);
+      return res.status(503).json({
+        error: "Email delivery is not available right now. Please try again later.",
+      });
+    }
+    return res.json({
+      sent: true,
+      email: maskEmail(cleanEmail),
+      expiresInMinutes: 10,
+      message: "A 6-digit verification code was sent to that email.",
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// PATCH /auth/me { email, currentPassword, code } - change your own recovery email.
 // The current password is required so a stolen session cannot silently point
-// recovery at another inbox. Placeholder addresses are not accepted here.
+// recovery at another inbox, and the 6-digit code sent to that NEW inbox is
+// required to prove ownership. Placeholder addresses are not accepted here.
 router.patch("/me", requireAuth, passwordCheckLimiter, async (req, res, next) => {
   try {
-    const { email, currentPassword } = req.body ?? {};
+    const { email, currentPassword, code } = req.body ?? {};
     if (!currentPassword) {
       return res.status(400).json({ error: "currentPassword is required" });
     }
@@ -277,6 +362,48 @@ router.patch("/me", requireAuth, passwordCheckLimiter, async (req, res, next) =>
     if (cleanEmail === normalizeEmail(user.email)) {
       return res.json({ user: publicUser(user) });
     }
+    const emailCheck = await validateRecoveryEmail(cleanEmail);
+    if (!emailCheck.ok) return res.status(400).json({ error: emailCheck.error });
+    const cleanCode = String(code ?? "").trim();
+    if (!cleanCode) {
+      return res.status(400).json({ error: EMAIL_VERIFY_REQUIRED_MESSAGE });
+    }
+    if (!/^\d{6}$/.test(cleanCode)) {
+      return res.status(400).json({ error: CHANGE_INVALID_MESSAGE });
+    }
+    const records = await prisma.passwordReset.findMany({
+      where: { userId: user.id },
+    });
+    const rec = records
+      .filter(
+        (r) =>
+          !r.used &&
+          otpPurpose(r) === OTP_PURPOSE_VERIFY &&
+          normalizeEmail(r.email) === cleanEmail,
+      )
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+    const fail = () => res.status(400).json({ error: CHANGE_INVALID_MESSAGE });
+    if (!rec) return fail();
+    if (new Date() > new Date(rec.expiresAt)) {
+      await prisma.passwordReset.delete({ where: { id: rec.id } });
+      return fail();
+    }
+    if ((rec.attempts ?? 0) >= OTP_MAX_ATTEMPTS) {
+      await prisma.passwordReset.delete({ where: { id: rec.id } });
+      return fail();
+    }
+    if (!otpMatches(cleanCode, rec.tokenHash)) {
+      const attempts = (rec.attempts ?? 0) + 1;
+      if (attempts >= OTP_MAX_ATTEMPTS) {
+        await prisma.passwordReset.delete({ where: { id: rec.id } });
+      } else {
+        await prisma.passwordReset.update({
+          where: { id: rec.id },
+          data: { attempts },
+        });
+      }
+      return fail();
+    }
     const taken = await prisma.user.findFirst({
       where: { email: cleanEmail, id: { not: user.id } },
     });
@@ -286,6 +413,7 @@ router.patch("/me", requireAuth, passwordCheckLimiter, async (req, res, next) =>
       data: { email: cleanEmail },
       include: { location: true },
     });
+    await prisma.passwordReset.delete({ where: { id: rec.id } });
     // A code sent to the old address must not still be redeemable after the
     // account points recovery somewhere else.
     await prisma.passwordReset.deleteMany({ where: { userId: user.id } });
@@ -875,24 +1003,27 @@ router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) 
     if (cleanRole !== "STAFF" && cleanRole !== "OWNER") {
       return res.status(400).json({ error: "role must be STAFF or OWNER" });
     }
-    const cleanUsername = String(username ?? "").trim();
-    if (!name || !cleanUsername || !password || String(password).length < 6) {
+    const nameCheck = validateName(name, "Name", 100);
+    if (!nameCheck.ok) return res.status(400).json({ error: nameCheck.error });
+    const usernameCheck = validateUsername(username);
+    if (!usernameCheck.ok) return res.status(400).json({ error: usernameCheck.error });
+    if (!password || String(password).length < 6) {
       return res.status(400).json({ error: "name, username and password (min 6 chars) required" });
     }
     if (Buffer.byteLength(String(password)) > 72) {
       return res.status(400).json({ error: "password must be 6-72 chars (bcrypt limit)" });
     }
-    const exists = await prisma.user.findUnique({ where: { username: cleanUsername } });
-    if (exists) return res.status(409).json({ error: `Username "${cleanUsername}" already exists` });
+    const exists = await prisma.user.findUnique({ where: { username: usernameCheck.value } });
+    if (exists) return res.status(409).json({ error: `Username "${usernameCheck.value}" already exists` });
 
     // Email is optional (recovery via Gmail OTP needs one on file). Stored
-    // lowercase; empty string clears to null.
+    // lowercase; empty string clears to null. Real addresses must be
+    // deliverable (MX check) and not disposable.
     let cleanEmail = null;
     if (email !== undefined && email !== null && String(email).trim() !== "") {
-      cleanEmail = normalizeEmail(email);
-      if (!validEmail(cleanEmail)) {
-        return res.status(400).json({ error: "email must be a valid email address" });
-      }
+      const emailCheck = await validateRecoveryEmail(email);
+      if (!emailCheck.ok) return res.status(400).json({ error: emailCheck.error });
+      cleanEmail = emailCheck.email;
       const emailTaken = await prisma.user.findUnique({ where: { email: cleanEmail } });
       if (emailTaken) return res.status(409).json({ error: "Email already registered" });
     }
@@ -921,8 +1052,8 @@ router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) 
 
     const user = await prisma.user.create({
       data: {
-        name,
-        username: cleanUsername,
+        name: nameCheck.value,
+        username: usernameCheck.value,
         passwordHash: await bcrypt.hash(String(password), 10),
         role: cleanRole,
         active: true,
@@ -950,18 +1081,20 @@ router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, n
 
     const data = {};
     if (active !== undefined) data.active = Boolean(active);
-    if (name !== undefined && String(name).trim()) data.name = String(name).trim();
+    if (name !== undefined) {
+      const nameCheck = validateName(name, "Name", 100);
+      if (!nameCheck.ok) return res.status(400).json({ error: nameCheck.error });
+      data.name = nameCheck.value;
+    }
     if (username !== undefined) {
-      const cleanUsername = String(username ?? "").trim();
-      if (!cleanUsername) {
-        return res.status(400).json({ error: "username cannot be empty" });
-      }
-      if (cleanUsername !== user.username) {
-        const occupied = await prisma.user.findUnique({ where: { username: cleanUsername } });
+      const usernameCheck = validateUsername(username);
+      if (!usernameCheck.ok) return res.status(400).json({ error: usernameCheck.error });
+      if (usernameCheck.value !== user.username) {
+        const occupied = await prisma.user.findUnique({ where: { username: usernameCheck.value } });
         if (occupied && occupied.id !== user.id) {
-          return res.status(409).json({ error: `Username "${cleanUsername}" already exists` });
+          return res.status(409).json({ error: `Username "${usernameCheck.value}" already exists` });
         }
-        data.username = cleanUsername;
+        data.username = usernameCheck.value;
       }
     }
     if (password !== undefined) {
@@ -1017,10 +1150,9 @@ router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, n
       if (email === null || String(email).trim() === "") {
         data.email = null;
       } else {
-        const cleanEmail = normalizeEmail(email);
-        if (!validEmail(cleanEmail)) {
-          return res.status(400).json({ error: "email must be a valid email address" });
-        }
+        const emailCheck = await validateRecoveryEmail(email);
+        if (!emailCheck.ok) return res.status(400).json({ error: emailCheck.error });
+        const cleanEmail = emailCheck.email;
         const taken = await prisma.user.findFirst({
           where: { email: cleanEmail, id: { not: user.id } },
         });

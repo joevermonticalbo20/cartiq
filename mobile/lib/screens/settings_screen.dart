@@ -330,9 +330,12 @@ class SettingsScreenState extends State<SettingsScreen> {
       text: auth.hasRealEmail ? auth.email : '',
     );
     final password = TextEditingController();
+    final code = TextEditingController();
     var obscure = true;
     String? error;
     var pending = false;
+    var sendingCode = false;
+    var codeSent = false;
     var closed = false;
     final saved = await showDialog<bool>(
       context: context,
@@ -355,6 +358,50 @@ class SettingsScreenState extends State<SettingsScreen> {
                 decoration: InputDecoration(
                   labelText: 'Email address',
                   hintText: auth.displayEmail,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.space3),
+              TextField(
+                controller: code,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: InputDecoration(
+                  labelText: 'Verification code',
+                  helperText: codeSent
+                      ? 'A 6-digit code was sent to that email.'
+                      : 'Send a code to that email first.',
+                  suffixIcon: TextButton(
+                    onPressed: sendingCode
+                        ? null
+                        : () async {
+                            final cleanEmail = email.text.trim().toLowerCase();
+                            if (!cleanEmail.contains('@') || cleanEmail.endsWith('@cartiq.local')) {
+                              setDialogState(
+                                () => error = 'Enter a real email address, not a placeholder.',
+                              );
+                              return;
+                            }
+                            setDialogState(() {
+                              sendingCode = true;
+                              error = null;
+                            });
+                            try {
+                              await auth.sendEmailCode(cleanEmail);
+                              if (closed || !dialogContext.mounted) return;
+                              setDialogState(() {
+                                sendingCode = false;
+                                codeSent = true;
+                              });
+                            } on ApiException catch (e) {
+                              if (closed || !dialogContext.mounted) return;
+                              setDialogState(() {
+                                sendingCode = false;
+                                error = e.message;
+                              });
+                            }
+                          },
+                    child: Text(sendingCode ? 'Sending...' : (codeSent ? 'Resend' : 'Send code')),
+                  ),
                 ),
               ),
               const SizedBox(height: AppSpacing.space3),
@@ -402,6 +449,13 @@ class SettingsScreenState extends State<SettingsScreen> {
                         );
                         return;
                       }
+                      final cleanCode = code.text.trim();
+                      if (!RegExp(r'^\d{6}$').hasMatch(cleanCode)) {
+                        setDialogState(
+                          () => error = 'Enter the 6-digit code sent to that email.',
+                        );
+                        return;
+                      }
                       if (password.text.isEmpty) {
                         setDialogState(
                           () => error = 'Enter your current password.',
@@ -416,6 +470,7 @@ class SettingsScreenState extends State<SettingsScreen> {
                         await auth.updateEmail(
                           email: cleanEmail,
                           currentPassword: password.text,
+                          code: cleanCode,
                         );
                         if (dialogContext.mounted) {
                           Navigator.pop(dialogContext, true);
@@ -437,6 +492,7 @@ class SettingsScreenState extends State<SettingsScreen> {
     closed = true;
     email.dispose();
     password.dispose();
+    code.dispose();
     if (saved == true && mounted) {
       AppMessenger.showGlassToast(
         context: context,

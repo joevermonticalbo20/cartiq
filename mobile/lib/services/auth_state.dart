@@ -505,11 +505,21 @@ class AuthState extends ChangeNotifier {
   String get displayEmail =>
       hasRealEmail ? email! : '${user?['username'] ?? 'staff'}@cartiq.local';
 
-  /// Update the recovery email. Needs the current password and a live session;
-  /// the caller surfaces the ApiException text when it fails.
+  /// Update the recovery email. The current password plus a 6-digit code sent
+  /// to the new inbox are both required; the caller surfaces the ApiException
+  /// text when it fails.
+  Future<void> sendEmailCode(String email) async {
+    final activeToken = token;
+    if (activeToken == null) {
+      throw const ApiException('Sign in again to update your email.');
+    }
+    await api.sendEmailVerificationCode(activeToken, email: email);
+  }
+
   Future<void> updateEmail({
     required String email,
     required String currentPassword,
+    required String code,
   }) async {
     final activeToken = token;
     if (activeToken == null) {
@@ -519,6 +529,7 @@ class AuthState extends ChangeNotifier {
       activeToken,
       email: email,
       currentPassword: currentPassword,
+      code: code,
     );
     final updated = data['user'];
     if (updated is Map<String, dynamic>) user = updated;

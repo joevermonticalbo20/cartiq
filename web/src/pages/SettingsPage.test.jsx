@@ -76,6 +76,9 @@ describe("SettingsPage profile states", () => {
       }
       return emptyOk(url);
     });
+    api.post.mockResolvedValue({
+      data: { sent: true, email: "o***@example.com", expiresInMinutes: 10, message: "A 6-digit verification code was sent to that email." },
+    });
     api.patch.mockResolvedValue({
       data: {
         user: {
@@ -93,6 +96,13 @@ describe("SettingsPage profile states", () => {
     fireEvent.change(within(dialog).getByLabelText("Email address"), {
       target: { value: "owner@example.com" },
     });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Send code/ }));
+    await vi.waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith("/auth/me/email-otp", { email: "owner@example.com" }),
+    );
+    fireEvent.change(within(dialog).getByLabelText(/Verification code/), {
+      target: { value: "123456" },
+    });
     fireEvent.change(within(dialog).getByLabelText(/Current password/), {
       target: { value: "oldpass123" },
     });
@@ -101,6 +111,7 @@ describe("SettingsPage profile states", () => {
       expect(api.patch).toHaveBeenCalledWith("/auth/me", {
         email: "owner@example.com",
         currentPassword: "oldpass123",
+        code: "123456",
       }),
     );
     expect(await screen.findByText("owner@example.com")).toBeInTheDocument();

@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { validateName } from "../services/validation.js";
 
 const router = Router();
 
@@ -88,10 +89,11 @@ router.post("/locations", requireAuth, requireRole("OWNER"), async (req, res, ne
     if (!CODE_RE.test(cartCode)) {
       return res.status(400).json({ error: "code must be 3-12 chars: A-Z, 0-9, dash (e.g. CART-04)" });
     }
-    const cartName = String(name ?? "").trim();
-    if (cartName.length < 2 || cartName.length > 120 || countLetters(cartName) < 2) {
-      return res.status(400).json({ error: "name needs at least 2 letters (max 120 characters)" });
+    const nameCheck = validateName(name, "Cart name", 120);
+    if (!nameCheck.ok) {
+      return res.status(400).json({ error: nameCheck.error });
     }
+    const cartName = nameCheck.value;
     const exists = await prisma.location.findUnique({ where: { code: cartCode } });
     if (exists) return res.status(409).json({ error: `Cart "${cartCode}" already exists` });
 
@@ -162,11 +164,11 @@ router.patch("/locations/:id", requireAuth, requireRole("OWNER"), async (req, re
     if (!existing) return res.status(404).json({ error: "Location not found" });
     const data = {};
     if (name !== undefined) {
-      const cartName = String(name).trim();
-      if (cartName.length < 2 || cartName.length > 120 || countLetters(cartName) < 2) {
-        return res.status(400).json({ error: "name needs at least 2 letters (max 120 characters)" });
+      const nameCheck = validateName(name, "Cart name", 120);
+      if (!nameCheck.ok) {
+        return res.status(400).json({ error: nameCheck.error });
       }
-      data.name = cartName;
+      data.name = nameCheck.value;
     }
     if (address !== undefined) {
       data.address = address === null || address === "" ? null : String(address).slice(0, 200);

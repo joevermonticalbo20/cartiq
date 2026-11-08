@@ -3,6 +3,7 @@ import { db as prisma } from "../firestore.js";
 import { requireAuth, assertOwnLocation } from "../middleware/auth.js";
 import { requireRole } from "../middleware/auth.js";
 import { manilaMonthRange } from "../services/timezone.js";
+import { validateName, validateReason } from "../services/validation.js";
 
 const router = Router();
 
@@ -39,8 +40,12 @@ router.post("/expenses", requireAuth, async (req, res, next) => {
   try {
     const { vendor, locationCode, amount, date, source, note, lines, category } =
       req.body ?? {};
-    if (!vendor || !Number.isFinite(+amount) || +amount <= 0 || +amount > 10000000) {
-      return res.status(400).json({ error: "vendor and amount 0-10000000 are required" });
+    const vendorCheck = validateName(vendor, "Vendor", 40);
+    if (!vendorCheck.ok) {
+      return res.status(400).json({ error: vendorCheck.error });
+    }
+    if (!Number.isFinite(+amount) || +amount <= 0 || +amount > 10000000) {
+      return res.status(400).json({ error: "amount 0-10000000 is required" });
     }
     const src = source === "OCR" ? "OCR" : "MANUAL";
     const cat = category ?? "Supplies";
@@ -54,6 +59,15 @@ router.post("/expenses", requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: "date must be a valid date" });
     }
 
+    let cleanNote = null;
+    if (note !== undefined && note !== null && String(note).trim() !== "") {
+      const noteCheck = validateReason(note, "Note");
+      if (!noteCheck.ok) {
+        return res.status(400).json({ error: noteCheck.error });
+      }
+      cleanNote = noteCheck.value;
+    }
+
     let locationId = null;
     if (locationCode) {
       const loc = await prisma.location.findUnique({ where: { code: String(locationCode) } });
@@ -65,13 +79,13 @@ router.post("/expenses", requireAuth, async (req, res, next) => {
 
     const expense = await prisma.expense.create({
       data: {
-        vendor: String(vendor).slice(0, 120),
+        vendor: vendorCheck.value,
         locationId,
         amount: +amount,
         date: date ? parsedDate : new Date(),
         source: src,
         category: cat,
-        note: note ? String(note).slice(0, 500) : null,
+        note: cleanNote,
         lines: Array.isArray(lines) ? JSON.stringify(lines).slice(0, 4000) : null,
       },
       include: { location: { select: { code: true, name: true } } },
@@ -161,7 +175,13 @@ router.patch("/expenses/:id", requireAuth, requireRole("OWNER"), async (req, res
   try {
     const { vendor, amount, date, note, category } = req.body ?? {};
     const data = {};
-    if (vendor !== undefined) data.vendor = String(vendor).slice(0, 120);
+    if (vendor !== undefined) {
+      const vendorCheck = validateName(vendor, "Vendor", 40);
+      if (!vendorCheck.ok) {
+        return res.status(400).json({ error: vendorCheck.error });
+      }
+      data.vendor = vendorCheck.value;
+    }
     if (category !== undefined) {
       if (!EXPENSE_CATEGORIES.includes(category)) {
         return res.status(400).json({ error: `category must be one of: ${EXPENSE_CATEGORIES.join(", ")}` });
@@ -181,7 +201,17 @@ router.patch("/expenses/:id", requireAuth, requireRole("OWNER"), async (req, res
       }
       data.date = parsedDate;
     }
-    if (note !== undefined) data.note = String(note).slice(0, 500);
+    if (note !== undefined) {
+      if (note === null || String(note).trim() === "") {
+        data.note = null;
+      } else {
+        const noteCheck = validateReason(note, "Note");
+        if (!noteCheck.ok) {
+          return res.status(400).json({ error: noteCheck.error });
+        }
+        data.note = noteCheck.value;
+      }
+    }
 
     const existing = await prisma.expense.findUnique({ where: { id: Number(req.params.id) } });
     if (!existing) return res.status(404).json({ error: "Expense not found" });

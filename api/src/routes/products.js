@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db as prisma, bumpCatalogVersion } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { sortFlavorRows } from "../services/flavor_order.js";
+import { validateName } from "../services/validation.js";
 import {
   IMAGE_MAX_BYTES,
   IMAGE_PREFIX,
@@ -30,8 +31,7 @@ function countLetters(s) {
 }
 
 function validProductName(name) {
-  const n = String(name ?? "").trim();
-  return n.length >= 2 && n.length <= 120 && countLetters(n) >= 2;
+  return validateName(name, "Product name", 120).ok;
 }
 
 async function flavorByIdOr404(ids) {
@@ -71,10 +71,11 @@ async function resolveFlavorEntries(entries) {
       id = Number(rawId);
       if (!byId.has(id)) return { error: "One or more flavors not found" };
     } else {
-      const name = String(asObj ? (asObj.name ?? "") : (e ?? "")).trim();
-      if (!name || name.length > 60) {
-        return { error: "flavor name must be 1-60 characters" };
+      const nameCheck = validateName(asObj ? (asObj.name ?? "") : (e ?? ""), "Flavor name", 60);
+      if (!nameCheck.ok) {
+        return { error: nameCheck.error };
       }
+      const name = nameCheck.value;
       const hit = byName.get(name.toLowerCase());
       if (hit) {
         id = Number(hit.id);
@@ -142,11 +143,11 @@ async function applyFullFlavorList({ existing, flavors, removeRecipes }) {
 // Validate one recipe row { itemName, amountPerUnit }. Returns the cleaned
 // row or null.
 function validRecipeRow(r) {
-  const itemName = String(r?.itemName ?? "").trim();
+  const checked = validateName(r?.itemName, "Recipe item", 120);
+  if (!checked.ok) return null;
   const amount = Number(r?.amountPerUnit);
-  if (!itemName || itemName.length > 120) return null;
   if (!Number.isFinite(amount) || amount <= 0) return null;
-  return { itemName, amountPerUnit: amount };
+  return { itemName: checked.value, amountPerUnit: amount };
 }
 
 // Upsert recipe rows for one (productName, flavorName) pair. Same-triple
@@ -752,10 +753,11 @@ router.get("/flavors", requireAuth, async (_req, res, next) => {
 // Body: { name* }
 router.post("/flavors", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const flavorName = String(req.body?.name ?? "").trim();
-    if (flavorName.length < 1 || flavorName.length > 60) {
-      return res.status(400).json({ error: "name must be 1-60 characters" });
+    const nameCheck = validateName(req.body?.name, "Flavor name", 60);
+    if (!nameCheck.ok) {
+      return res.status(400).json({ error: nameCheck.error });
     }
+    const flavorName = nameCheck.value;
     const existing = await prisma.flavor.findMany();
     if (existing.some((f) => f.name.toLowerCase() === flavorName.toLowerCase())) {
       return res.status(409).json({ error: `Flavor "${flavorName}" already exists` });
@@ -774,10 +776,11 @@ router.post("/flavors", requireAuth, requireRole("OWNER"), async (req, res, next
 // Body: { name* }
 router.patch("/flavors/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const nextName = String(req.body?.name ?? "").trim();
-    if (!nextName || nextName.length > 60) {
-      return res.status(400).json({ error: "name must be 1-60 characters" });
+    const nameCheck = validateName(req.body?.name, "Flavor name", 60);
+    if (!nameCheck.ok) {
+      return res.status(400).json({ error: nameCheck.error });
     }
+    const nextName = nameCheck.value;
     const existing = await prisma.flavor.findUnique({ where: { id: Number(req.params.id) } });
     if (!existing) return res.status(404).json({ error: "Flavor not found" });
     if (nextName.toLowerCase() === existing.name.toLowerCase()) {

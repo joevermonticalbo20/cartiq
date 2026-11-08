@@ -23,6 +23,7 @@
 import {
   OTP_PURPOSE_CHANGE,
   OTP_PURPOSE_RESET,
+  OTP_PURPOSE_VERIFY,
   isPlaceholderEmail,
   maskEmail,
 } from "./password_reset.js";
@@ -323,10 +324,28 @@ export function changeEmailContent(code) {
   };
 }
 
+/** Subject + body for a recovery-email ownership check. */
+export function verifyEmailContent(code) {
+  return {
+    subject: "Verify your email — CartIQ",
+    text:
+      `Your CartIQ email verification code is:\n\n${code}\n\n` +
+      `It expires in 10 minutes and can only be used once.\n` +
+      `If you didn't ask to verify this email, no account change was made.\n\n` +
+      `- CartIQ (Pota Fries Operations)`,
+    html: otpEmailHtml(
+      code,
+      "Verify your email",
+      "Use this code to confirm this inbox belongs to your CartIQ account. It expires in 10 minutes and can only be used once.",
+      "🔒 If you didn't request this code, ignore this email. No account changes were made.",
+    ),
+  };
+}
+
 export function otpEmailContent(code, purpose = OTP_PURPOSE_RESET) {
-  return purpose === OTP_PURPOSE_CHANGE
-    ? changeEmailContent(code)
-    : resetEmailContent(code);
+  if (purpose === OTP_PURPOSE_CHANGE) return changeEmailContent(code);
+  if (purpose === OTP_PURPOSE_VERIFY) return verifyEmailContent(code);
+  return resetEmailContent(code);
 }
 
 /**

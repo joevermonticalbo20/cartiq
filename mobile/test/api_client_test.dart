@@ -338,12 +338,14 @@ void main() {
           'access-token',
           email: 'new@example.com',
           currentPassword: 'oldpass1',
+          code: '482916',
         );
         expect(seen!.method, 'PATCH');
         expect(seen!.url.path, endsWith('/auth/me'));
         expect(jsonDecode(seen!.body), {
           'email': 'new@example.com',
           'currentPassword': 'oldpass1',
+          'code': '482916',
         });
         expect((data['user'] as Map)['email'], 'new@example.com');
       },

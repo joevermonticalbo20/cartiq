@@ -166,7 +166,7 @@ describe("applyFullFlavorList (PATCH /products/:id flavors)", () => {
       flavors: [{ name: "  " }],
       removeRecipes: [],
     });
-    assert.equal(blank.error, "flavor name must be 1-60 characters");
+    assert.equal(blank.error, "Flavor name is required.");
   });
 
   it("returns no change for an identical list", async () => {

@@ -6,6 +6,7 @@ import {
   restockRequestKey,
   shouldCreateRestockRequest,
 } from "../services/low_stock_alert.js";
+import { validateName } from "../services/validation.js";
 
 const router = Router();
 
@@ -265,10 +266,11 @@ router.post("/inventory/items", requireAuth, async (req, res, next) => {
     if (locationId !== undefined && !Number.isInteger(+locationId)) {
       return res.status(400).json({ error: "locationId must be an integer" });
     }
-    const itemName = String(name ?? "").trim().slice(0, 120);
-    if (!itemName) {
-      return res.status(400).json({ error: "name is required" });
+    const nameCheck = validateName(name, "Item name", 120);
+    if (!nameCheck.ok) {
+      return res.status(400).json({ error: nameCheck.error });
     }
+    const itemName = nameCheck.value;
     const unitStr = String(unit ?? "pcs").trim().slice(0, 20) || "pcs";
     const stockNum = stock === undefined || stock === "" ? 0 : +stock;
     const thresholdNum = threshold === undefined || threshold === "" ? 0 : +threshold;

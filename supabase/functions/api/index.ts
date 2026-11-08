@@ -2371,10 +2371,11 @@ async function handleCreateLocation(req, _origin) {
   if (!CODE_RE.test(cartCode)) {
     return { status: 400, body: { error: "code must be 3-12 chars: A-Z, 0-9, dash (e.g. CART-04)" } };
   }
-  const cartName = String(name ?? "").trim();
-  if (cartName.length < 2 || cartName.length > 120 || countLetters(cartName) < 2) {
-    return { status: 400, body: { error: "name needs at least 2 letters (max 120 characters)" } };
+  const nameCheck = validateNameEdge(name, "Cart name", 120);
+  if (!nameCheck.ok) {
+    return { status: 400, body: { error: nameCheck.error } };
   }
+  const cartName = nameCheck.value;
   if (await fsQueryEqual("locations", "code", cartCode, 1).then((r) => r[0])) {
     return { status: 409, body: { error: `Cart "${cartCode}" already exists` } };
   }
@@ -2431,11 +2432,11 @@ async function handlePatchLocation(req, _origin, id) {
   if (!existing) return { status: 404, body: { error: "Location not found" } };
   const data = {};
   if (name !== undefined) {
-    const cartName = String(name).trim();
-    if (cartName.length < 2 || cartName.length > 120 || countLetters(cartName) < 2) {
-      return { status: 400, body: { error: "name needs at least 2 letters (max 120 characters)" } };
+    const nameCheck = validateNameEdge(name, "Cart name", 120);
+    if (!nameCheck.ok) {
+      return { status: 400, body: { error: nameCheck.error } };
     }
-    data.name = cartName;
+    data.name = nameCheck.value;
   }
   if (address !== undefined) {
     data.address = address === null || address === "" ? null : String(address).slice(0, 200);
@@ -2658,10 +2659,11 @@ async function handleCreateInventoryItem(req) {
   if (locationId !== undefined && !Number.isInteger(+locationId)) {
     return { status: 400, body: { error: "locationId must be an integer" } };
   }
-  const itemName = String(name ?? "").trim().slice(0, 120);
-  if (!itemName) {
-    return { status: 400, body: { error: "name is required" } };
+  const nameCheck = validateNameEdge(name, "Item name", 120);
+  if (!nameCheck.ok) {
+    return { status: 400, body: { error: nameCheck.error } };
   }
+  const itemName = nameCheck.value;
   const unitStr = String(unit ?? "pcs").trim().slice(0, 20) || "pcs";
   const stockNum = stock === undefined || stock === "" ? 0 : +stock;
   const thresholdNum = threshold === undefined || threshold === "" ? 0 : +threshold;
@@ -3286,8 +3288,7 @@ async function handleDailyReport(url) {
 
 // ---------- products + flavors (mirror api/src/routes/products.js) ----------
 function validProductName(name) {
-  const n = String(name ?? "").trim();
-  return n.length >= 2 && n.length <= 120 && countLetters(n) >= 2;
+  return validateNameEdge(name, "Product name", 120).ok;
 }
 
 function validPrice(v) {
@@ -3296,11 +3297,11 @@ function validPrice(v) {
 }
 
 function validRecipeRow(r) {
-  const itemName = String(r?.itemName ?? "").trim();
+  const checked = validateNameEdge(r?.itemName, "Recipe item", 120);
+  if (!checked.ok) return null;
   const amount = Number(r?.amountPerUnit);
-  if (!itemName || itemName.length > 120) return null;
   if (!Number.isFinite(amount) || amount <= 0) return null;
-  return { itemName, amountPerUnit: amount };
+  return { itemName: checked.value, amountPerUnit: amount };
 }
 
 async function resolveFlavorEntries(entries) {
@@ -3321,10 +3322,9 @@ async function resolveFlavorEntries(entries) {
       id = Number(rawId);
       if (!byId.has(id)) return { error: "One or more flavors not found" };
     } else {
-      const name = String(asObj ? (asObj.name ?? "") : (e ?? "")).trim();
-      if (!name || name.length > 60) {
-        return { error: "flavor name must be 1-60 characters" };
-      }
+      const nameCheck = validateNameEdge(asObj ? (asObj.name ?? "") : (e ?? ""), "Flavor name", 60);
+      if (!nameCheck.ok) return { error: nameCheck.error };
+      const name = nameCheck.value;
       const hit = byName.get(name.toLowerCase());
       if (hit) {
         id = Number(hit.id);
@@ -3988,10 +3988,11 @@ async function handleListFlavors() {
 
 async function handleCreateFlavor(req) {
   const body = await req.json().catch(() => null);
-  const flavorName = String(body?.name ?? "").trim();
-  if (flavorName.length < 1 || flavorName.length > 60) {
-    return { status: 400, body: { error: "name must be 1-60 characters" } };
+  const nameCheck = validateNameEdge(body?.name, "Flavor name", 60);
+  if (!nameCheck.ok) {
+    return { status: 400, body: { error: nameCheck.error } };
   }
+  const flavorName = nameCheck.value;
   const existing = await fsListAll("flavors");
   if (existing.some((f) => String(f.name).toLowerCase() === flavorName.toLowerCase())) {
     return { status: 409, body: { error: `Flavor "${flavorName}" already exists` } };
@@ -4014,10 +4015,11 @@ async function handleCreateFlavor(req) {
 
 async function handleRenameFlavor(req, id) {
   const body = await req.json().catch(() => null);
-  const nextName = String(body?.name ?? "").trim();
-  if (!nextName || nextName.length > 60) {
-    return { status: 400, body: { error: "name must be 1-60 characters" } };
+  const nameCheck = validateNameEdge(body?.name, "Flavor name", 60);
+  if (!nameCheck.ok) {
+    return { status: 400, body: { error: nameCheck.error } };
   }
+  const nextName = nameCheck.value;
   const existing = await fsGet("flavors", id);
   if (!existing) return { status: 404, body: { error: "Flavor not found" } };
   if (nextName.toLowerCase() === String(existing.name).toLowerCase()) {
@@ -4720,8 +4722,12 @@ function manilaMonthRange(month) {
 async function handleCreateExpense(req, user) {
   const body = await req.json().catch(() => null);
   const { vendor, locationCode, amount, date, source, note, lines, category } = body || {};
-  if (!vendor || !Number.isFinite(+amount) || +amount <= 0 || +amount > 10000000) {
-    return { status: 400, body: { error: "vendor and amount 0-10000000 are required" } };
+  const vendorCheck = validateNameEdge(vendor, "Vendor", 40);
+  if (!vendorCheck.ok) {
+    return { status: 400, body: { error: vendorCheck.error } };
+  }
+  if (!Number.isFinite(+amount) || +amount <= 0 || +amount > 10000000) {
+    return { status: 400, body: { error: "amount 0-10000000 is required" } };
   }
   const src = source === "OCR" ? "OCR" : "MANUAL";
   const cat = category ?? "Supplies";
@@ -4745,7 +4751,7 @@ async function handleCreateExpense(req, user) {
     const { ids, writes } = counterWritesFor(counters, { expenses: 1 });
     const doc = {
       id: ids.expenses[0],
-      vendor: String(vendor).slice(0, 120),
+      vendor: vendorCheck.value,
       locationId,
       amount: +amount,
       date: date ? parsedDate : new Date(),
@@ -4847,7 +4853,13 @@ async function handlePatchExpense(req, id) {
   const body = await req.json().catch(() => null);
   const { vendor, amount, date, note, category } = body || {};
   const data = {};
-  if (vendor !== undefined) data.vendor = String(vendor).slice(0, 120);
+  if (vendor !== undefined) {
+    const vendorCheck = validateNameEdge(vendor, "Vendor", 40);
+    if (!vendorCheck.ok) {
+      return { status: 400, body: { error: vendorCheck.error } };
+    }
+    data.vendor = vendorCheck.value;
+  }
   if (category !== undefined) {
     if (!EXPENSE_CATEGORIES.includes(category)) {
       return { status: 400, body: { error: `category must be one of: ${EXPENSE_CATEGORIES.join(", ")}` } };
@@ -6360,9 +6372,12 @@ const OTP_MAX_ATTEMPTS = 5;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 const OTP_PURPOSE_RESET = "reset";
 const OTP_PURPOSE_CHANGE = "change";
+const OTP_PURPOSE_VERIFY = "verify";
 const FORGOT_GENERIC_MESSAGE = "If an account exists for this email, a reset code was sent.";
 const RESET_INVALID_MESSAGE = "Invalid or expired code.";
 const CHANGE_INVALID_MESSAGE = "Invalid or expired code.";
+const EMAIL_VERIFY_REQUIRED_MESSAGE =
+  "Enter the 6-digit code sent to that email. If your CartIQ app has no code field, update to the latest version.";
 const APP_UPDATE_REQUIRED_MESSAGE =
   "Enter the 6-digit code sent to your recovery email. If your CartIQ app has no code field, update to the latest version.";
 const RECOVERY_EMAIL_REQUIRED_MESSAGE =
@@ -6399,7 +6414,9 @@ function otpEqualsHex(aHex, bHex) {
 
 /** Legacy rows have no purpose and must keep behaving as resets. */
 function otpPurpose(rec) {
-  return rec?.purpose === OTP_PURPOSE_CHANGE ? OTP_PURPOSE_CHANGE : OTP_PURPOSE_RESET;
+  const p = rec?.purpose;
+  if (p === OTP_PURPOSE_CHANGE || p === OTP_PURPOSE_VERIFY) return p;
+  return OTP_PURPOSE_RESET;
 }
 
 function isPlaceholderEmail(v) {
@@ -6414,6 +6431,108 @@ function maskEmail(v) {
   const domain = email.slice(at + 1);
   const shown = local.slice(0, Math.min(2, local.length));
   return `${shown}${"*".repeat(Math.max(3, local.length - shown.length))}@${domain}`;
+}
+
+// ---------- shared input validation (mirror api/src/services/validation.js) --
+const USERNAME_RE = /^[a-z0-9._-]{3,30}$/;
+const DISPOSABLE_EMAIL_DOMAINS = new Set([
+  "mailinator.com",
+  "guerrillamail.com",
+  "10minutemail.com",
+  "tempmail.com",
+  "throwawaymail.com",
+  "yopmail.com",
+  "sharklasers.com",
+  "maildrop.cc",
+  "getnada.com",
+  "fakeinbox.com",
+  "temp-mail.org",
+  "dispostable.com",
+]);
+const NAME_RE = /^[\p{L}\p{N}\p{M}][\p{L}\p{N}\p{M}\p{Pc}\p{Pd}'.\-&#\/ ]*$/u;
+function emailDomain(v) {
+  const e = normalizeEmailAddr(v);
+  const at = e.lastIndexOf("@");
+  return at > 0 ? e.slice(at + 1) : null;
+}
+function isDisposableEmail(v) {
+  const domain = emailDomain(v);
+  if (!domain) return false;
+  const root = domain.split(".").slice(-2).join(".");
+  return DISPOSABLE_EMAIL_DOMAINS.has(domain) || DISPOSABLE_EMAIL_DOMAINS.has(root);
+}
+const _mxCache = new Map();
+async function hasMailExchangeEdge(domain) {
+  const d = String(domain ?? "").trim().toLowerCase().replace(/^\./, "");
+  if (!d) return false;
+  const now = Date.now();
+  const hit = _mxCache.get(d);
+  if (hit && hit.exp > now) return hit.ok;
+  let ok = false;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(
+      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(d)}&type=MX`,
+      { headers: { accept: "application/dns-json" }, signal: controller.signal },
+    );
+    clearTimeout(timeout);
+    if (res.ok) {
+      const json = await res.json();
+      ok = Array.isArray(json?.Answer) && json.Answer.length > 0;
+    }
+  } catch {
+    ok = false;
+  }
+  _mxCache.set(d, { exp: now + 10 * 60 * 1000, ok });
+  return ok;
+}
+async function validateRecoveryEmailEdge(raw) {
+  const email = normalizeEmailAddr(raw);
+  if (!email || !validEmailAddr(email)) return { ok: false, email, error: "email must be a valid email address" };
+  if (isPlaceholderEmail(email)) return { ok: false, email, error: "Enter a real email address, not a placeholder" };
+  if (isDisposableEmail(email)) return { ok: false, email, error: "Disposable email domains are not allowed for recovery" };
+  const domain = emailDomain(email);
+  if (!domain || !(await hasMailExchangeEdge(domain))) {
+    return { ok: false, email, error: "This email domain does not exist (check spelling)" };
+  }
+  return { ok: true, email };
+}
+const _NAME_CONTROL_RE = /[\u0000-\u001F\u007F]/g;
+function cleanNameEdge(raw, max = 100) {
+  let s = String(raw ?? "").replace(_NAME_CONTROL_RE, "").replace(/\s+/g, " ").trim();
+  if (s.length > max) s = s.slice(0, max);
+  return s;
+}
+const _LETTER_RE = /\p{L}/gu;
+function validateNameEdge(raw, label = "Name", max = 100) {
+  const value = cleanNameEdge(raw, max);
+  if (!value) return { ok: false, value, error: `${label} is required.` };
+  if (value.length < 2) return { ok: false, value, error: `${label} needs at least 2 characters.` };
+  const letters = value.match(_LETTER_RE);
+  if (!letters || letters.length < 2) return { ok: false, value, error: `${label} needs at least 2 letters.` };
+  if (!NAME_RE.test(value)) {
+    return { ok: false, value, error: `${label} may contain only letters, numbers, spaces, -, ', ., #, / and &. ` };
+  }
+  return { ok: true, value };
+}
+function cleanUsernameEdge(raw) {
+  return String(raw ?? "").trim().toLowerCase();
+}
+function validateUsernameEdge(raw) {
+  const value = cleanUsernameEdge(raw);
+  if (!value) return { ok: false, value, error: "Username is required." };
+  if (!USERNAME_RE.test(value)) {
+    return {
+      ok: false,
+      value,
+      error: "Username must be 3-30 chars: a-z, 0-9, dot, underscore or hyphen.",
+    };
+  }
+  if (value.startsWith(".") || value.endsWith(".") || value.includes("..")) {
+    return { ok: false, value, error: "Username cannot start or end with a dot, and cannot have consecutive dots." };
+  }
+  return { ok: true, value };
 }
 
 // ---------- per-isolate public-endpoint rate limiting ----------
@@ -6593,10 +6712,28 @@ function changeEmailContent(code) {
   };
 }
 
+/** Subject + body for a recovery-email ownership check. */
+function verifyEmailContent(code) {
+  return {
+    subject: "Verify your email — CartIQ",
+    text:
+      `Your CartIQ email verification code is:\n\n${code}\n\n` +
+      `It expires in 10 minutes and can only be used once.\n` +
+      `If you didn't ask to verify this email, no account change was made.\n\n` +
+      `— CartIQ (Pota Fries Operations)`,
+    html: otpEmailHtml(
+      code,
+      "Verify your email",
+      "Use this code to confirm this inbox belongs to your CartIQ account. It expires in 10 minutes and can only be used once.",
+      "If you didn't request this code, ignore this email. No account changes were made.",
+    ),
+  };
+}
+
 function otpEmailContent(code, purpose = OTP_PURPOSE_RESET) {
-  return purpose === OTP_PURPOSE_CHANGE
-    ? changeEmailContent(code)
-    : resetEmailContent(code);
+  if (purpose === OTP_PURPOSE_CHANGE) return changeEmailContent(code);
+  if (purpose === OTP_PURPOSE_VERIFY) return verifyEmailContent(code);
+  return resetEmailContent(code);
 }
 
 async function sendOtpEmailEdge({ to, code, purpose = OTP_PURPOSE_RESET }) {
@@ -6840,12 +6977,87 @@ async function handleVerifyResetCode(req, origin) {
 }
 
 // ---------- staff + password (mirror the rest of api/src/routes/auth.js) ----------
+async function handleMeEmailOtp(req, user) {
+  if (!edgeRateAllowed(`emailotp:${clientIp(req)}|${user.id}`, 10, 60 * 60 * 1000)) {
+    return { status: 429, body: { error: "Too many code requests - please try again later" } };
+  }
+  const body = await req.json().catch(() => null);
+  const emailCheck = await validateRecoveryEmailEdge(body?.email);
+  if (!emailCheck.ok) return { status: 400, body: { error: emailCheck.error } };
+  const email = emailCheck.email;
+  if (email === normalizeEmailAddr(user.email)) {
+    return {
+      status: 200,
+      body: {
+        sent: true,
+        cooldown: true,
+        email: maskEmail(email),
+        message: "This address is already your current recovery email.",
+      },
+    };
+  }
+  const taken = await fsQueryEqual("users", "email", email, 1);
+  if (taken.some((u) => Number(u.id) !== Number(user.id))) {
+    return { status: 409, body: { error: "Email already registered" } };
+  }
+  const records = await fsQueryEqual("passwordResets", "userId", user.id, 100);
+  const unused = records.filter((r) => !r.used);
+  const freshVerify = unused
+    .filter((r) => otpPurpose(r) === OTP_PURPOSE_VERIFY && normalizeEmailAddr(r.email) === email)
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0];
+  if (freshVerify) {
+    const age = Date.now() - new Date(freshVerify.createdAt || 0).getTime();
+    if (age < OTP_RESEND_COOLDOWN_MS) {
+      return {
+        status: 200,
+        body: {
+          sent: true,
+          cooldown: true,
+          retryAfterMs: OTP_RESEND_COOLDOWN_MS - age,
+          email: maskEmail(email),
+          message: "A code was sent recently. Check your inbox.",
+        },
+      };
+    }
+  }
+  for (const r of unused.filter((x) => otpPurpose(x) === OTP_PURPOSE_VERIFY)) {
+    await fsDeleteByName(r._name).catch(() => {});
+  }
+  const code = generateOtpCode();
+  const rec = await fsCreate("passwordResets", null, {
+    userId: user.id,
+    email,
+    purpose: OTP_PURPOSE_VERIFY,
+    tokenHash: await sha256Hex(code),
+    expiresAt: new Date(Date.now() + OTP_TTL_MS),
+    used: false,
+    attempts: 0,
+    createdAt: new Date(),
+  });
+  try {
+    await sendOtpEmailEdge({ to: email, code, purpose: OTP_PURPOSE_VERIFY });
+  } catch (e) {
+    if (rec?._name) await fsDeleteByName(rec._name).catch(() => {});
+    console.error(`[api:email-otp] email delivery failed for user #${user.id}:`, String((e && e.message) || e));
+    return { status: 503, body: { error: "Email delivery is not available right now. Please try again later." } };
+  }
+  return {
+    status: 200,
+    body: {
+      sent: true,
+      email: maskEmail(email),
+      expiresInMinutes: 10,
+      message: "A 6-digit verification code was sent to that email.",
+    },
+  };
+}
+
 async function handlePatchMe(req, origin, user) {
   if (!edgeRateAllowed(`profile:${clientIp(req)}|${user.id}`, 10, 15 * 60 * 1000)) {
     return jsonRes(origin, { error: "Too many attempts - please try again later" }, 429);
   }
   const body = await req.json().catch(() => null);
-  const { email, currentPassword } = body || {};
+  const { email, currentPassword, code } = body || {};
   if (!currentPassword) {
     return jsonRes(origin, { error: "currentPassword is required" }, 400);
   }
@@ -6863,11 +7075,35 @@ async function handlePatchMe(req, origin, user) {
   if (cleanEmail === normalizeEmailAddr(user.email)) {
     return jsonRes(origin, { user: await publicUser(user) }, 200);
   }
+  const emailCheck = await validateRecoveryEmailEdge(cleanEmail);
+  if (!emailCheck.ok) {
+    return jsonRes(origin, { error: emailCheck.error }, 400);
+  }
+  const cleanCode = String(code ?? "").trim();
+  if (!cleanCode) {
+    return jsonRes(origin, { error: EMAIL_VERIFY_REQUIRED_MESSAGE }, 400);
+  }
+  if (!/^\d{6}$/.test(cleanCode)) {
+    return jsonRes(origin, { error: CHANGE_INVALID_MESSAGE }, 400);
+  }
+  const rec = await findLiveOtp(user.id, OTP_PURPOSE_VERIFY);
+  const fail = () => jsonRes(origin, { error: CHANGE_INVALID_MESSAGE }, 400);
+  if (!rec) return fail();
+  if (normalizeEmailAddr(rec.email) !== cleanEmail) return fail();
+  if (new Date() > new Date(rec.expiresAt)) {
+    await fsDeleteByName(rec._name).catch(() => {});
+    return fail();
+  }
+  if (!otpEqualsHex(await sha256Hex(cleanCode), rec.tokenHash)) {
+    await punishWrongOtp(rec);
+    return fail();
+  }
   const taken = await fsQueryEqual("users", "email", cleanEmail, 1);
   if (taken.some((u) => Number(u.id) !== Number(user.id))) {
     return jsonRes(origin, { error: "Email already registered" }, 409);
   }
   await fsPatch("users", user.id, { email: cleanEmail });
+  await fsDeleteByName(rec._name).catch(() => {});
   // A code sent to the old address must not still be redeemable after the
   // account points recovery somewhere else.
   await deleteUserOtps(user.id);
@@ -7002,8 +7238,12 @@ async function handleCreateStaff(req) {
   if (cleanRole !== "STAFF" && cleanRole !== "OWNER") {
     return { status: 400, body: { error: "role must be STAFF or OWNER" } };
   }
-  const cleanUsername = String(username ?? "").trim();
-  if (!name || !cleanUsername || !password || String(password).length < 6) {
+  const nameCheck = validateNameEdge(name, "Name", 100);
+  if (!nameCheck.ok) return { status: 400, body: { error: nameCheck.error } };
+  const usernameCheck = validateUsernameEdge(username);
+  if (!usernameCheck.ok) return { status: 400, body: { error: usernameCheck.error } };
+  const cleanUsername = usernameCheck.value;
+  if (!password || String(password).length < 6) {
     return { status: 400, body: { error: "name, username and password (min 6 chars) required" } };
   }
   if (utf8len(String(password)) > 72) {
@@ -7012,14 +7252,13 @@ async function handleCreateStaff(req) {
   if (await fsQueryEqual("users", "username", cleanUsername, 1).then((r) => r[0])) {
     return { status: 409, body: { error: `Username "${cleanUsername}" already exists` } };
   }
-  // Email is optional (recovery via Gmail OTP needs one on file). Stored
-  // lowercase; empty clears to null.
+  // Email is optional (recovery via Gmail OTP needs one on file). Real
+  // addresses must be deliverable (MX check) and not disposable.
   let cleanEmail = null;
   if (email !== undefined && email !== null && String(email).trim() !== "") {
-    cleanEmail = normalizeEmailAddr(String(email));
-    if (!validEmailAddr(cleanEmail)) {
-      return { status: 400, body: { error: "email must be a valid email address" } };
-    }
+    const emailCheck = await validateRecoveryEmailEdge(email);
+    if (!emailCheck.ok) return { status: 400, body: { error: emailCheck.error } };
+    cleanEmail = emailCheck.email;
     if (await fsQueryEqual("users", "email", cleanEmail, 1).then((r) => r[0])) {
       return { status: 409, body: { error: "Email already registered" } };
     }
@@ -7050,7 +7289,7 @@ async function handleCreateStaff(req) {
     const { ids, writes } = counterWritesFor(counters, { users: 1 });
     const doc = {
       id: ids.users[0],
-      name,
+      name: nameCheck.value,
       username: cleanUsername,
       passwordHash: await bl.hash(String(password), 10),
       role: cleanRole,
@@ -7080,18 +7319,20 @@ async function handlePatchStaff(req, id, me) {
   }
   const data = {};
   if (active !== undefined) data.active = Boolean(active);
-  if (name !== undefined && String(name).trim()) data.name = String(name).trim();
+  if (name !== undefined) {
+    const nameCheck = validateNameEdge(name, "Name", 100);
+    if (!nameCheck.ok) return { status: 400, body: { error: nameCheck.error } };
+    data.name = nameCheck.value;
+  }
   if (username !== undefined) {
-    const cleanUsername = String(username ?? "").trim();
-    if (!cleanUsername) {
-      return { status: 400, body: { error: "username cannot be empty" } };
-    }
-    if (cleanUsername !== user.username) {
-      const existing = await fsQueryEqual("users", "username", cleanUsername, 1).then((r) => r[0]).catch(() => null);
+    const usernameCheck = validateUsernameEdge(username);
+    if (!usernameCheck.ok) return { status: 400, body: { error: usernameCheck.error } };
+    if (usernameCheck.value !== user.username) {
+      const existing = await fsQueryEqual("users", "username", usernameCheck.value, 1).then((r) => r[0]).catch(() => null);
       if (existing && Number(existing.id) !== Number(user.id)) {
-        return { status: 409, body: { error: `Username "${cleanUsername}" already exists` } };
+        return { status: 409, body: { error: `Username "${usernameCheck.value}" already exists` } };
       }
-      data.username = cleanUsername;
+      data.username = usernameCheck.value;
     }
   }
   if (password !== undefined) {
@@ -7147,10 +7388,9 @@ async function handlePatchStaff(req, id, me) {
     if (email === null || String(email).trim() === "") {
       data.email = null;
     } else {
-      const cleanEmail = normalizeEmailAddr(String(email));
-      if (!validEmailAddr(cleanEmail)) {
-        return { status: 400, body: { error: "email must be a valid email address" } };
-      }
+      const emailCheck = await validateRecoveryEmailEdge(email);
+      if (!emailCheck.ok) return { status: 400, body: { error: emailCheck.error } };
+      const cleanEmail = emailCheck.email;
       const all = await fsListAll("users");
       if (all.some((u) => String(u.email ?? "").toLowerCase() === cleanEmail && Number(u.id) !== Number(user.id))) {
         return { status: 409, body: { error: "Email already registered" } };
@@ -7531,6 +7771,12 @@ Deno.serve(async (req) => {
       if (req.method === "POST" && path === "/auth/reset-password") return await handleResetPassword(req, origin);
       if (req.method === "POST" && path === "/auth/verify-reset-code") return await handleVerifyResetCode(req, origin);
       if (req.method === "GET" && path === "/auth/me") return await handleMe(req, origin);
+      if (req.method === "POST" && path === "/auth/me/email-otp") {
+        const auth = await authUser(req);
+        if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
+        const out = await handleMeEmailOtp(req, auth.user);
+        return jsonRes(origin, out.body, out.status);
+      }
       if (req.method === "PATCH" && path === "/auth/me") {
         const auth = await authUser(req);
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);

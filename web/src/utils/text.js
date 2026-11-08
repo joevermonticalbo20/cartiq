@@ -58,3 +58,44 @@ export function validateItemName(raw) {
   }
   return { ok: true, value };
 }
+
+// Mirrors api/src/services/validation.js (keep both in sync).
+const NAME_PATTERN = /^[\p{L}\p{N}\p{M}][\p{L}\p{N}\p{M}\p{Pc}\p{Pd}'.\-&#/ ]*$/u;
+// eslint-disable-next-line no-control-regex
+const CONTROL_PATTERN = /[\u0000-\u001F\u007F]/g;
+
+export function validatePersonName(raw, label = "Name", max = 100) {
+  const value = String(raw ?? "")
+    .replace(CONTROL_PATTERN, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+  if (!value) return { ok: false, value, error: `${label} is required.` };
+  if (value.length < 2) return { ok: false, value, error: `${label} needs at least 2 characters.` };
+  if (countLetters(value) < 2) return { ok: false, value, error: `${label} needs at least 2 letters.` };
+  if (!NAME_PATTERN.test(value)) {
+    return { ok: false, value, error: `${label} may contain only letters, numbers, spaces, -, ', ., #, / and &. ` };
+  }
+  return { ok: true, value };
+}
+
+export function validateReason(raw, label = "Reason", max = 500) {
+  const value = String(raw ?? "").replace(CONTROL_PATTERN, "").trim();
+  if (!value) return { ok: false, value, error: `${label} is required.` };
+  if (value.length < 3) return { ok: false, value, error: `${label} needs at least 3 characters.` };
+  if (value.length > max) return { ok: false, value, error: `${label} must be at most ${max} characters.` };
+  return { ok: true, value };
+}
+
+const USERNAME_PATTERN = /^[a-z0-9._-]{3,30}$/;
+export function validateUsername(raw) {
+  const value = String(raw ?? "").trim().toLowerCase();
+  if (!value) return { ok: false, value, error: "Username is required." };
+  if (!USERNAME_PATTERN.test(value)) {
+    return { ok: false, value, error: "Username must be 3-30 chars: a-z, 0-9, dot, underscore or hyphen." };
+  }
+  if (value.startsWith(".") || value.endsWith(".") || value.includes("..")) {
+    return { ok: false, value, error: "Username cannot start or end with a dot, and cannot have consecutive dots." };
+  }
+  return { ok: true, value };
+}

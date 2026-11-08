@@ -20,6 +20,7 @@ export const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 // so a missing purpose must keep working as "reset" forever.
 export const OTP_PURPOSE_RESET = "reset";
 export const OTP_PURPOSE_CHANGE = "change";
+export const OTP_PURPOSE_VERIFY = "verify";
 
 // Generic responses: identical whether or not the email maps to an account,
 // so the endpoints can't be used to enumerate registered emails.
@@ -27,6 +28,8 @@ export const FORGOT_GENERIC_MESSAGE =
   "If an account exists for this email, a reset code was sent.";
 export const RESET_INVALID_MESSAGE = "Invalid or expired code.";
 export const CHANGE_INVALID_MESSAGE = "Invalid or expired code.";
+export const EMAIL_VERIFY_REQUIRED_MESSAGE =
+  "Enter the 6-digit code sent to that email. If your CartIQ app has no code field, update to the latest version.";
 export const APP_UPDATE_REQUIRED_MESSAGE =
   "Enter the 6-digit code sent to your recovery email. If your CartIQ app has no code field, update to the latest version.";
 export const RECOVERY_EMAIL_REQUIRED_MESSAGE =
@@ -75,9 +78,9 @@ export function otpMatches(code, storedHash) {
 
 /** Purpose of a persisted OTP; legacy rows (no field) are resets. */
 export function otpPurpose(record) {
-  return record?.purpose === OTP_PURPOSE_CHANGE
-    ? OTP_PURPOSE_CHANGE
-    : OTP_PURPOSE_RESET;
+  const p = record?.purpose;
+  if (p === OTP_PURPOSE_CHANGE || p === OTP_PURPOSE_VERIFY) return p;
+  return OTP_PURPOSE_RESET;
 }
 
 /** A visible but non-deliverable recovery address, e.g. staff01@cartiq.local. */

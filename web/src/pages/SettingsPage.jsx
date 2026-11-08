@@ -37,7 +37,7 @@ import PasswordStrengthMeter from "../components/PasswordStrengthMeter.jsx";
 import { useToast } from "../components/Toast.jsx";
 import Select from "../components/Select.jsx";
 import EmptyState from "../components/EmptyState.jsx";
-import { sanitizeTextInput, countLetters } from "../utils/text.js";
+import { sanitizeTextInput, countLetters, validatePersonName, validateUsername } from "../utils/text.js";
 
 // --- Time clock (owner-configured daily clock-in/out windows) ---
 // Mirror of the server-side settings/timeClock document (Asia/Manila 24h wire
@@ -197,8 +197,10 @@ export default function SettingsPage() {
 
   const [emailEditing, setEmailEditing] = useState(false);
   const [emailEditClosing, setEmailEditClosing] = useState(false);
-  const [emailForm, setEmailForm] = useState({ email: "", currentPassword: "" });
+  const [emailForm, setEmailForm] = useState({ email: "", currentPassword: "", code: "" });
   const [emailError, setEmailError] = useState("");
+  const [emailCodeSent, setEmailCodeSent] = useState(false);
+  const [isSendingEmailCode, setIsSendingEmailCode] = useState(false);
   const [isSavingEmail, setIsSavingEmail] = useState(false);
   const [showEmailPw, setShowEmailPw] = useState(false);
 
@@ -527,10 +529,31 @@ export default function SettingsPage() {
     setEmailForm({
       email: hasRealEmail ? profile.email : "",
       currentPassword: "",
+      code: "",
     });
     setEmailError("");
+    setEmailCodeSent(false);
     setShowEmailPw(false);
     setEmailEditing(true);
+  }
+
+  async function sendEmailCode() {
+    const cleanEmail = String(emailForm.email ?? "").trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes("@") || cleanEmail.endsWith("@cartiq.local")) {
+      setEmailError("Enter a real email address first (not a placeholder).");
+      return;
+    }
+    setEmailError("");
+    setIsSendingEmailCode(true);
+    try {
+      const { data } = await api.post("/auth/me/email-otp", { email: cleanEmail });
+      setEmailCodeSent(true);
+      toast(data?.message || "A code was sent to that email.", "success");
+    } catch (err) {
+      setEmailError(getFriendlyError(err, "Could not send the verification code."));
+    } finally {
+      setIsSendingEmailCode(false);
+    }
   }
 
   async function saveEmail(e) {
@@ -544,12 +567,17 @@ export default function SettingsPage() {
       setEmailError("Enter your current password to confirm this change.");
       return;
     }
+    if (!/^\d{6}$/.test(String(emailForm.code || "").trim())) {
+      setEmailError("Enter the 6-digit code sent to that email.");
+      return;
+    }
     setEmailError("");
     setIsSavingEmail(true);
     try {
       const { data } = await api.patch("/auth/me", {
         email: cleanEmail,
         currentPassword: emailForm.currentPassword,
+        code: String(emailForm.code).trim(),
       });
       setProfile(data?.user ?? profile);
       // Codes sent to the old inbox were just invalidated server-side.
@@ -630,6 +658,16 @@ export default function SettingsPage() {
   // --- STAFF ACTIONS ---
   async function createStaff(e) {
     e.preventDefault();
+    const nameCheck = validatePersonName(newStaff.name);
+    if (!nameCheck.ok) {
+      setStaffError(nameCheck.error);
+      return;
+    }
+    const usernameCheck = validateUsername(newStaff.username);
+    if (!usernameCheck.ok) {
+      setStaffError(usernameCheck.error);
+      return;
+    }
     if (newStaff.password.length < 8) {
       setStaffError("Password must be at least 8 characters.");
       return;
@@ -640,8 +678,12 @@ export default function SettingsPage() {
     setIsStaffAdding(true);
     try {
       await api.post("/auth/staff", {
-        ...newStaff,
+        name: nameCheck.value,
+        username: usernameCheck.value,
+        password: newStaff.password,
+        locationCode: newStaff.locationCode,
         rfidUid: newStaff.rfidUid || null,
+        email: String(newStaff.email || "").trim().toLowerCase() || null,
       });
       toast(`Staff account "${newStaff.username}" created`, "success");
       closeAddModal();
@@ -658,6 +700,16 @@ export default function SettingsPage() {
   // --- ADMIN ACTIONS ---
   async function createAdmin(e) {
     e.preventDefault();
+    const nameCheck = validatePersonName(newAdmin.name);
+    if (!nameCheck.ok) {
+      setAdminError(nameCheck.error);
+      return;
+    }
+    const usernameCheck = validateUsername(newAdmin.username);
+    if (!usernameCheck.ok) {
+      setAdminError(usernameCheck.error);
+      return;
+    }
     if (newAdmin.password.length < 8) {
       setAdminError("Password must be at least 8 characters.");
       return;
@@ -668,8 +720,10 @@ export default function SettingsPage() {
     setIsAdminAdding(true);
     try {
       await api.post("/auth/staff", {
-        ...newAdmin,
-        email: newAdmin.email || null,
+        name: nameCheck.value,
+        username: usernameCheck.value,
+        password: newAdmin.password,
+        email: String(newAdmin.email || "").trim().toLowerCase() || null,
         role: "OWNER",
       });
       toast(`Admin account "${newAdmin.username}" created`, "success");
@@ -695,12 +749,18 @@ export default function SettingsPage() {
   async function handleEditAdmin(e) {
     e.preventDefault();
     if (!adminEditing) return;
-    const cleanName = String(adminEditing.name ?? "").trim();
-    const cleanUsername = String(adminEditing.username ?? "").trim();
-    if (!cleanName || !cleanUsername) {
-      setAdminEditError("Name and username are required.");
+    const nameCheck = validatePersonName(adminEditing.name);
+    if (!nameCheck.ok) {
+      setAdminEditError(nameCheck.error);
       return;
     }
+    const usernameCheck = validateUsername(adminEditing.username);
+    if (!usernameCheck.ok) {
+      setAdminEditError(usernameCheck.error);
+      return;
+    }
+    const cleanName = nameCheck.value;
+    const cleanUsername = usernameCheck.value;
     setAdminEditError("");
 
     const original = staff.find((s) => s.id === adminEditing.id);
@@ -737,11 +797,16 @@ export default function SettingsPage() {
   async function handleEditStaff(e) {
     e.preventDefault();
     setStaffError("");
-    
+
+    const nameCheck = validatePersonName(staffEditing?.name);
+    if (!nameCheck.ok) {
+      setStaffError(nameCheck.error);
+      return;
+    }
     const original = staff.find((s) => s.id === staffEditing.id);
     if (
       original &&
-      staffEditing.name === original.name &&
+      nameCheck.value === original.name &&
       (staffEditing.location?.code || null) === (original.location?.code || null) &&
       (staffEditing.rfidUid || null) === (original.rfidUid || null) &&
       (staffEditing.email || "") === (original.email || "")
@@ -754,7 +819,7 @@ export default function SettingsPage() {
     setIsStaffEditing(true);
     try {
       await api.patch(`/auth/staff/${staffEditing.id}`, {
-        name: staffEditing.name,
+        name: nameCheck.value,
         locationCode: staffEditing.location?.code || null,
         rfidUid: staffEditing.rfidUid || null,
         email: staffEditing.email || null
@@ -1957,9 +2022,41 @@ export default function SettingsPage() {
                     autoComplete="email"
                     placeholder={`${profile?.username ?? "staff"}@cartiq.local`}
                     value={emailForm.email}
-                    onChange={(e) => setEmailForm({ ...emailForm, email: e.target.value })}
+                    onChange={(e) => {
+                      setEmailForm({ ...emailForm, email: e.target.value });
+                      setEmailCodeSent(false);
+                    }}
                     style={{ height: "36px" }}
                   />
+                </label>
+                <label className="field">
+                  Verification code
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <input
+                      required
+                      value={emailForm.code}
+                      onChange={(e) => setEmailForm({ ...emailForm, code: e.target.value.replace(/\D/g, "").slice(0, 6) })}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      placeholder="6-digit code"
+                      maxLength={6}
+                      style={{ height: "36px", flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      className="ghost small-btn"
+                      onClick={sendEmailCode}
+                      disabled={isSendingEmailCode || isSavingEmail}
+                      style={{ height: "36px" }}
+                    >
+                      {isSendingEmailCode ? "Sending..." : emailCodeSent ? "Resend code" : "Send code"}
+                    </button>
+                  </div>
+                  <span className="muted small">
+                    {emailCodeSent
+                      ? "Code sent. It expires in 10 minutes and can only be used once."
+                      : "Click Send code to get a code for this new email."}
+                  </span>
                 </label>
                 <label className="field">
                   Current password

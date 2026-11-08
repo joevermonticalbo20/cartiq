@@ -1,11 +1,17 @@
 import 'package:flutter/services.dart';
 
 /// Shared text-input rules for vendor/note fields. Mirrors web
-/// `utils/text.js`: 2-40 chars, at least 2 letters, single spaces only,
-/// special characters and numbers allowed.
+/// `utils/text.js` and api/src/services/validation.js: 2-40 chars, at least
+/// 2 letters, single spaces only, strict symbol allowlist for person names.
 class TextInputRules {
   static const int minLetters = 2;
   static const int maxLength = 40;
+  static const personNameMax = 100;
+  static final RegExp _namePattern = RegExp(
+    r"^[\p{L}\p{N}\p{M}][\p{L}\p{N}\p{M}\p{Pc}\p{Pd}'.\-&#/ ]*$",
+    unicode: true,
+  );
+  static final RegExp _usernamePattern = RegExp(r'^[a-z0-9._-]{3,30}$');
 
   static int countLetters(String s) =>
       RegExp(r'\p{L}', unicode: true).allMatches(s).length;
@@ -32,6 +38,29 @@ class TextInputRules {
     if (v.isEmpty) return true;
     if (v.length > maxLength) return false;
     return countLetters(v) >= minLetters;
+  }
+
+  static String cleanPersonName(String raw) {
+    return raw
+        .replaceAll(RegExp(r'[\u0000-\u001F\u007F]'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  static bool isValidPersonName(String raw) {
+    final v = cleanPersonName(raw);
+    if (v.length < 2 || v.length > personNameMax) return false;
+    if (countLetters(v) < minLetters) return false;
+    return _namePattern.hasMatch(v);
+  }
+
+  static String cleanUsername(String raw) => raw.trim().toLowerCase();
+
+  static bool isValidUsername(String raw) {
+    final v = cleanUsername(raw);
+    if (!_usernamePattern.hasMatch(v)) return false;
+    if (v.startsWith('.') || v.endsWith('.') || v.contains('..')) return false;
+    return true;
   }
 }
 
