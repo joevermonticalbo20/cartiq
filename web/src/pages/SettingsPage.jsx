@@ -1572,7 +1572,8 @@ export default function SettingsPage() {
                               <button
                                 className="ghost small-btn"
                                 onClick={() => { setDeviceEditing(d); setDeviceError(""); }}
-                                title="Edit/Reassign Device"
+                                disabled={!d.active}
+                                title={d.active ? "Edit/Reassign Device" : "Enable the device before editing"}
                               >
                                 <Edit2 size={13} />
                               </button>
@@ -1901,7 +1902,8 @@ export default function SettingsPage() {
                               <button
                                 className="ghost small-btn"
                                 onClick={() => { setCartEditing({ ...c }); setCartError(""); }}
-                                title="Rename cart"
+                                disabled={c.status === "INACTIVE"}
+                                title={c.status === "INACTIVE" ? "Activate the cart before renaming" : "Rename cart"}
                               >
                                 <Edit2 size={13} />
                               </button>

@@ -316,7 +316,7 @@
 .settings-node-cell > * {
   vertical-align: middle;
 }
-.settings-node-cell > span:first-child {
+.settings-node-cell > span:first-child:not(.chip) {
   display: block;
   margin-bottom: 5px;
   color: var(--text);
