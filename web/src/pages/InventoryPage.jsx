@@ -266,6 +266,10 @@ export default function InventoryPage() {
       setAddError("Stock and threshold must be 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).");
       return;
     }
+    if (threshold > stock) {
+      setAddError(`Threshold (${threshold}) cannot be higher than current stock (${stock}). Lower the threshold or raise the stock.`);
+      return;
+    }
 
     setIsAdding(true);
     
@@ -302,6 +306,10 @@ export default function InventoryPage() {
     }
 
     const original = currentItems.find((it) => it.id === editing.id);
+    if (original && nextThreshold > original.stock) {
+      setEditError(`Threshold (${nextThreshold}) cannot be higher than current stock (${original.stock}). Lower the threshold instead.`);
+      return;
+    }
     if (original && nextThreshold === original.threshold) {
       toast(`No changes - threshold is already ${original.threshold}.`, "info");
       closeEditModal();

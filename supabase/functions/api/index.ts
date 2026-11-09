@@ -2775,6 +2775,9 @@ async function handleCreateInventoryItem(req) {
       !Number.isFinite(thresholdNum) || thresholdNum < 0 || thresholdNum > 100000) {
     return { status: 400, body: { error: "stock and threshold must be 0-100000" } };
   }
+  if (thresholdNum > stockNum) {
+    return { status: 400, body: { error: `threshold (${thresholdNum}) cannot be higher than current stock (${stockNum})` } };
+  }
   const src = source === "SENSOR" ? "SENSOR" : "MANUAL";
   const location = await resolveLocation(locationId, locationCode);
   if (!location) return { status: 404, body: { error: "Location not found" } };
@@ -2804,6 +2807,9 @@ async function handlePatchInventoryItem(req, id) {
   }
   const item = await fsGet("inventoryItems", id);
   if (!item) return { status: 404, body: { error: "Inventory item not found" } };
+  if (+threshold > item.stock) {
+    return { status: 400, body: { error: `threshold (${+threshold}) cannot be higher than current stock (${item.stock})` } };
+  }
   await fsPatch("inventoryItems", item.id, { threshold: +threshold });
   return { status: 200, body: { item: decorateItems([await fsGet("inventoryItems", item.id)])[0] } };
 }

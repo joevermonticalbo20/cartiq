@@ -278,6 +278,9 @@ router.post("/inventory/items", requireAuth, async (req, res, next) => {
     if (!Number.isFinite(stockNum) || stockNum < 0 || stockNum > 100000 || !Number.isFinite(thresholdNum) || thresholdNum < 0 || thresholdNum > 100000) {
       return res.status(400).json({ error: "stock and threshold must be 0-100000" });
     }
+    if (thresholdNum > stockNum) {
+      return res.status(400).json({ error: `threshold (${thresholdNum}) cannot be higher than current stock (${stockNum})` });
+    }
     const src = source === "SENSOR" ? "SENSOR" : "MANUAL";
 
     const location = await prisma.location.findFirst({
@@ -316,6 +319,9 @@ router.patch("/inventory/items/:id", requireAuth, requireRole("OWNER"), async (r
     }
     const item = await prisma.inventoryItem.findUnique({ where: { id: +req.params.id } });
     if (!item) return res.status(404).json({ error: "Inventory item not found" });
+    if (+threshold > item.stock) {
+      return res.status(400).json({ error: `threshold (${+threshold}) cannot be higher than current stock (${item.stock})` });
+    }
     const updated = await prisma.inventoryItem.update({
       where: { id: item.id },
       data: { threshold: +threshold },
