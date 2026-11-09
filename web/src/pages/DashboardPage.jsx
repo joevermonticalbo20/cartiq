@@ -13,7 +13,6 @@ import {
   Minus,
   Radio,
   ReceiptText,
-  RefreshCw,
   ShoppingBag,
   TrendingUp,
   X,
@@ -74,8 +73,6 @@ export default function DashboardPage() {
   const [prev, setPrev] = useState(null);
 
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState(null);
   const [sectionErrors, setSectionErrors] = useState({});
 
   const [locations, setLocations] = useState([]);
@@ -105,7 +102,6 @@ export default function DashboardPage() {
         console.debug(`[perf] Dashboard refresh completed in ${Math.round(performance.now() - startedAt)}ms`);
       }
     };
-    setRefreshing(true);
     const errs = {};
     const settle = async (key, promise, apply) => {
       try {
@@ -135,9 +131,7 @@ export default function DashboardPage() {
     ]);
 
     setSectionErrors(errs);
-    if (Object.keys(errs).length < 7) setLastUpdated(new Date());
     setLoading(false);
-    setRefreshing(false);
     schedule();
   }, [dateFilter, cartFilter]);
 
@@ -247,7 +241,7 @@ export default function DashboardPage() {
           </p>
         </div>
         
-        <div className="page-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <div className="page-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
           <Select value={cartFilter} onChange={setCartFilter} options={locationOptions} placeholder="All carts" />
           <input
             type="date"
@@ -260,12 +254,6 @@ export default function DashboardPage() {
                 <X size={14} /> Clear
              </button>
           )}
-          <span className="muted small" style={{ marginLeft: "4px" }}>
-            Last updated {lastUpdated?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) ?? "just now"}
-          </span>
-          <button className="ghost small-btn" onClick={refresh} disabled={refreshing}>
-            <RefreshCw size={14} className={refreshing ? "spin" : ""} /> Refresh
-          </button>
         </div>
       </div>
 
