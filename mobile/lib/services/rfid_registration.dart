@@ -115,15 +115,25 @@ class RfidRegistrationService {
               DateTime.now();
 
       final deadline = DateTime.now().add(const Duration(milliseconds: _maxPollMs));
+      // Fully connected BEFORE the countdown starts: the dialog must stay on
+      // "Connecting..." until the first status poll succeeds. Polling right
+      // away (instead of waiting a second) also means a tap that happens in
+      // the first second is seen immediately.
+      //
+      // Ticks run on a fixed 1s grid anchored to the first successful poll,
+      // so the number drops by exactly 1 every second regardless of how long
+      // each HTTP request takes. The old loop waited a full second AFTER
+      // every request, so a slow network turned a 1s countdown into 2s steps.
+      var firstPoll = true;
+      var nextAt = DateTime.now();
       while (true) {
-        final left = expiresAt.difference(DateTime.now());
-        if (left.isNegative) return const RfidExpired();
-        onTick?.call(left.inSeconds);
-
-        await Future<void>.delayed(
-          const Duration(milliseconds: _pollIntervalMs),
-        );
-        if (DateTime.now().isAfter(deadline)) return const RfidExpired();
+        if (!firstPoll) {
+          final wait = nextAt.difference(DateTime.now());
+          if (wait.inMilliseconds > 0) {
+            await Future<void>.delayed(wait);
+          }
+          if (DateTime.now().isAfter(deadline)) return const RfidExpired();
+        }
 
         final view = await callWithRefresh((t) => api.rfidClaimStatus(t, claimId));
         final status = view['status'] as String?;
@@ -151,6 +161,22 @@ class RfidRegistrationService {
           default:
             return RfidFailed('Unexpected claim status: $status');
         }
+
+        // Still waiting. Anchor/advance the 1s grid first, then tick with the
+        // authoritative server expiry so the display is always true to the
+        // 90s window, no matter how long the request above took.
+        if (firstPoll) {
+          nextAt = DateTime.now().add(const Duration(milliseconds: _pollIntervalMs));
+          firstPoll = false;
+        } else {
+          nextAt = nextAt.add(const Duration(milliseconds: _pollIntervalMs));
+          if (nextAt.isBefore(DateTime.now())) {
+            nextAt = DateTime.now().add(const Duration(milliseconds: _pollIntervalMs));
+          }
+        }
+        final left = expiresAt.difference(DateTime.now());
+        if (left.isNegative) return const RfidExpired();
+        onTick?.call(left.inSeconds);
       }
     } on ApiException catch (e) {
       return RfidFailed(e.message);

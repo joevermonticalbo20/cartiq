@@ -82,13 +82,17 @@ bool initReader() {
 void connectWifi() {
   // Marks the start of this attempt so loop() knows when it is safe to retry.
   wifiAttemptStarted = millis();
+  Serial.println("[dbg] connectWifi start");
 
   // Drop any in-flight attempt first. Calling begin() while the driver is still
   // associating is rejected with "wifi:sta is connecting, cannot set config".
   WiFi.disconnect(true);
+  Serial.println("[dbg] disconnect done");
   delay(200);
   WiFi.mode(WIFI_STA);
+  Serial.println("[dbg] mode done");
   WiFi.begin(WIFI_SSID, WIFI_PASS);
+  Serial.println("[dbg] begin done");
   Serial.printf("Connecting to Wi-Fi ssid=\"%s\"", WIFI_SSID);
 
   unsigned long start = millis();
@@ -281,7 +285,9 @@ void setup() {
   Serial.println("load cells disabled - RFID only node");
 #endif
 
+  Serial.println("[dbg] before configTime");
   configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
+  Serial.println("[dbg] configTime done");
 
   connectWifi();
   if (WiFi.status() == WL_CONNECTED) checkDeviceAuth();
