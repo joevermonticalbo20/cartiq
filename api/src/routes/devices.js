@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireDevice } from "../middleware/device.js";
 
 const router = Router();
 const DEVICE_ID_RE = /^[A-Za-z0-9_-]{3,40}$/;
@@ -51,6 +52,21 @@ router.delete("/devices/push-token", requireAuth, requireRole("STAFF"), async (r
     const where = token ? { userId, token } : { userId };
     const { count } = await prisma.pushTokens.deleteMany({ where });
     return res.json({ removed: count ?? 0 });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /devices/heartbeat (device auth) — cheap liveness ping for
+// registration gating. requireDevice already bumps lastSeenAt on every
+// device request, so this handler only needs to acknowledge. The ESP32
+// posts every 30s while Wi-Fi is up, which keeps deviceOnline true for
+// carts whose load cells are disabled (no readings would otherwise keep
+// lastSeenAt fresh).
+router.post("/devices/heartbeat", requireDevice, async (req, res, next) => {
+  try {
+    void req;
+    return res.json({ ok: true, deviceOnline: true });
   } catch (err) {
     return next(err);
   }

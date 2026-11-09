@@ -484,6 +484,44 @@ void main() {
       );
     });
 
+    test('the countdown stays silent while the reader is offline', () async {
+      final api = FakeApi();
+      api.claimViews.addAll([
+        {'status': 'pending', 'deviceOnline': false},
+        {'status': 'pending', 'deviceOnline': false},
+        {'status': 'bound', 'deviceOnline': true, 'rfidUid': 'DEADBEEF'},
+      ]);
+      final ticks = <int>[];
+      final result = await RfidRegistrationService(apiClient: api).register(
+        token: 'tok',
+        onTick: ticks.add,
+      );
+      expect((result as RfidBound).rfidUid, 'DEADBEEF');
+      expect(api.statusCalls, 3);
+      expect(
+        ticks,
+        isEmpty,
+        reason: 'no countdown ticks until the reader reports online',
+      );
+    });
+
+    test('the countdown starts once the reader comes online', () async {
+      final api = FakeApi();
+      api.claimViews.addAll([
+        {'status': 'pending', 'deviceOnline': false},
+        {'status': 'pending', 'deviceOnline': true},
+        {'status': 'bound', 'deviceOnline': true, 'rfidUid': 'DEADBEEF'},
+      ]);
+      final ticks = <int>[];
+      final result = await RfidRegistrationService(apiClient: api).register(
+        token: 'tok',
+        onTick: ticks.add,
+      );
+      expect((result as RfidBound).rfidUid, 'DEADBEEF');
+      expect(api.statusCalls, 3);
+      expect(ticks, isNotEmpty, reason: 'one tick when online, then bound');
+    });
+
     test('describe covers every outcome', () {
       expect(
         RfidRegistrationService.describe(const RfidBound('04A2B3C4')),

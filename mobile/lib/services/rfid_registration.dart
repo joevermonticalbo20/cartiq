@@ -165,6 +165,12 @@ class RfidRegistrationService {
         // Still waiting. Anchor/advance the 1s grid first, then tick with the
         // authoritative server expiry so the display is always true to the
         // 90s window, no matter how long the request above took.
+        //
+        // Only tick once the cart's reader is actually online: while
+        // deviceOnline is false the dialog must stay on "Connecting..." so
+        // the 90s window never burns down for an offline ESP32. Older
+        // servers omit the field; missing is treated as online so they keep
+        // the previous (always-counting) behavior instead of hanging a claim.
         if (firstPoll) {
           nextAt = DateTime.now().add(const Duration(milliseconds: _pollIntervalMs));
           firstPoll = false;
@@ -174,9 +180,11 @@ class RfidRegistrationService {
             nextAt = DateTime.now().add(const Duration(milliseconds: _pollIntervalMs));
           }
         }
-        final left = expiresAt.difference(DateTime.now());
-        if (left.isNegative) return const RfidExpired();
-        onTick?.call(left.inSeconds);
+        if (view['deviceOnline'] != false) {
+          final left = expiresAt.difference(DateTime.now());
+          if (left.isNegative) return const RfidExpired();
+          onTick?.call(left.inSeconds);
+        }
       }
     } on ApiException catch (e) {
       return RfidFailed(e.message);

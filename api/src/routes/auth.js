@@ -447,6 +447,25 @@ router.get("/my-rfid", requireAuth, async (req, res, next) => {
   }
 });
 
+// True when the cart's ESP32 node has heartbeated recently. The registration
+// dialog gates its countdown on this so the person never watches a 90s
+// window burn down for a reader that is offline. The firmware posts
+// /devices/heartbeat every 30s, so 120s allows up to 3 missed beats plus
+// jitter; a board that just unplugged reads offline promptly.
+const CLAIM_DEVICE_ONLINE_MS = 120 * 1000;
+async function deviceOnlineForLocation(locationId) {
+  try {
+    const device = await prisma.device.findFirst({
+      where: { locationId, active: true },
+      orderBy: { lastSeenAt: "desc" },
+    });
+    if (!device?.lastSeenAt) return false;
+    return Date.now() - new Date(device.lastSeenAt).getTime() < CLAIM_DEVICE_ONLINE_MS;
+  } catch {
+    return false;
+  }
+}
+
 // POST /api/auth/my-rfid/claim (Bearer)
 // Body: { locationCode? } - optional for STAFF (their own cart), required for
 // OWNER, who is not assigned to a cart.
@@ -492,7 +511,8 @@ router.post("/my-rfid/claim", requireAuth, async (req, res, next) => {
       locationCode: location.code,
       event: cleanEvent,
     });
-    return res.status(201).json({ claim: claimView(claim) });
+    const deviceOnline = await deviceOnlineForLocation(location.id);
+    return res.status(201).json({ claim: { ...claimView(claim), deviceOnline } });
   } catch (err) {
     return next(err);
   }
@@ -507,7 +527,8 @@ router.get("/my-rfid/claim/:claimId", requireAuth, async (req, res, next) => {
     if (!claim || claim.userId !== req.user.sub) {
       return res.status(404).json({ error: "Claim not found" });
     }
-    return res.json({ claim: claimView(claim) });
+    const deviceOnline = await deviceOnlineForLocation(claim.locationId);
+    return res.json({ claim: { ...claimView(claim), deviceOnline } });
   } catch (err) {
     return next(err);
   }

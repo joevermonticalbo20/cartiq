@@ -1053,6 +1053,31 @@ function claimView(claim, now = Date.now()) {
   };
 }
 
+// True when the cart's ESP32 node has heartbeated recently. The registration
+// dialog gates its countdown on this so a 90s window never burns down for an
+// offline reader. The firmware posts /devices/heartbeat every 30s, so 120s
+// allows 3 missed beats plus jitter. Mirrors api/src/routes/auth.js.
+const CLAIM_DEVICE_ONLINE_MS = 120 * 1000;
+async function claimDeviceOnline(locationId) {
+  try {
+    // Query by locationId, then filter with Number() comparison so a
+    // string/number id mismatch can never read as offline.
+    const rows = await fsQueryEqual("devices", "locationId", locationId, 5).catch(() => []);
+    const wanted = Number(locationId);
+    const candidates = rows.length ? rows : await fsListAll("devices").catch(() => []);
+    let fresh = false;
+    for (const d of candidates) {
+      if (d?.active === false) continue;
+      if (!Number.isFinite(wanted) || Number(d?.locationId) !== wanted) continue;
+      const t = d?.lastSeenAt instanceof Date ? d.lastSeenAt.getTime() : new Date(d?.lastSeenAt).getTime();
+      if (Number.isFinite(t) && Date.now() - t < CLAIM_DEVICE_ONLINE_MS) fresh = true;
+    }
+    return fresh;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Publish a live event for the SSE stream to pick up.
  *
@@ -4210,6 +4235,15 @@ async function authDevice(req) {
     }
   }
   return { device: null, error: { status: 401, body: { error: "Unknown or inactive device" } } };
+}
+
+async function handleDeviceHeartbeat(_req, _origin, device) {
+  // Liveness ping for registration gating. Touch lastSeenAt so a powered,
+  // Wi-Fi-connected node reads as online even when idle (load cells disabled
+  // means no readings would otherwise keep it fresh). Mirrors
+  // api/src/routes/devices.js POST /devices/heartbeat.
+  await fsCommit([updateWrite("devices", device.id, { lastSeenAt: new Date() }, null)]).catch(() => {});
+  return { status: 200, body: { ok: true, deviceOnline: true } };
 }
 
 async function handleIotReadings(req, _origin, device) {
@@ -7592,7 +7626,8 @@ async function handleRfidClaimOpen(req, origin, user) {
     locationCode: location.code,
     event: cleanEvent,
   });
-  return jsonRes(origin, { claim: claimView(claim) }, 201);
+  const deviceOnline = await claimDeviceOnline(location.id);
+  return jsonRes(origin, { claim: { ...claimView(claim), deviceOnline } }, 201);
 }
 
 async function handleRfidClaimStatus(_req, origin, user, path) {
@@ -7603,7 +7638,8 @@ async function handleRfidClaimStatus(_req, origin, user, path) {
   if (!claim || Number(claim.userId) !== Number(user.id)) {
     return jsonRes(origin, { error: "Claim not found" }, 404);
   }
-  return jsonRes(origin, { claim: claimView(claim) });
+  const deviceOnline = await claimDeviceOnline(claim.locationId);
+  return jsonRes(origin, { claim: { ...claimView(claim), deviceOnline } });
 }
 
 // ---------- events: ticket + poll stream (mirror api/src/routes/events.js) ----------
@@ -8005,9 +8041,10 @@ Deno.serve(async (req) => {
         return jsonRes(origin, out.body, out.status);
       }
 
-      // Locations + devices (OWNER only).
+      // Locations + devices (OWNER only). /devices/heartbeat is device-token
+      // auth and is dispatched below with /iot/readings and /shifts.
       if (path === "/locations" || path.startsWith("/locations/") ||
-          path === "/devices" || path.startsWith("/devices/")) {
+          path === "/devices" || (path.startsWith("/devices/") && path !== "/devices/heartbeat")) {
         const auth = await authUser(req);
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
         const ownErr = requireOwner(auth.user);
@@ -8179,13 +8216,14 @@ Deno.serve(async (req) => {
         }
         return jsonRes(origin, out.body, out.status);
       }
-      // IoT readings + device shifts (device-token auth; user JWTs 401 by design).
-      if (path === "/iot/readings" || path === "/shifts") {
+      // IoT readings + device shifts + heartbeat (device-token auth; user JWTs 401 by design).
+      if (path === "/iot/readings" || path === "/shifts" || path === "/devices/heartbeat") {
         const auth = await authDevice(req);
         if (!auth.device) return jsonRes(origin, auth.error.body, auth.error.status);
         let out;
         if (req.method === "POST" && path === "/iot/readings") out = await handleIotReadings(req, origin, auth.device);
         else if (req.method === "POST" && path === "/shifts") out = await handleDeviceShifts(req, origin, auth.device);
+        else if (req.method === "POST" && path === "/devices/heartbeat") out = await handleDeviceHeartbeat(req, origin, auth.device);
         else return notFoundRes(origin, req, path);
         return jsonRes(origin, out.body, out.status);
       }

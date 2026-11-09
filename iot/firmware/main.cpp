@@ -57,6 +57,7 @@ unsigned long droppedShifts = 0;
 unsigned long lastSample = 0;
 unsigned long lastFlush = 0;
 unsigned long wifiAttemptStarted = 0;
+unsigned long lastServerHeartbeat = 0;
 String lastUid = "";
 unsigned long lastTapMs = 0;
 unsigned long lastHeartbeat = 0;
@@ -315,6 +316,15 @@ void loop() {
   if (millis() - lastHeartbeat > 5000) {
     lastHeartbeat = millis();
     Serial.printf("[heartbeat] reader %s\n", readerOk ? "OK" : "MISSING");
+  }
+
+  // Server liveness every 30s so the registration dialog can tell "reader
+  // offline" from "waiting for your tap" (load cells disabled means no
+  // readings would otherwise keep lastSeenAt fresh). Starts at boot because
+  // lastServerHeartbeat is 0.
+  if (millis() - lastServerHeartbeat > 30000 && WiFi.status() == WL_CONNECTED) {
+    lastServerHeartbeat = millis();
+    postBatch("/devices/heartbeat", "{}");
   }
 
   #if USE_LOAD_CELLS

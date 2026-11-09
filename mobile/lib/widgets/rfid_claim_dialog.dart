@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/rfid_registration.dart';
@@ -75,11 +77,32 @@ class _RfidClaimDialogState extends State<RfidClaimDialog> {
   // null until the server has opened the claim.
   int? _secondsLeft;
   String? _error;
+  Timer? _countdownTimer;
 
   @override
   void initState() {
     super.initState();
     _run();
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Local 1s ticker so the number drops by exactly 1 every second even when
+  /// the status poll is slow (a poll round-trip longer than a second would
+  /// otherwise make the wall-clock value leap by 2). Each [onTick] (the
+  /// authoritative server expiry) resyncs [_secondsLeft]; between polls the
+  /// timer simply decrements. It starts only after the first server tick —
+  /// i.e. once the reader is confirmed online — and stops with the dialog.
+  void _startCountdown() {
+    _countdownTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _secondsLeft == null) return;
+      final next = _secondsLeft! - 1;
+      setState(() => _secondsLeft = next < 0 ? 0 : next);
+    });
   }
 
   Future<void> _run() async {
@@ -89,6 +112,7 @@ class _RfidClaimDialogState extends State<RfidClaimDialog> {
       event: widget.event,
       onTick: (seconds) {
         if (!mounted) return;
+        _startCountdown();
         setState(() {
           _secondsLeft = seconds;
           _error = null;
