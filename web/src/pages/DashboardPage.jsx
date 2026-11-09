@@ -551,7 +551,7 @@ export default function DashboardPage() {
                         <tr>
                           <th>Time</th>
                           <th>Items</th>
-                          <th className="t-right">Total</th>
+                          <th className="t-left">Total</th>
                           <th>Payment</th>
                           <th>Location</th>
                         </tr>
@@ -561,7 +561,7 @@ export default function DashboardPage() {
                           <tr key={o.id}>
                             <td className="text-xs muted">{formatTime(o.createdAt)}</td>
                             <td className="text-xs">{(o.items ?? []).map((i) => `${i.qty}x ${i.productName}${i.flavor ? ` (${i.flavor})` : ""}`).join(", ")}</td>
-                            <td className="t-right"><strong>P{Number(o.total).toLocaleString()}</strong></td>
+                            <td className="t-left"><strong>P{Number(o.total).toLocaleString()}</strong></td>
                             <td><Badge variant="neutral">{(o.paymentMethod || "CASH").toUpperCase()}</Badge></td>
                             <td><Badge variant="info">{o.location?.code}</Badge></td>
                           </tr>

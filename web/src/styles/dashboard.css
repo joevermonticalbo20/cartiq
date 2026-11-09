@@ -428,24 +428,27 @@
   width: 100%;
 }
 
-/* Recent orders: TOTAL is right-aligned with room to breathe from both
-   sides — the ITEMS column no longer leaves a dead gap before TOTAL, and
-   TOTAL no longer hugs PAYMENT. Tabular figures keep the peso column neat. */
+/* Recent orders: ITEMS sits right next to TIME (no dead gap), and TOTAL is
+   left-aligned so every P lands on the same vertical line. */
 .widget-orders .data {
   table-layout: fixed;
   width: 100%;
 }
+.widget-orders .data th:nth-child(1),
+.widget-orders .data td:nth-child(1) {
+  width: 110px;
+}
 .widget-orders .data th:nth-child(3),
 .widget-orders .data td:nth-child(3) {
-  width: 150px;
-  text-align: right;
-  padding-right: 36px;
+  width: 120px;
+  text-align: left;
+  padding-right: 28px;
   font-variant-numeric: tabular-nums;
 }
 .widget-orders .data th:nth-child(4),
 .widget-orders .data td:nth-child(4) {
   width: 150px;
-  padding-left: 36px;
+  padding-left: 28px;
 }
 .widget-orders .data th:nth-child(5),
 .widget-orders .data td:nth-child(5) {
