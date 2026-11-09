@@ -2815,16 +2815,25 @@ async function handleCreateInventoryItem(req) {
 
 async function handlePatchInventoryItem(req, id) {
   const body = await req.json().catch(() => null);
-  const { threshold } = body || {};
-  if (threshold === undefined || !Number.isFinite(+threshold) || +threshold < 0 || +threshold > 100000) {
+  const { threshold, source } = body || {};
+  if (threshold === undefined && source === undefined) {
+    return { status: 400, body: { error: "provide threshold or source" } };
+  }
+  if (threshold !== undefined && (!Number.isFinite(+threshold) || +threshold < 0 || +threshold > 100000)) {
     return { status: 400, body: { error: "threshold must be 0-100000" } };
+  }
+  if (source !== undefined && !["MANUAL", "SENSOR"].includes(source)) {
+    return { status: 400, body: { error: 'source must be "MANUAL" or "SENSOR"' } };
   }
   const item = await fsGet("inventoryItems", id);
   if (!item) return { status: 404, body: { error: "Inventory item not found" } };
-  if (+threshold > item.stock) {
+  if (threshold !== undefined && +threshold > item.stock) {
     return { status: 400, body: { error: `threshold (${+threshold}) cannot be higher than current stock (${item.stock})` } };
   }
-  await fsPatch("inventoryItems", item.id, { threshold: +threshold });
+  const data = {};
+  if (threshold !== undefined) data.threshold = +threshold;
+  if (source !== undefined) data.source = source;
+  await fsPatch("inventoryItems", item.id, data);
   return { status: 200, body: { item: decorateItems([await fsGet("inventoryItems", item.id)])[0] } };
 }
 

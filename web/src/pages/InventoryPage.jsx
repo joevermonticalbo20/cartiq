@@ -316,11 +316,12 @@ export default function InventoryPage() {
     }
 
     const original = currentItems.find((it) => it.id === editing.id);
+    const nextSource = editing.source ?? "MANUAL";
     if (original && nextThreshold > original.stock) {
       setEditError(`Threshold (${nextThreshold}) cannot be higher than current stock (${original.stock}). Lower the threshold instead.`);
       return;
     }
-    if (original && nextThreshold === original.threshold) {
+    if (original && nextThreshold === original.threshold && nextSource === (original.source ?? "MANUAL")) {
       toast(`No changes - threshold is already ${original.threshold}.`, "info");
       closeEditModal();
       return;
@@ -329,7 +330,8 @@ export default function InventoryPage() {
     setIsEditing(true);
     try {
       await api.patch(`/inventory/items/${editing.id}`, {
-        threshold: nextThreshold
+        threshold: nextThreshold,
+        source: editing.source ?? "MANUAL",
       });
       
       toast(`Threshold updated to ${nextThreshold}`, "success");
@@ -999,6 +1001,18 @@ export default function InventoryPage() {
                     value={editing?.threshold ?? ""}
                     onChange={(e) => setEditing({ ...editing, threshold: sanitizeQtyInput(e.target.value) })}
                   />
+                </label>
+
+                <label className="field">
+                  Source
+                  <select
+                    value={editing?.source ?? "MANUAL"}
+                    onChange={(e) => setEditing({ ...editing, source: e.target.value })}
+                    title="MANUAL = manual recounts; SENSOR = sensor readings drive this row"
+                  >
+                    <option value="MANUAL">MANUAL</option>
+                    <option value="SENSOR">SENSOR</option>
+                  </select>
                 </label>
                 
                 <div className="modal-actions">

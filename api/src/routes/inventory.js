@@ -327,18 +327,27 @@ router.post("/inventory/items", requireAuth, async (req, res, next) => {
 
 router.patch("/inventory/items/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const { threshold } = req.body ?? {};
-    if (threshold === undefined || !Number.isFinite(+threshold) || +threshold < 0 || +threshold > 100000) {
+    const { threshold, source } = req.body ?? {};
+    if (threshold === undefined && source === undefined) {
+      return res.status(400).json({ error: "provide threshold or source" });
+    }
+    if (threshold !== undefined && (!Number.isFinite(+threshold) || +threshold < 0 || +threshold > 100000)) {
       return res.status(400).json({ error: "threshold must be 0-100000" });
+    }
+    if (source !== undefined && !["MANUAL", "SENSOR"].includes(source)) {
+      return res.status(400).json({ error: 'source must be "MANUAL" or "SENSOR"' });
     }
     const item = await prisma.inventoryItem.findUnique({ where: { id: +req.params.id } });
     if (!item) return res.status(404).json({ error: "Inventory item not found" });
-    if (+threshold > item.stock) {
+    if (threshold !== undefined && +threshold > item.stock) {
       return res.status(400).json({ error: `threshold (${+threshold}) cannot be higher than current stock (${item.stock})` });
     }
+    const data = {};
+    if (threshold !== undefined) data.threshold = +threshold;
+    if (source !== undefined) data.source = source;
     const updated = await prisma.inventoryItem.update({
       where: { id: item.id },
-      data: { threshold: +threshold },
+      data,
     });
     return res.json({ item: decorate([updated])[0] });
   } catch (err) {
