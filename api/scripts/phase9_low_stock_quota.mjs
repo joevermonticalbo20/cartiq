@@ -129,7 +129,8 @@ if (!start) {
   process.exit(1);
 }
 // Comfortably above the threshold so the next reading is a real crossing.
-const seeded = await seedStock(Number(start.threshold) + 10);
+// Capped at 9 kg so the per-cart manual cap (10 kg) never rejects the seed.
+const seeded = await seedStock(Math.min(Number(start.threshold) + 10, 9));
 if (!seeded.ok) {
   console.log(`  FAIL  seed stock above threshold -- ${seeded.detail}`);
   process.exit(1);

@@ -2789,13 +2789,9 @@ async function handleCreateInventoryItem(req) {
     return { status: 400, body: { error: `threshold (${thresholdNum}) cannot be higher than current stock (${stockNum})` } };
   }
   const src = source === "SENSOR" ? "SENSOR" : "MANUAL";
-  // Sensor-managed rows (e.g. an 11 kg LPG tank) follow physical readings,
-  // not manual counts, so the per-cart cap is for MANUAL entries only.
-  if (src !== "SENSOR") {
-    const cap = maxStockForUnit(unitStr);
-    if (stockNum > cap) {
-      return { status: 400, body: { error: `stock (${stockNum} ${unitStr}) exceeds the per-cart maximum of ${cap} ${unitStr}` } };
-    }
+  const cap = maxStockForUnit(unitStr);
+  if (stockNum > cap) {
+    return { status: 400, body: { error: `stock (${stockNum} ${unitStr}) exceeds the per-cart maximum of ${cap} ${unitStr}` } };
   }
   const location = await resolveLocation(locationId, locationCode);
   if (!location) return { status: 404, body: { error: "Location not found" } };
@@ -2860,12 +2856,9 @@ async function handleInventoryAdjustment(req, user) {
   }
   const item = await fsGet("inventoryItems", +inventoryItemId);
   if (!item) return { status: 404, body: { error: "Inventory item not found" } };
-  // Sensor-managed rows follow physical readings, not manual caps.
-  if (item.source !== "SENSOR") {
-    const adjCap = maxStockForUnit(item.unit);
-    if (+newStock > adjCap) {
-      return { status: 400, body: { error: `stock (${+newStock} ${item.unit}) exceeds the per-cart maximum of ${adjCap} ${item.unit}` } };
-    }
+  const adjCap = maxStockForUnit(item.unit);
+  if (+newStock > adjCap) {
+    return { status: 400, body: { error: `stock (${+newStock} ${item.unit}) exceeds the per-cart maximum of ${adjCap} ${item.unit}` } };
   }
 
   let outcome;

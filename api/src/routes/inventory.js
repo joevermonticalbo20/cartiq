@@ -291,13 +291,9 @@ router.post("/inventory/items", requireAuth, async (req, res, next) => {
     if (thresholdNum > stockNum) {
       return res.status(400).json({ error: `threshold (${thresholdNum}) cannot be higher than current stock (${stockNum})` });
     }
-    // Sensor-managed rows (e.g. an 11 kg LPG tank) follow physical readings,
-    // not manual counts, so the per-cart cap is for MANUAL entries only.
-    if (src !== "SENSOR") {
-      const cap = maxStockForUnit(unitStr);
-      if (stockNum > cap) {
-        return res.status(400).json({ error: `stock (${stockNum} ${unitStr}) exceeds the per-cart maximum of ${cap} ${unitStr}` });
-      }
+    const cap = maxStockForUnit(unitStr);
+    if (stockNum > cap) {
+      return res.status(400).json({ error: `stock (${stockNum} ${unitStr}) exceeds the per-cart maximum of ${cap} ${unitStr}` });
     }
     const src = source === "SENSOR" ? "SENSOR" : "MANUAL";
 
@@ -390,12 +386,9 @@ router.post("/inventory/adjustments", requireAuth, async (req, res, next) => {
     }
     const item = await prisma.inventoryItem.findUnique({ where: { id: +inventoryItemId } });
     if (!item) return res.status(404).json({ error: "Inventory item not found" });
-    // Sensor-managed rows follow physical readings, not manual caps.
-    if (item.source !== "SENSOR") {
-      const adjCap = maxStockForUnit(item.unit);
-      if (+newStock > adjCap) {
-        return res.status(400).json({ error: `stock (${+newStock} ${item.unit}) exceeds the per-cart maximum of ${adjCap} ${item.unit}` });
-      }
+    const adjCap = maxStockForUnit(item.unit);
+    if (+newStock > adjCap) {
+      return res.status(400).json({ error: `stock (${+newStock} ${item.unit}) exceeds the per-cart maximum of ${adjCap} ${item.unit}` });
     }
 
     const result = await prisma.$transaction(async (tx) => {
