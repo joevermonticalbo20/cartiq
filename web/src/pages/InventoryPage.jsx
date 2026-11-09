@@ -12,7 +12,7 @@ import PageHeader from "../components/PageHeader.jsx";
 import Select from "../components/Select.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { SkeletonList, TableSkeleton } from "../components/Skeleton.jsx";
-import { sanitizeQtyInput, parseQty } from "../utils/format.js";
+import { sanitizeQtyInput, parseQty, maxStockForUnit } from "../utils/format.js";
 import { sanitizeTextInput, validateItemName } from "../utils/text.js";
 import { LIVE_EVENTS, useLiveEvent } from "../hooks/useLiveStream.js";
 
@@ -195,6 +195,11 @@ export default function InventoryPage() {
       setAdjustError("Enter a stock count from 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).");
       return;
     }
+    const cap = maxStockForUnit(adjusting.unit);
+    if (value > cap) {
+      setAdjustError(`Stock (${value} ${adjusting.unit}) exceeds the per-cart maximum of ${cap} ${adjusting.unit}.`);
+      return;
+    }
 
     if (value === adjusting.stock) {
       toast(`No changes - ${adjusting.name} is already ${adjusting.stock} ${adjusting.unit}.`, "info");
@@ -268,6 +273,11 @@ export default function InventoryPage() {
     }
     if (threshold > stock) {
       setAddError(`Threshold (${threshold}) cannot be higher than current stock (${stock}). Lower the threshold or raise the stock.`);
+      return;
+    }
+    const cap = maxStockForUnit(newItem.unit);
+    if (stock > cap) {
+      setAddError(`Initial stock (${stock} ${newItem.unit}) exceeds the per-cart maximum of ${cap} ${newItem.unit}.`);
       return;
     }
 
@@ -376,6 +386,16 @@ export default function InventoryPage() {
 
     setSaving(true);
     const byId = new Map(currentItems.map((it) => [it.id, it]));
+    for (const id of selectedIds) {
+      const it = byId.get(id);
+      if (!it) continue;
+      const cap = maxStockForUnit(it.unit);
+      if (value > cap) {
+        setSaving(false);
+        toast(`${it.name}: ${value} ${it.unit} exceeds the per-cart maximum of ${cap} ${it.unit}. Bulk skipped.`, "error");
+        return;
+      }
+    }
     let skipped = 0;
     let success = 0;
     let failed = 0;

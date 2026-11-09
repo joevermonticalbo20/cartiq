@@ -45,6 +45,16 @@ export const MAX_QTY_INT_DIGITS = 5;
 export const MAX_QTY_DECIMALS = 2;
 export const MAX_QTY = 99999.99;
 
+// Reasonable per-cart ceiling so "stock" stays physical, not a number from a
+// hat: 10 kg per powder flavor, 30 frozen packs. Anything else keeps the
+// generic system cap. Enforced on Add and on every stock adjustment.
+export function maxStockForUnit(unit) {
+  const u = String(unit ?? "").toLowerCase();
+  if (u.includes("kg")) return 10;
+  if (u.includes("pack")) return 30;
+  return MAX_QTY;
+}
+
 // Generic decimal sanitizer: digits + one dot, capped integer/decimals.
 export function sanitizeDecimalInput(raw, maxInt, maxDec) {
   let s = String(raw ?? "").replace(/[^0-9.]/g, "");

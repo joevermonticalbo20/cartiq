@@ -11,6 +11,16 @@ import { validateName } from "../services/validation.js";
 
 const router = Router();
 
+// Reasonable per-cart ceiling so "stock" stays physical: 10 kg per powder
+// flavor, 30 frozen packs. Anything else keeps the generic system cap.
+// Mirrors web/src/utils/format.js maxStockForUnit and the Edge copy.
+export function maxStockForUnit(unit) {
+  const u = String(unit ?? "").toLowerCase();
+  if (u.includes("kg")) return 10;
+  if (u.includes("pack")) return 30;
+  return 100000;
+}
+
 export function stockStatus(stock, threshold) {
   if (stock <= threshold / 2) return "critical";
   if (stock <= threshold) return "low";
@@ -281,6 +291,10 @@ router.post("/inventory/items", requireAuth, async (req, res, next) => {
     if (thresholdNum > stockNum) {
       return res.status(400).json({ error: `threshold (${thresholdNum}) cannot be higher than current stock (${stockNum})` });
     }
+    const cap = maxStockForUnit(unitStr);
+    if (stockNum > cap) {
+      return res.status(400).json({ error: `stock (${stockNum} ${unitStr}) exceeds the per-cart maximum of ${cap} ${unitStr}` });
+    }
     const src = source === "SENSOR" ? "SENSOR" : "MANUAL";
 
     const location = await prisma.location.findFirst({
@@ -372,6 +386,10 @@ router.post("/inventory/adjustments", requireAuth, async (req, res, next) => {
     }
     const item = await prisma.inventoryItem.findUnique({ where: { id: +inventoryItemId } });
     if (!item) return res.status(404).json({ error: "Inventory item not found" });
+    const adjCap = maxStockForUnit(item.unit);
+    if (+newStock > adjCap) {
+      return res.status(400).json({ error: `stock (${+newStock} ${item.unit}) exceeds the per-cart maximum of ${adjCap} ${item.unit}` });
+    }
 
     const result = await prisma.$transaction(async (tx) => {
       // Re-read INSIDE the txn: the outside read can be stale when a POS

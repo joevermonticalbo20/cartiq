@@ -2754,6 +2754,16 @@ async function handleInventoryNames() {
   };
 }
 
+// Reasonable per-cart ceiling so "stock" stays physical: 10 kg per powder
+// flavor, 30 frozen packs. Mirrors api/src/routes/inventory.js
+// maxStockForUnit and web/src/utils/format.js maxStockForUnit.
+function maxStockForUnit(unit) {
+  const u = String(unit ?? "").toLowerCase();
+  if (u.includes("kg")) return 10;
+  if (u.includes("pack")) return 30;
+  return 100000;
+}
+
 async function handleCreateInventoryItem(req) {
   const body = await req.json().catch(() => null);
   const { locationCode, locationId, name, unit, stock, threshold, source } = body || {};
@@ -2777,6 +2787,10 @@ async function handleCreateInventoryItem(req) {
   }
   if (thresholdNum > stockNum) {
     return { status: 400, body: { error: `threshold (${thresholdNum}) cannot be higher than current stock (${stockNum})` } };
+  }
+  const cap = maxStockForUnit(unitStr);
+  if (stockNum > cap) {
+    return { status: 400, body: { error: `stock (${stockNum} ${unitStr}) exceeds the per-cart maximum of ${cap} ${unitStr}` } };
   }
   const src = source === "SENSOR" ? "SENSOR" : "MANUAL";
   const location = await resolveLocation(locationId, locationCode);
@@ -2842,6 +2856,10 @@ async function handleInventoryAdjustment(req, user) {
   }
   const item = await fsGet("inventoryItems", +inventoryItemId);
   if (!item) return { status: 404, body: { error: "Inventory item not found" } };
+  const adjCap = maxStockForUnit(item.unit);
+  if (+newStock > adjCap) {
+    return { status: 400, body: { error: `stock (${+newStock} ${item.unit}) exceeds the per-cart maximum of ${adjCap} ${item.unit}` } };
+  }
 
   let outcome;
   try {
