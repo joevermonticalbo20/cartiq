@@ -106,11 +106,11 @@ async function main() {
   ];
   // The LPG Tank row is a CI-ONLY fixture. The phase suites (2, 3, 9) exercise
   // the IoT readings path (the LPG_TANK channel) and the low-stock quota logic
-  // against that row. Production carts run no load cells, so the seed must not
-  // create it there - hence the explicit opt-in.
+  // against that row, including its SENSOR source. Production carts run no
+  // load cells, so the seed must not create it there - hence the opt-in.
   if (process.env.SEED_SENSOR_FIXTURES === "1") {
     inventoryTemplate.unshift({
-      name: "LPG Tank", unit: "kg", stock: 11.0, threshold: 2.5, source: "MANUAL",
+      name: "LPG Tank", unit: "kg", stock: 11.0, threshold: 2.5, source: "SENSOR",
     });
   }
 
