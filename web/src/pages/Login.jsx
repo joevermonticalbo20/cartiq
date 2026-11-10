@@ -86,16 +86,22 @@ export default function Login() {
     let cancelled = false;
     const loadSalesToday = async () => {
       try {
-        const { data } = await api.get("/public/sales-today", { cacheTtl: 30000 });
+        // 15s: the preview is live (a sale must show up right away), but it
+        // must not hammer the API on every page load.
+        const { data } = await api.get("/public/sales-today", { cacheTtl: 15000 });
         if (!cancelled) setSalesToday(data ?? null);
       } catch {
         if (!cancelled) setSalesToday(null);
       }
     };
     const timer = setTimeout(loadSalesToday, 0);
+    // Keep the preview live: a sale that lands while the login screen is open
+    // must show up without a manual reload.
+    const refresh = setInterval(loadSalesToday, 30000);
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      clearInterval(refresh);
     };
   }, []);
 

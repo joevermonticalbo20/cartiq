@@ -8271,7 +8271,10 @@ Deno.serve(async (req) => {
         if (req.method !== "GET") return notFoundRes(origin, req, path);
         const out = await handlePublicSalesToday();
         return jsonRes(origin, out.body, out.status, {
-          "Cache-Control": "public, max-age=300",
+          // A live preview must not sit in a browser cache for minutes: the
+          // "SALES TODAY" number was frozen for up to 5 minutes after a sale,
+          // so the login screen showed P0 while the order already existed.
+          "Cache-Control": "public, max-age=15, must-revalidate",
         });
       }
 

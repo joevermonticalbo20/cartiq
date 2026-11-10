@@ -43,7 +43,10 @@ router.get("/public/sales-today", async (_req, res, next) => {
       });
     const pad = (n) => String(n).padStart(2, "0");
     const manilaDay = new Date(day.getTime() + 8 * 60 * 60 * 1000);
-    res.setHeader("Cache-Control", "public, max-age=300");
+    // A live preview must not sit in a browser cache for minutes: the
+    // "SALES TODAY" number was frozen for up to 5 minutes after a sale, so the
+    // login screen showed P0 while the order already existed.
+    res.setHeader("Cache-Control", "public, max-age=15, must-revalidate");
     return res.json({
       date: `${manilaDay.getUTCFullYear()}-${pad(manilaDay.getUTCMonth() + 1)}-${pad(manilaDay.getUTCDate())}`,
       total_sales: Number(totalSales.toFixed(2)),
