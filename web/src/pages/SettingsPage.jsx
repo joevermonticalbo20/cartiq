@@ -36,7 +36,7 @@ import PasswordStrengthMeter, { meetsPasswordStrength } from "../components/Pass
 import { useToast } from "../components/Toast.jsx";
 import Select from "../components/Select.jsx";
 import EmptyState from "../components/EmptyState.jsx";
-import { sanitizeTextInput, countLetters, validatePersonName, validateUsername } from "../utils/text.js";
+import { sanitizeTextInput, countLetters, validatePersonName, validateUsername, validateEmail, validateRfidUid, validateDeviceId } from "../utils/text.js";
 
 // --- Time clock (owner-configured daily clock-in/out windows) ---
 // Mirror of the server-side settings/timeClock document (Asia/Manila 24h wire
@@ -689,6 +689,16 @@ export default function SettingsPage() {
       );
       return;
     }
+    const emailCheck = validateEmail(newStaff.email);
+    if (!emailCheck.ok) {
+      setStaffError(emailCheck.error);
+      return;
+    }
+    const rfidCheck = validateRfidUid(newStaff.rfidUid);
+    if (!rfidCheck.ok) {
+      setStaffError(rfidCheck.error);
+      return;
+    }
     setStaffError("");
     if (isStaffAdding) return;
 
@@ -699,8 +709,8 @@ export default function SettingsPage() {
         username: usernameCheck.value,
         password: newStaff.password,
         locationCode: newStaff.locationCode,
-        rfidUid: newStaff.rfidUid || null,
-        email: String(newStaff.email || "").trim().toLowerCase() || null,
+        rfidUid: rfidCheck.value || null,
+        email: emailCheck.value || null,
       });
       toast(`Staff account "${newStaff.username}" created`, "success");
       closeAddModal();
@@ -733,6 +743,11 @@ export default function SettingsPage() {
       );
       return;
     }
+    const emailCheck = validateEmail(newAdmin.email);
+    if (!emailCheck.ok) {
+      setAdminError(emailCheck.error);
+      return;
+    }
     setAdminError("");
     if (isAdminAdding) return;
 
@@ -742,7 +757,7 @@ export default function SettingsPage() {
         name: nameCheck.value,
         username: usernameCheck.value,
         password: newAdmin.password,
-        email: String(newAdmin.email || "").trim().toLowerCase() || null,
+        email: emailCheck.value || null,
         role: "OWNER",
       });
       toast(`Admin account "${newAdmin.username}" created`, "success");
@@ -778,6 +793,11 @@ export default function SettingsPage() {
       setAdminEditError(usernameCheck.error);
       return;
     }
+    const emailCheck = validateEmail(adminEditing.email);
+    if (!emailCheck.ok) {
+      setAdminEditError(emailCheck.error);
+      return;
+    }
     const cleanName = nameCheck.value;
     const cleanUsername = usernameCheck.value;
     setAdminEditError("");
@@ -788,7 +808,7 @@ export default function SettingsPage() {
       original &&
       cleanName === original.name &&
       cleanUsername === original.username &&
-      String(adminEditing.email || "").trim() === originalEmail
+      emailCheck.value === originalEmail
     ) {
       toast("No changes - admin details are already up to date.", "info");
       closeAdminEditModal();
@@ -801,7 +821,7 @@ export default function SettingsPage() {
       await api.patch(`/auth/staff/${adminEditing.id}`, {
         name: cleanName,
         username: cleanUsername,
-        email: String(adminEditing.email || "").trim() || null,
+        email: emailCheck.value || null,
       });
       toast(`Admin account "${cleanUsername}" updated`, "success");
       closeAdminEditModal();
@@ -823,12 +843,22 @@ export default function SettingsPage() {
       return;
     }
     const original = staff.find((s) => s.id === staffEditing.id);
+    const emailCheck = validateEmail(staffEditing.email);
+    if (!emailCheck.ok) {
+      setStaffError(emailCheck.error);
+      return;
+    }
+    const rfidCheck = validateRfidUid(staffEditing.rfidUid);
+    if (!rfidCheck.ok) {
+      setStaffError(rfidCheck.error);
+      return;
+    }
     if (
       original &&
       nameCheck.value === original.name &&
       (staffEditing.location?.code || null) === (original.location?.code || null) &&
-      (staffEditing.rfidUid || null) === (original.rfidUid || null) &&
-      (staffEditing.email || "") === (original.email || "")
+      (rfidCheck.value || null) === (original.rfidUid || null) &&
+      emailCheck.value === (original.email || "")
     ) {
       toast("No changes - staff details are already up to date.", "info");
       closeStaffEditModal();
@@ -840,8 +870,8 @@ export default function SettingsPage() {
       await api.patch(`/auth/staff/${staffEditing.id}`, {
         name: nameCheck.value,
         locationCode: staffEditing.location?.code || null,
-        rfidUid: staffEditing.rfidUid || null,
-        email: staffEditing.email || null
+        rfidUid: rfidCheck.value || null,
+        email: emailCheck.value || null
       });
       
       toast(`Staff account "${staffEditing.username}" updated`, "success");
@@ -896,10 +926,15 @@ export default function SettingsPage() {
   async function handleAddDevice(e) {
     e.preventDefault();
     setDeviceError("");
+    const deviceCheck = validateDeviceId(newDevice.deviceId);
+    if (!deviceCheck.ok) {
+      setDeviceError(deviceCheck.error);
+      return;
+    }
     setIsDeviceAdding(true);
     try {
       const res = await api.post("/devices", {
-        deviceId: newDevice.deviceId,
+        deviceId: deviceCheck.value,
         cart: newDevice.locationCode
       });
       closeDeviceAddModal();

@@ -463,7 +463,8 @@ class ApiClient {
     final res = await _send(
       () => _http.get(
         _uri(
-          '/shifts/history?code=$code&date=$date&pageSize=$pageSize',
+          '/shifts/history?code=${Uri.encodeQueryComponent(code)}'
+          '&date=${Uri.encodeQueryComponent(date)}&pageSize=$pageSize',
         ),
         headers: _headers(token: token),
       ),
@@ -679,7 +680,7 @@ class ApiClient {
   Future<List<dynamic>> inventory(String token, {String? locationCode}) async {
     final path = locationCode == null
         ? '/inventory'
-        : '/inventory?code=$locationCode';
+        : '/inventory?code=${Uri.encodeQueryComponent(locationCode)}';
     final res = await _send(
       () => _http.get(_uri(path), headers: _headers(token: token)),
     );
@@ -797,7 +798,7 @@ class ApiClient {
     String? locationCode,
   }) async {
     final path =
-        '/orders?page=$page&pageSize=$pageSize${locationCode != null ? '&location_code=$locationCode' : ''}';
+        '/orders?page=$page&pageSize=$pageSize${locationCode != null ? '&location_code=${Uri.encodeQueryComponent(locationCode)}' : ''}';
     final res = await _send(
       () => _http.get(_uri(path), headers: _headers(token: token)),
     );

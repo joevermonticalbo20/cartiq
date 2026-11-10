@@ -181,6 +181,18 @@ export default function StaffPage() {
     e.preventDefault();
     setEditError("");
 
+    // The add path checks the cart and the event; the edit path used to send
+    // them unchecked, so a shift with no cart could be saved with an empty
+    // cart code.
+    if (!editing?.locationCode) {
+      setEditError("Select a cart.");
+      return;
+    }
+    if (!editing?.event || !["IN", "OUT"].includes(editing.event)) {
+      setEditError("Choose Time in or Time out.");
+      return;
+    }
+
     const at = editing?.ts ? new Date(editing.ts) : null;
     if (!at || !Number.isFinite(at.getTime())) {
       setEditError("Enter a valid date and time.");

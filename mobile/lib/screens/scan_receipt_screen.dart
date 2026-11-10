@@ -178,10 +178,20 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
     }
 
     try {
+      // A cart is required: without one the server has nowhere to file the
+      // expense, so it would be recorded with a null location.
+      final locationCode = _locationNotifier.value;
+      if (locationCode == null || locationCode.trim().isEmpty) {
+        setState(() {
+          _message = 'Choose a cart before saving the expense.';
+          _messageIsError = true;
+        });
+        return;
+      }
       // API LOGIC UNTOUCHED: Kinukuha lang natin ang string sa loob ng notifier gamit ang .value
       await auth.api.createExpense(auth.token ?? '', {
         'vendor': vendor,
-        'locationCode': _locationNotifier.value,
+        'locationCode': locationCode,
         'amount': amount,
         'date': expenseDate.toIso8601String(),
         'source': ocrSource ? 'OCR' : 'MANUAL',

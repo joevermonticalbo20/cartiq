@@ -14,6 +14,7 @@ import '../theme.dart';
 import '../utils/app_messenger.dart';
 import '../utils/haptics.dart';
 import '../utils/manila_time.dart';
+import '../utils/password_strength.dart';
 import '../utils/pin_setup.dart';
 import '../widgets/pin_pad.dart';
 import '../widgets/app_badge.dart';
@@ -375,7 +376,8 @@ class SettingsScreenState extends State<SettingsScreen> {
                         ? null
                         : () async {
                             final cleanEmail = email.text.trim().toLowerCase();
-                            if (!cleanEmail.contains('@') || cleanEmail.endsWith('@cartiq.local')) {
+                            if (!isValidEmail(cleanEmail) ||
+                                cleanEmail.endsWith('@cartiq.local')) {
                               setDialogState(
                                 () => error = 'Enter a real email address, not a placeholder.',
                               );
@@ -441,7 +443,7 @@ class SettingsScreenState extends State<SettingsScreen> {
                   ? null
                   : () async {
                       final cleanEmail = email.text.trim().toLowerCase();
-                      if (!cleanEmail.contains('@') ||
+                      if (!isValidEmail(cleanEmail) ||
                           cleanEmail.endsWith('@cartiq.local')) {
                         setDialogState(
                           () => error =
@@ -649,6 +651,13 @@ class SettingsScreenState extends State<SettingsScreen> {
                         if (next.text != confirm.text) {
                           setDialogState(
                             () => error = 'New passwords do not match.',
+                          );
+                          return;
+                        }
+                        if (!evaluatePassword(next.text).meetsGood) {
+                          setDialogState(
+                            () => error =
+                                "Password must be at least 'Good' strength (8+ chars, upper/lower, number, special).",
                           );
                           return;
                         }

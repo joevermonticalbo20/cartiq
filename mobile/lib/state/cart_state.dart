@@ -7,12 +7,21 @@ class CartItem {
   final double unitPrice;
   int qty;
 
+  /// The most of this item the cart may hold (the stock on hand when it was
+  /// added). Null means "no ceiling known".
+  ///
+  /// Kept on the item so the "+" button cannot push the cart past the stock:
+  /// the server would then reject the whole sale with INSUFFICIENT_STOCK after
+  /// the customer already paid.
+  final int? maxQty;
+
   CartItem({
     required this.productName,
     required this.flavor,
     this.flavors,
     required this.unitPrice,
     this.qty = 1,
+    this.maxQty,
   });
 
   String get key {
@@ -62,9 +71,10 @@ class CartState extends ChangeNotifier {
     final existing = _items.where((it) => it.key == key).toList();
     if (existing.isNotEmpty) {
       final next = existing.first.qty + qty;
-      existing.first.qty = maxQty == null
+      final ceiling = maxQty ?? existing.first.maxQty;
+      existing.first.qty = ceiling == null
           ? next
-          : next.clamp(1, maxQty).toInt();
+          : next.clamp(1, ceiling).toInt();
     } else {
       _items.add(
         CartItem(
@@ -72,6 +82,7 @@ class CartState extends ChangeNotifier {
           flavor: flavor,
           unitPrice: unitPrice,
           qty: maxQty == null ? qty : qty.clamp(1, maxQty).toInt(),
+          maxQty: maxQty,
         ),
       );
     }
@@ -91,9 +102,10 @@ class CartState extends ChangeNotifier {
     final existing = _items.where((it) => it.key == key).toList();
     if (existing.isNotEmpty) {
       final next = existing.first.qty + qty;
-      existing.first.qty = maxQty == null
+      final ceiling = maxQty ?? existing.first.maxQty;
+      existing.first.qty = ceiling == null
           ? next
-          : next.clamp(1, maxQty).toInt();
+          : next.clamp(1, ceiling).toInt();
     } else {
       _items.add(
         CartItem(
@@ -102,6 +114,7 @@ class CartState extends ChangeNotifier {
           flavors: normalized,
           unitPrice: unitPrice,
           qty: maxQty == null ? qty : qty.clamp(1, maxQty).toInt(),
+          maxQty: maxQty,
         ),
       );
     }
@@ -109,7 +122,16 @@ class CartState extends ChangeNotifier {
   }
 
   void changeQty(CartItem item, int delta) {
-    item.qty += delta;
+    // The "+" button must not push the cart past the stock on hand: the
+    // server would reject the whole sale (INSUFFICIENT_STOCK) after the
+    // customer already paid.
+    final ceiling = item.maxQty;
+    final next = item.qty + delta;
+    if (ceiling != null && next > ceiling) {
+      notifyListeners();
+      return;
+    }
+    item.qty = next;
     if (item.qty <= 0) _items.remove(item);
     notifyListeners();
   }

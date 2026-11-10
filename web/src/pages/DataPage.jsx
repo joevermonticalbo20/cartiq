@@ -1077,6 +1077,20 @@ export default function DataPage() {
 
   async function processSelectedFile(file) {
     if (!file) return;
+    // The file picker hint (accept=".xlsx") does not cover a drag-and-drop, so
+    // the type and the size are checked here too - a 40 MB file would only
+    // fail after the upload timed out.
+    const name = String(file.name ?? "");
+    if (!/\.xlsx$/i.test(name)) {
+      toast("Only .xlsx workbooks can be imported.", "error");
+      setUploadedFileName("");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast("That workbook is larger than 5 MB - split it into smaller files.", "error");
+      setUploadedFileName("");
+      return;
+    }
     setBusyImport(true);
     setUploadedFileName(file.name);
     try {

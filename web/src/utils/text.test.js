@@ -5,6 +5,9 @@ import {
   validateNote,
   validateItemName,
   countLetters,
+  validateEmail,
+  validateRfidUid,
+  validateDeviceId,
 } from "./text.js";
 
 describe("sanitizeTextInput", () => {
@@ -63,6 +66,56 @@ describe("validateNote", () => {
     const long = validateNote("b".repeat(41));
     expect(long.ok).toBe(true);
     expect(long.value).toBe("b".repeat(40));
+  });
+});
+
+describe("validateEmail", () => {
+  it("allows empty (clears the field)", () => {
+    expect(validateEmail("")).toEqual({ ok: true, value: "" });
+  });
+
+  it("normalises case and trims", () => {
+    expect(validateEmail("  Owner@Example.COM ")).toEqual({
+      ok: true,
+      value: "owner@example.com",
+    });
+  });
+
+  it("rejects a shape that cannot be a mailbox", () => {
+    expect(validateEmail("abc").ok).toBe(false);
+    expect(validateEmail("a@b").ok).toBe(false);
+    expect(validateEmail("a b@example.com").ok).toBe(false);
+    expect(validateEmail("@example.com").ok).toBe(false);
+  });
+
+  it("rejects an over-long address", () => {
+    expect(validateEmail(`${"a".repeat(120)}@example.com`).ok).toBe(false);
+  });
+});
+
+describe("validateRfidUid", () => {
+  it("allows empty (clears the field)", () => {
+    expect(validateRfidUid("")).toEqual({ ok: true, value: "" });
+  });
+
+  it("normalises separators and case", () => {
+    expect(validateRfidUid("04 a2-b3:c4").value).toBe("04A2B3C4");
+  });
+
+  it("rejects non-hex and out-of-range values", () => {
+    expect(validateRfidUid("ZZZZ").ok).toBe(false);
+    expect(validateRfidUid("04A2").ok).toBe(false); // 2 bytes is too short
+    expect(validateRfidUid("A".repeat(21)).ok).toBe(false);
+  });
+});
+
+describe("validateDeviceId", () => {
+  it("requires 3-40 safe characters", () => {
+    expect(validateDeviceId("esp32-cart-01").ok).toBe(true);
+    expect(validateDeviceId("ab").ok).toBe(false);
+    expect(validateDeviceId("has space").ok).toBe(false);
+    expect(validateDeviceId("x".repeat(41)).ok).toBe(false);
+    expect(validateDeviceId("").ok).toBe(false);
   });
 });
 

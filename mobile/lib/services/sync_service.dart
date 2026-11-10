@@ -444,6 +444,10 @@ class SyncService extends ChangeNotifier {
         return 'INVALID_PRICE';
       }
     }
+    // NOTE: the client-supplied `total` is deliberately NOT validated here.
+    // The server recomputes the total from the lines ("server is the source of
+    // truth for the total - never trust the client", api/src/routes/orders.js),
+    // so a wrong total never becomes a wrong order.
     return null;
   }
 

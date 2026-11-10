@@ -99,3 +99,53 @@ export function validateUsername(raw) {
   }
   return { ok: true, value };
 }
+
+// A recovery inbox has to survive a real mail server, so the shape is
+// checked here (the server still verifies the domain with an MX lookup).
+export const EMAIL_MAX = 120;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
+
+export function validateEmail(raw, label = "Recovery email") {
+  const value = String(raw ?? "").trim().toLowerCase();
+  if (!value) return { ok: true, value: "" }; // empty clears the field
+  if (value.length > EMAIL_MAX) {
+    return { ok: false, value, error: `${label} must be at most ${EMAIL_MAX} characters.` };
+  }
+  if (!EMAIL_PATTERN.test(value)) {
+    return { ok: false, value, error: `${label} is not a valid email address.` };
+  }
+  return { ok: true, value };
+}
+
+// An RFID tag UID: 4-10 bytes of hex, with or without separators. The server
+// stores the normalised form, so the client only has to reject nonsense.
+const RFID_PATTERN = /^[0-9a-f]{8,20}$/i;
+export const RFID_MAX = 24;
+
+export function validateRfidUid(raw, label = "RFID UID") {
+  const value = String(raw ?? "").trim().replace(/[:\s-]/g, "").toUpperCase();
+  if (!value) return { ok: true, value: "" }; // empty clears the field
+  if (value.length > RFID_MAX) {
+    return { ok: false, value, error: `${label} must be at most ${RFID_MAX} characters.` };
+  }
+  if (!RFID_PATTERN.test(value)) {
+    return { ok: false, value, error: `${label} must be 4-10 bytes of hex, e.g. 04A2B3C4.` };
+  }
+  return { ok: true, value };
+}
+
+// An IoT node id: 3-40 chars, letters/digits/underscore/hyphen.
+const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{3,40}$/;
+export const DEVICE_ID_MAX = 40;
+
+export function validateDeviceId(raw, label = "Device ID") {
+  const value = String(raw ?? "").trim();
+  if (!value) return { ok: false, value, error: `${label} is required.` };
+  if (value.length > DEVICE_ID_MAX) {
+    return { ok: false, value, error: `${label} must be at most ${DEVICE_ID_MAX} characters.` };
+  }
+  if (!DEVICE_ID_PATTERN.test(value)) {
+    return { ok: false, value, error: `${label} must be 3-40 characters: letters, digits, underscore or hyphen.` };
+  }
+  return { ok: true, value };
+}
