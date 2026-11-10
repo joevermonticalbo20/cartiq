@@ -19,6 +19,7 @@ import '../theme.dart';
 import '../utils/app_messenger.dart';
 import '../utils/haptics.dart';
 import '../utils/money_input.dart';
+import '../utils/sizes.dart';
 import '../widgets/app_dialog.dart';
 import '../widgets/app_skeleton.dart';
 import '../widgets/empty_state.dart';
@@ -353,6 +354,13 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       return;
     }
 
+    // The fries menu stores the SIZES as the product's options, so those
+    // products get the big size tiles instead of the flavor chips.
+    if (optionsAreSizes(flavors)) {
+      await _openSizeSheet(product, flavors);
+      return;
+    }
+
     final selection = <String, int>{};
 
     await showModalBottomSheet<void>(
@@ -456,6 +464,159 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
           );
         },
       ),
+    );
+  }
+
+  /// The size sheet for a fries product: tap a size tile, bump the quantity,
+  /// then add it to the cart. One size per order line.
+  Future<void> _openSizeSheet(
+    Map<String, dynamic> product,
+    List<Map<String, dynamic>> sizes,
+  ) async {
+    final quantities = <String, int>{};
+    String? picked;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+          final qty = picked == null ? 0 : (quantities[picked] ?? 0);
+          final price = picked == null
+              ? 0.0
+              : _sizePrice(sizes, picked!) *
+                    (quantities[picked] ?? 0);
+          return SafeArea(
+            top: false,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                AppSpacing.space5,
+                AppSpacing.space4,
+                AppSpacing.space5,
+                AppSpacing.space4 + bottomInset,
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.82,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      product['name'] as String,
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.5,
+                          ),
+                    ),
+                    const SizedBox(height: AppSpacing.space1),
+                    Text(
+                      'Tap the size the customer wants',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.muted,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.space4),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: PosSizePicker(
+                          sizes: sizes,
+                          selected: picked,
+                          onSelect: (name) => setSheetState(() {
+                            picked = name;
+                            quantities[name] = quantities[name] ?? 1;
+                          }),
+                          onQuantityChanged: (name, value) =>
+                              setSheetState(() {
+                                if (value <= 0) {
+                                  if (quantities[name] == value) {
+                                    quantities.remove(name);
+                                    if (picked == name) picked = null;
+                                  }
+                                } else {
+                                  final stock = _sizeStock(sizes, name);
+                                  quantities[name] = stock == null
+                                      ? value
+                                      : value.clamp(1, stock).toInt();
+                                }
+                              }),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.space2),
+                    PosSizeSelectionBar(
+                      sizeName: picked,
+                      quantity: qty,
+                      total: price,
+                      onAdd: picked == null
+                          ? null
+                          : () {
+                              _addSizeSelection(product, sizes, {
+                                picked!: quantities[picked] ?? 1,
+                              });
+                              Navigator.pop(sheetContext);
+                            },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  double _sizePrice(List<Map<String, dynamic>> sizes, String name) {
+    for (final size in sizes) {
+      if (size['name'] == name) {
+        final price = size['unitPrice'];
+        if (price is num) return price.toDouble();
+      }
+    }
+    return 0;
+  }
+
+  int? _sizeStock(List<Map<String, dynamic>> sizes, String name) {
+    for (final size in sizes) {
+      if (size['name'] == name) {
+        final stock = size['availableServings'];
+        if (stock is num) return stock.toInt();
+      }
+    }
+    return null;
+  }
+
+  void _addSizeSelection(
+    Map<String, dynamic> product,
+    List<Map<String, dynamic>> sizes,
+    Map<String, int> selection,
+  ) {
+    final cart = context.read<CartState>();
+    selection.forEach((name, qty) {
+      final stock = _sizeStock(sizes, name);
+      cart.add(
+        product['name'] as String,
+        name,
+        _sizePrice(sizes, name),
+        qty: qty,
+        maxQty: stock,
+      );
+    });
+    final count = selection.values.fold<int>(0, (a, b) => a + b);
+    Haptics.select();
+    AppMessenger.showGlassToast(
+      context: context,
+      message: 'Added ${product['name']}   $count serving(s)',
+      isSuccess: true,
     );
   }
 

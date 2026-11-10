@@ -108,10 +108,16 @@ describe("ProductsPage archived products", () => {
     });
   });
 
-  it("highlights archived rows without a badge and only shows unarchive and delete", async () => {
+  it("hides archived rows by default and reveals them with the toggle", async () => {
     renderPage();
-    const row = (await screen.findByText("Seasonal Fries")).closest("tr");
 
+    // Archived products (the old per-size fries) stay in the database for
+    // history, but they must not bury the live catalog.
+    expect(screen.queryByText("Seasonal Fries")).toBeNull();
+    const toggle = await screen.findByRole("button", { name: /Show archived \(1\)/ });
+    await fireEvent.click(toggle);
+
+    const row = (await screen.findByText("Seasonal Fries")).closest("tr");
     expect(row).toHaveClass("product-row-archived");
     expect(within(row).queryByText("Archived")).toBeNull();
     expect(within(row).getByTitle("Unarchive product")).toBeInTheDocument();
@@ -119,6 +125,44 @@ describe("ProductsPage archived products", () => {
     expect(within(row).queryByTitle("Edit price and recipe")).toBeNull();
     expect(within(row).queryByTitle("Rename product")).toBeNull();
     expect(within(row).queryByTitle("Archive product (hide from POS)")).toBeNull();
+  });
+
+  it("keeps live products visible while archived ones are hidden", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/products") {
+        return Promise.resolve({
+          data: {
+            data: [
+              {
+                id: 1,
+                name: "BBQ Fries",
+                category: "Fries",
+                basePrice: 20,
+                active: true,
+                imageUrl: null,
+                recipeCount: 6,
+                missingItems: [],
+              },
+              {
+                id: 2,
+                name: "BBQ Fries - Medium",
+                category: "Fries",
+                basePrice: 20,
+                active: false,
+                imageUrl: null,
+                recipeCount: 3,
+                missingItems: [],
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: null });
+    });
+    renderPage();
+
+    expect(await screen.findByText("BBQ Fries")).toBeInTheDocument();
+    expect(screen.queryByText("BBQ Fries - Medium")).toBeNull();
   });
 });
 

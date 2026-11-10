@@ -120,6 +120,10 @@ export default function InventoryPage() {
         // Reverse map: stock item name -> ["Product (Flavor)", ...]
         const usage = new Map();
         for (const p of prod.data?.data ?? []) {
+          // Archived products are not sold any more, so they must not show up
+          // in "Used by" (the old per-size products are archived and would
+          // otherwise drown the real ones).
+          if (p.active === false) continue;
           for (const f of p.flavors ?? []) {
             for (const r of f.recipes ?? []) {
               const name = String(r.itemName ?? "").trim();

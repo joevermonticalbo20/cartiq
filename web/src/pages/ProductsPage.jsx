@@ -107,6 +107,11 @@ export default function ProductsPage() {
   const [archiving, setArchiving] = useState(null);
   const [isArchiving, setIsArchiving] = useState(false);
 
+  // Archived products stay in the database for history, but they would bury
+  // the live catalog (the old per-size fries products are archived). Default
+  // to hiding them; the toggle brings them back.
+  const [showArchived, setShowArchived] = useState(false);
+
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([api.get("/products"), api.get("/inventory/names").catch(() => ({ data: { data: [] } }))])
@@ -123,6 +128,13 @@ export default function ProductsPage() {
     const timer = setTimeout(load, 0);
     return () => clearTimeout(timer);
   }, [load]);
+
+  // Archived products (history only, hidden from the POS) are collapsed by
+  // default so the live catalog stays readable.
+  const archivedCount = products.filter((p) => p.active === false).length;
+  const visibleProducts = showArchived
+    ? products
+    : products.filter((p) => p.active !== false);
 
   const isAnyModalOpen = addOpen || addClosing || editing || editClosing ||
     renaming || renameClosing || Boolean(deleting);
@@ -898,6 +910,16 @@ export default function ProductsPage() {
               >
                 <Plus size={14} /> Add product
               </button>
+              {archivedCount > 0 && (
+                <button
+                  type="button"
+                  className="ghost small-btn"
+                  onClick={() => setShowArchived((v) => !v)}
+                  title={`${archivedCount} archived product(s) - hidden from the POS`}
+                >
+                  {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
+                </button>
+              )}
             </>
           }
         />
@@ -905,7 +927,7 @@ export default function ProductsPage() {
         <section className="panel sales-panel products-panel">
           {error ? (
             <ErrorBox message={error} onRetry={load} />
-          ) : !loading && products.length === 0 ? (
+          ) : !loading && visibleProducts.length === 0 ? (
             <EmptyState
               icon={Tag}
               title="No products yet"
@@ -1091,7 +1113,7 @@ export default function ProductsPage() {
                     ),
                   },
                 ]}
-                data={products}
+                data={visibleProducts}
                 rowClassName={(product) => product.active === false ? "product-row-archived" : ""}
               />
             </>

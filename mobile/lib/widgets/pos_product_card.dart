@@ -51,6 +51,29 @@ class PosProductCard extends StatelessWidget {
     );
   }
 
+  /// The price on the tile: the base price, or a range when the options
+  /// (Medium / Large / XL 40 / XL 50) cost different amounts.
+  String _priceLabel(Map<String, dynamic> item) {
+    final base = item['basePrice'];
+    final options = item['flavors'] is List
+        ? (item['flavors'] as List).whereType<Map<String, dynamic>>().toList()
+        : <Map<String, dynamic>>[];
+    final prices = <double>[];
+    for (final option in options) {
+      final price = option['unitPrice'];
+      if (price is num) prices.add(price.toDouble());
+    }
+    if (prices.isEmpty) {
+      return '₱${base is num ? base.toStringAsFixed(base % 1 == 0 ? 0 : 2) : '0'}';
+    }
+    final min = prices.reduce((a, b) => a < b ? a : b);
+    final max = prices.reduce((a, b) => a > b ? a : b);
+    String money(double v) =>
+        v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
+    if (min == max) return '₱${money(min)}';
+    return '₱${money(min)}–${money(max)}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final flavors = product['flavors'] is List
@@ -189,11 +212,15 @@ class PosProductCard extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text(
-                        '₱${product['basePrice']}',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w900,
+                      Flexible(
+                        child: Text(
+                          _priceLabel(product),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
                       if (onQuickAdd != null && !unavailable)

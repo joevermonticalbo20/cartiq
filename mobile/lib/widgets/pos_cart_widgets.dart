@@ -154,6 +154,206 @@ class PosFlavorSelectionBar extends StatelessWidget {
   }
 }
 
+/// The size picker for a fries product.
+///
+/// The vendor taps a flavor ("BBQ Fries") and then picks the size
+/// (Medium / Large / XL 40 / XL 50). One size per order line: the sizes are
+/// shown as big tiles with the price, the live stock and a + / - stepper, so
+/// the choice is one tap instead of a list of small chips.
+class PosSizePicker extends StatelessWidget {
+  const PosSizePicker({
+    super.key,
+    required this.sizes,
+    required this.selected,
+    required this.onSelect,
+    required this.onQuantityChanged,
+  });
+
+  /// The size options from the catalog: name, unitPrice, availableServings.
+  final List<Map<String, dynamic>> sizes;
+
+  /// The currently picked size name (null = nothing picked yet).
+  final String? selected;
+
+  final ValueChanged<String> onSelect;
+  final void Function(String size, int quantity) onQuantityChanged;
+
+  bool _unavailable(Map<String, dynamic> size) {
+    return size['isAvailable'] == false ||
+        (size['availableServings'] is num &&
+            (size['availableServings'] as num) <= 0);
+  }
+
+  String _priceLabel(num value) {
+    final v = value.toDouble();
+    return v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(2);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Choose a size',
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: AppSpacing.space3),
+        GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: AppSpacing.space2,
+          crossAxisSpacing: AppSpacing.space2,
+          childAspectRatio: 1.55,
+          children: [for (final size in sizes) _sizeTile(context, size)],
+        ),
+      ],
+    );
+  }
+
+  Widget _sizeTile(BuildContext context, Map<String, dynamic> size) {
+    final name = size['name'] as String;
+    final unavailable = _unavailable(size);
+    final servings = size['availableServings'];
+    final price = size['unitPrice'];
+    final isSelected = selected == name;
+    final quantity = isSelected ? 1 : 0;
+
+    final borderColor = isSelected
+        ? AppColors.primary
+        : Theme.of(context).colorScheme.outlineVariant;
+    final bg = isSelected
+        ? AppColors.primary.withValues(alpha: 0.08)
+        : Theme.of(context).colorScheme.surface;
+
+    return Opacity(
+      opacity: unavailable ? 0.5 : 1,
+      child: Material(
+        color: bg,
+        borderRadius: BorderRadius.circular(AppRadius.l),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: unavailable
+              ? null
+              : () {
+                  onSelect(name);
+                  onQuantityChanged(name, 1);
+                },
+          child: Container(
+            padding: const EdgeInsets.all(AppSpacing.space3),
+            decoration: BoxDecoration(
+              border: Border.all(color: borderColor, width: isSelected ? 2 : 1),
+              borderRadius: BorderRadius.circular(AppRadius.l),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    if (price is num)
+                      Text(
+                        '₱${_priceLabel(price)}',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.space1),
+                Text(
+                  unavailable
+                      ? 'Out of stock'
+                      : servings is num && servings <= 10
+                      ? '${servings.toInt()} left'
+                      : servings is num
+                      ? '${servings.toInt()} servings left'
+                      : 'In stock',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: unavailable
+                        ? AppColors.danger
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (isSelected)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      PosQtyButton(
+                        icon: Icons.remove,
+                        onPressed: () => onQuantityChanged(name, quantity - 1),
+                      ),
+                      Text(
+                        '$quantity',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      PosQtyButton(
+                        icon: Icons.add,
+                        onPressed: () => onQuantityChanged(name, quantity + 1),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The sticky bar under the size picker: what was picked and the total, with
+/// the button that adds it to the cart.
+class PosSizeSelectionBar extends StatelessWidget {
+  const PosSizeSelectionBar({
+    super.key,
+    required this.sizeName,
+    required this.quantity,
+    required this.total,
+    required this.onAdd,
+  });
+
+  final String? sizeName;
+  final int quantity;
+  final double total;
+  final VoidCallback? onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasSelection = sizeName != null && quantity > 0;
+    final label = hasSelection
+        ? 'Add $quantity × $sizeName  •  ₱${total.toStringAsFixed(2)}'
+        : 'Pick a size';
+
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        icon: const Icon(Icons.add_shopping_cart_rounded),
+        label: Text(label),
+        onPressed: hasSelection ? onAdd : null,
+      ),
+    );
+  }
+}
+
 class PosFlavorPicker extends StatelessWidget {
   const PosFlavorPicker({
     super.key,
