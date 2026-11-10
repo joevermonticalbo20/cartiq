@@ -316,12 +316,11 @@ export default function InventoryPage() {
     }
 
     const original = currentItems.find((it) => it.id === editing.id);
-    const nextSource = editing.source ?? "MANUAL";
     if (original && nextThreshold > original.stock) {
       setEditError(`Threshold (${nextThreshold}) cannot be higher than current stock (${original.stock}). Lower the threshold instead.`);
       return;
     }
-    if (original && nextThreshold === original.threshold && nextSource === (original.source ?? "MANUAL")) {
+    if (original && nextThreshold === original.threshold) {
       toast(`No changes - threshold is already ${original.threshold}.`, "info");
       closeEditModal();
       return;
@@ -331,7 +330,6 @@ export default function InventoryPage() {
     try {
       await api.patch(`/inventory/items/${editing.id}`, {
         threshold: nextThreshold,
-        source: editing.source ?? "MANUAL",
       });
       
       toast(`Threshold updated to ${nextThreshold}`, "success");
@@ -510,7 +508,6 @@ export default function InventoryPage() {
                   { key: "item", label: "Item", skeletonWidth: "70%" },
                   { key: "stock", label: "Current stock", align: "center", skeletonWidth: "42%" },
                   { key: "threshold", label: "Threshold", align: "center", skeletonWidth: "42%" },
-                  { key: "source", label: "Source", skeletonType: "badge" },
                   { key: "status", label: "Status", skeletonType: "badge" },
                   { key: "forecast", label: "Forecast", skeletonType: "badge" },
                   { key: "actions", label: "Actions", align: "center", width: 140 },
@@ -550,7 +547,6 @@ export default function InventoryPage() {
                     <th><span className="th-inner">Item</span></th>
                     <th><span className="th-inner">Current stock</span></th>
                     <th><span className="th-inner">Threshold</span></th>
-                    <th><span className="th-inner">Source</span></th>
                     <th><span className="th-inner">Status</span></th>
                     <th><span className="th-inner">Forecast</span></th>
                     <th className="t-center" style={{ width: 140 }}><span className="th-inner">Actions</span></th>
@@ -594,12 +590,7 @@ export default function InventoryPage() {
                           {formatStock(item.stock)} {item.unit}
                         </td>
                         <td className="muted">{formatStock(item.threshold)} {item.unit}</td>
-                        
-                        <td>
-                          <Badge variant={item.source === "SENSOR" ? "info" : "neutral"}>
-                            {item.source}
-                          </Badge>
-                        </td>
+
                         <td><Badge variant={item.status}>{STATUS_LABEL[item.status]}</Badge></td>
                         <td>
                           {fcItem?.data_sufficient && fcItem.depletion_date ? (
@@ -1001,18 +992,6 @@ export default function InventoryPage() {
                     value={editing?.threshold ?? ""}
                     onChange={(e) => setEditing({ ...editing, threshold: sanitizeQtyInput(e.target.value) })}
                   />
-                </label>
-
-                <label className="field">
-                  Source
-                  <select
-                    value={editing?.source ?? "MANUAL"}
-                    onChange={(e) => setEditing({ ...editing, source: e.target.value })}
-                    title="MANUAL = manual recounts; SENSOR = sensor readings drive this row"
-                  >
-                    <option value="MANUAL">MANUAL</option>
-                    <option value="SENSOR">SENSOR</option>
-                  </select>
                 </label>
                 
                 <div className="modal-actions">

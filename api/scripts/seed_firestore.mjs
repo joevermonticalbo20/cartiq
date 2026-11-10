@@ -94,16 +94,26 @@ async function main() {
     });
   }
 
-  // Inventory per cart (LPG tank + cheese powder are the sensor-monitored items)
+  // Inventory per cart. Every row is a MANUAL count - the carts run no load
+  // cells, so there is no LPG tank and nothing is sensor-managed.
   const inventoryTemplate = [
-    { name: "LPG Tank", unit: "kg", stock: 11.0, threshold: 2.5, source: "SENSOR" },
-    { name: "Cheese Powder", unit: "kg", stock: 3.0, threshold: 1.0, source: "SENSOR" },
+    { name: "Cheese Powder", unit: "kg", stock: 3.0, threshold: 1.0, source: "MANUAL" },
     { name: "Sour Cream Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
     { name: "BBQ Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
     { name: "Sinigang Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
     { name: "Fries (frozen packs)", unit: "packs", stock: 12, threshold: 4, source: "MANUAL" },
     { name: "Pouches", unit: "pcs", stock: 150, threshold: 50, source: "MANUAL" },
   ];
+  // The LPG Tank row is a CI-ONLY fixture. The phase suites (2, 3, 9) exercise
+  // the IoT readings path (the LPG_TANK channel) and the low-stock quota logic
+  // against that row. Production carts run no load cells, so the seed must not
+  // create it there - hence the explicit opt-in.
+  if (process.env.SEED_SENSOR_FIXTURES === "1") {
+    inventoryTemplate.unshift({
+      name: "LPG Tank", unit: "kg", stock: 11.0, threshold: 2.5, source: "MANUAL",
+    });
+  }
+
   for (const loc of [cart01, cart02, cart03]) {
     for (const item of inventoryTemplate) {
       const rows = await db.inventoryItems.findMany({
@@ -119,7 +129,6 @@ async function main() {
       }
     }
   }
-
   // Supplier
   if (!(await db.suppliers.findUnique({ where: { name: "Sta. Cruz Grocery Supply" } }))) {
     await db.suppliers.create({

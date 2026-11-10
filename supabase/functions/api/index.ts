@@ -2195,8 +2195,7 @@ const CODE_RE = /^[A-Z0-9-]{3,12}$/;
 const DEVICE_ID_RE = /^[A-Za-z0-9_-]{3,40}$/;
 
 const INVENTORY_TEMPLATE = [
-  { name: "LPG Tank", unit: "kg", stock: 11.0, threshold: 2.5, source: "SENSOR" },
-  { name: "Cheese Powder", unit: "kg", stock: 3.0, threshold: 1.0, source: "SENSOR" },
+  { name: "Cheese Powder", unit: "kg", stock: 3.0, threshold: 1.0, source: "MANUAL" },
   { name: "Sour Cream Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
   { name: "BBQ Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
   { name: "Sinigang Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
@@ -2840,9 +2839,8 @@ async function handlePatchInventoryItem(req, id) {
 async function handleDeleteInventoryItem(id) {
   const existing = await fsGet("inventoryItems", id);
   if (!existing) return { status: 404, body: { error: "Inventory item not found" } };
-  if (existing.source === "SENSOR") {
-    return { status: 409, body: { error: `Cannot delete "${existing.name}": sensor-managed stock row` } };
-  }
+  // Sensor rows are deletable too: the carts no longer run load cells, so a
+  // leftover SENSOR row (e.g. the old LPG Tank) must be removable.
   const maps = await fsQueryEqual("ingredientMaps", "itemName", existing.name, 10000);
   if (maps.length > 0) {
     return {

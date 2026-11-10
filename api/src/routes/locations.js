@@ -11,9 +11,10 @@ const router = Router();
 const CODE_RE = /^[A-Z0-9-]{3,12}$/;
 
 // Starter stock copied from the seed template for every new cart.
+// Every row is a MANUAL count: the carts run no load cells, so the LPG tank
+// is gone and nothing is sensor-managed.
 const INVENTORY_TEMPLATE = [
-  { name: "LPG Tank", unit: "kg", stock: 11.0, threshold: 2.5, source: "SENSOR" },
-  { name: "Cheese Powder", unit: "kg", stock: 3.0, threshold: 1.0, source: "SENSOR" },
+  { name: "Cheese Powder", unit: "kg", stock: 3.0, threshold: 1.0, source: "MANUAL" },
   { name: "Sour Cream Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
   { name: "BBQ Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
   { name: "Sinigang Powder", unit: "kg", stock: 2.0, threshold: 1.0, source: "MANUAL" },
