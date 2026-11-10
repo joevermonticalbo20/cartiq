@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 
+import { LIVE_EVENT_NAMES } from "./liveEvents.js";
+
 /**
  * Subscribes to the CartIQ server-sent-events stream.
  * Auto-reconnects on disconnect (1s, 2s, 4s, 8s, max 30s).
@@ -93,8 +95,11 @@ export function useSSE(path, { getTicket, onEvent, onStatus } = {}) {
           /* ignore non-JSON */
         }
       };
-      // Common named events
-      ["order:new", "alert:new", "staff:on_shift", "sensor:reading", "connected"].forEach((evt) => {
+      // Named events. The server sends `event: <name>` frames, which only reach
+      // listeners registered here - `onmessage` never sees them. The list is
+      // the shared registry (hooks/liveEvents.js) so a new event cannot be
+      // emitted without the client listening for it.
+      LIVE_EVENT_NAMES.forEach((evt) => {
         es.addEventListener(evt, (e) => {
           try {
             const data = JSON.parse(e.data);

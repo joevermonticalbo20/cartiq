@@ -459,6 +459,11 @@ class AuthState extends ChangeNotifier {
       }
       await storage.write(key: 'cartiq_last_user', value: currentUser);
     } catch (_) {}
+    // The time-clock windows and today's own shifts are polled by the timer
+    // that startTimeClockSync() owns. signOut() stops it, so a fresh sign-in
+    // has to start it again - otherwise the Time in / Time out buttons keep
+    // the always-open fallback and "already timed in today" is never detected.
+    startTimeClockSync();
     notifyListeners();
   }
 
@@ -767,7 +772,10 @@ class AuthState extends ChangeNotifier {
     _timeClockFetchedAt = DateTime.now();
     _inOpenCache = clockInOpen;
     _outOpenCache = clockOutOpen;
-    unawaited(_tickTimeClock());
+    // Fetch right away instead of waiting for the first tick: the buttons must
+    // already reflect the owner's window when the screen opens.
+    unawaited(refreshTimeClock());
+    unawaited(refreshMyShifts());
     _timeClockTimer = Timer.periodic(
       const Duration(seconds: 30),
       (_) => unawaited(_tickTimeClock()),

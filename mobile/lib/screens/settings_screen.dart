@@ -1400,60 +1400,67 @@ class _ServerSectionState extends State<_ServerSection> {
     final saved = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Server address'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: controller,
-                keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                  labelText: 'IP or host',
-                  hintText: '192.168.1.5',
+        builder: (context, setDialogState) {
+          // One save path for both the Save button and the keyboard's "Go"
+          // action: pressing Enter used to close the dialog as if it had saved,
+          // while the address itself was never stored.
+          Future<void> save() async {
+            try {
+              final api = this.context.read<AuthState>().api;
+              await api.setManualBaseUrl(controller.text);
+              final ok = await api.testConnection();
+              if (!ok) {
+                setDialogState(
+                  () => error =
+                      'Saved, but the server did not answer. Check the address.',
+                );
+                return;
+              }
+              if (dialogContext.mounted) {
+                Navigator.pop(dialogContext, true);
+              }
+            } on ApiException catch (e) {
+              setDialogState(() => error = e.message);
+            }
+          }
+
+          return AlertDialog(
+            title: const Text('Server address'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: controller,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    labelText: 'IP or host',
+                    hintText: '192.168.1.5',
+                  ),
+                  onSubmitted: (_) => save(),
                 ),
-                onSubmitted: (_) => Navigator.pop(dialogContext, true),
-              ),
-              if (error != null) ...[
-                const SizedBox(height: AppSpacing.space2),
-                Text(
-                  error!,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: AppColors.danger),
-                ),
+                if (error != null) ...[
+                  const SizedBox(height: AppSpacing.space2),
+                  Text(
+                    error!,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: AppColors.danger),
+                  ),
+                ],
               ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => save(),
+                child: const Text('Save'),
+              ),
             ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                try {
-                  final api = context.read<AuthState>().api;
-                  await api.setManualBaseUrl(controller.text);
-                  final ok = await api.testConnection();
-                  if (!ok) {
-                    setDialogState(
-                      () => error =
-                          'Saved, but the server did not answer. Check the address.',
-                    );
-                    return;
-                  }
-                  if (dialogContext.mounted) {
-                    Navigator.pop(dialogContext, true);
-                  }
-                } on ApiException catch (e) {
-                  setDialogState(() => error = e.message);
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
     controller.dispose();

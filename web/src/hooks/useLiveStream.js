@@ -1,6 +1,9 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { API_BASE } from "../api.js";
 import { useSSE } from "./useSSE.js";
+import { LIVE_EVENTS } from "./liveEvents.js";
+
+export { LIVE_EVENTS };
 
 /**
  * One app-wide server-sent-events connection.
@@ -18,11 +21,6 @@ import { useSSE } from "./useSSE.js";
 
 const listeners = new Map(); // event name -> Set<handler>
 const statusListeners = new Set(); // connection status -> Set<handler>
-
-export const LIVE_EVENTS = Object.freeze({
-  restockRequestNew: "restock-request:new",
-  restockRequestUpdated: "restock-request:updated",
-});
 
 function dispatch(event, data) {
   const set = listeners.get(event);
