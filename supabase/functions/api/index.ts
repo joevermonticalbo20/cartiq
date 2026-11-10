@@ -4047,15 +4047,22 @@ async function handleDeleteProduct(id) {
   ]);
   const usedInOrders = orders.reduce(
     (n, o) => n + (o.items ?? []).filter((it) => it.productName === existing.name).length, 0);
-  if (usedInOrders > 0 || maps.length > 0) {
+  // Only past order lines block the delete (history truth). A product that was
+  // never sold deletes together with its own recipe rows - they are keyed by
+  // product name and would otherwise be orphans deducting stock for a product
+  // that no longer exists.
+  if (usedInOrders > 0) {
     return {
       status: 409,
       body: {
-        error: `Cannot delete "${existing.name}": referenced by ${usedInOrders} order line(s) and ${maps.length} recipe row(s)`,
+        error: `Cannot delete "${existing.name}": referenced by ${usedInOrders} order line(s)`,
         orderLines: usedInOrders,
         recipeRows: maps.length,
       },
     };
+  }
+  for (const m of maps) {
+    await fsDeleteByName(m._name).catch(() => {});
   }
   await fsDeleteByName(existing._name);
   // The uploaded photo (if any) dies with the product.
@@ -4065,7 +4072,7 @@ async function handleDeleteProduct(id) {
     // A missing image document is not an error.
   }
   await bumpCatalogVersion().catch(() => {});
-  return { status: 200, body: { deleted: true } };
+  return { status: 200, body: { deleted: true, removedRecipeRows: maps.length } };
 }
 
 // ---------- product image endpoints (mirror api/src/routes/products.js) ----------

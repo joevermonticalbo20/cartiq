@@ -642,8 +642,13 @@ export default function ProductsPage() {
     if (!deleting || isDeleting) return;
     setIsDeleting(true);
     try {
-      await api.del(`/products/${deleting.id}`);
-      toast(`Product "${deleting.name}" deleted`, "success");
+      const { data } = await api.del(`/products/${deleting.id}`);
+      const removedRows = Number(data?.removedRecipeRows ?? 0);
+      toast(
+        `Product "${deleting.name}" deleted` +
+          (removedRows > 0 ? ` (${removedRows} recipe row(s) removed)` : ""),
+        "success"
+      );
       load();
     } catch (err) {
       toast(getFriendlyError(err, "Delete failed."), "error");

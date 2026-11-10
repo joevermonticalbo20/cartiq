@@ -643,8 +643,11 @@ router.patch("/products/:id/rename", requireAuth, requireRole("OWNER"), async (r
   }
 });
 
-// DELETE /api/products/:id (OWNER) — blocked while order lines or recipes
-// reference the name; otherwise removes the product (+ its recipe rows).
+// DELETE /api/products/:id (OWNER) — blocked only while order lines still
+// reference the name (history truth). A product that was never sold deletes
+// cleanly together with its recipe rows: those rows are keyed by product name
+// and would otherwise be orphans pointing at a product that no longer exists
+// (which would keep deducting stock for a deleted product).
 router.delete("/products/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
     const existing = await prisma.product.findUnique({ where: { id: Number(req.params.id) } });
@@ -657,17 +660,21 @@ router.delete("/products/:id", requireAuth, requireRole("OWNER"), async (req, re
       (n, o) => n + (o.items ?? []).filter((it) => it.productName === existing.name).length,
       0
     );
-    if (usedInOrders > 0 || maps.length > 0) {
+    if (usedInOrders > 0) {
       return res.status(409).json({
-        error: `Cannot delete "${existing.name}": referenced by ${usedInOrders} order line(s) and ${maps.length} recipe row(s)`,
+        error: `Cannot delete "${existing.name}": referenced by ${usedInOrders} order line(s)`,
         orderLines: usedInOrders,
         recipeRows: maps.length,
       });
     }
+    // The product's own recipe rows die with it.
+    if (maps.length > 0) {
+      await prisma.ingredientMap.deleteMany({ where: { productName: existing.name } });
+    }
     await imageDoc(existing.id).delete();
     await prisma.product.delete({ where: { id: existing.id } });
     await touchCatalog();
-    return res.json({ deleted: true });
+    return res.json({ deleted: true, removedRecipeRows: maps.length });
   } catch (err) {
     if (err.code === "P2025") return res.status(404).json({ error: "Product not found" });
     return next(err);
