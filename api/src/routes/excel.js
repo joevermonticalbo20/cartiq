@@ -3,7 +3,12 @@ import multer from "multer";
 import ExcelJS from "exceljs";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { splitFlavorCell, validateProductRow } from "../services/import_rules.js";
+import {
+  splitFlavorCell,
+  splitOptionPricesCell,
+  parseCostCell,
+  validateProductRow,
+} from "../services/import_rules.js";
 import {
   manilaMonthRange,
   manilaDayRange,
@@ -236,13 +241,22 @@ async function buildProductsSheet(wb) {
     { header: "Category", key: "category", width: 14 },
     { header: "Base Price", key: "basePrice", width: 11 },
     { header: "Flavors", key: "flavors", width: 30 },
+    // Optional columns (the importer reads them by header name, so a workbook
+    // with only the first four columns still imports).
+    { header: "Cost", key: "cost", width: 11 },
+    { header: "Option Prices", key: "optionPrices", width: 30 },
   ];
   for (const p of products) {
+    const flavorPrices = p.flavorPrices ?? {};
     sheet.addRow({
       name: p.name,
       category: p.category,
       basePrice: p.basePrice,
       flavors: (p.flavorIds ?? []).map((id) => flavorName.get(id) ?? id).join("; "),
+      cost: p.cost ?? null,
+      optionPrices: Object.entries(flavorPrices)
+        .map(([name, price]) => `${name}=${price}`)
+        .join("; "),
     });
   }
   styleHeader(sheet);
@@ -341,12 +355,33 @@ router.post(
         (await prisma.flavor.findMany()).map((f) => [f.name.toLowerCase(), f.id])
       );
 
+      // Optional columns are read by HEADER NAME, so a workbook with only the
+      // original four columns still imports.
+      const headerIndex = new Map();
+      sheet.getRow(1).eachCell((cell, col) => {
+        const header = String(cell.value ?? "").trim().toLowerCase();
+        if (header) headerIndex.set(header, col);
+      });
+      const columnFor = (...names) => {
+        for (const n of names) {
+          const col = headerIndex.get(n);
+          if (col) return col;
+        }
+        return 0;
+      };
+      const costCol = columnFor("cost");
+      const optionPricesCol = columnFor("option prices", "optionprices", "flavor prices");
+
       sheet.eachRow((row, rowNumber) => {
         if (rowNumber === 1) return; // header
         const name = String(row.getCell(1).value ?? "").trim();
         const category = String(row.getCell(2).value ?? "").trim() || "Fries";
         const basePriceRaw = row.getCell(3).value;
         const flavorsRaw = String(row.getCell(4).value ?? "").trim();
+        const costRaw = costCol ? row.getCell(costCol).value : null;
+        const optionPricesRaw = optionPricesCol
+          ? String(row.getCell(optionPricesCol).value ?? "").trim()
+          : "";
 
         if (!name) {
           errors.push({ row: rowNumber, reason: "missing name" });
@@ -362,16 +397,48 @@ router.post(
           return;
         }
         const flavorNames = splitFlavorCell(flavorsRaw);
+        const optionPrices = splitOptionPricesCell(optionPricesRaw);
+        // The cost is optional: an empty cell means "unknown cost".
+        const { cost, reason: costReason } = parseCostCell(costRaw);
+        if (costReason) {
+          errors.push({ row: rowNumber, reason: costReason });
+          return;
+        }
         // DoS/size caps (name/category/price/flavor bounds mirror
-        // routes/products.js). Rejections land in errors[] so commit stays
-        // blocked until the file is fixed.
-        const capReason = validateProductRow({ name, category, basePrice, flavorNames });
+        // routes/products.js) plus the cost and per-option price rules.
+        // Rejections land in errors[] so commit stays blocked until the file
+        // is fixed.
+        const capReason = validateProductRow({
+          name,
+          category,
+          basePrice,
+          flavorNames,
+          cost,
+          optionPrices,
+        });
         if (capReason) {
           errors.push({ row: rowNumber, reason: capReason });
           return;
         }
+        // Key the prices by the flavor's spelling in the sheet, so the price
+        // still matches when the cell used different casing.
+        const optionPricesByName = {};
+        for (const [optionName, price] of Object.entries(optionPrices)) {
+          const match = flavorNames.find(
+            (f) => f.toLowerCase() === optionName.toLowerCase()
+          );
+          if (match) optionPricesByName[match] = price;
+        }
         seenNames.add(name.toLowerCase());
-        validRows.push({ row: rowNumber, name, category, basePrice, flavorNames });
+        validRows.push({
+          row: rowNumber,
+          name,
+          category,
+          basePrice,
+          flavorNames,
+          cost,
+          optionPrices: optionPricesByName,
+        });
       });
 
       const result = {
@@ -402,6 +469,12 @@ router.post(
               // Firestore port: M2M flavors are stored as flavorIds on the
               // product doc (was Prisma `flavors: { connect: [...] }`).
               ...(flavorIds.length ? { flavorIds } : {}),
+              // The per-option prices (Medium / Large / XL 40 / XL 50) and the
+              // cost, both optional columns of the sheet.
+              ...(Object.keys(r.optionPrices ?? {}).length
+                ? { flavorPrices: r.optionPrices }
+                : {}),
+              ...(r.cost !== null && r.cost !== undefined ? { cost: r.cost } : {}),
             },
           });
           existingProducts.add(r.name.toLowerCase());

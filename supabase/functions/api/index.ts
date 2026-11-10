@@ -6221,7 +6221,33 @@ function splitFlavorCell(raw) {
   return text.split(/[;,]/).map((f) => f.trim()).filter(Boolean);
 }
 
-function validateProductRow({ name, category, basePrice, flavorNames }) {
+/** "Large=30; XL 40=40" -> { Large: 30, "XL 40": 40 }. */
+function splitOptionPricesCell(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) return {};
+  const out = {};
+  for (const part of text.split(/[;,]/)) {
+    const [rawName, rawPrice] = part.split("=");
+    const name = String(rawName ?? "").trim();
+    const price = Number(String(rawPrice ?? "").trim());
+    if (!name || !Number.isFinite(price) || price <= 0) continue;
+    out[name] = price;
+  }
+  return out;
+}
+
+/** "" = unknown cost; anything else must be a positive number. */
+function parseCostCell(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) return { cost: null, reason: null };
+  const cost = Number(text);
+  if (!Number.isFinite(cost) || cost <= 0) {
+    return { cost: null, reason: `invalid cost "${text}"` };
+  }
+  return { cost, reason: null };
+}
+
+function validateProductRow({ name, category, basePrice, flavorNames, cost = null, optionPrices = {} }) {
   if (!name) return "missing name";
   if (name.length > IMPORT_MAX_NAME_LEN) return `name exceeds ${IMPORT_MAX_NAME_LEN} characters`;
   if (!Number.isFinite(basePrice) || basePrice <= 0) return `invalid basePrice "${basePrice}"`;
@@ -6235,6 +6261,19 @@ function validateProductRow({ name, category, basePrice, flavorNames }) {
   }
   for (const f of flavors) {
     if (f.length > IMPORT_MAX_FLAVOR_LEN) return `flavor exceeds ${IMPORT_MAX_FLAVOR_LEN} characters`;
+  }
+  if (cost !== null && cost !== undefined) {
+    if (!Number.isFinite(cost) || cost <= 0) return `invalid cost "${cost}"`;
+    if (cost > basePrice) return "cost cannot be higher than the base price";
+  }
+  for (const [optionName, price] of Object.entries(optionPrices ?? {})) {
+    if (!Number.isFinite(price) || price <= 0) return `invalid price for "${optionName}"`;
+    if (price > basePrice) {
+      return `price for "${optionName}" (${price}) cannot be higher than the base price`;
+    }
+    if (!flavors.some((f) => f.toLowerCase() === optionName.toLowerCase())) {
+      return `price for "${optionName}" but "${optionName}" is not in the Flavors column`;
+    }
   }
   return null;
 }
@@ -6455,14 +6494,23 @@ async function handleExport(origin, inUrl, dataset) {
       { header: "Category", key: "category", width: 14 },
       { header: "Base Price", key: "basePrice", width: 11 },
       { header: "Flavors", key: "flavors", width: 30 },
+      // Optional columns (the importer reads them by header name, so a
+      // workbook with only the first four columns still imports).
+      { header: "Cost", key: "cost", width: 11 },
+      { header: "Option Prices", key: "optionPrices", width: 30 },
     ];
     products.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
     for (const p of products) {
+      const flavorPrices = p.flavorPrices ?? {};
       sheet.addRow({
         name: p.name,
         category: p.category,
         basePrice: p.basePrice,
         flavors: (p.flavorIds ?? []).map((id) => flavorName.get(Number(id)) ?? id).join("; "),
+        cost: p.cost ?? null,
+        optionPrices: Object.entries(flavorPrices)
+          .map(([name, price]) => `${name}=${price}`)
+          .join("; "),
       });
     }
     styleSheetHeader(sheet);
@@ -6555,6 +6603,24 @@ async function handleImportProducts(req, _origin, inUrl) {
     return { status: 400, body: { error: "max 2000 data rows per import" }, binary: false };
   }
 
+  // Optional columns are read by HEADER NAME, so a workbook with only the
+  // original four columns still imports.
+  const headerRow = Array.isArray(rows[0]) ? rows[0] : [];
+  const headerIndex = new Map(
+    headerRow
+      .map((h, i) => [String(h ?? "").trim().toLowerCase(), i])
+      .filter(([h]) => h)
+  );
+  const columnFor = (...names) => {
+    for (const n of names) {
+      const col = headerIndex.get(n);
+      if (col !== undefined) return col;
+    }
+    return -1;
+  };
+  const costCol = columnFor("cost");
+  const optionPricesCol = columnFor("option prices", "optionprices", "flavor prices");
+
   const errors = [];
   const validRows = [];
   const seenNames = new Set();
@@ -6568,6 +6634,8 @@ async function handleImportProducts(req, _origin, inUrl) {
     const category = String(cols[1] ?? "").trim() || "Fries";
     const basePriceRaw = cols[2];
     const flavorsRaw = String(cols[3] ?? "").trim();
+    const costRaw = costCol >= 0 ? cols[costCol] : null;
+    const optionPricesRaw = optionPricesCol >= 0 ? String(cols[optionPricesCol] ?? "").trim() : "";
     if (!name) {
       errors.push({ row: rowNumber, reason: "missing name" });
       return;
@@ -6582,13 +6650,41 @@ async function handleImportProducts(req, _origin, inUrl) {
       return;
     }
     const flavorNames = splitFlavorCell(flavorsRaw);
-    const capReason = validateProductRow({ name, category, basePrice, flavorNames });
+    const optionPrices = splitOptionPricesCell(optionPricesRaw);
+    const { cost, reason: costReason } = parseCostCell(costRaw);
+    if (costReason) {
+      errors.push({ row: rowNumber, reason: costReason });
+      return;
+    }
+    const capReason = validateProductRow({
+      name,
+      category,
+      basePrice,
+      flavorNames,
+      cost,
+      optionPrices,
+    });
     if (capReason) {
       errors.push({ row: rowNumber, reason: capReason });
       return;
     }
+    // Key the prices by the flavor's spelling in the sheet, so the price
+    // still matches when the cell used different casing.
+    const optionPricesByName = {};
+    for (const [optionName, price] of Object.entries(optionPrices)) {
+      const match = flavorNames.find((f) => f.toLowerCase() === optionName.toLowerCase());
+      if (match) optionPricesByName[match] = price;
+    }
     seenNames.add(name.toLowerCase());
-    validRows.push({ row: rowNumber, name, category, basePrice, flavorNames });
+    validRows.push({
+      row: rowNumber,
+      name,
+      category,
+      basePrice,
+      flavorNames,
+      cost,
+      optionPrices: optionPricesByName,
+    });
   });
 
   const result = {
@@ -6624,6 +6720,9 @@ async function handleImportProducts(req, _origin, inUrl) {
         category: r.category,
         basePrice: r.basePrice,
         ...(flavorIds.length ? { flavorIds } : {}),
+        // Optional columns: per-option prices and the cost.
+        ...(Object.keys(r.optionPrices ?? {}).length ? { flavorPrices: r.optionPrices } : {}),
+        ...(r.cost !== null && r.cost !== undefined ? { cost: r.cost } : {}),
       }));
     });
     await fsCommit(writes);

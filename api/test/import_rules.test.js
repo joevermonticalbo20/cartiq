@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   splitFlavorCell,
+  splitOptionPricesCell,
+  parseCostCell,
   validateProductRow,
   IMPORT_MAX_NAME_LEN,
   IMPORT_MAX_CATEGORY_LEN,
@@ -26,6 +28,41 @@ describe("splitFlavorCell", () => {
   it("empty cell yields no flavors", () => {
     assert.deepEqual(splitFlavorCell(""), []);
     assert.deepEqual(splitFlavorCell(null), []);
+  });
+});
+
+describe("splitOptionPricesCell", () => {
+  it("parses name=price pairs separated by ; or ,", () => {
+    assert.deepEqual(splitOptionPricesCell("Large=30; XL 40=40, XL 50=50"), {
+      Large: 30,
+      "XL 40": 40,
+      "XL 50": 50,
+    });
+  });
+
+  it("skips malformed pairs instead of failing the whole cell", () => {
+    assert.deepEqual(splitOptionPricesCell("Large=30; nope; XL 40=abc; XL 50=0"), {
+      Large: 30,
+    });
+  });
+
+  it("empty cell yields no prices", () => {
+    assert.deepEqual(splitOptionPricesCell(""), {});
+    assert.deepEqual(splitOptionPricesCell(null), {});
+  });
+});
+
+describe("parseCostCell", () => {
+  it("parses a number and treats an empty cell as unknown", () => {
+    assert.deepEqual(parseCostCell("12.5"), { cost: 12.5, reason: null });
+    assert.deepEqual(parseCostCell(""), { cost: null, reason: null });
+    assert.deepEqual(parseCostCell(null), { cost: null, reason: null });
+  });
+
+  it("rejects text and non-positive costs with a readable reason", () => {
+    assert.match(parseCostCell("abc").reason, /invalid cost "abc"/);
+    assert.match(parseCostCell("-1").reason, /invalid cost/);
+    assert.match(parseCostCell("0").reason, /invalid cost/);
   });
 });
 
@@ -80,6 +117,47 @@ describe("validateProductRow", () => {
         flavorNames: Array.from({ length: IMPORT_MAX_FLAVORS_PER_ROW }, (_, i) => `F${i}`),
       }),
       null
+    );
+  });
+
+  it("accepts an optional cost at or below the base price", () => {
+    assert.equal(validateProductRow({ ...valid(), cost: 25 }), null);
+    assert.equal(validateProductRow({ ...valid(), cost: 40 }), null);
+    assert.equal(validateProductRow({ ...valid(), cost: null }), null);
+  });
+
+  it("rejects a cost above the base price or not a number", () => {
+    assert.match(
+      validateProductRow({ ...valid(), cost: 41 }),
+      /cost cannot be higher than the base price/
+    );
+    assert.match(validateProductRow({ ...valid(), cost: NaN }), /invalid cost/);
+    assert.match(validateProductRow({ ...valid(), cost: 0 }), /invalid cost/);
+  });
+
+  it("accepts per-option prices that name a flavor and stay within the base price", () => {
+    assert.equal(
+      validateProductRow({
+        ...valid(),
+        basePrice: 50,
+        optionPrices: { Cheese: 20, BBQ: 50 },
+      }),
+      null
+    );
+  });
+
+  it("rejects an option price above the base price or naming an unknown option", () => {
+    assert.match(
+      validateProductRow({ ...valid(), optionPrices: { Cheese: 41 } }),
+      /cannot be higher than the base price/
+    );
+    assert.match(
+      validateProductRow({ ...valid(), optionPrices: { Large: 30 } }),
+      /is not in the Flavors column/
+    );
+    assert.match(
+      validateProductRow({ ...valid(), optionPrices: { Cheese: 0 } }),
+      /invalid price/
     );
   });
 });
