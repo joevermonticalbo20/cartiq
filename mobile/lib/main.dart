@@ -9,6 +9,7 @@ import 'screens/root_shell.dart';
 import 'services/api_client.dart';
 import 'services/auth_state.dart';
 import 'services/data_refresh.dart';
+import 'services/dropped_sales_store.dart';
 import 'services/failed_receipts_store.dart';
 import 'services/kv_store.dart';
 import 'services/persisted_queue.dart';
@@ -63,12 +64,18 @@ Future<void> main() async {
   final receiptStore = FailedReceiptsStore(
     const SecureStoreAdapter(FlutterSecureStorage()),
   );
+  // Sales the server refused leave the queue, so they are kept here: the
+  // operator must be able to see what did not reach the server.
+  final droppedStore = DroppedSalesStore(
+    const SecureStoreAdapter(FlutterSecureStorage()),
+  );
   final sync = SyncService(
     api: api,
     auth: auth,
     queue: PersistedOfflineQueue.instance,
     dataRefresh: dataRefresh,
     receiptStore: receiptStore,
+    droppedStore: droppedStore,
   );
   final themeController = ThemeController();
   // One instance for the whole app: every mounted tab subscribes to it so a

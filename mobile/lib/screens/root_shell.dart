@@ -147,6 +147,22 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
           actionLabel: 'Review cart',
           onAction: () => setState(() => _index = 0),
         );
+      } else if (result.dropped.isNotEmpty) {
+        // Every other drop reason (the server refused the record, the sale was
+        // outside this cart, the payload was invalid) used to disappear with
+        // no message at all: the money was taken at the counter but the server
+        // never got the record. Say so, with the reason.
+        final reasons = result.dropped.map((r) => r.reason).toSet().join(', ');
+        final count = result.dropped.length;
+        AppMessenger.showErrorSnackBar(
+          context: context,
+          error: ApiException(
+            count == 1
+                ? '1 sale could not be uploaded ($reasons) - tell the owner'
+                : '$count sales could not be uploaded ($reasons) - tell the owner',
+            statusCode: 400,
+          ),
+        );
       }
     });
   }

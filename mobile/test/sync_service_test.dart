@@ -5,8 +5,27 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cartiq_mobile/services/api_client.dart';
 import 'package:cartiq_mobile/services/auth_state.dart';
 import 'package:cartiq_mobile/services/data_refresh.dart';
+import 'package:cartiq_mobile/services/dropped_sales_store.dart';
 import 'package:cartiq_mobile/services/offline_queue.dart';
 import 'package:cartiq_mobile/services/sync_service.dart';
+
+/// Plain in-memory key/value store for the dropped-sales store.
+class _MemoryStore implements KeyValueStore {
+  final Map<String, String?> values = {};
+
+  @override
+  Future<String?> read({required String key}) async => values[key];
+
+  @override
+  Future<void> write({required String key, required String? value}) async {
+    values[key] = value;
+  }
+
+  @override
+  Future<void> delete({required String key}) async {
+    values.remove(key);
+  }
+}
 
 class _FakeApi extends ApiClient {
   _FakeApi() : super();
@@ -217,6 +236,54 @@ void main() {
       expect(result.dropped.single.reason, 'MISSING_LOCATION_CODE');
       expect(result.fullySynced, isFalse);
       expect(result.allDone, isTrue); // queue empty, but not a success
+    });
+
+    test('a dropped sale is kept on the device with its reason', () async {
+      // The record leaves the queue, so the store is the only place the
+      // operator can still see that money was taken but the server refused
+      // the sale.
+      final store = DroppedSalesStore(_MemoryStore());
+      final service = SyncService(
+        api: api,
+        auth: auth,
+        queue: queue,
+        dataRefresh: dataRefresh,
+        droppedStore: store,
+      );
+      await queue.enqueue(_orderMissingLocation('noloc'));
+
+      final result = await service.syncAll();
+
+      expect(result.dropped, hasLength(1));
+      final kept = await store.list();
+      expect(kept, hasLength(1));
+      expect(kept.single['reason'], 'MISSING_LOCATION_CODE');
+      expect(kept.single['id'], 'noloc');
+      expect(await store.count(), 1);
+    });
+
+    test('the dropped sale summary says what went wrong', () async {
+      await queue.enqueue(_orderMissingLocation('noloc'));
+
+      final result = await sync.syncAll();
+
+      expect(result.message, contains('MISSING_LOCATION_CODE'));
+      expect(result.fullySynced, isFalse);
+    });
+
+    test('a second sync while one is running waits for the same result',
+        () async {
+      await queue.enqueue(_order('a'));
+      api.script.add(null);
+      final first = sync.syncAll();
+      final second = sync.syncAll();
+
+      final results = await Future.wait([first, second]);
+      expect(results[0].synced, 1);
+      expect(results[1].synced, 1,
+          reason: 'the second caller must see the real drain, not a fake '
+              '"nothing synced" placeholder');
+      expect(api.calls, 1, reason: 'one drain, one upload');
     });
 
     test('409 duplicate counts as synced', () async {

@@ -1561,6 +1561,77 @@ class _SyncSection extends StatelessWidget {
   const _SyncSection({required this.onToast});
   final void Function(String message, {bool error, bool success}) onToast;
 
+  /// The sales the server refused, with the reason each one was refused.
+  static Future<void> _showDroppedSales(
+    BuildContext context,
+    SyncService sync,
+  ) async {
+    final store = sync.droppedStore;
+    if (store == null) return;
+    final entries = await store.list();
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Rejected sales'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: entries.isEmpty
+              ? const Text('No rejected sales.')
+              : ListView(
+                  shrinkWrap: true,
+                  children: entries
+                      .map(
+                        (e) {
+                          final total = e['total'];
+                          final count = e['itemCount'];
+                          final at = DateTime.tryParse(
+                            e['at'] as String? ?? '',
+                          );
+                          final reason = e['reason'] as String? ?? 'rejected';
+                          final title = 'P${total is num ? total.toStringAsFixed(2) : '?'}'
+                              '${count == null ? '' : ' • $count item(s)'}';
+                          final subtitle = '$reason'
+                              '${at == null ? '' : ' • ${ManilaTime.formatTime(at)}'}';
+                          return ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(title),
+                            subtitle: Text(subtitle),
+                            trailing: IconButton(
+                              tooltip: 'Forget this sale',
+                              icon: const Icon(Icons.delete_outline_rounded),
+                              onPressed: () async {
+                                final id = e['id'];
+                                if (id is String) await store.remove(id);
+                                if (dialogContext.mounted) {
+                                  Navigator.pop(dialogContext);
+                                }
+                              },
+                            ),
+                          );
+                        },
+                      )
+                      .toList(),
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await store.clear();
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
+            },
+            child: const Text('Clear all'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final sync = context.watch<SyncService>();
@@ -1592,9 +1663,14 @@ class _SyncSection extends StatelessWidget {
                 customWidget: FilledButton.tonal(
                   onPressed: () async {
                     final result = await sync.syncAll();
+                    final dropped = result.dropped.length;
                     onToast(
                       result.fullySynced
                           ? 'Synced ${result.synced} sale(s)'
+                          : dropped > 0
+                          // A refused sale must never look like a plain
+                          // "still pending" - the reason is what matters.
+                          ? result.message
                           : result.online
                           ? '${result.remaining} remaining'
                           : 'Offline • will sync when connected',
@@ -1610,6 +1686,24 @@ class _SyncSection extends StatelessWidget {
                 ),
               ),
             ),
+            // Sales the server refused. They left the queue, so this is the
+            // only place the operator can still see them.
+            if (sync.droppedStore != null)
+              FutureBuilder<int>(
+                future: sync.droppedStore!.count(),
+                builder: (context, snap) {
+                  final count = snap.data ?? 0;
+                  if (count == 0) return const SizedBox.shrink();
+                  return _PremiumTile(
+                    icon: Icons.error_outline_rounded,
+                    iconColor: AppColors.danger,
+                    title: 'Rejected sales',
+                    subtitle: '$count sale(s) the server refused - '
+                        're-record them by hand',
+                    onTap: () => _showDroppedSales(context, sync),
+                  );
+                },
+              ),
             FutureBuilder<DateTime?>(
               future: api.catalogUpdatedAt(),
               builder: (context, snap) => _PremiumTile(

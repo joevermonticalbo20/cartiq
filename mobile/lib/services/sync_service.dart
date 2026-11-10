@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'api_client.dart';
 import 'auth_state.dart';
 import 'data_refresh.dart';
+import 'dropped_sales_store.dart';
 import 'failed_receipts_store.dart';
 import 'offline_queue.dart';
 
@@ -92,18 +93,29 @@ class SyncService extends ChangeNotifier {
   /// Optional so tests can omit it; production wires it in main.dart.
   final FailedReceiptsStore? receiptStore;
 
+  /// Where sales the server refused are kept. A rejected sale leaves the
+  /// queue, so without this the operator would never learn that money was
+  /// taken at the counter but the server never got the record.
+  /// Optional so tests can omit it; production wires it in main.dart.
+  final DroppedSalesStore? droppedStore;
+
   SyncService({
     required this.api,
     required this.auth,
     required this.queue,
     this.dataRefresh,
     this.receiptStore,
+    this.droppedStore,
   });
 
   Timer? _timer;
   bool _running = false;
   bool _appResumed = true;
   bool get isSyncing => _running;
+
+  /// The drain currently in flight, so a second caller waits for the same
+  /// result instead of starting a second upload pass.
+  Future<SyncResult>? _inFlight;
 
   /// Last successful reachability check. The health call itself is a full
   /// round trip, so we reuse a recent success instead of re-pinging on every
@@ -124,17 +136,23 @@ class SyncService extends ChangeNotifier {
 
   /// Trigger an immediate sync (used by app resume, lifecycle events, manual tap).
   Future<SyncResult> syncAll() async {
-    if (_running) {
-      return SyncResult(online: true, synced: 0, remaining: await queue.count);
-    }
+    final inFlight = _inFlight;
+    if (inFlight != null) return inFlight;
     _running = true;
     notifyListeners();
+    final completer = Completer<SyncResult>();
+    _inFlight = completer.future;
     try {
       final result = await _doSync();
       lastResult = result;
       if (result.synced > 0) dataRefresh?.bump('sale');
+      completer.complete(result);
       return result;
+    } catch (error, stack) {
+      completer.completeError(error, stack);
+      rethrow;
     } finally {
+      _inFlight = null;
       _running = false;
       notifyListeners();
     }
@@ -191,10 +209,7 @@ class SyncService extends ChangeNotifier {
       // retries or - worse - silently deleting after a server 400.
       final problem = _validateRecord(record);
       if (problem != null) {
-        await queue.remove(record.id);
-        dropped.add(
-          DroppedRecord(id: record.id, kind: record.kind, reason: problem),
-        );
+        await _dropRecord(dropped, record, problem);
         continue;
       }
       try {
@@ -211,14 +226,7 @@ class SyncService extends ChangeNotifier {
           // Staff outside their cart (or other permission denial): a refresh
           // cannot fix it. Drop with a clear reason instead of retrying
           // every 30s behind a poisoned record.
-          await queue.remove(record.id);
-          dropped.add(
-            DroppedRecord(
-              id: record.id,
-              kind: record.kind,
-              reason: 'STAFF_OUTSIDE_CART',
-            ),
-          );
+          await _dropRecord(dropped, record, 'STAFF_OUTSIDE_CART');
           continue;
         }
         if (e.statusCode == 401) {
@@ -252,15 +260,12 @@ class SyncService extends ChangeNotifier {
             } else if (retryError is ApiException &&
                 retryError.statusCode == 409 &&
                 retryError.code == 'INSUFFICIENT_STOCK') {
-              await queue.remove(record.id);
-              dropped.add(
-                DroppedRecord(
-                  id: record.id,
-                  kind: record.kind,
-                  reason: retryError.message,
-                  code: retryError.code,
-                  payload: record.payload,
-                ),
+              await _dropRecord(
+                dropped,
+                record,
+                retryError.message,
+                code: retryError.code,
+                payload: record.payload,
               );
               dataRefresh?.bump('inventory');
             } else if (retryError is ApiException) {
@@ -272,15 +277,12 @@ class SyncService extends ChangeNotifier {
         }
         if (e.statusCode == 409) {
           if (e.code == 'INSUFFICIENT_STOCK') {
-            await queue.remove(record.id);
-            dropped.add(
-              DroppedRecord(
-                id: record.id,
-                kind: record.kind,
-                reason: e.message,
-                code: e.code,
-                payload: record.payload,
-              ),
+            await _dropRecord(
+              dropped,
+              record,
+              e.message,
+              code: e.code,
+              payload: record.payload,
             );
             dataRefresh?.bump('inventory');
             continue;
@@ -299,14 +301,7 @@ class SyncService extends ChangeNotifier {
         }
         // Any other 4xx slipped past pre-validation: drop with its status
         // as the reason, keep draining the rest.
-        await queue.remove(record.id);
-        dropped.add(
-          DroppedRecord(
-            id: record.id,
-            kind: record.kind,
-            reason: 'SERVER_REJECTED_${e.statusCode}',
-          ),
-        );
+        await _dropRecord(dropped, record, 'SERVER_REJECTED_${e.statusCode}');
         continue;
       } catch (_) {
         break; // network hiccup mid-drain: try again next sync
@@ -450,6 +445,44 @@ class SyncService extends ChangeNotifier {
       }
     }
     return null;
+  }
+
+  /// Give up on a queued record: take it out of the queue, report it in the
+  /// result and remember it on the device.
+  ///
+  /// Every path that gives up goes through here, so a rejected sale can never
+  /// disappear silently - the operator is told now, and can still see it in
+  /// Settings later (the queue itself no longer holds it).
+  Future<void> _dropRecord(
+    List<DroppedRecord> dropped,
+    QueuedRecord record,
+    String reason, {
+    String? code,
+    Map<String, dynamic>? payload,
+  }) async {
+    await queue.remove(record.id);
+    dropped.add(
+      DroppedRecord(
+        id: record.id,
+        kind: record.kind,
+        reason: reason,
+        code: code,
+        payload: payload,
+      ),
+    );
+    final store = droppedStore;
+    if (store == null) return;
+    final items = record.payload['items'];
+    await store.add(
+      id: record.id,
+      kind: record.kind,
+      reason: reason,
+      code: code,
+      total: record.payload['total'] is num
+          ? (record.payload['total'] as num).toDouble()
+          : null,
+      itemCount: items is List ? items.length : null,
+    );
   }
 
   /// Start the periodic timer. Idempotent.
