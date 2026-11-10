@@ -194,7 +194,12 @@ class _HomeScreenState extends State<HomeScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (sheetContext) => SafeArea(
+      builder: (sheetContext) {
+        // The sheet is its own route: the parent's setState does NOT rebuild
+        // it, so it watches AuthState itself. Without this, "Mark all read" (or
+        // tapping an alert) left the read item on screen.
+        final sheetAuth = sheetContext.watch<AuthState>();
+        return SafeArea(
         child: SizedBox(
           height: MediaQuery.of(context).size.height * 0.6,
           child: Padding(
@@ -218,18 +223,17 @@ class _HomeScreenState extends State<HomeScreen> {
                             ?.copyWith(fontWeight: FontWeight.w800),
                       ),
                     ),
-                    if (auth.myUnreadCount > 0)
+                    if (sheetAuth.myUnreadCount > 0)
                       TextButton(
                         onPressed: () async {
-                          await auth.markAllMyAlertsRead();
-                          if (sheetContext.mounted) setState(() {});
+                          await sheetAuth.markAllMyAlertsRead();
                         },
                         child: const Text('Mark all read'),
                       ),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.space3),
-                if (auth.offlineMode || auth.token == null)
+                if (sheetAuth.offlineMode || sheetAuth.token == null)
                   Padding(
                     padding: const EdgeInsets.all(AppSpacing.space4),
                     child: Text(
@@ -237,7 +241,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   )
-                else if (auth.myAlerts.isEmpty)
+                else if (sheetAuth.myAlerts.isEmpty)
                   Expanded(
                     child: Center(
                       child: Text(
@@ -249,10 +253,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 else
                   Expanded(
                     child: ListView.separated(
-                      itemCount: auth.myAlerts.length,
+                      itemCount: sheetAuth.myAlerts.length,
                       separatorBuilder: (_, _) => const Divider(height: 1),
                       itemBuilder: (_, i) {
-                        final a = auth.myAlerts[i];
+                        final a = sheetAuth.myAlerts[i];
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
                           leading: const Icon(Icons.notifications_outlined),
@@ -270,20 +274,20 @@ class _HomeScreenState extends State<HomeScreen> {
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                           onTap: () async {
-                            await auth.markMyAlertRead(
+                            await sheetAuth.markMyAlertRead(
                               (a['id'] as num).toInt(),
                             );
-                            if (sheetContext.mounted) setState(() {});
                           },
                         );
                       },
                     ),
                   ),
-              ],
+                ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 

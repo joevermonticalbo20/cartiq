@@ -633,18 +633,38 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
           isSuccess: true,
         );
       } else if (!stockConflict) {
-        AppMessenger.showErrorSnackBar(
-          context: context,
-          error: ApiException(
-            result.message,
-            statusCode: result.authExpired
-                ? 401
-                : result.errorMessage == ApiClient.unavailableMessage
-                ? 503
-                : null,
-          ),
-          onRetry: () => sync.syncAll(),
-        );
+        if (!result.online) {
+          // Offline: the sale is safely queued, but the error snackbar
+          // suppresses the offline message - so without this the operator saw
+          // NO confirmation at all that the sale was recorded.
+          AppMessenger.showGlassToast(
+            context: context,
+            message: 'Sale recorded offline   $paymentDetails\nWill upload when connected',
+            isSuccess: true,
+          );
+        } else {
+          AppMessenger.showErrorSnackBar(
+            context: context,
+            error: ApiException(
+              result.message,
+              statusCode: result.authExpired
+                  ? 401
+                  : result.errorMessage == ApiClient.unavailableMessage
+                  ? 503
+                  : null,
+            ),
+            onRetry: () async {
+              final retry = await sync.syncAll();
+              if (!mounted) return;
+              if (retry.dropped.isNotEmpty) {
+                AppMessenger.showErrorSnackBar(
+                  context: context,
+                  error: ApiException(retry.message, statusCode: 400),
+                );
+              }
+            },
+          );
+        }
       }
     } finally {
       _paying = false;
@@ -1058,13 +1078,25 @@ class _CartSheetState extends State<_CartSheet> {
         maxWidth: 1024,
         maxHeight: 1024,
       );
+      // A denied camera permission (or a device without a camera) throws
+      // here. Without the catch it escaped an unawaited callback and the
+      // person saw nothing at all.
+      if (!mounted) return;
       if (xfile != null) {
         setState(() => _gcashProofImage = File(xfile.path));
         Haptics.success();
       }
-    } finally {
-      if (mounted) setState(() => _isPickingImage = false);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isPickingImage = false);
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Could not open the camera. Check the camera permission.',
+        isSuccess: false,
+      );
+      return;
     }
+    if (mounted) setState(() => _isPickingImage = false);
   }
 
   void _viewGCashProof() {

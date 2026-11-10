@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui';
@@ -11,6 +12,7 @@ import '../services/api_client.dart';
 import '../services/data_refresh.dart';
 import '../services/list_cache.dart';
 import '../services/receipt_file_cache.dart';
+import '../services/sync_service.dart';
 import '../theme.dart';
 import '../utils/app_messenger.dart';
 import '../utils/haptics.dart';
@@ -368,7 +370,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Future<void> _editPaymentMethod(Map<String, dynamic> order) async {
     final currentMethod = order['paymentMethod'] ?? 'CASH';
 
-    final method = await showModalBottomSheet<String>(
+    final result = await showModalBottomSheet<_PaymentEditResult>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -379,7 +381,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           _EditPaymentSheet(initialMethod: currentMethod),
     );
 
-    if (method == null) {
+    if (result == null) {
       return;
     }
     if (!mounted) {
@@ -389,6 +391,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final rawId = order['id'];
     final auth = context.read<AuthState>();
     final token = auth.token;
+    // Read the receipt store BEFORE the first await: a BuildContext must not
+    // be used across an async gap.
+    final receiptStore = context.read<SyncService>().receiptStore;
 
     if (rawId is! num || token == null) {
       AppMessenger.showGlassToast(
@@ -401,9 +406,42 @@ class _HistoryScreenState extends State<HistoryScreen> {
       return;
     }
 
-    final chosen = method;
+    final chosen = result.method;
     try {
       await auth.api.updateOrderPayment(token, rawId.toInt(), chosen);
+
+      // The GCash proof captured in the sheet now actually goes to the order -
+      // it used to be captured and then dropped on the floor.
+      final bytes = result.proofBytes;
+      final mime = result.proofMime;
+      if (bytes != null && mime != null) {
+        try {
+          await auth.api.uploadOrderReceipt(
+            token,
+            rawId.toInt(),
+            mime: mime,
+            data: base64Encode(bytes),
+          );
+        } catch (_) {
+          // The upload failed: keep the photo on the device so the sync
+          // service retries it instead of losing the payment evidence.
+          final store = receiptStore;
+          await store?.add(
+            clientRef: 'payment-${rawId.toInt()}',
+            orderId: rawId.toInt(),
+            mime: mime,
+            data: base64Encode(bytes),
+          );
+          if (!mounted) return;
+          AppMessenger.showGlassToast(
+            context: context,
+            message:
+                'Payment method saved. The proof photo will upload later.',
+            isSuccess: true,
+          );
+          return;
+        }
+      }
     } on ApiException catch (e) {
       if (!mounted) {
         return;
@@ -1778,6 +1816,20 @@ class _VoidReasonSheetState extends State<_VoidReasonSheet> {
   }
 }
 
+/// What the "Edit Payment Method" sheet hands back: the chosen method plus the
+/// GCash proof the person captured (if any).
+///
+/// The proof used to be captured and previewed but never sent anywhere - the
+/// owner could never see it. It now travels with the result and is uploaded
+/// to the order.
+class _PaymentEditResult {
+  const _PaymentEditResult({required this.method, this.proofBytes, this.proofMime});
+
+  final String method;
+  final List<int>? proofBytes;
+  final String? proofMime;
+}
+
 class _EditPaymentSheet extends StatefulWidget {
   const _EditPaymentSheet({required this.initialMethod});
   final String initialMethod;
@@ -1810,18 +1862,30 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
 
     try {
       final picker = ImagePicker();
+      // A denied camera permission (or a device with no camera) throws here.
+      // Without the catch it escaped an unawaited callback and the person saw
+      // nothing at all.
       final xfile = await picker.pickImage(
         source: ImageSource.camera,
         imageQuality: 80,
       );
+      if (!mounted) return;
       if (xfile != null) {
         setState(() => proofImage = File(xfile.path));
         Haptics.success();
       }
-    } finally {
-      if (mounted) {
-        setState(() => _isPickingImage = false);
-      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isPickingImage = false);
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Could not open the camera. Check the camera permission.',
+        isSuccess: false,
+      );
+      return;
+    }
+    if (mounted) {
+      setState(() => _isPickingImage = false);
     }
   }
 
@@ -2041,7 +2105,35 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
                   style: FilledButton.styleFrom(
                     minimumSize: const Size.fromHeight(52),
                   ),
-                  onPressed: () => Navigator.pop(context, currentMethod),
+                  onPressed: () async {
+                    // The captured proof travels with the result so it can be
+                    // uploaded to the order.
+                    final navigator = Navigator.of(context);
+                    List<int>? bytes;
+                    String? mime;
+                    final file = proofImage;
+                    if (file != null) {
+                      try {
+                        final raw = await file.readAsBytes();
+                        if (raw.isNotEmpty && raw.length <= 512 * 1024) {
+                          bytes = raw;
+                          mime = file.path.toLowerCase().endsWith('.png')
+                              ? 'image/png'
+                              : 'image/jpeg';
+                        }
+                      } catch (_) {
+                        // Unreadable file: the method change still goes through.
+                      }
+                    }
+                    if (!mounted) return;
+                    navigator.pop(
+                      _PaymentEditResult(
+                        method: currentMethod,
+                        proofBytes: bytes,
+                        proofMime: mime,
+                      ),
+                    );
+                  },
                   child: const Text('Save Changes'),
                 ),
               ),

@@ -21,6 +21,11 @@ class FailedReceiptsStore {
   /// phone keeps at most [maxEntries] small payloads around.
   static const maxEntries = 5;
 
+  /// How long a failed upload is kept before it is dropped. The doc comment
+  /// promised this expiry, but the store used to delete the oldest photo as
+  /// soon as the fifth arrived - payment evidence could be lost in minutes.
+  static const maxAge = Duration(days: 7);
+
   Future<List<String>> _readIndex() async {
     try {
       final raw = await _storage.read(key: _indexKey);
@@ -61,20 +66,48 @@ class FailedReceiptsStore {
       if (!index.contains(clientRef)) {
         index.add(clientRef);
       }
-      while (index.length > maxEntries) {
-        final dropped = index.removeAt(0);
+      // Expire by age first: a photo older than the retention window is
+      // dropped even when there is room in the backlog.
+      final now = DateTime.now();
+      final kept = <String>[];
+      for (final key in index) {
+        final at = await _storedAt(key);
+        if (at != null && now.difference(at) > maxAge) {
+          await _storage.delete(key: '$_prefix$key');
+          continue;
+        }
+        kept.add(key);
+      }
+      // Only then apply the hard cap, oldest first.
+      while (kept.length > maxEntries) {
+        final dropped = kept.removeAt(0);
         await _storage.delete(key: '$_prefix$dropped');
       }
-      await _writeIndex(index);
+      await _writeIndex(kept);
     } catch (_) {
       // The store itself failing must not take the sale down either. The
       // upload error is already surfaced to the operator by the caller.
     }
   }
 
+  /// When the entry was stored (null when it cannot be read).
+  Future<DateTime?> _storedAt(String clientRef) async {
+    try {
+      final raw = await _storage.read(key: '$_prefix$clientRef');
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final at = DateTime.tryParse(decoded['at'] as String? ?? '');
+      return at;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<List<Map<String, dynamic>>> pending() async {
     final index = await _readIndex();
     final out = <Map<String, dynamic>>[];
+    final now = DateTime.now();
     for (final clientRef in index) {
       try {
         final raw = await _storage.read(key: '$_prefix$clientRef');
@@ -83,6 +116,12 @@ class FailedReceiptsStore {
         }
         final decoded = jsonDecode(raw);
         if (decoded is Map<String, dynamic>) {
+          // An expired photo is not retried any more.
+          final at = DateTime.tryParse(decoded['at'] as String? ?? '');
+          if (at != null && now.difference(at) > maxAge) {
+            await _storage.delete(key: '$_prefix$clientRef');
+            continue;
+          }
           out.add(decoded);
         }
       } catch (_) {

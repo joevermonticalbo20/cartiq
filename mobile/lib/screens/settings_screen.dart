@@ -522,6 +522,9 @@ class SettingsScreenState extends State<SettingsScreen> {
     // The builder below calls sendCode from a button; this variable lets the
     // async helper update the dialog after the first frame.
     late StateSetter setDialogState;
+    // The dialog's own context, so an async answer can check that the dialog
+    // is still on screen before it calls setDialogState on a disposed builder.
+    BuildContext? dialogCtx;
 
     Future<void> sendCode() async {
       if (sending || closed) return;
@@ -533,7 +536,7 @@ class SettingsScreenState extends State<SettingsScreen> {
         final token = auth.token;
         if (token == null) throw ApiException('Signed out');
         final data = await auth.api.requestChangePasswordCode(token);
-        if (closed) return;
+        if (closed || !(dialogCtx?.mounted ?? false)) return;
         setDialogState(() {
           sending = false;
           codeSent = true;
@@ -545,10 +548,19 @@ class SettingsScreenState extends State<SettingsScreen> {
         });
         await Haptics.success();
       } on ApiException catch (e) {
-        if (closed) return;
+        if (closed || !(dialogCtx?.mounted ?? false)) return;
         setDialogState(() {
           sending = false;
           error = e.message;
+        });
+        await Haptics.error();
+      } catch (e) {
+        // A platform failure (an invalidated Keystore, for example) must not
+        // leave the dialog stuck on "sending".
+        if (closed || !(dialogCtx?.mounted ?? false)) return;
+        setDialogState(() {
+          sending = false;
+          error = 'Could not send the code. Try again.';
         });
         await Haptics.error();
       }
@@ -560,6 +572,7 @@ class SettingsScreenState extends State<SettingsScreen> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setState) {
           setDialogState = setState;
+          dialogCtx = dialogContext;
           final canSend = auth.hasRealEmail && !sending;
           return AlertDialog(
             title: const Text('Change password'),
