@@ -845,7 +845,7 @@ export default function ProductsPage() {
 
   return (
     <PageErrorBoundary>
-      <div className="page-container wide">
+      <div className="page-container wide products-page">
         <PageHeader
           eyebrow="Menu"
           title="Products"

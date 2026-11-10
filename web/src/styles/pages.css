@@ -803,6 +803,26 @@ button.settings-pw-submit:disabled {
 .products-panel .table-wrap {
   overflow-x: hidden;
 }
+
+/* The catalog panel fills the page so its bottom edge lines up with the
+   sidebar instead of floating in the middle of the screen. The page-body has
+   40px of bottom padding; the -24px cancels the difference between that and
+   the sidebar's 16px bottom margin, so both end on the same line. */
+.page-container.products-page {
+  min-height: calc(100vh - 110px);
+  margin-bottom: -24px;
+}
+.products-page .products-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.products-page .products-panel .table-wrap {
+  height: auto;
+  flex: 1 1 auto;
+  min-height: 320px;
+}
 .product-mobile-price {
   display: none;
 }
