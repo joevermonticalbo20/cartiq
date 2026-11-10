@@ -58,8 +58,9 @@ async function main() {
     body: { code: "CART-04", name: "Test New Canteen", address: "Test Address" },
   });
   check("add CART-04 201", created.status === 201, `got ${created.status}`);
-  // 7 base rows + Pouch Medium/Large/XL + 5 flavor powders.
-  check("starter inventory seeded (15 rows)", created.data?.items?.length === 15);
+  // 6 base rows + Pouch Medium/Large/XL + 5 flavor powders. The LPG tank is
+  // gone (the carts run no load cells), so it is not in the starter template.
+  check("starter inventory seeded (14 rows)", created.data?.items?.length === 14);
   check("device token issued once", typeof created.data?.deviceToken === "string" &&
     created.data.deviceToken.startsWith("dev-CART-04-"));
   check("device id derived", created.data?.device?.deviceId === "esp32-cart-04");
@@ -80,7 +81,7 @@ async function main() {
 
   const list = await req("/locations", { token: tok });
   const row = (list.data?.data ?? []).find((l) => l.code === "CART-04");
-  check("CART-04 listed with counts", row?.itemCount === 15 && row?.status === "ACTIVE");
+  check("CART-04 listed with counts", row?.itemCount === 14 && row?.status === "ACTIVE");
 
   const catalog = await req("/catalog", { token: tok });
   check("new cart in POS catalog", (catalog.data?.locations ?? []).some((l) => l.code === "CART-04"));
