@@ -13,12 +13,49 @@ import RecoveryFlow from "./RecoveryFlow.jsx";
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.1.0";
 
+const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
+
+/** Weekday letter (S M T W T F S) for a "YYYY-MM-DD" calendar date. */
+function weekdayLetter(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? ""));
+  if (!m) return "";
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return WEEKDAY_LETTERS[d.getUTCDay()];
+}
+
+/**
+ * The last 7 days of sales as chart bars.
+ *
+ * Real numbers from the server - the preview used to draw made-up bars
+ * ([38, 62, 48, ...]) that looked like a weekly chart but were mock data.
+ * A day with no sales still gets a small baseline so the axis reads right.
+ */
+function buildWeeklyBars(weekly) {
+  const rows = Array.isArray(weekly) ? weekly : [];
+  if (rows.length === 0) return [];
+  const values = rows.map((r) => Number(r?.total_sales) || 0);
+  const max = Math.max(...values, 0);
+  const peakIndex = max > 0 ? values.indexOf(max) : -1;
+  return rows.map((r, i) => {
+    const value = values[i];
+    const height = max > 0 ? Math.max(4, Math.round((value / max) * 100)) : 4;
+    return {
+      date: r?.date ?? "",
+      value,
+      label: weekdayLetter(r?.date),
+      height,
+      isPeak: i === peakIndex,
+    };
+  });
+}
+
 function TiltedPreviewCard({ className = "", salesToday }) {
   const totalSales = salesToday?.total_sales;
   const orderCount = Number.isFinite(Number(salesToday?.orders))
     ? Number(salesToday.orders)
     : null;
   const previewCarts = Array.isArray(salesToday?.carts) ? salesToday.carts : [];
+  const weeklyBars = buildWeeklyBars(salesToday?.weekly);
   const previewStatusMeta = {
     ok: { label: "Active", className: "ok" },
     low: { label: "Low", className: "warn" },
@@ -43,6 +80,26 @@ function TiltedPreviewCard({ className = "", salesToday }) {
           </span>
         </div>
       </div>
+      {weeklyBars.length > 0 && (
+        <div className="login-preview-chart-area">
+          <div className="login-preview-bars">
+            {weeklyBars.map((bar) => (
+              <div
+                key={bar.date}
+                className="login-preview-barcol"
+                style={{ "--h": `${bar.height}%` }}
+                title={`${bar.date}: P${bar.value.toLocaleString()}`}
+              >
+                {bar.isPeak && <span className="login-preview-peak">PEAK</span>}
+                <div className={`bar-wrapper${bar.isPeak ? " peak" : ""}`}>
+                  <span className="bar" />
+                </div>
+                <span className="bar-label">{bar.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="login-preview-carts">
         {previewCarts.slice(0, 3).map((cart) => {
           const meta = previewStatusMeta[cart.status] ?? previewStatusMeta.ok;

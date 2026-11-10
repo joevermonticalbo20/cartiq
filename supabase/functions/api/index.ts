@@ -3309,10 +3309,11 @@ function manilaDayStart(daysAgo) {
 async function handlePublicSalesToday() {
   const day = manilaDayStart(0);
   const nextDay = new Date(day.getTime() + 24 * 60 * 60 * 1000);
+  const weekStart = manilaDayStart(6);
   const [allOrders, locations, inventoryItems] = await Promise.all([
     fsRunQuery("orders", {
       filters: [
-        { field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: day },
+        { field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: weekStart },
         { field: "createdAt", op: "LESS_THAN", value: nextDay },
       ],
       limit: 5000,
@@ -3321,7 +3322,22 @@ async function handlePublicSalesToday() {
     fsListAll("inventoryItems"),
   ]);
   const orders = allOrders.filter((o) => o.status === "PAID");
-  const totalSales = orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+  const todayOrders = orders.filter(
+    (o) => o.createdAt && new Date(o.createdAt).getTime() >= day.getTime(),
+  );
+  const totalSales = todayOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+  // The last 7 days of daily sales (aggregate only) so the login preview can
+  // draw a REAL chart instead of made-up bars.
+  const byDay = new Map();
+  for (const o of orders) {
+    const key = manilaDayKey(o.createdAt);
+    byDay.set(key, (byDay.get(key) ?? 0) + (Number(o.total) || 0));
+  }
+  const weekly = [];
+  for (let d = 6; d >= 0; d--) {
+    const key = manilaDayKey(manilaDayStart(d));
+    weekly.push({ date: key, total_sales: Number((byDay.get(key) ?? 0).toFixed(2)) });
+  }
   const inventoryStatus = (stock, threshold) => {
     if (stock <= threshold / 2) return "critical";
     if (stock <= threshold) return "low";
@@ -3357,8 +3373,9 @@ async function handlePublicSalesToday() {
     body: {
       date: `${manilaDay.getUTCFullYear()}-${pad(manilaDay.getUTCMonth() + 1)}-${pad(manilaDay.getUTCDate())}`,
       total_sales: Number(totalSales.toFixed(2)),
-      orders: orders.length,
+      orders: todayOrders.length,
       carts,
+      weekly,
       asOf: new Date().toISOString(),
     },
   };

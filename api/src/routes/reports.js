@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db as prisma } from "../firestore.js";
 import { requireAuth } from "../middleware/auth.js";
-import { manilaDayRange, manilaDayStart } from "../services/timezone.js";
+import { manilaDayKey, manilaDayRange, manilaDayStart } from "../services/timezone.js";
 
 const router = Router();
 
@@ -11,11 +11,27 @@ router.get("/public/sales-today", async (_req, res, next) => {
   try {
     const day = manilaDayStart(0);
     const nextDay = new Date(day.getTime() + 24 * 60 * 60 * 1000);
+    const weekStart = manilaDayStart(6);
     const orders = await prisma.order.findMany({
-      where: { createdAt: { gte: day, lt: nextDay }, status: "PAID" },
-      select: { total: true },
+      where: { createdAt: { gte: weekStart, lt: nextDay }, status: "PAID" },
+      select: { total: true, createdAt: true },
     });
-    const totalSales = orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const todayOrders = orders.filter(
+      (o) => o.createdAt >= day && o.createdAt < nextDay
+    );
+    const totalSales = todayOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    // The last 7 days of daily sales (aggregate only) so the login preview
+    // can draw a REAL chart instead of made-up bars.
+    const byDay = new Map();
+    for (const o of orders) {
+      const key = manilaDayKey(o.createdAt);
+      byDay.set(key, (byDay.get(key) ?? 0) + (Number(o.total) || 0));
+    }
+    const weekly = [];
+    for (let d = 6; d >= 0; d--) {
+      const key = manilaDayKey(manilaDayStart(d));
+      weekly.push({ date: key, total_sales: Number((byDay.get(key) ?? 0).toFixed(2)) });
+    }
     // Login preview cart chips: only the cart code plus the worst stock
     // status across its items. No names, quantities, or item details.
     const inventoryStatus = (stock, threshold) => {
@@ -50,8 +66,9 @@ router.get("/public/sales-today", async (_req, res, next) => {
     return res.json({
       date: `${manilaDay.getUTCFullYear()}-${pad(manilaDay.getUTCMonth() + 1)}-${pad(manilaDay.getUTCDate())}`,
       total_sales: Number(totalSales.toFixed(2)),
-      orders: orders.length,
+      orders: todayOrders.length,
       carts,
+      weekly,
       asOf: new Date().toISOString(),
     });
   } catch (err) {
