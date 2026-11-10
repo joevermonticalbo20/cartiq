@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useOutletContext, useLocation } from "react-router-dom";
 import { CheckSquare, SlidersHorizontal, Square, Boxes, Plus, PackagePlus, Edit2, Trash2 } from "lucide-react";
 import api from "../api.js";
@@ -163,6 +163,32 @@ export default function InventoryPage() {
   }, [selected]);
 
   useLiveEvent(LIVE_EVENTS.restockRequestNew, loadRestockRequests);
+
+  // The stock table must still follow the POS now that there is no manual
+  // Refresh button: a sale deducts stock server-side, so pull the stock rows
+  // again when an order lands. One request only (the stock table), debounced
+  // so a burst of orders costs a single fetch.
+  const loadStock = useCallback(async () => {
+    try {
+      const inv = await api.get("/inventory");
+      setLocations(inv.data?.locations ?? []);
+      setLoadError("");
+    } catch {
+      /* keep the last known stock; the next order or filter change retries */
+    }
+  }, []);
+  const stockRefreshTimer = useRef(null);
+  useLiveEvent("order:new", () => {
+    if (stockRefreshTimer.current) clearTimeout(stockRefreshTimer.current);
+    stockRefreshTimer.current = setTimeout(() => {
+      stockRefreshTimer.current = null;
+      loadStock();
+    }, 3000);
+  });
+  useEffect(() => () => {
+    if (stockRefreshTimer.current) clearTimeout(stockRefreshTimer.current);
+  }, []);
+
   // Live stock-request updates land locally instead of refetching every
   // inventory section (that used to flash the whole page's skeletons).
   function applyRestockUpdated(alert) {
