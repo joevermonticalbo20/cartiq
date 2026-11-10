@@ -272,10 +272,11 @@ router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, nex
       return res.status(400).json({ error: "basePrice must be a positive number" });
     }
     // Optional cost per unit. It is what the Margin readout is based on; the
-    // POS still charges `basePrice`. Null means "unknown" - the margin then
-    // shows "—" instead of a fake 0%.
-    const costValue = cost === undefined || cost === null || cost === "" ? null : validPrice(cost);
-    if (costValue === null) {
+    // POS still charges `basePrice`. Omitted/null means "unknown" - the margin
+    // then shows "—" instead of a fake 0%.
+    const costProvided = cost !== undefined && cost !== null && cost !== "";
+    const costValue = costProvided ? validPrice(cost) : null;
+    if (costProvided && costValue === null) {
       return res.status(400).json({ error: "cost must be a positive number (or leave it empty)" });
     }
     if (costValue !== null && costValue > price) {

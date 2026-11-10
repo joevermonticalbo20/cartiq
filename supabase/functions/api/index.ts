@@ -3703,9 +3703,11 @@ async function handleCreateProduct(req) {
     return { status: 400, body: { error: "basePrice must be a positive number" } };
   }
   // Optional cost per unit - what the Margin readout is based on. The POS
-  // still charges `basePrice`. Null means "unknown" (the margin shows "—").
-  const costValue = cost === undefined || cost === null || cost === "" ? null : validPrice(cost);
-  if (costValue === null) {
+  // still charges `basePrice`. Omitted/null means "unknown" (the margin
+  // shows "—").
+  const costProvided = cost !== undefined && cost !== null && cost !== "";
+  const costValue = costProvided ? validPrice(cost) : null;
+  if (costProvided && costValue === null) {
     return { status: 400, body: { error: "cost must be a positive number (or leave it empty)" } };
   }
   if (costValue !== null && costValue > price) {
