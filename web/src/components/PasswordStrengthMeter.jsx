@@ -18,6 +18,21 @@ export function evaluatePassword(pw = "") {
   return { checks, passed, level };
 }
 
+/**
+ * True when a password reaches [minLevel] or better.
+ *
+ * The meter already promises "min strength required" - the submit handlers
+ * must enforce the same rule, or the UI lies.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper colocated with its only consumer, unit-tested in place
+export function meetsPasswordStrength(pw = "", minLevel = "fair") {
+  const { level } = evaluatePassword(pw);
+  const from = LEVEL_ORDER.indexOf(level);
+  const to = LEVEL_ORDER.indexOf(minLevel);
+  if (to === -1) return false;
+  return from !== -1 && from >= to;
+}
+
 const LEVEL_LABEL = {
   empty: "",
   weak: "Weak",
@@ -25,6 +40,9 @@ const LEVEL_LABEL = {
   good: "Good",
   strong: "Strong",
 };
+
+/** Strength levels in order, weakest first. */
+const LEVEL_ORDER = ["empty", "weak", "fair", "good", "strong"];
 
 const REQUIREMENTS = [
   { key: "length", label: "At least 8 characters" },

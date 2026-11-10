@@ -50,6 +50,21 @@ function getLocalToday() {
   const tzOffset = new Date().getTimezoneOffset() * 60000;
   return new Date(Date.now() - tzOffset).toISOString().slice(0, 10);
 }
+
+/**
+ * The calendar day before [iso] ("YYYY-MM-DD").
+ *
+ * The date input gives a plain calendar date, so the arithmetic is done in UTC
+ * (no timezone shift, no DST surprises in Manila).
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper colocated with its only consumer, unit-tested in place
+export function previousDay(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? ""));
+  if (!m) return "";
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
 // HELPER: Para malinis ang decimal (max 2 places) tulad ng sa Inventory
 function formatStock(val) {
   return Number(val).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -114,6 +129,11 @@ export default function DashboardPage() {
     const dQ = dateFilter ? `date=${dateFilter}` : "";
     const lQ = cartFilter ? `location_code=${cartFilter}` : "";
     const cQ = cartFilter ? `code=${cartFilter}` : "";
+    // The API honours `date` first and ignores `daysAgo`, so asking for
+    // "yesterday" with both parameters used to return the SAME day - the
+    // "% vs prior" cards then always read 0.0%. When a day is picked, ask for
+    // the previous day explicitly.
+    const prevQ = dateFilter ? `date=${previousDay(dateFilter)}` : "daysAgo=1";
     const buildQ = (base, params) => {
       const query = params.filter(Boolean).join("&");
       if (!query) return base;
@@ -127,7 +147,7 @@ export default function DashboardPage() {
       settle("sales", api.get(buildQ("/orders?page=1&pageSize=5", [dQ, lQ])), (r) => setLatestSales(r.data?.data ?? [])),
       settle("alerts", api.get("/alerts?unread_only=true&page=1&pageSize=5"), (r) => setAlerts(r.data?.data ?? [])),
       settle("trends", api.get(buildQ("/analytics/trends?days=7", [cQ])).catch(() => ({ data: null })), (r) => setTrends(r.data)),
-      settle("prev", api.get(buildQ("/reports/daily?daysAgo=1", [dQ, cQ])).catch(() => ({ data: null })), (r) => setPrev(r.data)),
+      settle("prev", api.get(buildQ("/reports/daily", [prevQ, cQ])).catch(() => ({ data: null })), (r) => setPrev(r.data)),
     ]);
 
     setSectionErrors(errs);

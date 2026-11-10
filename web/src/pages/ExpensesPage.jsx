@@ -7,6 +7,7 @@ import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
@@ -360,7 +361,7 @@ export default function ExpensesPage() {
           ) : null}
 
           {error ? (
-            <div className="error-box" role="alert">{error}</div>
+            <ErrorBox message={error} onRetry={handleRefresh} />
           ) : !loading && (!rows || rows.length === 0) ? (
             // EXPANDED MANUAL EMPTY TABLE SHELL
             <div className="table-wrap" style={{ height: "min(500px, 55dvh)", display: "flex", flexDirection: "column" }}>

@@ -5,6 +5,7 @@ import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import { useLiveEvent } from "../hooks/useLiveStream.js";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import Badge from "../components/Badge.jsx";
 import { SkeletonList } from "../components/Skeleton.jsx";
@@ -151,7 +152,7 @@ export default function NotificationsPage() {
               <SkeletonList rows={5} card className="notifications-skeleton" />
             </div>
           ) : error ? (
-            <div className="error-box">{error}</div>
+            <ErrorBox message={error} onRetry={load} />
           ) : filteredAlerts.length === 0 ? (
             
             <div style={{ 

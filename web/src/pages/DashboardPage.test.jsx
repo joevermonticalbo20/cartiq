@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent, within, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, Outlet } from "react-router-dom";
 import { ToastProvider } from "../components/Toast.jsx";
 
@@ -211,5 +211,32 @@ describe("DashboardPage partial failure", () => {
     fireEvent.click(within(banner).getByText("Retry"));
     expect(await screen.findByText("P1,250")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+// Regression: the API honours `date` first and ignores `daysAgo`, so asking
+// for "yesterday" while also sending the selected date returned the SAME day.
+// Every "% vs prior" card then read 0.0% whenever a date filter was on.
+describe("DashboardPage previous period with a date filter", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("asks for the previous DAY, not the same day with daysAgo", async () => {
+    mockApiAllOk();
+    const { container } = renderPage();
+    await screen.findByText("P1,250");
+
+    const dateInput = container.querySelector('input[type="date"]');
+    expect(dateInput).toBeTruthy();
+    fireEvent.change(dateInput, { target: { value: "2026-11-10" } });
+
+    await waitFor(() => {
+      const urls = api.get.mock.calls.map((c) => String(c[0]));
+      expect(urls.some((u) => u.includes("date=2026-11-09"))).toBe(true);
+    });
+    const urls = api.get.mock.calls.map((c) => String(c[0]));
+    // The prior request must not carry the selected day as well.
+    expect(urls.some((u) => u.includes("date=2026-11-10&") && u.includes("daysAgo"))).toBe(false);
   });
 });

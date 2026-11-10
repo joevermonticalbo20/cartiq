@@ -97,6 +97,9 @@ export default function AnalyticsPage() {
   const [hourly, setHourly] = useState(null);
   const [salesFc, setSalesFc] = useState(null);
   const [error, setError] = useState("");
+  // Sections that failed to load. They must be named, not silently treated
+  // as empty data (an empty forecast reads as "inventory looks healthy").
+  const [sectionErrors, setSectionErrors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
 
@@ -138,9 +141,11 @@ export default function AnalyticsPage() {
       api.get(`/analytics/trends?1=1${dateParams}${codeParam}`),
       api.get(`/analytics/trends?1=1${prevDateParams}${codeParam}`),
       cartCode ? api.get(`/analytics/forecast?code=${encodeURIComponent(cartCode)}`).catch(() => ({ data: { code: cartCode, items: [] } })) : Promise.resolve({ data: { code: null, items: [] } }),
-      isOwner ? api.get(`/analytics/profit?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })) : Promise.resolve({ data: null }),
-      api.get(`/analytics/hourly?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })),
-      api.get(`/analytics/sales-forecast?1=1${dateParams}${codeParam}`).catch(() => ({ data: null })),
+      isOwner
+        ? api.get(`/analytics/profit?1=1${dateParams}${codeParam}`).catch((err) => ({ data: null, failed: true, error: err }))
+        : Promise.resolve({ data: null }),
+      api.get(`/analytics/hourly?1=1${dateParams}${codeParam}`).catch((err) => ({ data: null, failed: true, error: err })),
+      api.get(`/analytics/sales-forecast?1=1${dateParams}${codeParam}`).catch((err) => ({ data: null, failed: true, error: err })),
     ])
       .then(([cur, ext, f, pf, hr, sf]) => {
         if (!alive) return;
@@ -154,12 +159,24 @@ export default function AnalyticsPage() {
         setPrevTrends({
           total_sales: prevSales,
           orders: Math.max(0, (ext.data.orders ?? 0) - (cur.data.orders ?? 0)),
+          // NOTE: no top_items here on purpose. The extended window is a
+          // superset, so its best-seller list is NOT the previous period's -
+          // comparing against it would fabricate a trend. The Top Item card
+          // shows no trend until the prior window is requested exactly
+          // (see the custom-range work in the API).
         });
-        
+
         setForecast(f.data);
         setProfit(pf.data);
         setHourly(hr.data);
         setSalesFc(sf.data);
+        // A section that failed to load must not be presented as "healthy":
+        // name it instead of silently treating the missing data as good news.
+        const failed = [];
+        if (pf.failed) failed.push("Profit");
+        if (hr.failed) failed.push("Hourly traffic");
+        if (sf.failed) failed.push("Sales forecast");
+        setSectionErrors(failed);
         setError("");
       })
       .catch((err) => {
@@ -319,6 +336,8 @@ export default function AnalyticsPage() {
     }
 
     const riskItems = forecast?.items?.filter(i => i.risk === "high" || i.risk === "medium").length || 0;
+    // A missing forecast must not be reported as a healthy inventory.
+    const forecastFailed = sectionErrors.includes("Profit") || forecast === null;
     const highlightStyle = { color: "var(--primary-strong)", fontWeight: "800", fontSize: "1.05em" };
 
     if (summaryLang === "en") {
@@ -333,6 +352,8 @@ export default function AnalyticsPage() {
           {peakDayEN && peakTime && <>Foot traffic peaked on <strong style={highlightStyle}>{peakDayEN}s around {peakTime}</strong>, so prepare your staff accordingly. </>}
           {riskItems > 0 
             ? <>Lastly, <strong style={{...highlightStyle, color: "var(--danger)"}}>{riskItems} item(s)</strong> are projected to run critically low soon and need your attention.</>
+            : forecastFailed
+            ? <>The stock forecast could not be loaded, so low-stock risk is unknown for now.</>
             : <>Inventory levels look healthy for now.</>}
         </span>
       );
@@ -348,6 +369,8 @@ export default function AnalyticsPage() {
           {peakDayTL && peakTime && <>Inaasahan ang pinakamaraming bibili tuwing <strong style={highlightStyle}>{peakDayTL} bandang {peakTime}</strong>, kaya siguraduhing sapat ang iyong staff. </>}
           {riskItems > 0 
             ? <>Para sa imbentaryo, <strong style={{...highlightStyle, color: "var(--danger)"}}>{riskItems} na item</strong> ang malapit nang maubos at kailangan nang i-reorder agad.</>
+            : forecastFailed
+            ? <>Hindi na-load ang stock forecast, kaya hindi pa alam ang antas ng panganib ng stock ngayon.</>
             : <>Sa ngayon, sapat pa at ligtas ang iyong imbentaryo.</>}
         </span>
       );
@@ -452,6 +475,13 @@ export default function AnalyticsPage() {
             >
               Retry
             </button>
+          </div>
+        )}
+
+        {sectionErrors.length > 0 && (
+          <div className="error-box" role="status" style={{ marginBottom: "var(--space-4)" }}>
+            Could not load: {sectionErrors.join(", ")}. The rest of the page is
+            up to date.
           </div>
         )}
 
@@ -853,7 +883,7 @@ export default function AnalyticsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {tableData.slice(0, 5).map((item) => (
+                      {tableData.map((item) => (
                         <tr key={item.rank}>
                           <td className="muted">{item.rank}</td>
                           <td>

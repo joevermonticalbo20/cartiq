@@ -1378,16 +1378,18 @@ export default function DataPage() {
             </section>
           )}
 
-          {/* IMPORT PANEL */}
-          <section
-            className="panel"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-4)",
-              padding: "var(--space-5)",
-            }}
-          >
+          {/* IMPORT PANEL - OWNER only: POST /import/products is owner-gated
+              on the server, so staff must not see a panel that only 403s. */}
+          {isOwner && (
+            <section
+              className="panel"
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--space-4)",
+                padding: "var(--space-5)",
+              }}
+            >
             <div>
               <h3
                 className="section-title"
@@ -1638,7 +1640,8 @@ export default function DataPage() {
                 </button>
               </div>
             )}
-          </section>
+            </section>
+          )}
 
           <ConfirmDialog
             open={confirmOpen}

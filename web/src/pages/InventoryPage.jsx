@@ -635,23 +635,30 @@ export default function InventoryPage() {
                             >
                               <SlidersHorizontal size={13} />
                             </button>
-                            <button
-                              className="ghost small-btn"
-                              onClick={() => {
-                                setEditing({...item});
-                                setEditError("");
-                              }}
-                              title="Edit Item"
-                            >
-                              <Edit2 size={13} />
-                            </button>
-                            <button
-                              className="danger-ghost small-btn"
-                              onClick={() => setDeleting(item)}
-                              title="Delete Item"
-                            >
-                              <Trash2 size={13} />
-                            </button>
+                            {/* Edit + delete are OWNER-only on the server
+                                (PATCH/DELETE /inventory/items/:id), so staff
+                                must not see buttons that always 403. */}
+                            {isOwner && (
+                              <>
+                                <button
+                                  className="ghost small-btn"
+                                  onClick={() => {
+                                    setEditing({ ...item });
+                                    setEditError("");
+                                  }}
+                                  title="Edit Item"
+                                >
+                                  <Edit2 size={13} />
+                                </button>
+                                <button
+                                  className="danger-ghost small-btn"
+                                  onClick={() => setDeleting(item)}
+                                  title="Delete Item"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>

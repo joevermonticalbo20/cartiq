@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Boxes,
@@ -18,6 +18,7 @@ import {
   Wallet,
 } from "lucide-react";
 import api, { readSessionToken, readRefreshToken, clearSession } from "../api.js";
+import { getFriendlyError } from "../utils/errors.js";
 import ConfirmDialog from "./ConfirmDialog.jsx";
 import { useLiveStream } from "../hooks/useLiveStream.js";
 import { useOrderNotifications } from "../hooks/useOrderNotifications.js";
@@ -56,6 +57,10 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [user, setUser] = useState(null);
+  // A failed /auth/me must not leave the header on "Loading..." forever with
+  // every owner-only view silently hidden: show what went wrong and offer a
+  // retry.
+  const [profileError, setProfileError] = useState("");
 
   // One SSE connection for the whole app, mounted in the shell so live order
   // notifications work from every screen - not just the Dashboard.
@@ -87,9 +92,22 @@ export default function Layout() {
     }
   }
 
-  useEffect(() => {
-    api.get("/auth/me").then(({ data }) => setUser(data?.user ?? null)).catch(() => {});
+  const loadProfile = useCallback(() => {
+    setProfileError("");
+    api
+      .get("/auth/me")
+      .then(({ data }) => setUser(data?.user ?? null))
+      .catch((err) => {
+        setProfileError(
+          getFriendlyError(err, "Could not load your profile.")
+        );
+      });
   }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial profile load on mount
+    loadProfile();
+  }, [loadProfile]);
 
   useLayoutEffect(() => {
     setTimeout(() => setMobileOpen(false), 0);
@@ -229,15 +247,44 @@ export default function Layout() {
             
             <div className="user-profile-wrapper">
               <div className="user-chip-info">
-                <span className="user-chip-name">{user ? user.name : "Loading..."}</span>
+                <span className="user-chip-name">
+                  {profileError
+                    ? "Signed in"
+                    : user
+                      ? user.name
+                      : "Loading..."}
+                </span>
                 <span className="user-chip-role">
-                  {user ? (user.location ? user.location.name : "Administrator") : "..."}
+                  {profileError ? (
+                    <button
+                      type="button"
+                      className="linklike"
+                      onClick={loadProfile}
+                      title={profileError}
+                    >
+                      Retry profile
+                    </button>
+                  ) : user ? (
+                    user.location ? user.location.name : "Administrator"
+                  ) : (
+                    "..."
+                  )}
                 </span>
               </div>
               <div className="avatar">{initial}</div>
             </div>
           </div>
         </header>
+
+        {profileError && (
+          <div className="error-box" role="alert" style={{ margin: "0 32px 12px" }}>
+            Could not load your profile: {profileError}. Owner-only sections are
+            hidden until it loads.{" "}
+            <button type="button" className="linklike" onClick={loadProfile}>
+              Retry
+            </button>
+          </div>
+        )}
         
         <main className="page-body" id="main-content">
           <Outlet context={{ user }} />

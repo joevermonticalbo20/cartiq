@@ -186,17 +186,74 @@ describe("SettingsPage password change", () => {
     );
     expect(await screen.findByText(/Sent to o\*\*\*@example.com/i)).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText("6-digit code"), { target: { value: "482916" } });
-    fireEvent.change(screen.getByPlaceholderText("At least 8 characters"), { target: { value: "newpass123" } });
-    fireEvent.change(screen.getByLabelText(/Confirm new password/i), { target: { value: "newpass123" } });
+    // The meter promises "Good" strength, so the handler must accept only a
+    // password that reaches it (upper/lower, number, special).
+    fireEvent.change(screen.getByPlaceholderText("At least 8 characters"), { target: { value: "Newpass123!" } });
+    fireEvent.change(screen.getByLabelText(/Confirm new password/i), { target: { value: "Newpass123!" } });
     fireEvent.click(screen.getByText("Update password"));
     expect(await screen.findByText("Login screen")).toBeInTheDocument();
     expect(api.post).toHaveBeenCalledWith("/auth/change-password", {
       currentPassword: "oldpass123",
-      newPassword: "newpass123",
+      newPassword: "Newpass123!",
       code: "482916",
     });
     // Session clear goes through the shared helper (both storages).
     expect(clearSession).toHaveBeenCalled();
+  });
+
+  it("refuses a password below the promised strength", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/auth/me") {
+        return Promise.resolve({
+          data: {
+            user: {
+              name: "Owner",
+              username: "owner",
+              role: "OWNER",
+              email: "owner@example.com",
+            },
+          },
+        });
+      }
+      return emptyOk(url);
+    });
+    api.post.mockImplementation((url) => {
+      if (url === "/auth/change-password/otp") {
+        return Promise.resolve({
+          data: { sent: true, email: "o***@example.com", message: "Code sent." },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <ToastProvider>
+          <Routes>
+            <Route element={<Outlet context={{ user: { name: "Owner", role: "OWNER" } }} />}>
+              <Route element={<SettingsPage />} path="/" />
+              <Route element={<div>Login screen</div>} path="/login" />
+            </Route>
+          </Routes>
+        </ToastProvider>
+      </MemoryRouter>
+    );
+    expect(await screen.findByText("owner@example.com")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Current password/i), { target: { value: "oldpass123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send code" }));
+    await vi.waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith("/auth/change-password/otp", {}),
+    );
+    fireEvent.change(screen.getByPlaceholderText("6-digit code"), { target: { value: "482916" } });
+    // 9 chars, lower + digits only: "Fair", not "Good".
+    fireEvent.change(screen.getByPlaceholderText("At least 8 characters"), { target: { value: "newpass123" } });
+    fireEvent.change(screen.getByLabelText(/Confirm new password/i), { target: { value: "newpass123" } });
+    fireEvent.click(screen.getByText("Update password"));
+
+    expect(await screen.findByText(/at least 'Good' strength/i)).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalledWith(
+      "/auth/change-password",
+      expect.anything(),
+    );
   });
 });
 

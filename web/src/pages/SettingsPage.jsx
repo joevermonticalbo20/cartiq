@@ -32,7 +32,7 @@ import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import Skeleton, { TableSkeleton } from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
-import PasswordStrengthMeter from "../components/PasswordStrengthMeter.jsx";
+import PasswordStrengthMeter, { meetsPasswordStrength } from "../components/PasswordStrengthMeter.jsx";
 import { useToast } from "../components/Toast.jsx";
 import Select from "../components/Select.jsx";
 import EmptyState from "../components/EmptyState.jsx";
@@ -636,8 +636,10 @@ export default function SettingsPage() {
       setPwError("New passwords do not match - check the confirmation field.");
       return;
     }
-    if (pw.next.length < 8) {
-      setPwError("New password must be at least 8 characters.");
+    if (!meetsPasswordStrength(pw.next, "good")) {
+      setPwError(
+        "New password must be at least 'Good' strength (8+ chars, upper/lower, number, special)."
+      );
       return;
     }
     if (!pwCodeSent) {
@@ -681,8 +683,10 @@ export default function SettingsPage() {
       setStaffError(usernameCheck.error);
       return;
     }
-    if (newStaff.password.length < 8) {
-      setStaffError("Password must be at least 8 characters.");
+    if (!meetsPasswordStrength(newStaff.password, "fair")) {
+      setStaffError(
+        "Password must be at least 'Fair' strength (8+ chars and one more: upper/lower, number or special)."
+      );
       return;
     }
     setStaffError("");
@@ -723,8 +727,10 @@ export default function SettingsPage() {
       setAdminError(usernameCheck.error);
       return;
     }
-    if (newAdmin.password.length < 8) {
-      setAdminError("Password must be at least 8 characters.");
+    if (!meetsPasswordStrength(newAdmin.password, "fair")) {
+      setAdminError(
+        "Password must be at least 'Fair' strength (8+ chars and one more: upper/lower, number or special)."
+      );
       return;
     }
     setAdminError("");
@@ -865,8 +871,10 @@ export default function SettingsPage() {
 
   async function doResetPassword() {
     if (!resetting || isResetting) return;
-    if (resetPw.length < 8) {
-      setResetError("New password must be at least 8 characters.");
+    if (!meetsPasswordStrength(resetPw, "fair")) {
+      setResetError(
+        "New password must be at least 'Fair' strength (8+ chars and one more: upper/lower, number or special)."
+      );
       return;
     }
     setResetError("");
