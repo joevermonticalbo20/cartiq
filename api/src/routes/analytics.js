@@ -13,11 +13,57 @@ import {
   movingAverage,
 } from "../services/analytics_engine.js";
 import { EXPENSE_CATEGORIES } from "./expenses.js";
-import { manilaDayKey as dayKey, manilaDow, manilaCalendarToday } from "../services/timezone.js";
+import {
+  manilaDayKey as dayKey,
+  manilaDow,
+  manilaCalendarToday,
+  manilaDayRange,
+} from "../services/timezone.js";
 
 const router = Router();
 
 const DOW_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * Resolve the reporting window of an analytics request.
+ *
+ * Either an explicit custom range (`startDate` + `endDate`, both Manila
+ * calendar days) or a trailing `days` window. The custom range is what the
+ * Analytics "Custom Date Range" picker sends; without this the API silently
+ * answered with the trailing 28 days, so the picker did nothing.
+ *
+ * Returns { error } for an invalid range, otherwise
+ * { start, end, days } where `end` is null for a trailing window.
+ */
+export function resolveAnalyticsWindow(query, defaultDays = 28) {
+  const startDate = query.startDate ? String(query.startDate) : undefined;
+  const endDate = query.endDate ? String(query.endDate) : undefined;
+  if (!startDate && !endDate) {
+    const days = Math.min(Number(query.days) || defaultDays, 90);
+    return { error: null, start: daysAgoStart(days - 1), end: null, days };
+  }
+  if (!startDate || !endDate) {
+    return { error: "startDate and endDate are both required for a custom range" };
+  }
+  const start = manilaDayRange(startDate);
+  const end = manilaDayRange(endDate);
+  if (!start || !end) {
+    return { error: "startDate/endDate must be YYYY-MM-DD" };
+  }
+  if (start.start.getTime() > end.start.getTime()) {
+    return { error: "startDate must not be after endDate" };
+  }
+  const days = Math.max(
+    1,
+    Math.round((end.end.getTime() - start.start.getTime()) / (24 * 60 * 60 * 1000))
+  );
+  return { error: null, start: start.start, end: end.end, days };
+}
+
+/** The Firestore filter for a resolved window. */
+function windowFilter(win) {
+  return win.end ? { gte: win.start, lt: win.end } : { gte: win.start };
+}
 
 async function getLocation(codeOrId) {
   if (codeOrId === undefined || codeOrId === null || codeOrId === "") return null;
@@ -32,14 +78,15 @@ async function getLocation(codeOrId) {
 // GET /api/analytics/trends?days=28&code=CART-01
 router.get("/analytics/trends", requireAuth, async (req, res, next) => {
   try {
-    const days = Math.min(Number(req.query.days) || 28, 90);
+    const win = resolveAnalyticsWindow(req.query);
+    if (win.error) return res.status(400).json({ error: win.error });
+    const days = win.days;
     const location = await getLocation(req.query.code);
-    const since = daysAgoStart(days - 1);
 
     const orders = await prisma.order.findMany({
       where: {
         status: "PAID",
-        createdAt: { gte: since },
+        createdAt: windowFilter(win),
         ...(location ? { locationId: location.id } : {}),
       },
       include: {
@@ -124,14 +171,15 @@ router.get("/analytics/trends", requireAuth, async (req, res, next) => {
 // GET /api/analytics/hourly?days=28&code=CART-01
 router.get("/analytics/hourly", requireAuth, async (req, res, next) => {
   try {
-    const days = Math.min(Number(req.query.days) || 28, 90);
+    const win = resolveAnalyticsWindow(req.query);
+    if (win.error) return res.status(400).json({ error: win.error });
+    const days = win.days;
     const location = await getLocation(req.query.code);
-    const since = daysAgoStart(days - 1);
 
     const orders = await prisma.order.findMany({
       where: {
         status: "PAID",
-        createdAt: { gte: since },
+        createdAt: windowFilter(win),
         ...(location ? { locationId: location.id } : {}),
       },
       select: { total: true, createdAt: true },
@@ -183,15 +231,16 @@ router.get("/analytics/basket", requireAuth, async (req, res, next) => {
 // applied to daily revenue. Shares the 14-day cold-start gate.
 router.get("/analytics/sales-forecast", requireAuth, async (req, res, next) => {
   try {
-    const days = Math.min(Number(req.query.days) || 28, 90);
+    const win = resolveAnalyticsWindow(req.query);
+    if (win.error) return res.status(400).json({ error: win.error });
+    const days = win.days;
     const horizon = Math.min(Number(req.query.horizon) || 7, 14);
     const location = await getLocation(req.query.code);
-    const since = daysAgoStart(days - 1);
 
     const orders = await prisma.order.findMany({
       where: {
         status: "PAID",
-        createdAt: { gte: since },
+        createdAt: windowFilter(win),
         ...(location ? { locationId: location.id } : {}),
       },
       select: { total: true, createdAt: true },
@@ -535,21 +584,22 @@ router.get("/analytics/staff-performance", requireAuth, requireRole("OWNER"), as
 // GET /api/analytics/profit?days=30&code=CART-01
 router.get("/analytics/profit", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const days = Math.min(Number(req.query.days) || 30, 90);
+    const win = resolveAnalyticsWindow(req.query, 30);
+    if (win.error) return res.status(400).json({ error: win.error });
+    const days = win.days;
     const location = await getLocation(req.query.code);
-    const since = daysAgoStart(days - 1);
 
     const orders = await prisma.order.findMany({
       where: {
         status: "PAID",
-        createdAt: { gte: since },
+        createdAt: windowFilter(win),
         ...(location ? { locationId: location.id } : {}),
       },
       select: { total: true, createdAt: true },
     });
 
     const expenses = await prisma.expense.findMany({
-      where: { date: { gte: since }, ...(location ? { locationId: location.id } : {}) },
+      where: { date: windowFilter(win), ...(location ? { locationId: location.id } : {}) },
       select: { category: true, amount: true, date: true },
     });
 

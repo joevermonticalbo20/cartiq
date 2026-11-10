@@ -3694,13 +3694,22 @@ async function handleListProducts(req) {
 
 async function handleCreateProduct(req) {
   const body = await req.json().catch(() => null);
-  const { name, category, basePrice, flavorIds, flavors, imageUrl, isBestSeller } = body || {};
+  const { name, category, basePrice, cost, flavorIds, flavors, imageUrl, isBestSeller } = body || {};
   if (!validProductName(name)) {
     return { status: 400, body: { error: "name needs at least 2 letters (max 120 characters)" } };
   }
   const price = validPrice(basePrice);
   if (price === null) {
     return { status: 400, body: { error: "basePrice must be a positive number" } };
+  }
+  // Optional cost per unit - what the Margin readout is based on. The POS
+  // still charges `basePrice`. Null means "unknown" (the margin shows "—").
+  const costValue = cost === undefined || cost === null || cost === "" ? null : validPrice(cost);
+  if (costValue === null) {
+    return { status: 400, body: { error: "cost must be a positive number (or leave it empty)" } };
+  }
+  if (costValue !== null && costValue > price) {
+    return { status: 400, body: { error: "cost cannot be higher than the selling price" } };
   }
   const legacyIds = Array.isArray(flavorIds) ? [...new Set(flavorIds.map(Number))] : [];
   if (!(await flavorIdsExist(legacyIds))) {
@@ -3763,6 +3772,7 @@ async function handleCreateProduct(req) {
     name: productName,
     category: category ? String(category).slice(0, 60) : "Fries",
     basePrice: price,
+    ...(costValue !== null ? { cost: costValue } : {}),
     ...(ids.length ? { flavorIds: ids } : {}),
     ...(Object.keys(flavorPrices).length ? { flavorPrices } : {}),
     ...(imageUrl !== undefined && imageUrl !== null && String(imageUrl).trim() !== ""
@@ -3810,14 +3820,14 @@ async function handleCreateProduct(req) {
 
 async function handlePatchProduct(req, id) {
   const body = await req.json().catch(() => null);
-  const { category, basePrice, active, addFlavorIds, removeFlavorIds, flavors, flavorPrices, addRecipes, removeRecipes, imageUrl, isBestSeller } = body || {};
+  const { category, basePrice, cost, active, addFlavorIds, removeFlavorIds, flavors, flavorPrices, addRecipes, removeRecipes, imageUrl, isBestSeller } = body || {};
   if (
-    category === undefined && basePrice === undefined && active === undefined &&
+    category === undefined && basePrice === undefined && cost === undefined && active === undefined &&
     addFlavorIds === undefined && removeFlavorIds === undefined && flavors === undefined &&
     flavorPrices === undefined && addRecipes === undefined && removeRecipes === undefined &&
     imageUrl === undefined && isBestSeller === undefined
   ) {
-    return { status: 400, body: { error: "provide category, basePrice, active, flavorIds, flavorPrices, recipes, imageUrl, or isBestSeller" } };
+    return { status: 400, body: { error: "provide category, basePrice, cost, active, flavorIds, flavorPrices, recipes, imageUrl, or isBestSeller" } };
   }
   const existing = await fsGet("products", id);
   if (!existing) return { status: 404, body: { error: "Product not found" } };
@@ -3837,6 +3847,23 @@ async function handlePatchProduct(req, id) {
       return { status: 400, body: { error: "basePrice must be a positive number" } };
     }
     data.basePrice = price;
+  }
+  // Cost per unit: what the Margin readout is based on. Null clears it
+  // (unknown cost), and it may never exceed the selling price.
+  if (cost !== undefined) {
+    if (cost === null || cost === "") {
+      data.cost = null;
+    } else {
+      const costValue = validPrice(cost);
+      if (costValue === null) {
+        return { status: 400, body: { error: "cost must be a positive number (or leave it empty)" } };
+      }
+      const selling = data.basePrice ?? Number(existing.basePrice);
+      if (costValue > selling) {
+        return { status: 400, body: { error: "cost cannot be higher than the selling price" } };
+      }
+      data.cost = costValue;
+    }
   }
   // Product image: absolute URL or null to clear. Empty string clears too.
   if (imageUrl !== undefined) {
@@ -5460,18 +5487,19 @@ async function getLocationNative(codeOrId) {
   return found[0] || null;
 }
 
-async function ordersSince(since, locationId, status) {
+async function ordersSince(since, locationId, status, until) {
   // Server-side recency window (+ location when scoped); status split in
   // code so no triple composite is ever needed. Bounded newest-5000.
   //
   // Cached for 60s - see the analytics cache note above. A shallow copy is
   // returned so a caller that sorts the array in place cannot corrupt the
   // cached window.
-  const key = `since|${since instanceof Date ? since.toISOString() : String(since)}|${locationId ?? "*"}|${status ?? "*"}`;
+  const key = `since|${since instanceof Date ? since.toISOString() : String(since)}|${locationId ?? "*"}|${status ?? "*"}|${until instanceof Date ? until.toISOString() : String(until ?? "*")}`;
   const hit = analyticsCacheGet(key);
   if (hit) return [...hit];
 
   const filters = [{ field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: since }];
+  if (until) filters.push({ field: "createdAt", op: "LESS_THAN", value: until });
   if (locationId !== null && locationId !== undefined) {
     filters.unshift({ field: "locationId", op: "EQUAL", value: Number(locationId) });
   }
@@ -5485,12 +5513,48 @@ async function ordersSince(since, locationId, status) {
   return [...window];
 }
 
+/**
+ * Resolve the reporting window of an analytics request.
+ *
+ * Either an explicit custom range (startDate + endDate, both Manila calendar
+ * days) or a trailing `days` window. The custom range is what the Analytics
+ * "Custom Date Range" picker sends; without this the API silently answered
+ * with the trailing 28 days, so the picker did nothing.
+ *
+ * Mirrors api/src/routes/analytics.js resolveAnalyticsWindow.
+ */
+function resolveAnalyticsWindow(params, defaultDays = 28) {
+  const startDate = params.get("startDate") ? String(params.get("startDate")) : undefined;
+  const endDate = params.get("endDate") ? String(params.get("endDate")) : undefined;
+  if (!startDate && !endDate) {
+    const days = Math.min(Number(params.get("days")) || defaultDays, 90);
+    return { error: null, start: manilaDayStart(days - 1), end: null, days };
+  }
+  if (!startDate || !endDate) {
+    return { error: "startDate and endDate are both required for a custom range" };
+  }
+  const start = manilaDayRange(startDate);
+  const end = manilaDayRange(endDate);
+  if (!start || !end) {
+    return { error: "startDate/endDate must be YYYY-MM-DD" };
+  }
+  if (start.start.getTime() > end.start.getTime()) {
+    return { error: "startDate must not be after endDate" };
+  }
+  const days = Math.max(
+    1,
+    Math.round((end.end.getTime() - start.start.getTime()) / (24 * 60 * 60 * 1000)),
+  );
+  return { error: null, start: start.start, end: end.end, days };
+}
+
 async function handleTrends(url) {
   const params = url.searchParams;
-  const days = Math.min(Number(params.get("days")) || 28, 90);
+  const win = resolveAnalyticsWindow(params);
+  if (win.error) return { status: 400, body: { error: win.error } };
+  const days = win.days;
   const location = await getLocationNative(params.get("code"));
-  const since = manilaDayStart(days - 1);
-  const orders = await ordersSince(since, location ? location.id : null, "PAID");
+  const orders = await ordersSince(win.start, location ? location.id : null, "PAID", win.end);
   const locations = await fsListAll("locations");
   const locById = new Map(locations.map((l) => [l.id, l]));
   const byWeekday = Array.from({ length: 7 }, (_, i) => ({
@@ -5542,10 +5606,11 @@ async function handleTrends(url) {
 
 async function handleHourly(url) {
   const params = url.searchParams;
-  const days = Math.min(Number(params.get("days")) || 28, 90);
+  const win = resolveAnalyticsWindow(params);
+  if (win.error) return { status: 400, body: { error: win.error } };
+  const days = win.days;
   const location = await getLocationNative(params.get("code"));
-  const since = manilaDayStart(days - 1);
-  const orders = await ordersSince(since, location ? location.id : null, "PAID");
+  const orders = await ordersSince(win.start, location ? location.id : null, "PAID", win.end);
   return {
     status: 200,
     body: { period_days: days, location: location?.code ?? "ALL", ...buildHourlyMatrix(orders) },
@@ -5575,11 +5640,12 @@ async function handleBasket(url) {
 
 async function handleSalesForecast(url) {
   const params = url.searchParams;
-  const days = Math.min(Number(params.get("days")) || 28, 90);
+  const win = resolveAnalyticsWindow(params);
+  if (win.error) return { status: 400, body: { error: win.error } };
+  const days = win.days;
   const horizon = Math.min(Number(params.get("horizon")) || 7, 14);
   const location = await getLocationNative(params.get("code"));
-  const since = manilaDayStart(days - 1);
-  const orders = await ordersSince(since, location ? location.id : null, "PAID");
+  const orders = await ordersSince(win.start, location ? location.id : null, "PAID", win.end);
   const dailyMap = new Map();
   for (const o of orders) {
     const k = manilaDayKey(o.createdAt);
@@ -5822,12 +5888,18 @@ async function handleStaffPerformance(url) {
 
 async function handleProfit(url) {
   const params = url.searchParams;
-  const days = Math.min(Number(params.get("days")) || 30, 90);
+  const win = resolveAnalyticsWindow(params, 30);
+  if (win.error) return { status: 400, body: { error: win.error } };
+  const days = win.days;
   const location = await getLocationNative(params.get("code"));
-  const since = manilaDayStart(days - 1);
+  const since = win.start;
   const lid = location ? Number(location.id) : null;
   const orderFilters = [{ field: "createdAt", op: "GREATER_THAN_OR_EQUAL", value: since }];
   const expenseFilters = [{ field: "date", op: "GREATER_THAN_OR_EQUAL", value: since }];
+  if (win.end) {
+    orderFilters.push({ field: "createdAt", op: "LESS_THAN", value: win.end });
+    expenseFilters.push({ field: "date", op: "LESS_THAN", value: win.end });
+  }
   if (lid !== null) {
     orderFilters.unshift({ field: "locationId", op: "EQUAL", value: lid });
     expenseFilters.unshift({ field: "locationId", op: "EQUAL", value: lid });

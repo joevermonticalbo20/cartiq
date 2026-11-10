@@ -263,13 +263,23 @@ router.get("/products", requireAuth, async (req, res, next) => {
 // and defaults to basePrice; recipes are optional (warn, don't block).
 router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const { name, category, basePrice, flavorIds, flavors, imageUrl, isBestSeller } = req.body ?? {};
+    const { name, category, basePrice, cost, flavorIds, flavors, imageUrl, isBestSeller } = req.body ?? {};
     if (!validProductName(name)) {
       return res.status(400).json({ error: "name needs at least 2 letters (max 120 characters)" });
     }
     const price = validPrice(basePrice);
     if (price === null) {
       return res.status(400).json({ error: "basePrice must be a positive number" });
+    }
+    // Optional cost per unit. It is what the Margin readout is based on; the
+    // POS still charges `basePrice`. Null means "unknown" - the margin then
+    // shows "—" instead of a fake 0%.
+    const costValue = cost === undefined || cost === null || cost === "" ? null : validPrice(cost);
+    if (costValue === null) {
+      return res.status(400).json({ error: "cost must be a positive number (or leave it empty)" });
+    }
+    if (costValue !== null && costValue > price) {
+      return res.status(400).json({ error: "cost cannot be higher than the selling price" });
     }
     const legacyIds = Array.isArray(flavorIds) ? [...new Set(flavorIds.map(Number))] : [];
     if (!(await flavorByIdOr404(legacyIds))) {
@@ -331,6 +341,7 @@ router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, nex
         name: productName,
         category: category ? String(category).slice(0, 60) : undefined,
         basePrice: price,
+        ...(costValue !== null ? { cost: costValue } : {}),
         ...(ids.length ? { flavorIds: ids } : {}),
         ...(Object.keys(flavorPrices).length ? { flavorPrices } : {}),
         ...(imageUrl !== undefined && imageUrl !== null && String(imageUrl).trim() !== ""
@@ -387,10 +398,11 @@ router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, nex
 // recipe rows is rejected with 409 (delete the rows first).
 router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const { category, basePrice, active, addFlavorIds, removeFlavorIds, flavors, flavorPrices, addRecipes, removeRecipes, imageUrl, isBestSeller } = req.body ?? {};
+    const { category, basePrice, cost, active, addFlavorIds, removeFlavorIds, flavors, flavorPrices, addRecipes, removeRecipes, imageUrl, isBestSeller } = req.body ?? {};
     if (
       category === undefined &&
       basePrice === undefined &&
+      cost === undefined &&
       active === undefined &&
       addFlavorIds === undefined &&
       removeFlavorIds === undefined &&
@@ -401,7 +413,7 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
       imageUrl === undefined &&
       isBestSeller === undefined
     ) {
-      return res.status(400).json({ error: "provide category, basePrice, active, flavorIds, flavorPrices, recipes, imageUrl, or isBestSeller" });
+      return res.status(400).json({ error: "provide category, basePrice, cost, active, flavorIds, flavorPrices, recipes, imageUrl, or isBestSeller" });
     }
     const existing = await prisma.product.findUnique({
       where: { id: Number(req.params.id) },
@@ -424,6 +436,23 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
         return res.status(400).json({ error: "basePrice must be a positive number" });
       }
       data.basePrice = price;
+    }
+    // Cost per unit: what the Margin readout is based on. Null clears it
+    // (unknown cost), and it may never exceed the selling price.
+    if (cost !== undefined) {
+      if (cost === null || cost === "") {
+        data.cost = null;
+      } else {
+        const costValue = validPrice(cost);
+        if (costValue === null) {
+          return res.status(400).json({ error: "cost must be a positive number (or leave it empty)" });
+        }
+        const selling = data.basePrice ?? Number(existing.basePrice);
+        if (costValue > selling) {
+          return res.status(400).json({ error: "cost cannot be higher than the selling price" });
+        }
+        data.cost = costValue;
+      }
     }
     // Product image: absolute URL or null to clear. Empty string clears too.
     if (imageUrl !== undefined) {

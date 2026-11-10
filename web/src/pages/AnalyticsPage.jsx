@@ -79,6 +79,38 @@ function CustomTooltip({ active, payload, label }) {
   );
 }
 
+/**
+ * The window of the same length immediately before [startDate]..[endDate].
+ *
+ * Used for the "% vs prior" comparison of a custom range: the prior period
+ * must be the same length, right before the selected one - asking for the
+ * same range again compared the period with itself (always 0%).
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper colocated with its only consumer, unit-tested in place
+export function previousWindow(startDate, endDate) {
+  const start = parseIsoDate(startDate);
+  const end = parseIsoDate(endDate);
+  if (!start || !end) return null;
+  const spanDays = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+  const prevEnd = new Date(start.getTime() - 86400000);
+  const prevStart = new Date(prevEnd.getTime() - (spanDays - 1) * 86400000);
+  return {
+    startDate: toIsoDate(prevStart),
+    endDate: toIsoDate(prevEnd),
+  };
+}
+
+function parseIsoDate(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? ""));
+  if (!m) return null;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+function toIsoDate(d) {
+  return d.toISOString().slice(0, 10);
+}
+
 export default function AnalyticsPage() {
   const navigate = useNavigate();
   const { user } = useOutletContext();
@@ -127,7 +159,13 @@ export default function AnalyticsPage() {
 
     if (range === "custom" && startDate && endDate) {
       dateParams = `&startDate=${startDate}&endDate=${endDate}`;
-      prevDateParams = `&startDate=${startDate}&endDate=${endDate}`; 
+      // The prior period is the SAME length, immediately before the selected
+      // range. Asking for the same range again (as this used to) made the
+      // "% vs prior" compare the period with itself.
+      const prev = previousWindow(startDate, endDate);
+      prevDateParams = prev
+        ? `&startDate=${prev.startDate}&endDate=${prev.endDate}`
+        : dateParams;
     } else {
       const days = Number(range) || 30;
       dateParams = `&days=${days}`;

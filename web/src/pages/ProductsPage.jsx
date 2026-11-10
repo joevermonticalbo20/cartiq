@@ -32,11 +32,12 @@ function newestProductsFirst(products) {
   return [...products].sort((a, b) => Number(b.id) - Number(a.id));
 }
 
-function marginPercent(base, selling) {
-  const b = Number(base);
+function marginPercent(cost, selling) {
+  const c = Number(cost);
   const s = Number(selling);
-  if (!Number.isFinite(b) || !Number.isFinite(s) || s <= 0) return "—";
-  return `${(((s - b) / s) * 100).toFixed(1)}%`;
+  if (cost === null || cost === undefined || cost === "" || !Number.isFinite(c)) return "—";
+  if (!Number.isFinite(s) || s <= 0) return "—";
+  return `${(((s - c) / s) * 100).toFixed(1)}%`;
 }
 
 const MASS_TO_KG = { g: 0.001, kg: 1 };
@@ -81,7 +82,7 @@ export default function ProductsPage() {
   const [addClosing, setAddClosing] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState("");
-  const [newProduct, setNewProduct] = useState({ name: "", category: "Fries", basePrice: "", markupPrice: "", sellingPrice: "", imageDraft: null });
+  const [newProduct, setNewProduct] = useState({ name: "", category: "Fries", cost: "", markupPrice: "", sellingPrice: "", imageDraft: null });
   const [addFlavorRows, setAddFlavorRows] = useState([]);
 
   const [cropState, setCropState] = useState({ open: false, target: null });
@@ -147,17 +148,26 @@ export default function ProductsPage() {
     setTimeout(() => { setRenaming(null); setRenameClosing(false); setRenameName(""); }, 150);
   }
 
+  // Pricing model:
+  //   cost         - what the item costs the stall (stored on the product)
+  //   markupPrice  - the tubo, derived from cost and selling price
+  //   sellingPrice - what the POS charges (stored as `basePrice` on the server)
+  // Changing the COST never changes the selling price; changing the markup or
+  // the selling price does.
   const handleAddPriceChange = (field, val) => {
     setNewProduct(prev => {
       const next = { ...prev, [field]: val };
-      const bp = parseFloat(next.basePrice || 0);
-      
-      if (field === 'basePrice' || field === 'markupPrice') {
-        const mp = parseFloat(next.markupPrice || 0);
-        next.sellingPrice = (bp + mp) > 0 ? (bp + mp).toFixed(2) : "";
+      const cost = parseFloat(next.cost || 0);
+      const markup = parseFloat(next.markupPrice || 0);
+      const selling = parseFloat(next.sellingPrice || 0);
+
+      if (field === 'cost') {
+        // Selling price stays; only the markup follows the cost.
+        next.markupPrice = selling > 0 ? (selling - cost).toFixed(2) : "";
+      } else if (field === 'markupPrice') {
+        next.sellingPrice = cost + markup > 0 ? (cost + markup).toFixed(2) : "";
       } else if (field === 'sellingPrice') {
-        const sp = parseFloat(next.sellingPrice || 0);
-        next.markupPrice = sp - bp >= 0 ? (sp - bp).toFixed(2) : "";
+        next.markupPrice = selling - cost >= 0 ? (selling - cost).toFixed(2) : "";
       }
       return next;
     });
@@ -166,14 +176,16 @@ export default function ProductsPage() {
   const handleEditPriceChange = (field, val) => {
     setEditing(prev => {
       const next = { ...prev, [field]: val };
-      const bp = parseFloat(next.basePrice || 0);
-      
-      if (field === 'basePrice' || field === 'markupPrice') {
-        const mp = parseFloat(next.markupPrice || 0);
-        next.sellingPrice = (bp + mp) > 0 ? (bp + mp).toFixed(2) : "";
+      const cost = parseFloat(next.cost || 0);
+      const markup = parseFloat(next.markupPrice || 0);
+      const selling = parseFloat(next.sellingPrice || 0);
+
+      if (field === 'cost') {
+        next.markupPrice = selling > 0 ? (selling - cost).toFixed(2) : "";
+      } else if (field === 'markupPrice') {
+        next.sellingPrice = cost + markup > 0 ? (cost + markup).toFixed(2) : "";
       } else if (field === 'sellingPrice') {
-        const sp = parseFloat(next.sellingPrice || 0);
-        next.markupPrice = sp - bp >= 0 ? (sp - bp).toFixed(2) : "";
+        next.markupPrice = selling - cost >= 0 ? (selling - cost).toFixed(2) : "";
       }
       return next;
     });
@@ -345,8 +357,8 @@ export default function ProductsPage() {
     }
     const finalCategory = cat || "Fries";
 
-    if (newProduct.basePrice !== "" && parseMoney(newProduct.basePrice) === null) {
-      setAddError("Base Price (Cost) must be a valid number.");
+    if (newProduct.cost !== "" && parseMoney(newProduct.cost) === null) {
+      setAddError("Cost must be a valid number.");
       return;
     }
     if (newProduct.markupPrice !== "" && parseMoney(newProduct.markupPrice) === null) {
@@ -357,6 +369,11 @@ export default function ProductsPage() {
     const sp = parseMoney(newProduct.sellingPrice);
     if (sp === null || sp <= 0) {
       setAddError("Selling price must be valid and greater than zero.");
+      return;
+    }
+    const cost = newProduct.cost === "" ? null : parseMoney(newProduct.cost);
+    if (cost !== null && cost > sp) {
+      setAddError("Cost cannot be higher than the selling price.");
       return;
     }
 
@@ -408,6 +425,7 @@ export default function ProductsPage() {
         name: name.value,
         category: finalCategory,
         basePrice: sp,
+        ...(cost !== null ? { cost } : {}),
         ...(checkedFlavors.length > 0 ? { flavors: checkedFlavors } : {}),
       });
 
@@ -435,7 +453,7 @@ export default function ProductsPage() {
         "success"
       );
       closeAddModal();
-      setNewProduct({ name: "", category: "Fries", basePrice: "", markupPrice: "", sellingPrice: "", imageDraft: null });
+      setNewProduct({ name: "", category: "Fries", cost: "", markupPrice: "", sellingPrice: "", imageDraft: null });
       setAddRecipeRows([]);
       setAddFlavorRows([]);
       load();
@@ -457,8 +475,8 @@ export default function ProductsPage() {
     }
     const finalCategory = cat || "Fries";
 
-    if (editing.basePrice !== "" && parseMoney(editing.basePrice) === null) {
-      setEditError("Base Price (Cost) must be a valid number.");
+    if (editing.cost !== "" && editing.cost !== undefined && parseMoney(editing.cost) === null) {
+      setEditError("Cost must be a valid number.");
       return;
     }
     if (editing.markupPrice !== "" && parseMoney(editing.markupPrice) === null) {
@@ -469,6 +487,11 @@ export default function ProductsPage() {
     const sp = parseMoney(editing.sellingPrice);
     if (sp === null || sp <= 0) {
       setEditError("Selling price must be valid and greater than zero.");
+      return;
+    }
+    const editCost = editing.cost === "" || editing.cost === undefined ? null : parseMoney(editing.cost);
+    if (editCost !== null && editCost > sp) {
+      setEditError("Cost cannot be higher than the selling price.");
       return;
     }
 
@@ -557,6 +580,7 @@ export default function ProductsPage() {
     if (
       finalCategory === (editing._category || "Fries") &&
       sp === Number(editing._sellingPrice) &&
+      editCost === editing._cost &&
       !hasImageDraft &&
       !flavorNamesChanged &&
       addRecipes.length === 0 &&
@@ -572,6 +596,7 @@ export default function ProductsPage() {
       const body = {
         category: finalCategory,
         basePrice: sp,
+        cost: editCost,
         flavors: checkedFlavors.map(f => ({ name: f.name, recipes: f.recipes }))
       };
       if (addRecipes.length > 0) body.addRecipes = addRecipes;
@@ -795,6 +820,10 @@ export default function ProductsPage() {
   function openEdit(p) {
     const basePriceSnapshot = Number(p.basePrice) || 0;
     const sellingPriceSnapshot = Number(p.sellingPrice ?? p.basePrice) || 0;
+    // The stored cost (what the stall pays). Null when it was never set - the
+    // margin then reads "—" instead of a fake 0%.
+    const costSnapshot = p.cost === null || p.cost === undefined ? null : Number(p.cost);
+    const hasCost = costSnapshot !== null && Number.isFinite(costSnapshot);
     
     const flatRecipes = (p.recipes ?? []).map((r) =>
       newRecipeRowState({ itemName: String(r.itemName ?? ""), amount: String(r.amountPerUnit ?? "") }));
@@ -816,8 +845,10 @@ export default function ProductsPage() {
     setEditing({
       ...p,
       category: p.category || "Fries",
-      basePrice: String(p.basePrice ?? ""),
-      markupPrice: String(Math.max(0, sellingPriceSnapshot - basePriceSnapshot)),
+      cost: hasCost ? String(costSnapshot) : "",
+      markupPrice: hasCost
+        ? String(Math.max(0, sellingPriceSnapshot - costSnapshot))
+        : "",
       sellingPrice: String(sellingPriceSnapshot),
       imageUrl: p.imageUrl ?? "",
       imageDraft: null,
@@ -825,8 +856,9 @@ export default function ProductsPage() {
       flavorRows: mappedFlavors,
       _recipeBaseline: flatRecipes.map((r) => ({ itemName: r.itemName, amountPerUnit: Number(r.amount) || 0 })),
       _category: p.category || "Fries",
+      _cost: hasCost ? costSnapshot : null,
       _basePrice: basePriceSnapshot,
-      _markupPrice: Math.max(0, sellingPriceSnapshot - basePriceSnapshot),
+      _markupPrice: hasCost ? Math.max(0, sellingPriceSnapshot - costSnapshot) : null,
       _sellingPrice: sellingPriceSnapshot,
     });
     setEditError("");
@@ -1129,20 +1161,20 @@ export default function ProductsPage() {
                 <section className="product-modal-section">
                   <div className="product-modal-section-heading">
                     <h4>Pricing</h4>
-                    <span>Selling price is calculated from cost and markup.</span>
+                    <span>Cost is what the stall pays; the selling price is what the POS charges.</span>
                   </div>
                 <div className="product-modal-fields product-modal-fields--pricing">
                   <label className="field">
-                    Base Price (Cost)
+                    Cost
                     <input
                       type="number"
                       min="0"
                       max="9999999.99"
                       step="0.01"
-                      placeholder="0.00"
-                      title="Whole pesos max 7 digits, up to 2 decimals"
-                      value={newProduct.basePrice}
-                      onChange={(e) => handleAddPriceChange("basePrice", sanitizeMoneyInput(e.target.value))}
+                      placeholder="optional"
+                      title="What the item costs the stall. Leave empty if unknown."
+                      value={newProduct.cost ?? ""}
+                      onChange={(e) => handleAddPriceChange("cost", sanitizeMoneyInput(e.target.value))}
                     />
                   </label>
                   <label className="field">
@@ -1172,7 +1204,7 @@ export default function ProductsPage() {
                   </label>
                 </div>
                 <p className="muted small" aria-live="polite" style={{ margin: "10px 0 0" }}>
-                  Margin: {marginPercent(newProduct.basePrice, newProduct.sellingPrice)}
+                  Margin: {marginPercent(newProduct.cost, newProduct.sellingPrice)}
                 </p>
                 </section>
                 
@@ -1346,19 +1378,20 @@ export default function ProductsPage() {
                 <section className="product-modal-section">
                   <div className="product-modal-section-heading">
                     <h4>Pricing</h4>
-                    <span>Selling price is calculated from cost and markup.</span>
+                    <span>Cost is what the stall pays; the selling price is what the POS charges.</span>
                   </div>
                 <div className="product-modal-fields product-modal-fields--pricing">
                   <label className="field">
-                    Base Price (Cost)
+                    Cost
                     <input
                       type="number"
                       min="0"
                       max="9999999.99"
                       step="0.01"
-                      title="Whole pesos max 7 digits, up to 2 decimals"
-                      value={editing?.basePrice ?? ""}
-                      onChange={(e) => handleEditPriceChange("basePrice", sanitizeMoneyInput(e.target.value))}
+                      placeholder="optional"
+                      title="What the item costs the stall. Leave empty if unknown."
+                      value={editing?.cost ?? ""}
+                      onChange={(e) => handleEditPriceChange("cost", sanitizeMoneyInput(e.target.value))}
                       autoFocus
                     />
                   </label>
@@ -1387,7 +1420,7 @@ export default function ProductsPage() {
                   </label>
                 </div>
                 <p className="muted small" aria-live="polite" style={{ margin: "10px 0 0" }}>
-                  Margin: {marginPercent(editing?.basePrice, editing?.sellingPrice)}
+                  Margin: {marginPercent(editing?.cost, editing?.sellingPrice)}
                 </p>
                 </section>
                 
