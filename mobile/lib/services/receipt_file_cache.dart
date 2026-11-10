@@ -12,6 +12,10 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// offline queue keeps its SQLite file), so no new permissions or packages
 /// are needed.
 class ReceiptFileCache {
+  /// How many receipt photos are kept on the device. Without a cap the
+  /// private directory grew forever.
+  static const maxFiles = 40;
+
   static Future<String?> _dir() async {
     try {
       if (Platform.isWindows || Platform.isLinux) {
@@ -24,12 +28,33 @@ class ReceiptFileCache {
     }
   }
 
+  /// Delete the oldest cached photos above [maxFiles].
+  static Future<void> _prune(String dir) async {
+    try {
+      final files = await Directory(dir)
+          .list()
+          .where((f) => f is File && f.path.contains('cartiq_receipt_'))
+          .cast<File>()
+          .toList();
+      if (files.length <= maxFiles) return;
+      files.sort(
+        (a, b) => a.statSync().modified.compareTo(b.statSync().modified),
+      );
+      for (final old in files.take(files.length - maxFiles)) {
+        await old.delete().catchError((_) => old);
+      }
+    } catch (_) {
+      // Pruning is best effort.
+    }
+  }
+
   static Future<bool> save(String id, List<int> bytes) async {
     final dir = await _dir();
     if (dir == null) return false;
     try {
       final file = File(p.join(dir, 'cartiq_receipt_$id.jpg'));
       await file.writeAsBytes(bytes, flush: true);
+      await _prune(dir);
       return true;
     } catch (_) {
       return false;

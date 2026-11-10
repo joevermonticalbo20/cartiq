@@ -403,7 +403,6 @@ class _CartIQAppState extends State<CartIQApp> {
                 },
               ),
             ),
-            routes: {'/login': (_) => const LoginScreen()},
           );
         },
       ),

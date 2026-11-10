@@ -471,12 +471,15 @@ export default function SalesPage() {
                                     gap: "8px",
                                   }}
                                 >
-                                  <button className="ghost small-btn" disabled tabIndex={-1}>
+                                  {/* Layout spacers only: real buttons would be
+                                      focusable and announced to a screen
+                                      reader for a row that has no actions. */}
+                                  <span className="ghost small-btn">
                                     <Edit2 size={13} />
-                                  </button>
-                                  <button className="danger-ghost small-btn" disabled tabIndex={-1}>
+                                  </span>
+                                  <span className="danger-ghost small-btn">
                                     <X size={13} />
-                                  </button>
+                                  </span>
                                 </span>
                                 <span
                                   style={{

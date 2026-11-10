@@ -14,6 +14,7 @@ import PageHeader from "../components/PageHeader.jsx";
 import { useToast } from "../components/Toast.jsx";
 import Select from "../components/Select.jsx";
 import { sanitizeMoneyInput, parseMoney } from "../utils/format.js";
+import { localToday } from "../utils/dates.js";
 import { sanitizeTextInput, validateVendor, validateNote } from "../utils/text.js";
 
 const CATEGORY_CLASS = {
@@ -45,7 +46,10 @@ export default function ExpensesPage() {
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState("");
   const [newExpense, setNewExpense] = useState({
-    date: new Date().toISOString().split("T")[0],
+    // Local calendar date: the UTC date is yesterday between 00:00 and 08:00
+    // in Manila, so a new expense opened in the early morning used to be
+    // pre-filled with the wrong day.
+    date: localToday(),
     vendor: "",
     locationCode: "",
     category: "Supplies",

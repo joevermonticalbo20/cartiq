@@ -43,27 +43,6 @@ function TiltedPreviewCard({ className = "", salesToday }) {
           </span>
         </div>
       </div>
-      <div className="login-preview-chart-area">
-        <div className="login-preview-bars">
-          {[38, 62, 48, 78, 58, 92, 70].map((h, i) => {
-            const days = ["M", "T", "W", "T", "F", "S", "S"];
-            const isPeak = i === 5;
-            return (
-              <div
-                key={i}
-                className="login-preview-barcol"
-                style={{ "--h": `${h}%` }}
-              >
-                {isPeak && <span className="login-preview-peak">PEAK</span>}
-                <div className={`bar-wrapper${isPeak ? " peak" : ""}`}>
-                  <span className="bar" />
-                </div>
-                <span className="bar-label">{days[i]}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
       <div className="login-preview-carts">
         {previewCarts.slice(0, 3).map((cart) => {
           const meta = previewStatusMeta[cart.status] ?? previewStatusMeta.ok;

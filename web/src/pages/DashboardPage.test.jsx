@@ -116,14 +116,11 @@ describe("DashboardPage partial failure", () => {
       if (url.startsWith("/reports/daily") && !url.includes("daysAgo")) {
         return Promise.reject(new Error("down"));
       }
-      if (url.startsWith("/alerts")) {
+      if (url.startsWith("/inventory")) {
         return Promise.reject(new Error("down"));
       }
       if (url.includes("daysAgo")) {
         return Promise.resolve({ data: { total_sales: 1000, orders: 30 } });
-      }
-      if (url.startsWith("/inventory")) {
-        return Promise.resolve({ data: { locations: [] } });
       }
       if (url.startsWith("/staff/on-shift")) {
         return Promise.resolve({ data: { on_shift: [] } });
@@ -139,7 +136,11 @@ describe("DashboardPage partial failure", () => {
     renderPage();
     const banner = await screen.findByRole("alert");
     expect(banner).toHaveTextContent("Sales");
-    expect(banner).toHaveTextContent("Alerts");
+    expect(banner).toHaveTextContent("Inventory");
+    expect(
+      banner.textContent.includes("Alerts"),
+      "a section that is not rendered must not raise a false error banner",
+    ).toBe(false);
   });
 
   it("treats a network failure like any section failure", async () => {

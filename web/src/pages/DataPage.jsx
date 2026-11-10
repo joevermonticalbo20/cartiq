@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import api, { getErrorMessage } from "../api.js";
+import { localMonth } from "../utils/dates.js";
 import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
@@ -994,7 +995,9 @@ export default function DataPage() {
   const toast = useToast();
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
-  const nowMonth = new Date().toISOString().slice(0, 7);
+  // Local month: the UTC month is the previous one between 00:00 and 08:00 in
+  // Manila, so an export opened early on the 1st defaulted to the old month.
+  const nowMonth = localMonth();
 
   const [exportType, setExportType] = useState("month"); // "month", "custom", "all"
   const [month, setMonth] = useState(nowMonth);

@@ -1031,12 +1031,15 @@ class _CartSheet extends StatefulWidget {
   @override
   State<_CartSheet> createState() => _CartSheetState();
 }
-
 class _CartSheetState extends State<_CartSheet> {
   PaymentMethod _method = PaymentMethod.cash;
   final _cashController = TextEditingController();
   File? _gcashProofImage;
   bool _isPickingImage = false;
+  // Set the moment a sale is submitted. The parent owns the real "paying"
+  // flag, but the sheet cannot see it (the sheet is its own route), so the
+  // button is disabled here to stop a second tap from selling twice.
+  bool _submitting = false;
 
   @override
   void dispose() {
@@ -1047,12 +1050,14 @@ class _CartSheetState extends State<_CartSheet> {
   double get _tendered => double.tryParse(_cashController.text) ?? 0;
 
   bool get _canPay =>
-      _method != PaymentMethod.cash || _tendered >= widget.cart.total;
+      !_submitting &&
+      (_method != PaymentMethod.cash || _tendered >= widget.cart.total);
 
   void _submitIfReady() {
     if (!_canPay) {
       return;
     }
+    setState(() => _submitting = true);
     widget.onPay(
       _method,
       _method == PaymentMethod.cash ? _tendered : null,

@@ -21,6 +21,7 @@ import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
+import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import Skeleton, { SkeletonCards, SkeletonList, TableSkeleton } from "../components/Skeleton.jsx";
 import Select from "../components/Select.jsx";
 import { useLiveEvent, useLiveStatus } from "../hooks/useLiveStream.js";
@@ -79,10 +80,9 @@ export default function DashboardPage() {
   const [inventory, setInventory] = useState([]);
   const [onShift, setOnShift] = useState([]);
   const [latestSales, setLatestSales] = useState([]);
-    // The alerts ARRAY is never rendered - the Stock alerts panel reads live
+  // The alerts ARRAY is never rendered - the Stock alerts panel reads live
   // inventory status instead. The state is kept only so the alert:new live
-  // event has somewhere to land; the fetch itself still matters, because a
-  // failure there is reported in the refresh banner.
+  // event has somewhere to land.
   const [, setAlerts] = useState([]);
   const [trends, setTrends] = useState(null);
   const [prev, setPrev] = useState(null);
@@ -145,7 +145,6 @@ export default function DashboardPage() {
       settle("inventory", api.get("/inventory"), (r) => setInventory(r.data?.locations ?? [])),
       settle("staff", api.get("/staff/on-shift"), (r) => setOnShift(r.data?.on_shift ?? [])),
       settle("sales", api.get(buildQ("/orders?page=1&pageSize=5", [dQ, lQ])), (r) => setLatestSales(r.data?.data ?? [])),
-      settle("alerts", api.get("/alerts?unread_only=true&page=1&pageSize=5"), (r) => setAlerts(r.data?.data ?? [])),
       settle("trends", api.get(buildQ("/analytics/trends?days=7", [cQ])).catch(() => ({ data: null })), (r) => setTrends(r.data)),
       settle("prev", api.get(buildQ("/reports/daily", [prevQ, cQ])).catch(() => ({ data: null })), (r) => setPrev(r.data)),
     ]);
@@ -203,7 +202,9 @@ export default function DashboardPage() {
   const topItem = (() => {
     const all = trends?.top_items ?? [];
     if (all.length === 0) return null;
-    return all.sort((a, b) => (b.qty ?? 0) - (a.qty ?? 0))[0];
+    // Copy before sorting: `all` is the array held in React state, and
+    // sorting it in place mutated the state behind React's back.
+    return [...all].sort((a, b) => (b.qty ?? 0) - (a.qty ?? 0))[0];
   })();
 
   const pct = (today, was) => was != null && was > 0 ? ((today - was) / was) * 100 : null;
@@ -223,7 +224,8 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="page-container wide">
+    <PageErrorBoundary>
+      <div className="page-container wide">
       <div className="page-header">
         <div>
           <div className="flex items-center gap-3">
@@ -350,7 +352,20 @@ export default function DashboardPage() {
         <>
           {/* ROW 1: CORE KPIs */}
           <div className="dashboard-kpi-strip">
-            <div className="kpi-card solid-brand" onClick={() => navigate("/sales")} role="button" tabIndex={0}>
+            <div
+              className="kpi-card solid-brand"
+              onClick={() => navigate("/sales")}
+              onKeyDown={(e) => {
+                // role="button" without a key handler is not reachable by
+                // keyboard: Enter and Space must open the card too.
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  navigate("/sales");
+                }
+              }}
+              role="button"
+              tabIndex={0}
+            >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">{dateFilter ? "Sales (Filtered)" : "Sales today"}</span>
                 <span className="kpi-card-icon"><DollarSign size={22} /></span>
@@ -364,7 +379,18 @@ export default function DashboardPage() {
               </div>
             </div>
             
-            <div className="kpi-card" onClick={() => navigate("/sales")} role="button" tabIndex={0}>
+            <div
+              className="kpi-card"
+              onClick={() => navigate("/sales")}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  navigate("/sales");
+                }
+              }}
+              role="button"
+              tabIndex={0}
+            >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">{dateFilter ? "Orders (Filtered)" : "Orders today"}</span>
                 <span className="kpi-card-icon"><ShoppingBag size={22} /></span>
@@ -378,7 +404,18 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="kpi-card" onClick={() => navigate("/sales")} role="button" tabIndex={0}>
+            <div
+              className="kpi-card"
+              onClick={() => navigate("/sales")}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  navigate("/sales");
+                }
+              }}
+              role="button"
+              tabIndex={0}
+            >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">Avg ticket</span>
                 <span className="kpi-card-icon"><ReceiptText size={20} /></span>
@@ -387,7 +424,18 @@ export default function DashboardPage() {
               <div className="kpi-card-sub">Per order {dateFilter ? "selected" : "today"}</div>
             </div>
 
-            <div className="kpi-card" onClick={() => navigate("/analytics")} role="button" tabIndex={0}>
+            <div
+              className="kpi-card"
+              onClick={() => navigate("/analytics")}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  navigate("/analytics");
+                }
+              }}
+              role="button"
+              tabIndex={0}
+            >
               <div className="kpi-card-header">
                 <span className="kpi-card-label">Top item</span>
                 <span className="kpi-card-icon"><BarChart2 size={20} /></span>
@@ -598,6 +646,7 @@ export default function DashboardPage() {
           </div>
         </>
       )}
-    </div>
+      </div>
+    </PageErrorBoundary>
   );
 }

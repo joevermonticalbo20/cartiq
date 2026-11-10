@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 
@@ -17,13 +17,21 @@ export function usePagedData(buildPath, deps = []) {
 
   const [page, setPage] = useState(1);
 
+  // Only the newest request may write to the state. Without this, a slow
+  // page-1 request that resolves after a fast page-2 request overwrites the
+  // newer rows (the classic out-of-order response race).
+  const requestId = useRef(0);
+
   const load = useCallback(
-    async (targetPage = page) => {
+    async (targetPage) => {
+      const id = ++requestId.current;
       setState((s) => ({ ...s, loading: true, error: "" }));
       try {
         const res = await api.get(buildPath(targetPage));
+        if (id !== requestId.current) return; // a newer request won
         setState({ rows: res.data.data ?? [], meta: res.data.meta ?? null, loading: false, error: "" });
       } catch (err) {
+        if (id !== requestId.current) return; // a newer request won
         setState((s) => ({
           ...s,
           loading: false,
@@ -46,5 +54,7 @@ export function usePagedData(buildPath, deps = []) {
     load(p);
   };
 
+  // The page is always passed explicitly: a default of `page` would capture
+  // a stale value from the closure.
   return { ...state, page, gotoPage, refresh: () => load(page) };
 }
