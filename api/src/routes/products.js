@@ -237,15 +237,13 @@ router.get("/products", requireAuth, async (req, res, next) => {
               .filter((item) => !knownItems.has(String(item ?? "").trim())),
           })),
           recipeCount: recipeCount.get(p.name) ?? 0,
-          // Flat products (size-to-product migration): their recipe rows live
-          // on flavor ""; surface them so "Used by" and the recipe editor work.
-          ...(sortFlavorRows(p.flavors ?? []).length === 0
-            ? {
-                recipes: rowsByFlavor.get(flavorKey(p.name, "")) ?? [],
-                missingItems: (itemsByFlavor.get(flavorKey(p.name, "")) ?? [])
-                  .filter((item) => !knownItems.has(String(item ?? "").trim())),
-              }
-            : {}),
+          // Recipe rows on flavor "" are the product-level base rows (the
+          // frozen packs + the seasoning powder that every size uses). They
+          // must show for flavor parents too, so "Used by" and the recipe
+          // editor see them; flat products keep working the same way.
+          recipes: rowsByFlavor.get(flavorKey(p.name, "")) ?? [],
+          missingItems: (itemsByFlavor.get(flavorKey(p.name, "")) ?? [])
+            .filter((item) => !knownItems.has(String(item ?? "").trim())),
         };
       }),
     });

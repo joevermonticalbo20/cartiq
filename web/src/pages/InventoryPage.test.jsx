@@ -119,4 +119,55 @@ describe("InventoryPage loading/error states", () => {
     renderPage();
     expect(await screen.findByText(/Used by Flavored Fries \(Cheese\)/)).toBeInTheDocument();
   });
+
+  it("counts a flavor parent's base rows and skips archived products", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/inventory") {
+        return Promise.resolve({
+          data: {
+            locations: [
+              {
+                code: "CART-01",
+                name: "Cart 1",
+                items: [
+                  { id: 1, name: "Fries (frozen packs)", stock: 3, threshold: 1, unit: "packs", source: "MANUAL", status: "ok" },
+                  { id: 2, name: "Old Powder", stock: 3, threshold: 1, unit: "kg", source: "MANUAL", status: "ok" },
+                ],
+              },
+            ],
+          },
+        });
+      }
+      if (url === "/products") {
+        return Promise.resolve({
+          data: {
+            data: [
+              {
+                id: 8,
+                name: "BBQ Fries",
+                active: true,
+                // Base rows every size deducts live on the product itself.
+                recipes: [{ itemName: "Fries (frozen packs)", amountPerUnit: 0.05 }],
+                flavors: [
+                  { id: 13, name: "Medium", recipes: [{ itemName: "Pouch Medium", amountPerUnit: 1 }] },
+                ],
+              },
+              {
+                id: 24,
+                name: "BBQ Fries - Medium",
+                active: false,
+                recipes: [{ itemName: "Old Powder", amountPerUnit: 1 }],
+                flavors: [],
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: null });
+    });
+    renderPage();
+    expect(await screen.findByText(/Used by BBQ Fries/)).toBeInTheDocument();
+    // The archived flat product must not claim the powder any more.
+    expect(screen.queryByText(/Used by BBQ Fries - Medium/)).toBeNull();
+  });
 });

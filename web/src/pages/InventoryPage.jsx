@@ -133,8 +133,9 @@ export default function InventoryPage() {
               if (!usage.get(name).includes(label)) usage.get(name).push(label);
             }
           }
-          // Flat products (each size is its own product): recipe rows live on
-          // the product itself, keyed by flavor "".
+          // Product-level base rows (flavor ""): the frozen packs + powder a
+          // flavor parent deducts for every size, and the whole recipe of a
+          // flat product. Label them with the product name.
           for (const r of p.recipes ?? []) {
             const name = String(r.itemName ?? "").trim();
             if (!name) continue;

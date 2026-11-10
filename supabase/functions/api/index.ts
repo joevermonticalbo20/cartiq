@@ -3668,13 +3668,13 @@ function attachFlavors(product, flavors, maps, invNames, imageBase, imageTimes) 
   const ids = new Set((product.flavorIds ?? []).map(Number));
   const linked = sortFlavorRows(flavors.filter((f) => ids.has(Number(f.id))));
   const flatKey = flavorKey(product.name, "");
-  // Flat products created by the size-to-product migration carry their recipe
-  // on flavor ""; surface it so the dashboard's "Used by" reverse map and the
-  // Products page recipe editor keep working for them.
-  const flatRecipes = linked.length === 0 ? (rowsByFlavor.get(flatKey) ?? []) : [];
-  const flatMissing = linked.length === 0
-    ? (itemsByFlavor.get(flatKey) ?? []).filter((item) => !invNames.has(String(item ?? "").trim()))
-    : [];
+  // Recipe rows on flavor "" are the product-level base rows (the frozen packs
+  // + the seasoning powder that every size uses). They must show for flavor
+  // parents too, so "Used by" and the recipe editor see them; flat products
+  // keep working the same way.
+  const flatRecipes = rowsByFlavor.get(flatKey) ?? [];
+  const flatMissing = (itemsByFlavor.get(flatKey) ?? [])
+    .filter((item) => !invNames.has(String(item ?? "").trim()));
   return {
     id: product.id,
     name: product.name,
@@ -3696,7 +3696,8 @@ function attachFlavors(product, flavors, maps, invNames, imageBase, imageTimes) 
         .filter((item) => !invNames.has(String(item ?? "").trim())),
     })),
     recipeCount: maps.filter((m) => m.productName === product.name).length,
-    ...(linked.length === 0 ? { recipes: flatRecipes, missingItems: flatMissing } : {}),
+    recipes: flatRecipes,
+    missingItems: flatMissing,
   };
 }
 
