@@ -208,15 +208,49 @@ export default function ProductsPage() {
   }
 
   function addFlavorRow() {
-    setAddFlavorRows((prev) => [
-      ...prev,
-      {
-        key: `flavor-${Date.now()}-${flavorRowSeq++}`,
-        name: "",
-        recipeRows: [],
-        recipeOpen: false,
-      },
-    ]);
+    setAddFlavorRows((prev) => {
+      // Each flavor/size owns its full recipe. A new row starts from the
+      // product's shared/starter recipe (the packs + powder every size uses),
+      // minus any pouch because the pouch is what changes per size. A
+      // flavor-specific powder (Cheese vs BBQ) is never copied across.
+      const template = addRecipeRows.filter(
+        (r) => !/^pouch/i.test(String(r.itemName ?? "").trim())
+      );
+      return [
+        ...prev,
+        {
+          key: `flavor-${Date.now()}-${flavorRowSeq++}`,
+          name: "",
+          recipeRows: template.map((r) =>
+            newRecipeRowState({ itemName: r.itemName, amount: r.amount, unit: r.unit })
+          ),
+          recipeOpen: true,
+        },
+      ];
+    });
+  }
+
+  // A stored recipe amount is in the stock item's base unit (kg, packs, pcs).
+  // The editor shows mass in grams by default, so convert it for display and
+  // remember the display unit; the save converts it back via toStockUnit.
+  function recipeRowFromStored(r) {
+    const itemName = String(r.itemName ?? "");
+    const storedAmount = Number(r.amountPerUnit) || 0;
+    const stockUnit = itemNames.find(
+      (n) => n.name.toLowerCase() === itemName.trim().toLowerCase()
+    )?.unit ?? "";
+    const displayUnit = defaultUnitFor(stockUnit);
+    const rate = MASS_TO_KG[String(displayUnit).toLowerCase()];
+    const storedRate = MASS_TO_KG[String(stockUnit).toLowerCase()];
+    const displayAmount =
+      rate !== undefined && storedRate !== undefined
+        ? Math.round((storedAmount / rate) * 1e6) / 1e6
+        : storedAmount;
+    return newRecipeRowState({
+      itemName,
+      amount: String(displayAmount),
+      unit: displayUnit,
+    });
   }
 
   function flatRecipesEditor(lines, setLines, listId = "cartiq-inventory-items") {
@@ -262,7 +296,7 @@ export default function ProductsPage() {
                 <input
                   type="number"
                   min="0"
-                  step="0.01"
+                  step="any"
                   placeholder="Qty"
                   title={`Amount deducted per unit sold, in ${effUnit}`}
                   value={line.amount}
@@ -442,7 +476,10 @@ export default function ProductsPage() {
       });
 
       const newId = data?.product?.id;
-      if (newId && checked.recipes.length > 0) {
+      // Products with flavors store a complete recipe under each size (the
+      // add-flavor action copies the starter recipe into each new row).
+      // Products without flavors keep their recipe on the product itself.
+      if (newId && checked.recipes.length > 0 && checkedFlavors.length === 0) {
         try {
           await api.patch(`/products/${newId}`, {
             addRecipes: checked.recipes.map((r) => ({ flavor: "", ...r })),
@@ -460,8 +497,11 @@ export default function ProductsPage() {
         }
       }
 
+      const recipeNote = checked.recipes.length && checkedFlavors.length === 0
+        ? ` and ${checked.recipes.length} recipe line(s)`
+        : "";
       toast(
-        `Product "${name.value}" created${checkedFlavors.length ? ` with ${checkedFlavors.length} flavor(s)` : ""}${checked.recipes.length ? ` and ${checked.recipes.length} default recipe line(s)` : ""}`,
+        `Product "${name.value}" created${checkedFlavors.length ? ` with ${checkedFlavors.length} flavor(s), each with its own recipe` : ""}${recipeNote}`,
         "success"
       );
       closeAddModal();
@@ -837,22 +877,36 @@ export default function ProductsPage() {
     const costSnapshot = p.cost === null || p.cost === undefined ? null : Number(p.cost);
     const hasCost = costSnapshot !== null && Number.isFinite(costSnapshot);
     
-    const flatRecipes = (p.recipes ?? []).map((r) =>
-      newRecipeRowState({ itemName: String(r.itemName ?? ""), amount: String(r.amountPerUnit ?? "") }));
+    const flatRecipes = (p.recipes ?? []).map(recipeRowFromStored);
 
-    const mappedFlavors = (p.flavors ?? []).map((f) => ({
-      key: `flavor-${Date.now()}-${flavorRowSeq++}`,
-      id: f.id,
-      name: f.name,
-      recipeOpen: false,
-      recipeRows: (f.recipes ?? []).map((r) =>
-        newRecipeRowState({ itemName: String(r.itemName ?? ""), amount: String(r.amountPerUnit ?? "") })
-      ),
-      _baseline: (f.recipes ?? []).map((r) => ({
-        itemName: String(r.itemName ?? ""),
-        amountPerUnit: Number(r.amountPerUnit) || 0
-      }))
+    // Rows still stored on the product (flavor "") apply to every size. Fold
+    // them into each size's recipe so the panel shows the real deduction and
+    // the first save keeps a copy per size. A flavor-specific row always wins.
+    const baseRecipeLines = (p.recipes ?? []).map((r) => ({
+      itemName: String(r.itemName ?? "").trim(),
+      amountPerUnit: Number(r.amountPerUnit) || 0,
     }));
+
+    const mappedFlavors = (p.flavors ?? []).map((f) => {
+      const ownRows = (f.recipes ?? []).map(recipeRowFromStored);
+      const ownNames = new Set(
+        ownRows.map((r) => String(r.itemName ?? "").trim().toLowerCase())
+      );
+      const inherited = baseRecipeLines
+        .filter((r) => r.itemName && !ownNames.has(r.itemName.toLowerCase()))
+        .map((r) => recipeRowFromStored({ itemName: r.itemName, amountPerUnit: r.amountPerUnit }));
+      return {
+        key: `flavor-${Date.now()}-${flavorRowSeq++}`,
+        id: f.id,
+        name: f.name,
+        recipeOpen: true,
+        recipeRows: [...ownRows, ...inherited],
+        _baseline: (f.recipes ?? []).map((r) => ({
+          itemName: String(r.itemName ?? ""),
+          amountPerUnit: Number(r.amountPerUnit) || 0
+        }))
+      };
+    });
 
     setEditing({
       ...p,
@@ -866,7 +920,10 @@ export default function ProductsPage() {
       imageDraft: null,
       recipeLines: flatRecipes,
       flavorRows: mappedFlavors,
-      _recipeBaseline: flatRecipes.map((r) => ({ itemName: r.itemName, amountPerUnit: Number(r.amount) || 0 })),
+      _recipeBaseline: (p.recipes ?? []).map((r) => ({
+        itemName: String(r.itemName ?? ""),
+        amountPerUnit: Number(r.amountPerUnit) || 0,
+      })),
       _category: p.category || "Fries",
       _cost: hasCost ? costSnapshot : null,
       _basePrice: basePriceSnapshot,
@@ -1233,7 +1290,7 @@ export default function ProductsPage() {
                 <section className="product-modal-section">
                   <div className="product-modal-section-heading">
                     <h4>Flavor/Variants</h4>
-                    <span>Keep related options under this product instead of creating separate products.</span>
+                    <span>Each size/flavor has its own recipe — the pouch, packs and powder are deducted only for that size.</span>
                   </div>
                   <div className="flex flex-col gap-3">
                     {addFlavorRows.map((row, index) => (
@@ -1328,13 +1385,15 @@ export default function ProductsPage() {
                   </div>
                 </section>
 
-                <section className="product-modal-section product-modal-recipe">
-                  <div className="product-modal-section-heading">
-                    <h4>Default recipe</h4>
-                    <span>Ingredients deducted per unit sold. Optional fallback; set flavor-specific recipes above when needed.</span>
-                  </div>
-                  {flatRecipesEditor(addRecipeRows, setAddRecipeRows)}
-                </section>
+                {addFlavorRows.length === 0 && (
+                  <section className="product-modal-section product-modal-recipe">
+                    <div className="product-modal-section-heading">
+                      <h4>Recipe</h4>
+                      <span>Ingredients deducted per unit sold. Add flavors above and each one gets its own copy of this recipe.</span>
+                    </div>
+                    {flatRecipesEditor(addRecipeRows, setAddRecipeRows)}
+                  </section>
+                )}
                 
                 <div className="product-modal-footer">
                   {addError && <p className="error-box" role="alert">{addError}</p>}
@@ -1449,7 +1508,7 @@ export default function ProductsPage() {
                 <section className="product-modal-section">
                   <div className="product-modal-section-heading">
                     <h4>Flavor/Variants</h4>
-                    <span>Keep related options under this product instead of creating separate products.</span>
+                    <span>Each size/flavor has its own recipe — the pouch, packs and powder are deducted only for that size.</span>
                   </div>
                   <div className="flex flex-col gap-3">
                     {(editing?.flavorRows ?? []).map((row, index) => (
@@ -1541,13 +1600,29 @@ export default function ProductsPage() {
                       className="ghost small-btn"
                       style={{ alignSelf: "flex-start" }}
                       onClick={() => {
-                        setEditing((prev) => ({
-                          ...prev,
-                          flavorRows: [
-                            ...(prev.flavorRows || []),
-                            { key: `flavor-${Date.now()}-${flavorRowSeq++}`, name: "", recipeRows: [], recipeOpen: true },
-                          ],
-                        }));
+                        setEditing((prev) => {
+                          // Give the new size the product's shared/starter
+                          // ingredients (packs + powder). The pouch is
+                          // size-specific, and a flavor-specific powder must
+                          // never be copied to another flavor.
+                          const template = (prev.recipeLines ?? []).filter(
+                            (r) => !/^pouch/i.test(String(r.itemName ?? "").trim())
+                          );
+                          return {
+                            ...prev,
+                            flavorRows: [
+                              ...(prev.flavorRows || []),
+                              {
+                                key: `flavor-${Date.now()}-${flavorRowSeq++}`,
+                                name: "",
+                                recipeRows: template.map((r) =>
+                                  newRecipeRowState({ itemName: r.itemName, amount: r.amount, unit: r.unit })
+                                ),
+                                recipeOpen: true,
+                              },
+                            ],
+                          };
+                        });
                       }}
                       disabled={(editing?.flavorRows?.length || 0) >= 20}
                     >
@@ -1556,19 +1631,21 @@ export default function ProductsPage() {
                   </div>
                 </section>
 
-                <section className="product-modal-section product-modal-recipe">
-                  <div className="product-modal-section-heading">
-                    <h4>Recipe</h4>
-                    <span>Ingredients deducted per unit sold</span>
-                  </div>
-                  {flatRecipesEditor(editing?.recipeLines ?? [], (updater) =>
-                    setEditing((prev) => {
-                      if (!prev) return prev;
-                      const next = typeof updater === "function" ? updater(prev.recipeLines ?? []) : updater;
-                      return { ...prev, recipeLines: next };
-                    })
-                  )}
-                </section>
+                {(editing?.flavorRows ?? []).length === 0 && (
+                  <section className="product-modal-section product-modal-recipe">
+                    <div className="product-modal-section-heading">
+                      <h4>Recipe</h4>
+                      <span>Ingredients deducted per unit sold</span>
+                    </div>
+                    {flatRecipesEditor(editing?.recipeLines ?? [], (updater) =>
+                      setEditing((prev) => {
+                        if (!prev) return prev;
+                        const next = typeof updater === "function" ? updater(prev.recipeLines ?? []) : updater;
+                        return { ...prev, recipeLines: next };
+                      })
+                    )}
+                  </section>
+                )}
                 
                 <div className="product-modal-footer">
                   {editError && <p className="error-box" role="alert">{editError}</p>}

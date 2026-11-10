@@ -120,6 +120,57 @@ describe("InventoryPage loading/error states", () => {
     expect(await screen.findByText(/Used by Flavored Fries \(Cheese\)/)).toBeInTheDocument();
   });
 
+  it("groups a product's sizes into one Used by label", async () => {
+    const sizes = ["Medium", "Large", "XL 40", "XL 50"];
+    api.get.mockImplementation((url) => {
+      if (url === "/inventory") {
+        return Promise.resolve({
+          data: {
+            locations: [
+              {
+                code: "CART-01",
+                name: "Cart 1",
+                items: [
+                  { id: 1, name: "Fries (frozen packs)", stock: 3, threshold: 1, unit: "packs", source: "MANUAL", status: "ok" },
+                ],
+              },
+            ],
+          },
+        });
+      }
+      if (url === "/products") {
+        return Promise.resolve({
+          data: {
+            data: [
+              {
+                id: 8,
+                name: "BBQ Fries",
+                active: true,
+                // Fallback rows: already copied into every size, so they must
+                // not add a second bare "BBQ Fries" label.
+                recipes: [{ itemName: "Fries (frozen packs)", amountPerUnit: 0.05 }],
+                flavors: sizes.map((size, index) => ({
+                  id: 13 + index,
+                  name: size,
+                  recipes: [
+                    { itemName: `Pouch ${size.startsWith("XL") ? "XL" : size}`, amountPerUnit: 1 },
+                    { itemName: "Fries (frozen packs)", amountPerUnit: 0.05 },
+                  ],
+                })),
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: null });
+    });
+    renderPage();
+    expect(
+      await screen.findByText("Used by BBQ Fries (Medium, Large, XL 40, XL 50)")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Used by BBQ Fries$/)).toBeNull();
+  });
+
   it("counts a flavor parent's base rows and skips archived products", async () => {
     api.get.mockImplementation((url) => {
       if (url === "/inventory") {

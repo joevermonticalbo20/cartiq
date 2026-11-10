@@ -118,27 +118,44 @@ export default function InventoryPage() {
         setPrep(pr.data);
 
         // Reverse map: stock item name -> ["Product (Flavor)", ...]
+        // Each size owns its own recipe now, so group the sizes of one product
+        // into a single label ("BBQ Fries (Medium, Large, XL 40, XL 50)").
+        const sizeOrder = ["Medium", "Large", "XL 40", "XL 50"];
+        const flavorOrder = (a, b) => {
+          const ia = sizeOrder.indexOf(a);
+          const ib = sizeOrder.indexOf(b);
+          if (ia !== -1 || ib !== -1) {
+            return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+          }
+          return a.localeCompare(b);
+        };
         const usage = new Map();
         for (const p of prod.data?.data ?? []) {
           // Archived products are not sold any more, so they must not show up
           // in "Used by" (the old per-size products are archived and would
           // otherwise drown the real ones).
           if (p.active === false) continue;
+          // item -> flavors that name it explicitly
+          const explicit = new Map();
           for (const f of p.flavors ?? []) {
             for (const r of f.recipes ?? []) {
               const name = String(r.itemName ?? "").trim();
               if (!name) continue;
-              if (!usage.has(name)) usage.set(name, []);
-              const label = `${p.name}${f.name ? ` (${f.name})` : ""}`;
-              if (!usage.get(name).includes(label)) usage.get(name).push(label);
+              if (!explicit.has(name)) explicit.set(name, new Set());
+              explicit.get(name).add(String(f.name ?? "").trim());
             }
           }
-          // Product-level base rows (flavor ""): the frozen packs + powder a
-          // flavor parent deducts for every size, and the whole recipe of a
-          // flat product. Label them with the product name.
+          for (const [itemName, flavors] of explicit) {
+            const named = [...flavors].filter(Boolean).sort(flavorOrder);
+            const label = named.length ? `${p.name} (${named.join(", ")})` : p.name;
+            if (!usage.has(itemName)) usage.set(itemName, []);
+            if (!usage.get(itemName).includes(label)) usage.get(itemName).push(label);
+          }
+          // Product-level base rows (flavor "") are a fallback: only show them
+          // when no flavor names the same item (a flavor row wins the deduction).
           for (const r of p.recipes ?? []) {
             const name = String(r.itemName ?? "").trim();
-            if (!name) continue;
+            if (!name || explicit.has(name)) continue;
             if (!usage.has(name)) usage.set(name, []);
             if (!usage.get(name).includes(p.name)) usage.get(name).push(p.name);
           }

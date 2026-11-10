@@ -363,6 +363,13 @@ describe("ProductsPage flat product add", () => {
     });
     await openAddModal();
     fillNameAndPrice("Fries", "50");
+    // Starter recipe: the ingredient every size shares (the packs).
+    fireEvent.click(screen.getByText("+ Recipe line"));
+    fireEvent.change(screen.getByPlaceholderText("Ingredient item (e.g. Cheese Powder)"), {
+      target: { value: "Fries (frozen packs)" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Qty"), { target: { value: "0.05" } });
+
     fireEvent.click(screen.getByText("Add flavor/variant"));
     const modal = addModal();
     const flavorPanel = within(modal).getByPlaceholderText("e.g. Cheese").closest("div").parentElement;
@@ -370,13 +377,14 @@ describe("ProductsPage flat product add", () => {
     fireEvent.change(within(modal).getAllByPlaceholderText("e.g. Cheese")[0], {
       target: { value: "Cheese" },
     });
-    fireEvent.click(within(modal).getByText("Edit recipe"));
     expect(within(modal).getByRole("region", { name: "Cheese recipe" })).toBeInTheDocument();
     fireEvent.click(within(modal).getAllByText("+ Recipe line")[0]);
-    fireEvent.change(within(modal).getByPlaceholderText("Ingredient item (e.g. Cheese Powder)"), {
+    // The flavor starts with a copy of the starter recipe (the packs), so the
+    // new blank line is the last one.
+    fireEvent.change(within(modal).getAllByPlaceholderText("Ingredient item (e.g. Cheese Powder)").at(-1), {
       target: { value: "Cheese Powder" },
     });
-    fireEvent.change(within(modal).getByPlaceholderText("Qty"), { target: { value: "12" } });
+    fireEvent.change(within(modal).getAllByPlaceholderText("Qty").at(-1), { target: { value: "12" } });
     fireEvent.click(within(modal).getByText("Add flavor/variant"));
     fireEvent.change(within(modal).getAllByPlaceholderText("e.g. Cheese")[1], {
       target: { value: "BBQ" },
@@ -390,9 +398,16 @@ describe("ProductsPage flat product add", () => {
       flavors: [
         {
           name: "Cheese",
-          recipes: [{ itemName: "Cheese Powder", amountPerUnit: 0.012 }],
+          recipes: [
+            { itemName: "Fries (frozen packs)", amountPerUnit: 0.05 },
+            { itemName: "Cheese Powder", amountPerUnit: 0.012 },
+          ],
         },
-        { name: "BBQ", recipes: [] },
+        {
+          name: "BBQ",
+          // The shared packs, but never the Cheese-specific powder.
+          recipes: [{ itemName: "Fries (frozen packs)", amountPerUnit: 0.05 }],
+        },
       ],
     }));
     expect(api.patch).not.toHaveBeenCalled();
@@ -474,7 +489,9 @@ describe("ProductsPage best sellers + flat catalog", () => {
     api.get.mockImplementation((url) => {
       if (url === "/products") {
         return Promise.resolve({
-          data: { data: [{ ...seedProducts[0], flavors: [variant] }] },
+          // No product-level fallback rows: this test is about editing the
+          // variant's own recipe.
+          data: { data: [{ ...seedProducts[0], recipes: [], flavors: [variant] }] },
         });
       }
       return Promise.resolve({ data: { data: [] } });
@@ -486,7 +503,6 @@ describe("ProductsPage best sellers + flat catalog", () => {
     fireEvent.click(within(row).getByTitle("Edit price and recipe"));
 
     const dialog = await screen.findByRole("dialog", { name: "Edit Cheese Fries - Medium" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Edit recipe" }));
     const recipePanel = within(dialog).getByRole("region", { name: "Cheese recipe" });
     fireEvent.change(within(recipePanel).getByPlaceholderText("Qty"), { target: { value: "20" } });
     fireEvent.click(within(dialog).getByText("Save Changes"));
@@ -499,6 +515,83 @@ describe("ProductsPage best sellers + flat catalog", () => {
             { name: "Cheese", recipes: [{ itemName: "Cheese Powder", amountPerUnit: 20 }] },
           ],
           addRecipes: [{ flavor: "Cheese", itemName: "Cheese Powder", amountPerUnit: 20 }],
+        })
+      )
+    );
+  });
+
+  it("shows the shared packs and powder inside every size and hides the separate recipe", async () => {
+    const parent = {
+      ...seedProducts[0],
+      id: 21,
+      name: "BBQ Fries",
+      basePrice: 20,
+      recipes: [
+        { itemName: "BBQ Powder", amountPerUnit: 0.015 },
+        { itemName: "Fries (frozen packs)", amountPerUnit: 0.05 },
+      ],
+      flavors: [
+        { id: 1, name: "Medium", recipes: [{ itemName: "Pouch Medium", amountPerUnit: 1 }], recipeCount: 1 },
+        { id: 2, name: "Large", recipes: [{ itemName: "Pouch Large", amountPerUnit: 1 }], recipeCount: 1 },
+      ],
+    };
+    api.get.mockImplementation((url) => {
+      if (url === "/products") return Promise.resolve({ data: { data: [parent] } });
+      if (url === "/inventory/names") {
+        return Promise.resolve({
+          data: {
+            data: [
+              { name: "BBQ Powder", unit: "kg" },
+              { name: "Fries (frozen packs)", unit: "packs" },
+              { name: "Pouch Medium", unit: "pcs" },
+              { name: "Pouch Large", unit: "pcs" },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: { data: [] } });
+    });
+    renderPage();
+    const row = (await screen.findByText("BBQ Fries")).closest("tr");
+    fireEvent.click(within(row).getByTitle("Edit price and recipe"));
+    const dialog = await screen.findByRole("dialog", { name: "Edit BBQ Fries" });
+
+    const medium = within(dialog).getByRole("region", { name: "Medium recipe" });
+    const large = within(dialog).getByRole("region", { name: "Large recipe" });
+    for (const panel of [medium, large]) {
+      expect(within(panel).getByDisplayValue("BBQ Powder")).toBeInTheDocument();
+      expect(within(panel).getByDisplayValue("Fries (frozen packs)")).toBeInTheDocument();
+      // Stored 0.015 kg is shown as 15 g; saving converts it back to kg.
+      expect(within(panel).getByDisplayValue("15")).toBeInTheDocument();
+    }
+    expect(within(medium).getByDisplayValue("Pouch Medium")).toBeInTheDocument();
+    expect(within(large).getByDisplayValue("Pouch Large")).toBeInTheDocument();
+    // The old shared recipe block is gone once the product has sizes.
+    expect(within(dialog).queryByRole("heading", { name: "Recipe" })).toBeNull();
+
+    fireEvent.click(within(dialog).getByText("Save Changes"));
+    await vi.waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith(
+        "/products/21",
+        expect.objectContaining({
+          flavors: [
+            {
+              name: "Medium",
+              recipes: [
+                { itemName: "Pouch Medium", amountPerUnit: 1 },
+                { itemName: "BBQ Powder", amountPerUnit: 0.015 },
+                { itemName: "Fries (frozen packs)", amountPerUnit: 0.05 },
+              ],
+            },
+            {
+              name: "Large",
+              recipes: [
+                { itemName: "Pouch Large", amountPerUnit: 1 },
+                { itemName: "BBQ Powder", amountPerUnit: 0.015 },
+                { itemName: "Fries (frozen packs)", amountPerUnit: 0.05 },
+              ],
+            },
+          ],
         })
       )
     );
