@@ -804,24 +804,44 @@ button.settings-pw-submit:disabled {
   overflow-x: hidden;
 }
 
-/* The catalog panel fills the page so its bottom edge lines up with the
-   sidebar instead of floating in the middle of the screen. The page-body has
-   40px of bottom padding; the -24px cancels the difference between that and
-   the sidebar's 16px bottom margin, so both end on the same line. */
+/* The catalog panel is pinned to the screen: the page itself never scrolls,
+   the product list scrolls inside the panel. The panel's bottom edge lines up
+   with the sidebar - the -24px cancels the difference between the page-body's
+   40px bottom padding and the sidebar's 16px bottom margin. */
 .page-container.products-page {
-  min-height: calc(100vh - 110px);
+  height: calc(100vh - 110px);
   margin-bottom: -24px;
+  overflow: hidden;
 }
 .products-page .products-panel {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
+/* flex-basis 0 + min-height 0 makes the wrapper take only the leftover space
+   and scroll inside it, instead of growing with the rows. */
 .products-page .products-panel .table-wrap {
   height: auto;
-  flex: 1 1 auto;
-  min-height: 320px;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+@media (max-width: 900px) {
+  /* Small screens: let the page scroll normally again. */
+  .page-container.products-page {
+    height: auto;
+    margin-bottom: 0;
+    overflow: visible;
+  }
+  .products-page .products-panel {
+    overflow: visible;
+  }
+  .products-page .products-panel .table-wrap {
+    flex: none;
+    height: min(500px, 55dvh);
+  }
 }
 .product-mobile-price {
   display: none;
