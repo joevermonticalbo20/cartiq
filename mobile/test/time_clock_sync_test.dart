@@ -84,10 +84,17 @@ class FakeApi extends ApiClient {
   }
 
   @override
-  Future<Map<String, dynamic>> myAlerts(String token) async => {
-        'data': [],
-        'meta': {'total': 0, 'page': 1, 'pageSize': 50, 'totalPages': 1},
-      };
+  Future<Map<String, dynamic>> stockAlerts(
+    String token, {
+    bool unreadOnly = false,
+    int page = 1,
+    int pageSize = 50,
+  }) async {
+    return {
+      'data': [],
+      'meta': {'total': 0, 'page': 1, 'pageSize': pageSize, 'totalPages': 1},
+    };
+  }
 }
 
 void main() {
