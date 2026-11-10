@@ -17,7 +17,6 @@ import {
   LogOut,
   Plus,
   Power,
-  RefreshCw,
   Save,
   ShieldCheck,
   ShoppingCart,
@@ -1408,9 +1407,6 @@ export default function SettingsPage() {
                     Set when the Time in and Time out buttons can be tapped. Manila time.
                   </p>
                 </div>
-                <button type="button" className="ghost small-btn" onClick={loadTimeClock} disabled={clockLoading}>
-                  <RefreshCw size={13} aria-hidden="true" /> Refresh
-                </button>
               </div>
 
               <form onSubmit={saveTimeClock} className="timeclock-form">
@@ -1590,9 +1586,6 @@ export default function SettingsPage() {
               <div className="settings-table-heading">
                 <h3 className="section-title m-0 p-0" style={{ borderBottom: "none" }}>IoT device registry</h3>
                 <div className="flex items-center gap-2">
-                  <button className="ghost small-btn" onClick={loadOwnerData}>
-                    <RefreshCw size={13} /> Refresh
-                  </button>
                   <button className="small-btn" onClick={() => { setDeviceError(""); setDeviceAddOpen(true); }}>
                     <Plus size={13} /> Register Device
                   </button>

@@ -35,9 +35,10 @@ describe("VoidRequestsPage header", () => {
     });
   });
 
-  it("renders the header Refresh action", async () => {
+  it("renders the header without a manual Refresh action", async () => {
     renderPage();
-    expect(await screen.findByRole("button", { name: "Refresh" })).toBeInTheDocument();
+    expect(await screen.findByText("Void requests")).toBeInTheDocument();
     expect(screen.getByText("Operations")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
   });
 });

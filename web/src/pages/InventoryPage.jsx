@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOutletContext, useLocation } from "react-router-dom";
-import { CheckSquare, SlidersHorizontal, Square, Boxes, RefreshCw, Plus, PackagePlus, Edit2, Trash2 } from "lucide-react";
+import { CheckSquare, SlidersHorizontal, Square, Boxes, Plus, PackagePlus, Edit2, Trash2 } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
@@ -75,7 +75,6 @@ export default function InventoryPage() {
   const [prep, setPrep] = useState(null);
   const [applyingId, setApplyingId] = useState(null);
 
-  const [lastUpdated, setLastUpdated] = useState(null);
 
   function closeAddModal() {
     setAddClosing(true);
@@ -147,7 +146,6 @@ export default function InventoryPage() {
           setSelected(locs[0].code);
         }
         setSelectedIds(new Set());
-        setLastUpdated(new Date());
       })
       .catch((err) => setLoadError(getFriendlyError(err, "Unable to load inventory.")))
       .finally(() => setLoading(false));
@@ -465,17 +463,6 @@ export default function InventoryPage() {
           sub="Stock per cart - recount, forecast, and prep."
           actions={
             <>
-              <span className="muted small" style={{ marginRight: "4px" }}>
-                Last updated {lastUpdated?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) ?? "just now"}
-              </span>
-              <button
-                className="ghost small-btn"
-                onClick={refresh}
-                disabled={loading}
-                title="Refresh inventory"
-              >
-                <RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh
-              </button>
             </>
           }
         />

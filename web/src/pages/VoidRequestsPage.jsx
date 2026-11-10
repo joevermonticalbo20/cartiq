@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useOutletContext } from "react-router-dom";
-import { Hourglass, Check, Ban, RefreshCw, Square, CheckSquare } from "lucide-react";
+import { Hourglass, Check, Ban, Square, CheckSquare } from "lucide-react";
 
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
@@ -162,11 +162,6 @@ export default function VoidRequestsPage() {
           eyebrow="Operations"
           title="Void requests"
           sub="Staff-filed void requests waiting for your decision."
-          actions={
-            <button type="button" className="ghost small-btn" onClick={load} disabled={loading}>
-              <RefreshCw size={13} aria-hidden="true" /> Refresh
-            </button>
-          }
         />
 
         <section className="panel void-requests-panel">

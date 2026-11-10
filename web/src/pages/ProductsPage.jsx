@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { Plus, Edit2, Trash2, X, RefreshCw, Tag, AlertTriangle, Archive, ArchiveRestore, Star, ImagePlus } from "lucide-react";
+import { Plus, Edit2, Trash2, X, Tag, AlertTriangle, Archive, ArchiveRestore, Star, ImagePlus } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import DataTable from "../components/DataTable.jsx";
@@ -865,14 +865,6 @@ export default function ProductsPage() {
                 }}
               >
                 <Plus size={14} /> Add product
-              </button>
-              <button
-                className="ghost small-btn"
-                onClick={load}
-                disabled={loading}
-                title="Refresh products"
-              >
-                <RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh
               </button>
             </>
           }

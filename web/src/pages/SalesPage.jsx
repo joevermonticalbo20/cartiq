@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useOutletContext, useSearchParams, useNavigate } from "react-router-dom";
-import { ReceiptText, RefreshCw, X, Download, Edit2, Eye, Hourglass, ChevronRight } from "lucide-react";
+import { ReceiptText, X, Download, Edit2, Eye, Hourglass, ChevronRight } from "lucide-react";
 
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
@@ -32,7 +32,6 @@ export default function SalesPage() {
   // stays the single source of truth for the query below.
   const [loc, setLoc] = useState(() => searchParams.get("cart") ?? "");
   const [date, setDate] = useState("");
-  const [lastUpdated, setLastUpdated] = useState(null);
   const [confirming, setConfirming] = useState(null);
   const [exporting, setExporting] = useState(false);
   const [isVoiding, setIsVoiding] = useState(false);
@@ -148,13 +147,6 @@ export default function SalesPage() {
     });
   }
 
-  useEffect(() => {
-    if (!loading) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional clock sync when loading flips
-      setLastUpdated(new Date());
-    }
-  }, [loading]);
-
   // UX Fix: Global scroll lock para sa Edit modal
   const isAnyModalOpen = editing || editClosing || Boolean(confirming);
 
@@ -263,17 +255,6 @@ export default function SalesPage() {
           sub="Every receipt, searchable by cart and day."
           actions={
             <>
-              <span className="muted small" style={{ marginRight: "4px" }}>
-                Last updated {lastUpdated?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) ?? "just now"}
-              </span>
-              <button
-                className="ghost small-btn"
-                onClick={handleRefresh}
-                disabled={loading}
-                title="Refresh sales"
-              >
-                <RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh
-              </button>
               {isOwner && (
                 <button
                   className="small-btn"

@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import {
   TrendingUp, TrendingDown, ShoppingBag,
-  DollarSign, BarChart2, PackageSearch, RefreshCw, X, Sparkles, Printer
+  DollarSign, BarChart2, PackageSearch, X, Sparkles, Printer
 } from "lucide-react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import api from "../api.js";
@@ -102,7 +102,6 @@ export default function AnalyticsPage() {
 
   const [sortCol, setSortCol] = useState("sales");
   const [sortDir, setSortDir] = useState("desc");
-  const [lastUpdated, setLastUpdated] = useState(null);
   const [summaryLang, setSummaryLang] = useState("en");
 
   const scrollToSection = (id) => {
@@ -162,7 +161,6 @@ export default function AnalyticsPage() {
         setHourly(hr.data);
         setSalesFc(sf.data);
         setError("");
-        setLastUpdated(new Date());
       })
       .catch((err) => {
         if (!alive) return;
@@ -366,20 +364,6 @@ export default function AnalyticsPage() {
           sub="Performance metrics, sales trends, and top items."
           actions={
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="muted small" style={{ marginRight: "4px" }}>
-                Last updated {lastUpdated?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) ?? "just now"}
-              </span>
-              <button
-                className="ghost small-btn"
-                onClick={() => {
-                  setLoading(true);
-                  setReload((n) => n + 1);
-                }}
-                disabled={loading}
-                title="Refresh analytics"
-              >
-                <RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh
-              </button>
               <button
                 className="small-btn"
                 onClick={() => window.print()}

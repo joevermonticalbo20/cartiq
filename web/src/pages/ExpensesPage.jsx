@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { Trash2, ReceiptText, RefreshCw, X, Plus, Edit2, Wallet } from "lucide-react";
+import { Trash2, ReceiptText, X, Plus, Edit2, Wallet } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
@@ -37,7 +37,6 @@ export default function ExpensesPage() {
   const [confirming, setConfirming] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [summary, setSummary] = useState(null);
-  const [lastUpdated, setLastUpdated] = useState(null);
 
   // --- NEW STATES FOR ADD & EDIT EXPENSE ---
   const [addOpen, setAddOpen] = useState(false);
@@ -73,13 +72,6 @@ export default function ExpensesPage() {
     month,
     category,
   ]);
-
-  useEffect(() => {
-    if (!loading) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional clock sync when loading flips
-      setLastUpdated(new Date());
-    }
-  }, [loading]);
 
   const loadSummary = useCallback(async () => {
     try {
@@ -296,17 +288,6 @@ export default function ExpensesPage() {
                   {meta.total} record(s)
                 </Badge>
               )}
-              <span className="muted small" style={{ marginLeft: "4px" }}>
-                Last updated {lastUpdated?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) ?? "just now"}
-              </span>
-              <button
-                className="ghost small-btn"
-                onClick={handleRefresh}
-                disabled={loading}
-                title="Refresh expenses"
-              >
-                <RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh
-              </button>
               {isOwner && (
                 <button
                   className="small-btn"

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useOutletContext } from "react-router-dom";
-import { Trophy, RefreshCw, Plus, Edit2, Trash2, Clock, Calendar } from "lucide-react";
+import { Trophy, Plus, Edit2, Trash2, Clock, Calendar } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
@@ -38,7 +38,6 @@ export default function StaffPage() {
   const [loc, setLoc] = useState("");
   const [performance, setPerformance] = useState(null);
   const [perfLoading, setPerfLoading] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState(null);
 
   // --- NEW STATES FOR MANUAL ENTRY & EDIT ---
   const [addOpen, setAddOpen] = useState(false);
@@ -97,7 +96,6 @@ export default function StaffPage() {
         setStaffList(staffRes.data.data.filter((s) => s.role !== "OWNER"));
       }
       setPerfLoading(false);
-      setLastUpdated(new Date());
     });
   }, [isOwner]);
 
@@ -105,12 +103,6 @@ export default function StaffPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial top-data load on mount/filter change
     fetchTopData();
   }, [fetchTopData]);
-
-  useEffect(() => {
-    if (tableLoading || perfLoading) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional clock sync when loading flips
-    setLastUpdated(new Date());
-  }, [tableLoading, perfLoading]);
 
   useEffect(() => {
     if (!addOpen || tsTouched) return undefined;
@@ -237,17 +229,6 @@ export default function StaffPage() {
           sub="Track shifts, monitor top performers, and manage manual logs."
           actions={
             <div className="flex items-center gap-3 flex-wrap">
-              <span className="muted small" style={{ marginLeft: "4px" }}>
-                Last updated {lastUpdated?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) ?? "just now"}
-              </span>
-              <button
-                className="ghost small-btn"
-                onClick={handleRefreshAll}
-                disabled={tableLoading || perfLoading}
-                title="Refresh data"
-              >
-                <RefreshCw size={14} className={tableLoading || perfLoading ? "spin" : ""} /> Refresh
-              </button>
               {isOwner && (
                 <button
                   className="small-btn"
