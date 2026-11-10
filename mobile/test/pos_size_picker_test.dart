@@ -70,6 +70,7 @@ void main() {
           PosSizePicker(
             sizes: _sizes(),
             selected: null,
+            selectedQuantity: 0,
             onSelect: (_) {},
             onQuantityChanged: (_, _) {},
           ),
@@ -94,6 +95,7 @@ void main() {
           PosSizePicker(
             sizes: _sizes(),
             selected: null,
+            selectedQuantity: 0,
             onSelect: (name) => picked = name,
             onQuantityChanged: (_, _) {},
           ),
@@ -113,6 +115,7 @@ void main() {
           PosSizePicker(
             sizes: _sizes(),
             selected: null,
+            selectedQuantity: 0,
             onSelect: (name) => picked = name,
             onQuantityChanged: (_, _) {},
           ),
@@ -122,6 +125,33 @@ void main() {
       await tester.tap(find.text('Large'));
       await tester.pump();
       expect(picked, 'Large');
+    });
+
+    testWidgets('shows the picked quantity and steps it up and down', (
+      tester,
+    ) async {
+      final changes = <String, int>{};
+      await tester.pumpWidget(
+        _wrap(
+          PosSizePicker(
+            sizes: _sizes(),
+            selected: 'Large',
+            selectedQuantity: 3,
+            onSelect: (_) {},
+            onQuantityChanged: (name, value) => changes[name] = value,
+          ),
+        ),
+      );
+
+      expect(find.text('3'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pump();
+      expect(changes['Large'], 4);
+
+      await tester.tap(find.byIcon(Icons.remove));
+      await tester.pump();
+      expect(changes['Large'], 2);
     });
   });
 

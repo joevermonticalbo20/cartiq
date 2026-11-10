@@ -165,6 +165,7 @@ class PosSizePicker extends StatelessWidget {
     super.key,
     required this.sizes,
     required this.selected,
+    required this.selectedQuantity,
     required this.onSelect,
     required this.onQuantityChanged,
   });
@@ -174,6 +175,9 @@ class PosSizePicker extends StatelessWidget {
 
   /// The currently picked size name (null = nothing picked yet).
   final String? selected;
+
+  /// How many servings the vendor picked for [selected] (0 when none).
+  final int selectedQuantity;
 
   final ValueChanged<String> onSelect;
   final void Function(String size, int quantity) onQuantityChanged;
@@ -220,7 +224,7 @@ class PosSizePicker extends StatelessWidget {
     final servings = size['availableServings'];
     final price = size['unitPrice'];
     final isSelected = selected == name;
-    final quantity = isSelected ? 1 : 0;
+    final quantity = isSelected ? selectedQuantity : 0;
 
     final borderColor = isSelected
         ? AppColors.primary
@@ -236,12 +240,7 @@ class PosSizePicker extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadius.l),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: unavailable
-              ? null
-              : () {
-                  onSelect(name);
-                  onQuantityChanged(name, 1);
-                },
+          onTap: unavailable ? null : () => onSelect(name),
           child: Container(
             padding: const EdgeInsets.all(AppSpacing.space3),
             decoration: BoxDecoration(

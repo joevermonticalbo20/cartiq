@@ -530,6 +530,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                         child: PosSizePicker(
                           sizes: sizes,
                           selected: picked,
+                          selectedQuantity: qty,
                           onSelect: (name) => setSheetState(() {
                             picked = name;
                             quantities[name] = quantities[name] ?? 1;
@@ -537,10 +538,8 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                           onQuantityChanged: (name, value) =>
                               setSheetState(() {
                                 if (value <= 0) {
-                                  if (quantities[name] == value) {
-                                    quantities.remove(name);
-                                    if (picked == name) picked = null;
-                                  }
+                                  quantities.remove(name);
+                                  if (picked == name) picked = null;
                                 } else {
                                   final stock = _sizeStock(sizes, name);
                                   quantities[name] = stock == null
