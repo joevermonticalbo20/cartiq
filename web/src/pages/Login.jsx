@@ -24,11 +24,12 @@ function weekdayLetter(iso) {
 }
 
 /**
- * The last 7 days of sales as chart bars.
+ * The week's daily sales as chart bars (Sunday -> Saturday).
  *
  * Real numbers from the server - the preview used to draw made-up bars
  * ([38, 62, 48, ...]) that looked like a weekly chart but were mock data.
- * A day with no sales still gets a small baseline so the axis reads right.
+ * A day with no sales still gets a small baseline so the axis reads right,
+ * and a day that has not happened yet is drawn as an empty placeholder.
  */
 function buildWeeklyBars(weekly) {
   const rows = Array.isArray(weekly) ? weekly : [];
@@ -38,13 +39,15 @@ function buildWeeklyBars(weekly) {
   const peakIndex = max > 0 ? values.indexOf(max) : -1;
   return rows.map((r, i) => {
     const value = values[i];
-    const height = max > 0 ? Math.max(4, Math.round((value / max) * 100)) : 4;
+    const future = r?.future === true;
+    const height = future ? 8 : max > 0 ? Math.max(4, Math.round((value / max) * 100)) : 4;
     return {
       date: r?.date ?? "",
       value,
       label: weekdayLetter(r?.date),
       height,
-      isPeak: i === peakIndex,
+      future,
+      isPeak: !future && i === peakIndex,
     };
   });
 }
@@ -86,13 +89,17 @@ function TiltedPreviewCard({ className = "", salesToday }) {
             {weeklyBars.map((bar) => (
               <div
                 key={bar.date}
-                className="login-preview-barcol"
+                className={`login-preview-barcol${bar.future ? " future" : ""}`}
                 style={{ "--h": `${bar.height}%` }}
-                title={`${bar.date}: P${bar.value.toLocaleString()}`}
+                title={
+                  bar.future
+                    ? `${bar.date}: not yet`
+                    : `${bar.date}: P${bar.value.toLocaleString()}`
+                }
               >
                 {bar.isPeak && <span className="login-preview-peak">PEAK</span>}
                 <div className={`bar-wrapper${bar.isPeak ? " peak" : ""}`}>
-                  <span className="bar" />
+                  {!bar.future && <span className="bar" />}
                 </div>
                 <span className="bar-label">{bar.label}</span>
               </div>

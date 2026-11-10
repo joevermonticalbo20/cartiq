@@ -779,6 +779,15 @@ button.recovery-back:active:not(:disabled) {
 .bar-wrapper.peak .bar {
   background: linear-gradient(to top, var(--highlight-strong), var(--highlight));
 }
+/* A day that has not happened yet: an empty placeholder, so it never reads
+   as "no sales that day". */
+.login-preview-barcol.future .bar-wrapper {
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+}
+.login-preview-barcol.future .bar-label {
+  opacity: 0.45;
+}
 .login-preview-peak {
   position: absolute;
   top: -24px;

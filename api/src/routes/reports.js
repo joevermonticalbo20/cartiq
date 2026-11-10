@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db as prisma } from "../firestore.js";
 import { requireAuth } from "../middleware/auth.js";
-import { manilaDayKey, manilaDayRange, manilaDayStart } from "../services/timezone.js";
+import { manilaDayKey, manilaDow, manilaDayRange, manilaDayStart } from "../services/timezone.js";
 
 const router = Router();
 
@@ -11,26 +11,35 @@ router.get("/public/sales-today", async (_req, res, next) => {
   try {
     const day = manilaDayStart(0);
     const nextDay = new Date(day.getTime() + 24 * 60 * 60 * 1000);
-    const weekStart = manilaDayStart(6);
+    // The login chart reads Sunday -> Saturday, so the window is the current
+    // Manila week (Sunday first), not "the last 7 days".
+    const dow = manilaDow(day);
+    const weekStart = manilaDayStart(dow);
+    const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
     const orders = await prisma.order.findMany({
-      where: { createdAt: { gte: weekStart, lt: nextDay }, status: "PAID" },
+      where: { createdAt: { gte: weekStart, lt: weekEnd }, status: "PAID" },
       select: { total: true, createdAt: true },
     });
     const todayOrders = orders.filter(
       (o) => o.createdAt >= day && o.createdAt < nextDay
     );
     const totalSales = todayOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-    // The last 7 days of daily sales (aggregate only) so the login preview
-    // can draw a REAL chart instead of made-up bars.
+    // The current week's daily sales (aggregate only) so the login preview can
+    // draw a REAL chart instead of made-up bars.
     const byDay = new Map();
     for (const o of orders) {
       const key = manilaDayKey(o.createdAt);
-      byDay.set(key, (byDay.get(key) ?? 0) + (Number(o.total) || 0));
+      byDay.set(key, (byDay.get(key) ?? 0) + (Number(o.total) ?? 0));
     }
+    const todayKey = manilaDayKey(day);
     const weekly = [];
-    for (let d = 6; d >= 0; d--) {
-      const key = manilaDayKey(manilaDayStart(d));
-      weekly.push({ date: key, total_sales: Number((byDay.get(key) ?? 0).toFixed(2)) });
+    for (let d = 0; d < 7; d++) {
+      const key = manilaDayKey(new Date(weekStart.getTime() + d * 24 * 60 * 60 * 1000));
+      weekly.push({
+        date: key,
+        total_sales: Number((byDay.get(key) ?? 0).toFixed(2)),
+        future: key > todayKey,
+      });
     }
     // Login preview cart chips: only the cart code plus the worst stock
     // status across its items. No names, quantities, or item details.
