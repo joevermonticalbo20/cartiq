@@ -177,6 +177,23 @@ class CartState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Sets the quantity of a line outright (the vendor typed it: "200 fries").
+  ///
+  /// The stock ceiling still applies: the server would refuse the whole sale
+  /// (INSUFFICIENT_STOCK) after the customer already paid. A quantity of zero
+  /// or less removes the line.
+  void setQty(CartItem item, int qty) {
+    final ceiling = item.maxQty;
+    var next = qty;
+    if (ceiling != null && next > ceiling) next = ceiling;
+    if (next <= 0) {
+      _items.remove(item);
+    } else {
+      item.qty = next;
+    }
+    notifyListeners();
+  }
+
   void changeQty(CartItem item, int delta) {
     // The "+" button must not push the cart past the stock on hand: the
     // server would reject the whole sale (INSUFFICIENT_STOCK) after the

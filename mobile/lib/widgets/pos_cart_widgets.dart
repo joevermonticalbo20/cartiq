@@ -3,7 +3,7 @@ import '../services/persisted_queue.dart';
 import '../state/cart_state.dart';
 import '../theme.dart';
 import '../utils/haptics.dart';
-import '../utils/money_input.dart';
+import '../utils/payment_rules.dart';
 
 class PosQtyButton extends StatelessWidget {
   const PosQtyButton({super.key, required this.icon, this.onPressed});
@@ -63,6 +63,11 @@ class PosCashQuickAmounts extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The chips follow the total: the exact amount first, then the notes a
+    // customer would actually hand over (the smallest ones above the total).
+    // A fixed list of notes was useless for a big order - every chip was
+    // below the total and could not be used.
+    final amounts = PaymentRules.quickCashAmounts(total);
     return Wrap(
       spacing: AppSpacing.space2,
       runSpacing: AppSpacing.space2,
@@ -74,12 +79,12 @@ class PosCashQuickAmounts extends StatelessWidget {
             onSelect(total);
           },
         ),
-        for (final amount in MoneyInput.cashDenominations)
+        for (final amount in amounts.skip(1))
           ActionChip(
-            label: Text('₱$amount'),
+            label: Text('₱${amount == amount.roundToDouble() ? amount.toStringAsFixed(0) : amount.toStringAsFixed(2)}'),
             onPressed: () {
               Haptics.select();
-              onSelect(amount.toDouble());
+              onSelect(amount);
             },
           ),
       ],

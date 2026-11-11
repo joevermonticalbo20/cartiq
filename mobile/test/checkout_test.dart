@@ -157,9 +157,13 @@ void main() {
     );
 
     expect(find.text('Exact'), findsOneWidget);
-    for (final amount in const [50, 100, 200, 500, 1000]) {
+    // The quick amounts follow the total: only the notes a customer would
+    // actually hand over (above the ₱80 total). ₱50 is below the total, so
+    // offering it could only ever be wrong.
+    for (final amount in const [100, 200, 500, 1000]) {
       expect(find.text('₱$amount'), findsOneWidget);
     }
+    expect(find.text('₱50'), findsNothing);
     expect(find.text('Change'), findsOneWidget);
     expect(find.text('₱20'), findsOneWidget);
     await tester.tap(find.text('₱100'));

@@ -20,6 +20,7 @@ import '../utils/manila_time.dart';
 import '../widgets/app_badge.dart';
 import '../widgets/app_skeleton.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/pos_quantity.dart';
 import '../widgets/section_header.dart';
 
 class HistoryScreen extends StatefulWidget {
@@ -545,61 +546,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final photo = Uint8List.fromList(bytes);
     if (!context.mounted) return;
 
-    showDialog(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.4),
-      builder: (ctx) => BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: Dialog(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          insetPadding: const EdgeInsets.all(AppSpacing.space4),
-          child: SizedBox(
-            width: double.infinity,
-            height: MediaQuery.of(context).size.height * 0.7,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Positioned.fill(
-                  child: InteractiveViewer(
-                    minScale: 1.0,
-                    maxScale: 4.0,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(AppRadius.l),
-                      child: Image.memory(
-                        photo,
-                        fit: BoxFit.contain,
-                        errorBuilder: (_, _, _) => const Center(
-                          child: Icon(
-                            Icons.broken_image_rounded,
-                            color: Colors.white,
-                            size: 48,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: AppSpacing.space2,
-                  right: AppSpacing.space2,
-                  child: IconButton(
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.white.withValues(alpha: 0.25),
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.4),
-                      ),
-                    ),
-                    icon: const Icon(Icons.close_rounded, color: Colors.white),
-                    onPressed: () => Navigator.pop(ctx),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+    showPosImageViewer(context, bytes: photo);
   }
 
   Future<void> _showOrderDetails(Map<String, dynamic> order) async {
@@ -616,6 +563,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final voidRequest = order['voidRequest'];
     final voidPending = voidRequest is Map && voidRequest['status'] == 'pending';
     final voidDenied = voidRequest is Map && voidRequest['status'] == 'denied';
+    final isGcash =
+        (order['paymentMethod'] ?? '').toString().toUpperCase() == 'GCASH';
+
+    // A GCash sale opens WITH its proof: the owner should not have to hunt
+    // for a button to see the money they were handed. The proof is fetched
+    // once and shown full screen over the sheet.
+    var proofAutoOpened = false;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -624,7 +578,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (sheetContext) => Padding(
+      builder: (sheetContext) {
+        if (isGcash && !proofAutoOpened) {
+          proofAutoOpened = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!sheetContext.mounted) return;
+            _viewOrderReceipt(sheetContext, order);
+          });
+        }
+        return Padding(
         padding: EdgeInsets.fromLTRB(
           AppSpacing.space5,
           AppSpacing.space3,
@@ -970,14 +932,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ],
             if (paymentMethod == 'GCASH') ...[
               const SizedBox(height: AppSpacing.space3),
-              FilledButton.tonalIcon(
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                  backgroundColor: AppColors.info.withValues(alpha: 0.1),
+              // The proof opens by itself when a GCash sale is opened - this
+              // is only here for the rare case where it could not be loaded.
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(0, 44),
                   foregroundColor: AppColors.info,
                 ),
                 icon: const Icon(Icons.image_outlined, size: 18),
-                label: const Text('View GCash Receipt'),
+                label: const Text('Show GCash proof'),
                 onPressed: () {
                   _viewOrderReceipt(sheetContext, order);
                 },
@@ -1030,7 +993,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ),
           ],
         ),
-      ),
+        );
+      },
     );
   }
 
@@ -1889,57 +1853,6 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
     }
   }
 
-  void _viewGCashProof() {
-    if (proofImage == null) {
-      return;
-    }
-    showDialog(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.4),
-      builder: (ctx) => BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: Dialog(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          insetPadding: const EdgeInsets.all(AppSpacing.space4),
-          child: SizedBox(
-            width: double.infinity,
-            height: MediaQuery.of(context).size.height * 0.7,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Positioned.fill(
-                  child: InteractiveViewer(
-                    minScale: 1.0,
-                    maxScale: 4.0,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(AppRadius.l),
-                      child: Image.file(proofImage!, fit: BoxFit.contain),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: AppSpacing.space2,
-                  right: AppSpacing.space2,
-                  child: IconButton(
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.white.withValues(alpha: 0.25),
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.4),
-                      ),
-                    ),
-                    icon: const Icon(Icons.close_rounded, color: Colors.white),
-                    onPressed: () => Navigator.pop(ctx),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -2031,48 +1944,44 @@ class _EditPaymentSheetState extends State<_EditPaymentSheet> {
             const SizedBox(height: AppSpacing.space4),
             if (proofImage != null)
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Expanded(
-                    flex: 3,
-                    child: FilledButton.tonalIcon(
-                      onPressed: _viewGCashProof,
-                      icon: const Icon(Icons.visibility_outlined, size: 16),
-                      label: const Text(
-                        'View proof',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.ok.withValues(alpha: 0.12),
-                        foregroundColor: AppColors.ok,
-                        minimumSize: const Size(0, 52),
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                      ),
-                    ),
+                  PosProofThumbnail(
+                    file: proofImage!,
+                    onTap: () => showPosImageViewer(context, file: proofImage),
                   ),
-                  const SizedBox(width: AppSpacing.space2),
+                  const SizedBox(width: AppSpacing.space3),
                   Expanded(
-                    flex: 2,
-                    child: OutlinedButton.icon(
-                      onPressed: _pickGCashProof,
-                      icon: const Icon(Icons.camera_alt_outlined, size: 16),
-                      label: const Text(
-                        'Retake',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Proof captured',
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.ok,
+                              ),
                         ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(0, 52),
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                      ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Tap the photo to see it full screen',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: AppSpacing.space2),
+                        OutlinedButton.icon(
+                          onPressed: _pickGCashProof,
+                          icon: const Icon(
+                            Icons.camera_alt_outlined,
+                            size: 16,
+                          ),
+                          label: const Text('Retake'),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 44),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],

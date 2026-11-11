@@ -58,6 +58,28 @@ void main() {
       expect(cart.isEmpty, isTrue);
     });
 
+    test('setQty takes a typed quantity straight away', () {
+      final cart = CartState();
+      cart.add('BBQ Fries', 'Medium', 20, maxQty: 200);
+      cart.setQty(cart.items.first, 200);
+      expect(cart.items.single.qty, 200);
+      expect(cart.totalQty, 200);
+    });
+
+    test('setQty never goes past the stock on hand', () {
+      final cart = CartState();
+      cart.add('BBQ Fries', 'Medium', 20, maxQty: 200);
+      cart.setQty(cart.items.first, 201);
+      expect(cart.items.single.qty, 200);
+    });
+
+    test('setQty to zero removes the line', () {
+      final cart = CartState();
+      cart.add('BBQ Fries', 'Medium', 20);
+      cart.setQty(cart.items.first, 0);
+      expect(cart.isEmpty, isTrue);
+    });
+
     test('clear empties the cart', () {
       final cart = CartState();
       cart.add('Flavored Fries', 'Cheese', 40);

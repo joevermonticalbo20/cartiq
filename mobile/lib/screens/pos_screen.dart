@@ -19,12 +19,14 @@ import '../theme.dart';
 import '../utils/app_messenger.dart';
 import '../utils/haptics.dart';
 import '../utils/money_input.dart';
+import '../utils/payment_rules.dart';
 import '../utils/sizes.dart';
 import '../widgets/app_dialog.dart';
 import '../widgets/app_skeleton.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/pos_cart_widgets.dart';
 import '../widgets/pos_product_card.dart';
+import '../widgets/pos_quantity.dart';
 
 String newClientRef() {
   final rnd = Random.secure();
@@ -555,6 +557,20 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                       ),
                     ),
                     const SizedBox(height: AppSpacing.space2),
+                    if (picked != null) ...[
+                      PosQuantityField(
+                        quantity: qty,
+                        maxQuantity: _sizeStock(sizes, picked!),
+                        label: 'How many $picked?',
+                        hint: _sizeStock(sizes, picked!) == null
+                            ? null
+                            : 'Only ${_sizeStock(sizes, picked!)} in stock',
+                        onChanged: (value) => setSheetState(() {
+                          quantities[picked!] = value;
+                        }),
+                      ),
+                      const SizedBox(height: AppSpacing.space3),
+                    ],
                     PosSizeSelectionBar(
                       sizeName: picked,
                       quantity: qty,
@@ -1211,11 +1227,26 @@ class _CartSheetState extends State<_CartSheet> {
     super.dispose();
   }
 
-  double get _tendered => double.tryParse(_cashController.text) ?? 0;
+  double? get _tendered {
+    final text = _cashController.text.trim();
+    if (text.isEmpty) return null;
+    return double.tryParse(text);
+  }
 
-  bool get _canPay =>
-      !_submitting &&
-      (_method != PaymentMethod.cash || _tendered >= widget.cart.total);
+  /// Why the cash cannot be used (null = it can).
+  String? get _cashError => PaymentRules.cashError(widget.cart.total, _tendered);
+
+  bool get _canPay {
+    if (_submitting) return false;
+    if (_method == PaymentMethod.gcash) {
+      // A GCash sale without the photo is not a sale: the owner needs the
+      // proof to reconcile it later.
+      return _gcashProofImage != null;
+    }
+    final tendered = _tendered;
+    if (tendered == null) return false;
+    return PaymentRules.cashError(widget.cart.total, tendered) == null;
+  }
 
   void _submitIfReady() {
     if (!_canPay) {
@@ -1266,57 +1297,6 @@ class _CartSheetState extends State<_CartSheet> {
       return;
     }
     if (mounted) setState(() => _isPickingImage = false);
-  }
-
-  void _viewGCashProof() {
-    if (_gcashProofImage == null) {
-      return;
-    }
-    showDialog(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.4),
-      builder: (ctx) => BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: Dialog(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          insetPadding: const EdgeInsets.all(AppSpacing.space4),
-          child: SizedBox(
-            width: double.infinity,
-            height: MediaQuery.of(context).size.height * 0.7,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Positioned.fill(
-                  child: InteractiveViewer(
-                    minScale: 1.0,
-                    maxScale: 4.0,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(AppRadius.l),
-                      child: Image.file(_gcashProofImage!, fit: BoxFit.contain),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: AppSpacing.space2,
-                  right: AppSpacing.space2,
-                  child: IconButton(
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.white.withValues(alpha: 0.25),
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.4),
-                      ),
-                    ),
-                    icon: const Icon(Icons.close_rounded, color: Colors.white),
-                    onPressed: () => Navigator.pop(ctx),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
   }
 
   @override
@@ -1447,23 +1427,46 @@ class _CartSheetState extends State<_CartSheet> {
                             ),
                             child: Row(
                               children: [
-                                Container(
-                                  width: 40,
-                                  height: 40,
-                                  decoration: BoxDecoration(
+                                // The quantity is a button: tap it and type the
+                                // amount (a big order is not 200 taps of +).
+                                Tooltip(
+                                  message: 'Tap to type the quantity',
+                                  child: Material(
                                     color: AppColors.primary.withValues(
                                       alpha: 0.12,
                                     ),
                                     borderRadius: BorderRadius.circular(
                                       AppRadius.s,
                                     ),
-                                  ),
-                                  alignment: Alignment.center,
-                                  child: Text(
-                                    '${item.qty}',
-                                    style: const TextStyle(
-                                      color: AppColors.primary,
-                                      fontWeight: FontWeight.w800,
+                                    clipBehavior: Clip.antiAlias,
+                                    child: InkWell(
+                                      onTap: () async {
+                                        Haptics.select();
+                                        final value = await showPosQuantityDialog(
+                                          context,
+                                          quantity: item.qty,
+                                          maxQuantity: item.maxQty,
+                                          title:
+                                              'How many ${item.displayFlavor.isEmpty ? item.productName : item.displayFlavor}?',
+                                        );
+                                        if (value == null || !context.mounted) {
+                                          return;
+                                        }
+                                        cart.setQty(item, value);
+                                      },
+                                      child: SizedBox(
+                                        width: 40,
+                                        height: 40,
+                                        child: Center(
+                                          child: Text(
+                                            '${item.qty}',
+                                            style: const TextStyle(
+                                              color: AppColors.primary,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -1586,7 +1589,9 @@ class _CartSheetState extends State<_CartSheet> {
                         fontWeight: FontWeight.w800,
                       ),
                       decoration: InputDecoration(
-                        labelText: 'Cash Tendered',
+                        labelText: 'Cash Received',
+                        helperText: 'The cash the customer handed over',
+                        errorText: _cashError,
                         prefixIcon: const Icon(Icons.payments_outlined),
                         suffixIcon: IconButton(
                           icon: const Icon(Icons.backspace_outlined),
@@ -1611,77 +1616,104 @@ class _CartSheetState extends State<_CartSheet> {
                       },
                     ),
                     const SizedBox(height: AppSpacing.space4),
-                    PosChangeDisplay(total: cart.total, tendered: _tendered),
+                    PosChangeDisplay(
+                      total: cart.total,
+                      tendered: _tendered ?? 0,
+                    ),
                   ] else ...[
                     if (_gcashProofImage != null)
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          Expanded(
-                            flex: 3,
-                            child: FilledButton.tonalIcon(
-                              onPressed: _viewGCashProof,
-                              icon: const Icon(
-                                Icons.visibility_outlined,
-                                size: 16,
-                              ),
-                              label: const Text(
-                                'View proof',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: AppColors.ok.withValues(
-                                  alpha: 0.12,
-                                ),
-                                foregroundColor: AppColors.ok,
-                                minimumSize: const Size(0, 52),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                ),
-                              ),
+                          PosProofThumbnail(
+                            file: _gcashProofImage!,
+                            onTap: () => showPosImageViewer(
+                              context,
+                              file: _gcashProofImage,
                             ),
                           ),
-                          const SizedBox(width: AppSpacing.space2),
+                          const SizedBox(width: AppSpacing.space3),
                           Expanded(
-                            flex: 2,
-                            child: OutlinedButton.icon(
-                              onPressed: _pickGCashProof,
-                              icon: const Icon(
-                                Icons.camera_alt_outlined,
-                                size: 16,
-                              ),
-                              label: const Text(
-                                'Retake',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w700,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Proof captured',
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.ok,
+                                  ),
                                 ),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                minimumSize: const Size(0, 52),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Tap the photo to see it full screen',
+                                  style: Theme.of(context).textTheme.bodySmall,
                                 ),
-                              ),
+                                const SizedBox(height: AppSpacing.space2),
+                                OutlinedButton.icon(
+                                  onPressed: _isPickingImage
+                                      ? null
+                                      : _pickGCashProof,
+                                  icon: _isPickingImage
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(
+                                          Icons.camera_alt_outlined,
+                                          size: 16,
+                                        ),
+                                  label: Text(
+                                    _isPickingImage
+                                        ? 'Opening camera…'
+                                        : 'Retake',
+                                  ),
+                                  style: OutlinedButton.styleFrom(
+                                    minimumSize: const Size(0, 44),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       )
                     else
                       OutlinedButton.icon(
-                        onPressed: _pickGCashProof,
-                        icon: const Icon(Icons.camera_alt_outlined),
-                        label: const Text('Capture Proof of Payment'),
+                        onPressed: _isPickingImage ? null : _pickGCashProof,
+                        icon: _isPickingImage
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.camera_alt_outlined),
+                        label: Text(
+                          _isPickingImage
+                              ? 'Opening camera…'
+                              : 'Capture Proof of Payment',
+                        ),
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size.fromHeight(56),
                         ),
                       ),
+                    if (_method == PaymentMethod.gcash &&
+                        _gcashProofImage == null) ...[
+                      const SizedBox(height: AppSpacing.space2),
+                      Text(
+                        'Take the GCash receipt photo to record this sale',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.muted,
+                        ),
+                      ),
+                    ],
                   ],
                   const SizedBox(height: AppSpacing.space4),
                   FilledButton.icon(
