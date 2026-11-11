@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { Plus, Edit2, Trash2, X, Tag, AlertTriangle, Archive, ArchiveRestore, Star, ImagePlus } from "lucide-react";
 import api from "../api.js";
@@ -12,6 +12,8 @@ import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import Select from "../components/Select.jsx";
 import { useToast } from "../components/Toast.jsx";
+import { LIVE_EVENTS, useLiveEvent } from "../hooks/useLiveStream.js";
+import { useCatalogVersion } from "../hooks/useCatalogVersion.js";
 import { sanitizeMoneyInput, sanitizeQtyInput, parseMoney, parseQty } from "../utils/format.js";
 import { sanitizeTextInput, validateItemName, countLetters } from "../utils/text.js";
 
@@ -30,6 +32,35 @@ function newRecipeRowState(overrides = {}) {
 
 function newestProductsFirst(products) {
   return [...products].sort((a, b) => Number(b.id) - Number(a.id));
+}
+
+// The fingerprint of the catalog as this app last saw it.
+//
+// It is module level on purpose: a ref read inside the load callback trips
+// the react-hooks/refs rule ("cannot access refs during render"), because the
+// compiler cannot prove the callback never runs during a render. The value is
+// a cache of the last response, not render state, so it belongs here.
+let lastCatalogSignature = "";
+
+// A cheap fingerprint of the catalog: prices, sizes, recipes and the archived
+// flag. A live reload that returns the SAME fingerprint means nothing really
+// changed (our own save, most of the time), so the owner does not get a
+// pointless "Menu updated" toast.
+function catalogSignature(list) {
+  return JSON.stringify(
+    (list ?? []).map((p) => [
+      p.id,
+      p.name,
+      p.basePrice,
+      p.active !== false ? 1 : 0,
+      (p.flavors ?? []).map((f) => [
+        f.name,
+        f.unitPrice ?? null,
+        (f.recipes ?? []).map((r) => [r.itemName, r.amountPerUnit]),
+      ]),
+      (p.recipes ?? []).map((r) => [r.itemName, r.amountPerUnit]),
+    ])
+  );
 }
 
 function marginPercent(cost, selling) {
@@ -112,20 +143,33 @@ export default function ProductsPage() {
   // to hiding them; the toggle brings them back.
   const [showArchived, setShowArchived] = useState(false);
 
-  const load = useCallback(() => {
-    setLoading(true);
-    Promise.all([api.get("/products"), api.get("/inventory/names").catch(() => ({ data: { data: [] } }))])
-      .then(([p, n]) => {
-        setProducts(newestProductsFirst(p.data?.data ?? []));
-        setItemNames(n.data?.data ?? []);
-        setError("");
-      })
-      .catch((err) => setError(getFriendlyError(err, "Unable to load products.")))
-      .finally(() => setLoading(false));
+  // `quiet` skips the loading state (a live refresh must not flash the
+  // table's skeleton). Resolves to true when the catalog actually changed.
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) setLoading(true);
+    try {
+      const [p, n] = await Promise.all([
+        api.get("/products"),
+        api.get("/inventory/names").catch(() => ({ data: { data: [] } })),
+      ]);
+      const next = newestProductsFirst(p.data?.data ?? []);
+      const signature = catalogSignature(next);
+      const changed = signature !== lastCatalogSignature;
+      lastCatalogSignature = signature;
+      setProducts(next);
+      setItemNames(n.data?.data ?? []);
+      setError("");
+      return changed;
+    } catch (err) {
+      setError(getFriendlyError(err, "Unable to load products."));
+      return false;
+    } finally {
+      if (!quiet) setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    const timer = setTimeout(load, 0);
+    const timer = setTimeout(() => { void load(); }, 0);
     return () => clearTimeout(timer);
   }, [load]);
 
@@ -144,6 +188,47 @@ export default function ProductsPage() {
     else document.body.style.overflow = "";
     return () => { document.body.style.overflow = ""; };
   }, [isAnyModalOpen]);
+
+  // Live catalog updates: another device (or another tab) changed the menu -
+  // a price, a recipe, a size, a photo - so refresh the list instead of
+  // waiting for a manual reload.
+  //
+  // Two sources, on purpose:
+  //   - the SSE frame ("product:updated") arrives within seconds, but the
+  //     stream is paused while the tab is hidden, so it can miss changes;
+  //   - the catalog-version probe covers exactly that gap (and the case where
+  //     the stream is down).
+  //
+  // A modal that is open keeps its own snapshot: the refresh waits until it
+  // closes, so a form never shows a half-updated table underneath it.
+  const liveTimer = useRef(null);
+  const livePending = useRef(false);
+  const applyLiveUpdate = useCallback(async () => {
+    if (isAnyModalOpen) {
+      livePending.current = true;
+      return;
+    }
+    const changed = await load({ quiet: true });
+    if (changed) toast("Menu updated", "info");
+  }, [isAnyModalOpen, load, toast]);
+  const scheduleLiveUpdate = useCallback(() => {
+    if (liveTimer.current) clearTimeout(liveTimer.current);
+    liveTimer.current = setTimeout(() => {
+      liveTimer.current = null;
+      void applyLiveUpdate();
+    }, 500);
+  }, [applyLiveUpdate]);
+  useLiveEvent(LIVE_EVENTS.productUpdated, scheduleLiveUpdate);
+  useCatalogVersion(scheduleLiveUpdate);
+  useEffect(() => () => {
+    if (liveTimer.current) clearTimeout(liveTimer.current);
+  }, []);
+  // A live update that landed while a modal was open is applied now.
+  useEffect(() => {
+    if (isAnyModalOpen || !livePending.current) return;
+    livePending.current = false;
+    void applyLiveUpdate();
+  }, [isAnyModalOpen, applyLiveUpdate]);
 
   function closeAddModal() {
     setAddClosing(true);

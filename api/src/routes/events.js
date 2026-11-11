@@ -56,8 +56,17 @@ function sseAuth(req, res, next) {
   return requireAuth(req, res, next);
 }
 
+// One SSE frame: a named event plus its JSON payload.
+//
+// Named frames only reach listeners registered for that name (the web's
+// LIVE_EVENT_NAMES registry), so the name is part of the contract - the Edge
+// copy builds the same frame in sseEncode().
+export function formatEvent(event, data) {
+  return `event: ${event}\ndata: ${JSON.stringify({ ...data, _time: new Date().toISOString() })}\n\n`;
+}
+
 function broadcast(event, data) {
-  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  const payload = formatEvent(event, data);
   for (const send of _clients) {
     try { send(payload); } catch { _clients.delete(send); }
   }
@@ -65,7 +74,7 @@ function broadcast(event, data) {
 
 export function emit(event, data) {
   if (_clients.size === 0) return;
-  broadcast(event, { ...data, _time: new Date().toISOString() });
+  broadcast(event, data);
 }
 
 // GET /api/events?ticket=<stream-ticket> (SSE - EventSource can't set

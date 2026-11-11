@@ -34,6 +34,10 @@ export const LIVE_EVENT_NAMES = Object.freeze([
   "rfid:bound",
   "rfid:unbound",
   "rfid:conflict",
+  // The catalog moved: a product, flavor, recipe, price or photo changed.
+  "product:updated",
+  // Stock rows moved: an item was added/edited/removed or adjusted by hand.
+  "inventory:updated",
 ]);
 
 /** Named constants for the call sites, so a typo cannot silently break a feed. */
@@ -46,4 +50,6 @@ export const LIVE_EVENTS = Object.freeze({
   rfidBound: "rfid:bound",
   rfidUnbound: "rfid:unbound",
   rfidConflict: "rfid:conflict",
+  productUpdated: "product:updated",
+  inventoryUpdated: "inventory:updated",
 });

@@ -230,6 +230,84 @@ function appCalls() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Live event names: both copies must emit the same set                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The event names each API copy can put on the wire.
+ *
+ * The dashboard refreshes itself from NAMED SSE frames, and a named frame
+ * only reaches the listeners registered for that name. Three things must
+ * therefore agree:
+ *   - the Express copy (local dev + CI),
+ *   - the Edge function (production),
+ *   - the web's LIVE_EVENT_NAMES registry.
+ *
+ * If a name is missing from one of them the change is silently dropped:
+ * the local server would live-update while production does not (or the
+ * other way round), and a name the web does not register never fires.
+ */
+function expressLiveEvents() {
+  const names = new Set();
+  for (const file of walk("api/src")) {
+    const src = read(file);
+    for (const m of src.matchAll(/\bemit\(\s*["']([^"']+)["']/g)) names.add(m[1]);
+  }
+  return names;
+}
+
+function edgeLiveEvents() {
+  const src = read("supabase/functions/api/index.ts");
+  const names = new Set();
+  for (const m of src.matchAll(/\bbroadcastEvent\(\s*["']([^"']+)["']/g)) names.add(m[1]);
+  // The catalog events go out through announceCatalogChange(), which bumps
+  // the version and then publishes the frame.
+  for (const m of src.matchAll(/\bannounceCatalogChange\(\s*["']([^"']+)["']/g)) names.add(m[1]);
+  // The Edge stream has no in-process broadcaster: it synthesizes these
+  // from the orders/alerts collections while it polls them.
+  for (const n of ["order:new", "order:updated", "alert:new", "restock-request:new"]) {
+    names.add(n);
+  }
+  return names;
+}
+
+function webLiveEventRegistry() {
+  const src = read("web/src/hooks/liveEvents.js");
+  const start = src.indexOf("LIVE_EVENT_NAMES");
+  const end = src.indexOf("LIVE_EVENTS =");
+  const block = start >= 0 && end > start ? src.slice(start, end) : "";
+  const names = new Set();
+  for (const m of block.matchAll(/["']([a-z][a-z0-9:_-]*)["']/g)) names.add(m[1]);
+  return names;
+}
+
+function liveEventProblems() {
+  const express = expressLiveEvents();
+  const edge = edgeLiveEvents();
+  const registry = webLiveEventRegistry();
+  const problems = [];
+
+  for (const name of express) {
+    if (!edge.has(name)) {
+      problems.push(`  MISSING in the Edge function   ${name}`);
+    }
+  }
+  for (const name of edge) {
+    if (!express.has(name)) {
+      problems.push(`  MISSING in api/ (Express)      ${name}`);
+    }
+  }
+  for (const name of new Set([...express, ...edge])) {
+    if (!registry.has(name)) {
+      problems.push(
+        `  NOT REGISTERED in the web        ${name}\n      (a named frame only reaches listeners registered for that name)`,
+      );
+    }
+  }
+  return { problems, count: new Set([...express, ...edge]).size };
+}
+
+/* ------------------------------------------------------------------ */
 /* Compare                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -257,6 +335,9 @@ for (const [key, sources] of [...calls].sort()) {
   }
 }
 
+const live = liveEventProblems();
+problems.push(...live.problems);
+
 if (problems.length) {
   console.error("\nAPI drift - the apps call routes that do not exist:\n");
   for (const p of problems) console.error(p);
@@ -268,4 +349,7 @@ if (problems.length) {
 
 console.log(
   `OK - all ${calls.size} endpoints the apps call are served by both the Express copy and the Edge function.`,
+);
+console.log(
+  `OK - all ${live.count} live event names are emitted by both API copies and registered by the web.`,
 );

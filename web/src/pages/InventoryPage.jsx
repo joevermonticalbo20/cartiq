@@ -15,8 +15,59 @@ import { SkeletonList, TableSkeleton } from "../components/Skeleton.jsx";
 import { sanitizeQtyInput, parseQty, maxStockForUnit } from "../utils/format.js";
 import { sanitizeTextInput, validateItemName } from "../utils/text.js";
 import { LIVE_EVENTS, useLiveEvent } from "../hooks/useLiveStream.js";
+import { useCatalogVersion } from "../hooks/useCatalogVersion.js";
 
 const STATUS_LABEL = { ok: "OK", low: "LOW", critical: "CRITICAL" };
+
+// Reverse map: stock item name -> ["Product (Flavor)", ...].
+//
+// Each size owns its own recipe now, so group the sizes of one product into a
+// single label ("BBQ Fries (Medium, Large, XL 40, XL 50)").
+const SIZE_ORDER = ["Medium", "Large", "XL 40", "XL 50"];
+
+function flavorOrder(a, b) {
+  const ia = SIZE_ORDER.indexOf(a);
+  const ib = SIZE_ORDER.indexOf(b);
+  if (ia !== -1 || ib !== -1) {
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  }
+  return a.localeCompare(b);
+}
+
+function buildUsageByItem(products) {
+  const usage = new Map();
+  for (const p of products ?? []) {
+    // Archived products are not sold any more, so they must not show up
+    // in "Used by" (the old per-size products are archived and would
+    // otherwise drown the real ones).
+    if (p.active === false) continue;
+    // item -> flavors that name it explicitly
+    const explicit = new Map();
+    for (const f of p.flavors ?? []) {
+      for (const r of f.recipes ?? []) {
+        const name = String(r.itemName ?? "").trim();
+        if (!name) continue;
+        if (!explicit.has(name)) explicit.set(name, new Set());
+        explicit.get(name).add(String(f.name ?? "").trim());
+      }
+    }
+    for (const [itemName, flavors] of explicit) {
+      const named = [...flavors].filter(Boolean).sort(flavorOrder);
+      const label = named.length ? `${p.name} (${named.join(", ")})` : p.name;
+      if (!usage.has(itemName)) usage.set(itemName, []);
+      if (!usage.get(itemName).includes(label)) usage.get(itemName).push(label);
+    }
+    // Product-level base rows (flavor "") are a fallback: only show them
+    // when no flavor names the same item (a flavor row wins the deduction).
+    for (const r of p.recipes ?? []) {
+      const name = String(r.itemName ?? "").trim();
+      if (!name || explicit.has(name)) continue;
+      if (!usage.has(name)) usage.set(name, []);
+      if (!usage.get(name).includes(p.name)) usage.get(name).push(p.name);
+    }
+  }
+  return usage;
+}
 
 // HELPER: Para malinis ang decimal (max 2 places)
 function formatStock(val) {
@@ -118,49 +169,7 @@ export default function InventoryPage() {
         setPrep(pr.data);
 
         // Reverse map: stock item name -> ["Product (Flavor)", ...]
-        // Each size owns its own recipe now, so group the sizes of one product
-        // into a single label ("BBQ Fries (Medium, Large, XL 40, XL 50)").
-        const sizeOrder = ["Medium", "Large", "XL 40", "XL 50"];
-        const flavorOrder = (a, b) => {
-          const ia = sizeOrder.indexOf(a);
-          const ib = sizeOrder.indexOf(b);
-          if (ia !== -1 || ib !== -1) {
-            return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
-          }
-          return a.localeCompare(b);
-        };
-        const usage = new Map();
-        for (const p of prod.data?.data ?? []) {
-          // Archived products are not sold any more, so they must not show up
-          // in "Used by" (the old per-size products are archived and would
-          // otherwise drown the real ones).
-          if (p.active === false) continue;
-          // item -> flavors that name it explicitly
-          const explicit = new Map();
-          for (const f of p.flavors ?? []) {
-            for (const r of f.recipes ?? []) {
-              const name = String(r.itemName ?? "").trim();
-              if (!name) continue;
-              if (!explicit.has(name)) explicit.set(name, new Set());
-              explicit.get(name).add(String(f.name ?? "").trim());
-            }
-          }
-          for (const [itemName, flavors] of explicit) {
-            const named = [...flavors].filter(Boolean).sort(flavorOrder);
-            const label = named.length ? `${p.name} (${named.join(", ")})` : p.name;
-            if (!usage.has(itemName)) usage.set(itemName, []);
-            if (!usage.get(itemName).includes(label)) usage.get(itemName).push(label);
-          }
-          // Product-level base rows (flavor "") are a fallback: only show them
-          // when no flavor names the same item (a flavor row wins the deduction).
-          for (const r of p.recipes ?? []) {
-            const name = String(r.itemName ?? "").trim();
-            if (!name || explicit.has(name)) continue;
-            if (!usage.has(name)) usage.set(name, []);
-            if (!usage.get(name).includes(p.name)) usage.get(name).push(p.name);
-          }
-        }
-        setUsageByItem(usage);
+        setUsageByItem(buildUsageByItem(prod.data?.data ?? []));
         setRestockRequests(restocks.data?.data ?? []);
         setLoadError("");
 
@@ -228,6 +237,42 @@ export default function InventoryPage() {
   }
 
   useLiveEvent(LIVE_EVENTS.restockRequestUpdated, applyRestockUpdated);
+
+  // Live stock and catalog updates.
+  //
+  // Two sources, on purpose:
+  //   - the SSE frames ("inventory:updated" / "product:updated") land within
+  //     seconds, but the stream is paused while the tab is hidden, so it can
+  //     miss changes made in the meantime;
+  //   - the catalog-version probe covers exactly that gap (and the case where
+  //     the stream is down).
+  //
+  // Only the two things that can have changed are pulled again: the stock
+  // rows and the "Used by" map. The forecast, the prep list and the restock
+  // requests are left alone - they change on their own schedule.
+  const loadUsage = useCallback(async () => {
+    try {
+      const prod = await api.get("/products");
+      setUsageByItem(buildUsageByItem(prod.data?.data ?? []));
+    } catch {
+      /* keep the last known map; the next update refreshes it */
+    }
+  }, []);
+  const liveRefreshTimer = useRef(null);
+  const scheduleLiveRefresh = useCallback(() => {
+    if (liveRefreshTimer.current) clearTimeout(liveRefreshTimer.current);
+    liveRefreshTimer.current = setTimeout(() => {
+      liveRefreshTimer.current = null;
+      void loadStock();
+      void loadUsage();
+    }, 700);
+  }, [loadStock, loadUsage]);
+  useLiveEvent(LIVE_EVENTS.inventoryUpdated, scheduleLiveRefresh);
+  useLiveEvent(LIVE_EVENTS.productUpdated, scheduleLiveRefresh);
+  useCatalogVersion(scheduleLiveRefresh);
+  useEffect(() => () => {
+    if (liveRefreshTimer.current) clearTimeout(liveRefreshTimer.current);
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(refresh, 0);

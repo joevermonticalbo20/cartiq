@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db as prisma } from "../firestore.js";
+import { db as prisma, bumpCatalogVersion } from "../firestore.js";
 import { requireAuth, requireRole, assertOwnLocation } from "../middleware/auth.js";
 import { emit } from "./events.js";
 import {
@@ -33,6 +33,24 @@ function decorate(items) {
     status: stockStatus(it.stock, it.threshold),
     isOutOfStock: Number(it.stock) <= 0,
   }));
+}
+
+// Stock changed: the POS "N left" badge reads the catalog, so bump its version
+// (one tiny write) and tell the open dashboards to pull the new numbers.
+//
+// Best-effort only: a failed bump or broadcast must never fail the stock
+// write that caused it.
+async function announceInventoryChange(payload = {}) {
+  try {
+    await bumpCatalogVersion();
+  } catch {
+    /* best-effort */
+  }
+  try {
+    emit("inventory:updated", payload);
+  } catch {
+    /* best-effort */
+  }
 }
 
 // GET /api/inventory                -> every location, grouped
@@ -319,6 +337,11 @@ router.post("/inventory/items", requireAuth, async (req, res, next) => {
         source: src,
       },
     });
+    await announceInventoryChange({
+      name: itemName,
+      locationId: location.id,
+      action: "created",
+    });
     return res.status(201).json({ item: decorate([created])[0], locationCode: location.code });
   } catch (err) {
     return next(err);
@@ -349,6 +372,11 @@ router.patch("/inventory/items/:id", requireAuth, requireRole("OWNER"), async (r
       where: { id: item.id },
       data,
     });
+    await announceInventoryChange({
+      name: item.name,
+      locationId: item.locationId,
+      action: "updated",
+    });
     return res.json({ item: decorate([updated])[0] });
   } catch (err) {
     return next(err);
@@ -371,6 +399,11 @@ router.delete("/inventory/items/:id", requireAuth, requireRole("OWNER"), async (
       });
     }
     await prisma.inventoryItem.delete({ where: { id: existing.id } });
+    await announceInventoryChange({
+      name: existing.name,
+      locationId: existing.locationId,
+      action: "deleted",
+    });
     return res.json({ deleted: true });
   } catch (err) {
     if (err.code === "P2025") return res.status(404).json({ error: "Inventory item not found" });
@@ -461,6 +494,12 @@ router.post("/inventory/adjustments", requireAuth, async (req, res, next) => {
         unit: updated.unit ?? "",
       }).catch(() => {});
     }
+    await announceInventoryChange({
+      name: item.name,
+      locationId: item.locationId,
+      action: "adjusted",
+      stock: updated.stock,
+    });
     return res.json({
       item: decorate([updated])[0],
       adjustment: {

@@ -120,3 +120,10 @@ export function useLiveStatus(handler) {
     };
   }, []);
 }
+
+// Test seam: hand a frame to the app's subscribers, exactly like the SSE
+// connection does. The page tests use it to act as "another device changed
+// the menu" without opening a real stream.
+export function __emitLiveEvent(event, data) {
+  dispatch(event, data);
+}

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent, within, act } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, Outlet } from "react-router-dom";
 import { ToastProvider } from "../components/Toast.jsx";
+import { LIVE_EVENTS, __emitLiveEvent } from "../hooks/useLiveStream.js";
 
 vi.mock("../api.js", () => ({
   default: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
@@ -169,6 +170,49 @@ describe("InventoryPage loading/error states", () => {
       await screen.findByText("Used by BBQ Fries (Medium, Large, XL 40, XL 50)")
     ).toBeInTheDocument();
     expect(screen.queryByText(/Used by BBQ Fries$/)).toBeNull();
+  });
+
+  it("pulls the stock and the Used by map again when something changes live", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/inventory") {
+        return Promise.resolve({
+          data: {
+            locations: [
+              {
+                code: "CART-01",
+                name: "Cart 1",
+                items: [
+                  { id: 1, name: "Cheese Powder", stock: 3, threshold: 1, unit: "kg", source: "MANUAL", status: "ok" },
+                ],
+              },
+            ],
+          },
+        });
+      }
+      if (url === "/products") {
+        return Promise.resolve({ data: { data: [] } });
+      }
+      return Promise.resolve({ data: null });
+    });
+    renderPage();
+    await screen.findByText("Cheese Powder");
+    const stockCallsBefore = api.get.mock.calls.filter((c) => c[0] === "/inventory").length;
+    const productCallsBefore = api.get.mock.calls.filter((c) => c[0] === "/products").length;
+
+    // A stock edit somewhere else (the POS, another tab).
+    act(() => {
+      __emitLiveEvent(LIVE_EVENTS.inventoryUpdated, { name: "Cheese Powder", action: "adjusted" });
+    });
+
+    await vi.waitFor(
+      () => {
+        const stockCallsAfter = api.get.mock.calls.filter((c) => c[0] === "/inventory").length;
+        const productCallsAfter = api.get.mock.calls.filter((c) => c[0] === "/products").length;
+        expect(stockCallsAfter).toBeGreaterThan(stockCallsBefore);
+        expect(productCallsAfter).toBeGreaterThan(productCallsBefore);
+      },
+      { timeout: 3000 }
+    );
   });
 
   it("counts a flavor parent's base rows and skips archived products", async () => {

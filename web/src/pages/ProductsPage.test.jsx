@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent, within, act } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, Outlet } from "react-router-dom";
 import { ToastProvider } from "../components/Toast.jsx";
+import { LIVE_EVENTS, __emitLiveEvent } from "../hooks/useLiveStream.js";
 
 vi.mock("../api.js", () => ({
   default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), del: vi.fn() },
@@ -455,6 +456,25 @@ describe("ProductsPage best sellers + flat catalog", () => {
     await screen.findByText("Cheese Fries - Medium");
     expect(await screen.findByText("Recipes")).toBeInTheDocument();
     expect(await screen.findByTitle("1 recipe row(s)")).toHaveTextContent("1");
+  });
+
+  it("reloads the list when the menu changes on another device", async () => {
+    renderPage();
+    await screen.findByText("Cheese Fries - Medium");
+    const before = api.get.mock.calls.filter((c) => c[0] === "/products").length;
+
+    // The server tells every open dashboard that the catalog moved.
+    act(() => {
+      __emitLiveEvent(LIVE_EVENTS.productUpdated, { id: 11, name: "Cheese Fries - Medium" });
+    });
+
+    await vi.waitFor(
+      () => {
+        const after = api.get.mock.calls.filter((c) => c[0] === "/products").length;
+        expect(after).toBeGreaterThan(before);
+      },
+      { timeout: 3000 }
+    );
   });
 
   it("lists the most recently added product first", async () => {

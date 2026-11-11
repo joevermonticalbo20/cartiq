@@ -2190,6 +2190,17 @@ async function bumpCatalogVersion() {
   await fsCommit([updateWrite("catalogMeta", "catalog", { version: current + 1, updatedAt: new Date() })]);
 }
 
+// The menu or the stock changed: bump the version every open device polls AND
+// publish a live event so the dashboards refresh without a manual reload.
+//
+// The frame only says "something moved" - the client refetches what it shows.
+// Best-effort on both counts: a missed event or bump must never fail the
+// mutation that caused it (the version bump is the fallback the clients poll).
+async function announceCatalogChange(event: string, payload: Record<string, unknown>) {
+  await bumpCatalogVersion().catch(() => {});
+  await broadcastEvent(event, payload).catch(() => {});
+}
+
 // ---------- locations + devices (mirror api/src/routes/locations.js, devices.js) ----------
 const CODE_RE = /^[A-Z0-9-]{3,12}$/;
 const DEVICE_ID_RE = /^[A-Za-z0-9_-]{3,40}$/;
@@ -2809,6 +2820,11 @@ async function handleCreateInventoryItem(req) {
     await fsCommit(writes);
     return doc;
   }, 4);
+  await announceCatalogChange("inventory:updated", {
+    name: itemName,
+    locationId: location.id,
+    action: "created",
+  });
   return { status: 201, body: { item: decorateItems([created])[0], locationCode: location.code } };
 }
 
@@ -2833,6 +2849,11 @@ async function handlePatchInventoryItem(req, id) {
   if (threshold !== undefined) data.threshold = +threshold;
   if (source !== undefined) data.source = source;
   await fsPatch("inventoryItems", item.id, data);
+  await announceCatalogChange("inventory:updated", {
+    name: item.name,
+    locationId: item.locationId,
+    action: "updated",
+  });
   return { status: 200, body: { item: decorateItems([await fsGet("inventoryItems", item.id)])[0] } };
 }
 
@@ -2849,6 +2870,11 @@ async function handleDeleteInventoryItem(id) {
     };
   }
   await fsDeleteByName(existing._name);
+  await announceCatalogChange("inventory:updated", {
+    name: existing.name,
+    locationId: existing.locationId,
+    action: "deleted",
+  });
   return { status: 200, body: { deleted: true } };
 }
 
@@ -2928,6 +2954,12 @@ async function handleInventoryAdjustment(req, user) {
       unit: updated.unit ?? "",
     });
   }
+  await announceCatalogChange("inventory:updated", {
+    name: item.name,
+    locationId: item.locationId,
+    action: "adjusted",
+    stock: updated.stock,
+  });
   return {
     status: 200,
     body: {
@@ -3834,7 +3866,11 @@ async function handleCreateProduct(req) {
     if (out.error) return { status: 400, body: { error: out.error } };
     recipesCreated += out.created;
   }
-  await bumpCatalogVersion().catch(() => {});
+  await announceCatalogChange("product:updated", {
+    id: created.id,
+    name: productName,
+    scope: "product",
+  });
   return {
     status: 201,
     body: {
@@ -4058,7 +4094,11 @@ async function handlePatchProduct(req, id) {
       }
     }
   }
-  await bumpCatalogVersion().catch(() => {});
+  await announceCatalogChange("product:updated", {
+    id: existing.id,
+    name: existing.name,
+    scope: "product",
+  });
   return { status: 200, body: { product: cleanDoc(product), flavorsChanged, recipesChanged, unmatchedItems } };
 }
 
@@ -4089,7 +4129,11 @@ async function handleRenameProduct(req, id) {
     return { mapsUpdated: maps.length };
   }, 4);
   const updated = await fsGet("products", existing.id);
-  await bumpCatalogVersion().catch(() => {});
+  await announceCatalogChange("product:updated", {
+    id: existing.id,
+    name: nextName,
+    scope: "product",
+  });
   return { status: 200, body: { product: cleanDoc(updated), mapsUpdated: outcome.mapsUpdated } };
 }
 
@@ -4126,7 +4170,12 @@ async function handleDeleteProduct(id) {
   } catch (_) {
     // A missing image document is not an error.
   }
-  await bumpCatalogVersion().catch(() => {});
+  await announceCatalogChange("product:updated", {
+    id: existing.id,
+    name: existing.name,
+    scope: "product",
+    deleted: true,
+  });
   return { status: 200, body: { deleted: true, removedRecipeRows: maps.length } };
 }
 
@@ -4172,6 +4221,13 @@ async function handleProductImageSet(req, id) {
   }
   const updatedAtMs = Date.now();
   await fsCommit([updateWrite("productImages", id, { mime, data, bytes, updatedAtMs })]);
+  // The POS tile shows this photo, so the catalog version moves too.
+  await announceCatalogChange("product:updated", {
+    id: existing.id,
+    name: existing.name,
+    scope: "product",
+    image: true,
+  });
   return {
     status: 200,
     body: { imageUrl: uploadedImageUrl(apiPublicBase(req), id, updatedAtMs), updatedAt: updatedAtMs },
@@ -4183,6 +4239,12 @@ async function handleProductImageDelete(id) {
   const existing = await fsGet("products", id);
   if (!existing) return { status: 404, body: { error: "Product not found" } };
   await fsDeleteByName(fsDocName("productImages", id));
+  await announceCatalogChange("product:updated", {
+    id: existing.id,
+    name: existing.name,
+    scope: "product",
+    image: true,
+  });
   return { status: 200, body: { deleted: true } };
 }
 
@@ -4215,7 +4277,11 @@ async function handleCreateFlavor(req) {
     }
     throw e;
   }
-  await bumpCatalogVersion().catch(() => {});
+  await announceCatalogChange("product:updated", {
+    id: doc.id,
+    name: flavorName,
+    scope: "flavor",
+  });
   return { status: 201, body: { flavor: cleanDoc(await fsGet("flavors", doc.id)) } };
 }
 
@@ -4259,7 +4325,11 @@ async function handleRenameFlavor(req, id) {
     return { mapsUpdated: maps.length, pricesRewritten };
   }, 4);
   const updated = await fsGet("flavors", existing.id);
-  await bumpCatalogVersion().catch(() => {});
+  await announceCatalogChange("product:updated", {
+    id: existing.id,
+    name: nextName,
+    scope: "flavor",
+  });
   return {
     status: 200,
     body: { flavor: cleanDoc(updated), mapsUpdated: outcome.mapsUpdated, pricesRewritten: outcome.pricesRewritten },
@@ -4287,7 +4357,12 @@ async function handleDeleteFlavor(id) {
     };
   }
   await fsDeleteByName(existing._name);
-  await bumpCatalogVersion().catch(() => {});
+  await announceCatalogChange("product:updated", {
+    id: existing.id,
+    name: existing.name,
+    scope: "flavor",
+    deleted: true,
+  });
   return { status: 200, body: { deleted: true } };
 }
 

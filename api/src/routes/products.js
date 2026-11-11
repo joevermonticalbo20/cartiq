@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db as prisma, bumpCatalogVersion } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { emit } from "./events.js";
 import { sortFlavorRows } from "../services/flavor_order.js";
 import { validateName } from "../services/validation.js";
 import {
@@ -20,6 +21,20 @@ const router = Router();
 async function touchCatalog() {
   try {
     await bumpCatalogVersion();
+  } catch {
+    /* best-effort */
+  }
+}
+
+// The menu changed: tell every open dashboard so it can refresh the list
+// instead of waiting for a manual reload. The SSE frame only carries "the
+// catalog moved" - the client refetches what it shows.
+//
+// Best-effort only: a failed broadcast must never fail the mutation that
+// caused it (the version bump above is the fallback the clients poll).
+function announceProductChange(payload = {}) {
+  try {
+    emit("product:updated", payload);
   } catch {
     /* best-effort */
   }
@@ -368,6 +383,7 @@ router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, nex
       recipesCreated += out.created;
     }
     await touchCatalog();
+    announceProductChange({ id: product.id, name: productName, scope: "product" });
     return res.status(201).json({
       product: { ...product, flavorPrices },
       flavorsCreated: resolved.created.length,
@@ -619,6 +635,7 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
       }
     }
     await touchCatalog();
+    announceProductChange({ id: existing.id, name: existing.name, scope: "product" });
     return res.json({ product, flavorsChanged, recipesChanged, unmatchedItems });
   } catch (err) {
     return next(err);
@@ -665,6 +682,7 @@ router.patch("/products/:id/rename", requireAuth, requireRole("OWNER"), async (r
     // read cache) — invalidate so the next GET sees the new names.
     prisma._invalidateModel("ingredientMaps");
     await touchCatalog();
+    announceProductChange({ id: existing.id, name: nextName, scope: "product" });
     return res.json({ product: outcome.updated, mapsUpdated: outcome.mapsUpdated });
   } catch (err) {
     return next(err);
@@ -702,6 +720,7 @@ router.delete("/products/:id", requireAuth, requireRole("OWNER"), async (req, re
     await imageDoc(existing.id).delete();
     await prisma.product.delete({ where: { id: existing.id } });
     await touchCatalog();
+    announceProductChange({ id: existing.id, name: existing.name, scope: "product", deleted: true });
     return res.json({ deleted: true, removedRecipeRows: maps.length });
   } catch (err) {
     if (err.code === "P2025") return res.status(404).json({ error: "Product not found" });
@@ -738,6 +757,9 @@ router.post("/products/:id/image", requireAuth, requireRole("OWNER"), async (req
       updatedAtMs,
       updatedAt: new Date(),
     });
+    // The POS tile shows this photo, so the catalog version moves too.
+    await touchCatalog();
+    announceProductChange({ id: existing.id, name: existing.name, scope: "product", image: true });
     return res.json({ imageUrl: imageUrlFor(req, existing.id, updatedAtMs), updatedAt: updatedAtMs });
   } catch (err) {
     return next(err);
@@ -768,6 +790,8 @@ router.delete("/products/:id/image", requireAuth, requireRole("OWNER"), async (r
     const existing = await prisma.product.findUnique({ where: { id: Number(req.params.id) } });
     if (!existing) return res.status(404).json({ error: "Product not found" });
     await imageDoc(existing.id).delete();
+    await touchCatalog();
+    announceProductChange({ id: existing.id, name: existing.name, scope: "product", image: true });
     return res.json({ deleted: true });
   } catch (err) {
     return next(err);
@@ -799,6 +823,7 @@ router.post("/flavors", requireAuth, requireRole("OWNER"), async (req, res, next
     }
     const flavor = await prisma.flavor.create({ data: { name: flavorName } });
     await touchCatalog();
+    announceProductChange({ id: flavor.id, name: flavorName, scope: "flavor" });
     return res.status(201).json({ flavor });
   } catch (err) {
     if (err.code === "P2002") return res.status(409).json({ error: "Flavor already exists" });
@@ -853,6 +878,7 @@ router.patch("/flavors/:id", requireAuth, requireRole("OWNER"), async (req, res,
     // Same as product rename: maps + price keys moved under the raw handle.
     prisma._invalidateModel("ingredientMaps");
     await touchCatalog();
+    announceProductChange({ id: existing.id, name: nextName, scope: "flavor" });
     return res.json({ flavor: outcome.updated, mapsUpdated: outcome.mapsUpdated, pricesRewritten: outcome.pricesRewritten });
   } catch (err) {
     return next(err);
@@ -881,6 +907,7 @@ router.delete("/flavors/:id", requireAuth, requireRole("OWNER"), async (req, res
     }
     await prisma.flavor.delete({ where: { id: existing.id } });
     await touchCatalog();
+    announceProductChange({ id: existing.id, name: existing.name, scope: "flavor", deleted: true });
     return res.json({ deleted: true });
   } catch (err) {
     if (err.code === "P2025") return res.status(404).json({ error: "Flavor not found" });
