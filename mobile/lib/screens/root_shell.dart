@@ -13,6 +13,7 @@ import '../utils/app_messenger.dart';
 import '../utils/haptics.dart';
 import '../utils/pin_setup.dart';
 import '../widgets/app_dialog.dart';
+import '../widgets/app_back_handler.dart';
 import '../widgets/rfid_claim_dialog.dart';
 import '../theme.dart';
 
@@ -34,6 +35,9 @@ class RootShell extends StatefulWidget {
 class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   int _index =
       2; // Perfectly centered now! (0: POS, 1: Receipts, 2: Home, 3: History, 4: Settings)
+
+  /// The tab the back button walks to before it ever offers to close the app.
+  static const int homeIndex = 2;
 
   final _receiptsKey = GlobalKey<ReceiptsScreenState>();
   final _settingsKey = GlobalKey<SettingsScreenState>();
@@ -341,6 +345,18 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    // The system back button walks toward Home and asks before it closes the
+    // app - see AppBackHandler.
+    return AppBackHandler(
+      currentIndex: _index,
+      homeIndex: homeIndex,
+      onGoHome: () => setState(() => _index = homeIndex),
+      exitMessage: _exitMessage(),
+      child: _shell(),
+    );
+  }
+
+  Widget _shell() {
     return Scaffold(
       extendBody: true,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -490,6 +506,7 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
                                       // this tab was first built would
                                       // otherwise keep showing as OFF.
                                       if (i == 4) _settingsKey.currentState?.reload();
+                                      if (i == 0) _hintRestoredOrder();
                                     },
                                     behavior: HitTestBehavior.opaque,
                                     child: SizedBox(
@@ -538,6 +555,27 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
           ),
         ),
       ),
+    );
+  }
+
+  /// The exit dialog says what happens to the unfinished order, so the vendor
+  /// knows it is safe to leave.
+  String? _exitMessage() {
+    final cart = context.read<CartState>();
+    if (cart.isEmpty) return null;
+    return 'Your unfinished order is saved on this device.';
+  }
+
+  /// The app was closed while an order was being recorded: say so once, when
+  /// the vendor opens the POS tab, so they know the cart is the old one.
+  void _hintRestoredOrder() {
+    final cart = context.read<CartState>();
+    if (!cart.restoredFromDraft) return;
+    cart.restoredFromDraft = false;
+    AppMessenger.showGlassToast(
+      context: context,
+      message: 'Unfinished order restored',
+      isSuccess: true,
     );
   }
 }

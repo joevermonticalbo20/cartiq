@@ -12,6 +12,7 @@
 #include <SPI.h>
 #include <MFRC522.h>
 #include <HX711.h>
+#include <time.h>
 
 #include "config.h"   // copy config.example.h -> config.h and fill in
 
@@ -286,11 +287,19 @@ void setup() {
   Serial.println("load cells disabled - RFID only node");
 #endif
 
+  // NTP AFTER the network is up. Calling configTime() while the radio is still
+  // down means the clock never syncs (NTP needs a route), and every buffered
+  // shift would go out without a timestamp. Waiting for the first synced
+  // time also keeps the TLS handshake (which checks the clock) sane.
+  connectWifi();
+
   Serial.println("[dbg] before configTime");
   configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
+  for (int i = 0; i < 20 && time(nullptr) < 1700000000; i++) {
+    delay(500);
+  }
   Serial.println("[dbg] configTime done");
 
-  connectWifi();
   if (WiFi.status() == WL_CONNECTED) checkDeviceAuth();
 }
 

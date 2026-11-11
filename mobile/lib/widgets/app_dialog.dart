@@ -10,6 +10,7 @@ Future<bool> showAppConfirm(
   String? message,
   Widget? child,
   String confirmLabel = 'Confirm',
+  String cancelLabel = 'Cancel',
   bool danger = false,
 }) async {
   final result = await showDialog<bool>(
@@ -33,7 +34,7 @@ Future<bool> showAppConfirm(
             minimumSize: const Size(0, 48),
           ),
           onPressed: () => Navigator.pop(dialogContext, false),
-          child: const Text('Cancel'),
+          child: Text(cancelLabel),
         ),
         FilledButton(
           style: danger

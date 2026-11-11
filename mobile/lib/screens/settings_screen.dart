@@ -9,6 +9,7 @@ import '../services/offline_pin.dart';
 import '../services/rfid_registration.dart';
 import '../services/sync_service.dart';
 import '../config.dart';
+import '../state/cart_state.dart';
 import '../state/theme_controller.dart';
 import '../theme.dart';
 import '../utils/app_messenger.dart';
@@ -747,6 +748,9 @@ class SettingsScreenState extends State<SettingsScreen> {
     );
     if (!confirmed || !mounted) return;
     sync.cancelActiveSync();
+    // The cart belongs to the person who was selling: signing out drops the
+    // unfinished order (and its saved draft) for the next person.
+    context.read<CartState>().clear();
     await auth.signOut();
     await Haptics.success();
   }

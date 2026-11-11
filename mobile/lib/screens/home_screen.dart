@@ -9,6 +9,7 @@ import '../services/data_refresh.dart';
 import '../services/offline_queue.dart';
 import '../services/persisted_queue.dart';
 import '../services/sync_service.dart';
+import '../state/cart_state.dart';
 import '../theme.dart';
 import '../utils/manila_time.dart';
 import '../widgets/app_badge.dart';
@@ -413,6 +414,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     return;
                   }
                   context.read<SyncService>().cancelActiveSync();
+                  // The cart belongs to the person who was selling. Signing
+                  // out drops the unfinished order (and its saved draft) so
+                  // the next person starts with an empty cart.
+                  context.read<CartState>().clear();
                   await authState.signOut();
                 },
               ),

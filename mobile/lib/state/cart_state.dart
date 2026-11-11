@@ -48,6 +48,44 @@ class CartItem {
         ],
     };
   }
+
+  /// The DEVICE draft of this line (not the order payload): everything needed
+  /// to rebuild it after the app was closed mid-order.
+  Map<String, dynamic> toDraftJson() {
+    return {
+      'productName': productName,
+      'flavor': flavor,
+      'flavors': flavors,
+      'unitPrice': unitPrice,
+      'qty': qty,
+      'maxQty': maxQty,
+    };
+  }
+
+  /// Rebuilds a line from a stored draft.
+  ///
+  /// Returns null for a row that makes no sense - a broken draft must never
+  /// take the POS down, it just loses that one line.
+  static CartItem? fromDraftJson(Map<String, dynamic> json) {
+    final productName = json['productName'];
+    final unitPrice = json['unitPrice'];
+    if (productName is! String || productName.isEmpty) return null;
+    if (unitPrice is! num || !unitPrice.isFinite) return null;
+    final qty = json['qty'];
+    final maxQty = json['maxQty'];
+    final flavor = json['flavor'];
+    final flavors = json['flavors'];
+    return CartItem(
+      productName: productName,
+      flavor: flavor is String ? flavor : null,
+      flavors: flavors is List
+          ? flavors.whereType<String>().toList()
+          : null,
+      unitPrice: unitPrice.toDouble(),
+      qty: qty is num && qty >= 1 ? qty.toInt() : 1,
+      maxQty: maxQty is num && maxQty >= 1 ? maxQty.toInt() : null,
+    );
+  }
 }
 
 class CartState extends ChangeNotifier {
@@ -57,6 +95,24 @@ class CartState extends ChangeNotifier {
   bool get isEmpty => _items.isEmpty;
   int get totalQty => _items.fold(0, (sum, it) => sum + it.qty);
   double get total => _items.fold(0, (sum, it) => sum + it.lineTotal);
+
+  /// True when this cart was rebuilt from a draft that was saved before the
+  /// app was closed (the vendor left mid-order). The POS shows a hint once,
+  /// then clears the flag.
+  bool restoredFromDraft = false;
+
+  /// Rebuilds the cart from a saved draft.
+  ///
+  /// Used when the app starts again with an order that was never recorded:
+  /// the lines come back exactly as they were, so the vendor continues
+  /// instead of typing the order again.
+  void restoreFromDraft(List<CartItem> items) {
+    _items
+      ..clear()
+      ..addAll(items);
+    restoredFromDraft = _items.isNotEmpty;
+    notifyListeners();
+  }
 
   void add(
     String productName,

@@ -8,6 +8,7 @@ import 'screens/login_screen.dart';
 import 'screens/root_shell.dart';
 import 'services/api_client.dart';
 import 'services/auth_state.dart';
+import 'services/cart_draft_store.dart';
 import 'services/data_refresh.dart';
 import 'services/dropped_sales_store.dart';
 import 'services/failed_receipts_store.dart';
@@ -89,6 +90,25 @@ Future<void> main() async {
     startupWarnings.add('Saved preferences unavailable ($e).');
   }
 
+  // The cart lives for the whole app session (the tabs share one order) and
+  // is kept on the device: an order that was being recorded when the app was
+  // closed comes back when the vendor opens the app again.
+  final cart = CartState();
+  final cartDraft = CartDraftStore(
+    const SecureStoreAdapter(FlutterSecureStorage()),
+  );
+  try {
+    final draft = await cartDraft.load();
+    if (draft.isNotEmpty) cart.restoreFromDraft(draft);
+  } catch (e) {
+    startupWarnings.add('Saved order could not be restored ($e).');
+  }
+  // Every cart change is written to the draft. A recorded sale empties the
+  // cart, and an empty cart deletes the draft.
+  cart.addListener(() {
+    cartDraft.save(cart.items);
+  });
+
   // Show UI immediately; server discovery runs behind the splash so a slow
   // /24 scan never leaves the user on a black screen.
   runApp(_BootApp(
@@ -97,6 +117,7 @@ Future<void> main() async {
     sync: sync,
     themeController: themeController,
     dataRefresh: dataRefresh,
+    cart: cart,
     startupWarnings: startupWarnings,
   ));
 }
@@ -110,6 +131,7 @@ class _BootApp extends StatefulWidget {
     required this.sync,
     required this.themeController,
     required this.dataRefresh,
+    required this.cart,
     this.startupWarnings = const [],
   });
 
@@ -118,6 +140,7 @@ class _BootApp extends StatefulWidget {
   final SyncService sync;
   final ThemeController themeController;
   final DataRefresh dataRefresh;
+  final CartState cart;
 
   /// Non-fatal problems hit while starting up (degraded offline storage, an
   /// unreadable preference store). Shown on the splash so a degraded POS is
@@ -187,6 +210,7 @@ class _BootAppState extends State<_BootApp> {
         sync: widget.sync,
         themeController: widget.themeController,
         dataRefresh: widget.dataRefresh,
+        cart: widget.cart,
       );
     }
     return MaterialApp(
@@ -286,12 +310,17 @@ class CartIQApp extends StatefulWidget {
     required this.sync,
     required this.themeController,
     required this.dataRefresh,
+    required this.cart,
   });
 
   final AuthState auth;
   final SyncService sync;
   final ThemeController themeController;
   final DataRefresh dataRefresh;
+
+  /// One cart for the whole app: the tabs share the order being recorded, and
+  /// it is restored from the device draft when the app starts again.
+  final CartState cart;
 
   @override
   State<CartIQApp> createState() => _CartIQAppState();
@@ -337,7 +366,7 @@ class _CartIQAppState extends State<CartIQApp> {
         ChangeNotifierProvider.value(value: widget.themeController),
         ChangeNotifierProvider.value(value: widget.sync),
         ChangeNotifierProvider.value(value: widget.dataRefresh),
-        ChangeNotifierProvider(create: (_) => CartState()),
+        ChangeNotifierProvider.value(value: widget.cart),
       ],
       child: Consumer2<ThemeController, AuthState>(
         builder: (context, theme, auth, _) {
