@@ -646,6 +646,75 @@ async function withRetry(fn, attempts) {
 // ---------- FCM push for targeted staff alerts ----------
 const FCM_CHANNEL_ID = "cartiq_alerts";
 const PUSH_ALERT_TYPES = new Set(["VOID_DECISION", "RESTOCK_UPDATE", "LOW_STOCK_NOTIFY"]);
+// The signal the server sends when the MENU changed (product archived, price
+// or recipe edited, stock adjusted). The app reloads its catalog silently.
+const CATALOG_PUSH_TYPE = "CATALOG_CHANGED";
+
+/**
+ * Tell every registered POS device that the menu moved.
+ *
+ * The phones poll the catalog version every 30s, which is fine for "is
+ * anything new?" but too slow for "the owner just archived a product and
+ * the vendor must stop selling it". This is the push that closes that gap:
+ * a high-priority DATA-ONLY message, so Android stays silent and the app
+ * simply reloads its menu.
+ *
+ * Best-effort: a failed push must never fail the mutation that caused it -
+ * the 30-second version poll is the fallback.
+ */
+async function sendCatalogPush(payload = {}) {
+  try {
+    const rows = await fsListAll("pushTokens");
+    const tokens = rows
+      .map((row) => (typeof row?.token === "string" ? row.token.trim() : ""))
+      .filter((token) => token && token.length <= 4096);
+    if (!tokens.length) return;
+    const accessToken = await googleAccessToken("https://www.googleapis.com/auth/firebase.messaging");
+    const data = {
+      type: CATALOG_PUSH_TYPE,
+      scope: String(payload.scope ?? "catalog").slice(0, 40),
+      name: payload.name ? String(payload.name).slice(0, 120) : "",
+      version: payload.version == null ? "" : String(payload.version),
+    };
+    for (const token of tokens) {
+      try {
+        const res = await fetch(
+          "https://fcm.googleapis.com/v1/projects/" + getProjectId() + "/messages:send",
+          {
+            method: "POST",
+            headers: {
+              Authorization: "Bearer " + accessToken,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              message: {
+                token,
+                // Data only: no notification block, so nothing pops up.
+                data,
+                android: {
+                  collapse_key: "catalog",
+                  priority: "high",
+                },
+              },
+            }),
+          },
+        );
+        if (!res.ok) {
+          let detail = "";
+          try { detail = await res.text(); } catch { /* detail is best-effort */ }
+          if (/UNREGISTERED|NOT_FOUND|invalid-argument|registration-token-not-registered/i.test(detail)) {
+            const row = rows.find((r) => r.token === token);
+            if (row?._name) await fsDeleteByName(row._name).catch(() => {});
+          }
+        }
+      } catch {
+        // Best-effort: the phone's 30s version poll still sees the change.
+      }
+    }
+  } catch {
+    // Push must never fail the mutation that caused it.
+  }
+}
 
 /** Best-effort push for the targeted-alert types the mobile app registers for. */
 async function sendTargetedPush(alert) {
@@ -2190,15 +2259,21 @@ async function bumpCatalogVersion() {
   await fsCommit([updateWrite("catalogMeta", "catalog", { version: current + 1, updatedAt: new Date() })]);
 }
 
-// The menu or the stock changed: bump the version every open device polls AND
-// publish a live event so the dashboards refresh without a manual reload.
+// The menu or the stock changed: bump the version every open device polls,
+// publish a live event so the dashboards refresh without a manual reload, AND
+// push the POS phones so their menu follows within seconds.
 //
-// The frame only says "something moved" - the client refetches what it shows.
-// Best-effort on both counts: a missed event or bump must never fail the
-// mutation that caused it (the version bump is the fallback the clients poll).
+// The frame and the push only say "something moved" - the client refetches
+// what it shows. Best-effort on all three counts: a missed event, bump or
+// push must never fail the mutation that caused it (the version bump is the
+// fallback the clients poll).
 async function announceCatalogChange(event: string, payload: Record<string, unknown>) {
   await bumpCatalogVersion().catch(() => {});
   await broadcastEvent(event, payload).catch(() => {});
+  await sendCatalogPush({
+    scope: payload?.scope ?? "catalog",
+    name: payload?.name ?? null,
+  }).catch(() => {});
 }
 
 // ---------- locations + devices (mirror api/src/routes/locations.js, devices.js) ----------
@@ -2821,6 +2896,7 @@ async function handleCreateInventoryItem(req) {
     return doc;
   }, 4);
   await announceCatalogChange("inventory:updated", {
+    scope: "inventory",
     name: itemName,
     locationId: location.id,
     action: "created",
@@ -2850,6 +2926,7 @@ async function handlePatchInventoryItem(req, id) {
   if (source !== undefined) data.source = source;
   await fsPatch("inventoryItems", item.id, data);
   await announceCatalogChange("inventory:updated", {
+    scope: "inventory",
     name: item.name,
     locationId: item.locationId,
     action: "updated",
@@ -2871,6 +2948,7 @@ async function handleDeleteInventoryItem(id) {
   }
   await fsDeleteByName(existing._name);
   await announceCatalogChange("inventory:updated", {
+    scope: "inventory",
     name: existing.name,
     locationId: existing.locationId,
     action: "deleted",
@@ -2955,6 +3033,7 @@ async function handleInventoryAdjustment(req, user) {
     });
   }
   await announceCatalogChange("inventory:updated", {
+    scope: "inventory",
     name: item.name,
     locationId: item.locationId,
     action: "adjusted",

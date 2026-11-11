@@ -5,6 +5,11 @@ const require = createRequire(import.meta.url);
 const { getMessaging } = require("firebase-admin/messaging");
 
 const PUSH_TYPES = new Set(["VOID_DECISION", "RESTOCK_UPDATE", "LOW_STOCK_NOTIFY"]);
+// The signal the server sends when the MENU changed (product archived, price
+// or recipe edited, stock adjusted). The app reloads its catalog silently -
+// no notification, because a visible popup for every menu tweak trains the
+// vendor to dismiss them.
+export const CATALOG_PUSH_TYPE = "CATALOG_CHANGED";
 // Mobile displays these through the `cartiq_alerts` channel in both paths:
 // native display in the background, and app-owned local notification in the
 // foreground. Android collapses messages with the same collapse key/tag into
@@ -126,3 +131,66 @@ export const __pushTestHelpers = {
   pushBody,
   alertType,
 };
+
+/**
+ * Tell every registered POS device that the menu moved.
+ *
+ * The phones poll the catalog version every 30s, which is fine for "is
+ * anything new?" but too slow for "the owner just archived a product and
+ * the vendor must stop selling it". This is the push that closes that gap:
+ * a high-priority DATA-ONLY message, so Android stays silent and the app
+ * simply reloads its menu.
+ *
+ * Every device gets it (the catalog is global), not one user. Never throws:
+ * a failed push must not fail the mutation that caused it - the 30s version
+ * poll is the fallback.
+ */
+export async function sendCatalogPush(
+  { scope = "catalog", name = null, version = null } = {},
+  { db = prisma, messaging = undefined } = {},
+) {
+  try {
+    const rows = await db.pushTokens.findMany({});
+    const tokens = rows.map((row) => cleanToken(row?.token)).filter(Boolean);
+    if (!tokens.length) return;
+
+    const message = {
+      tokens,
+      // Data only: no notification block, so nothing pops up on the device.
+      data: {
+        type: CATALOG_PUSH_TYPE,
+        scope: String(scope ?? "catalog").slice(0, 40),
+        name: name ? String(name).slice(0, 120) : "",
+        version: version == null ? "" : String(version),
+      },
+      android: {
+        priority: "high",
+        // One pending menu refresh is enough: the newest state wins.
+        collapseKey: "catalog",
+      },
+    };
+
+    let result;
+    try {
+      result = await (messaging ?? getMessaging()).sendEachForMulticast(message);
+    } catch {
+      // Messaging is unavailable (no credentials, local dev): the phone's
+      // 30-second version poll still picks the change up.
+      return;
+    }
+
+    const invalid = [];
+    (result?.responses ?? []).forEach((response, index) => {
+      const code = String(response?.error?.code ?? "");
+      if (
+        !response?.success &&
+        (/not-found|unregistered|invalid-argument|invalid-token|registration-token-not-registered/i.test(code))
+      ) {
+        invalid.push(tokens[index]);
+      }
+    });
+    await pruneTokens(invalid, db);
+  } catch {
+    // Never let push delivery affect the API mutation.
+  }
+}

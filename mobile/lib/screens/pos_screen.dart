@@ -161,8 +161,12 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     if (!mounted) {
       return;
     }
+    // 'catalog' = the owner changed the menu on the dashboard (archived a
+    // product, edited a price or a recipe). The push that says so arrives
+    // within seconds, so the tile the vendor is looking at is the right one.
     if (_dataRefresh?.lastReason == 'sale' ||
-        _dataRefresh?.lastReason == 'inventory') {
+        _dataRefresh?.lastReason == 'inventory' ||
+        _dataRefresh?.lastReason == 'catalog') {
       _reloadCatalog(forceRefresh: true);
     }
   }

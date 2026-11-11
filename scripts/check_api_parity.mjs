@@ -304,6 +304,36 @@ function liveEventProblems() {
       );
     }
   }
+
+  // The silent "the menu changed" push: the type string is matched by the
+  // phone, so both API copies and the app must spell it the same way.
+  const pushTypes = {
+    "api/ (Express)": /CATALOG_PUSH_TYPE\s*=\s*["']([^"']+)["']/.exec(
+      read("api/src/services/push.js"),
+    )?.[1],
+    "the Edge function": /CATALOG_PUSH_TYPE\s*=\s*["']([^"']+)["']/.exec(
+      read("supabase/functions/api/index.ts"),
+    )?.[1],
+    "the mobile app": /catalogChangedPushType\s*=\s*["']([^"']+)["']/.exec(
+      read("mobile/lib/services/push_notification_service.dart"),
+    )?.[1],
+  };
+  const pushValues = Object.values(pushTypes).filter(Boolean);
+  if (pushValues.length !== Object.keys(pushTypes).length) {
+    problems.push(
+      `  MISSING the catalog push type in ${Object.entries(pushTypes)
+        .filter(([, v]) => !v)
+        .map(([k]) => k)
+        .join(", ")}`,
+    );
+  } else if (new Set(pushValues).size > 1) {
+    problems.push(
+      `  DIFFERENT catalog push types      ${Object.entries(pushTypes)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(" / ")}`,
+    );
+  }
+
   return { problems, count: new Set([...express, ...edge]).size };
 }
 

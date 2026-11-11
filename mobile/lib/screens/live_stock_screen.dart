@@ -66,6 +66,10 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
       _loadInventory();
     } else if (_dataRefresh?.lastReason == 'restock') {
       _reloadRestockRequests();
+    } else if (_dataRefresh?.lastReason == 'catalog') {
+      // The owner changed the menu or the stock: the servings left and the
+      // "used by" hints on this screen changed with it.
+      _loadInventory();
     }
   }
 

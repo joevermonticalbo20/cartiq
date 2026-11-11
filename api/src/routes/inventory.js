@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db as prisma, bumpCatalogVersion } from "../firestore.js";
 import { requireAuth, requireRole, assertOwnLocation } from "../middleware/auth.js";
 import { emit } from "./events.js";
+import { sendCatalogPush } from "../services/push.js";
 import {
   restockRequestKey,
   shouldCreateRestockRequest,
@@ -36,10 +37,11 @@ function decorate(items) {
 }
 
 // Stock changed: the POS "N left" badge reads the catalog, so bump its version
-// (one tiny write) and tell the open dashboards to pull the new numbers.
+// (one tiny write), tell the open dashboards to pull the new numbers, and
+// push the POS phones so their menu follows within seconds.
 //
-// Best-effort only: a failed bump or broadcast must never fail the stock
-// write that caused it.
+// Best-effort only: a failed bump, broadcast or push must never fail the
+// stock write that caused it.
 async function announceInventoryChange(payload = {}) {
   try {
     await bumpCatalogVersion();
@@ -51,6 +53,7 @@ async function announceInventoryChange(payload = {}) {
   } catch {
     /* best-effort */
   }
+  await sendCatalogPush({ scope: "inventory", name: payload.name ?? null });
 }
 
 // GET /api/inventory                -> every location, grouped

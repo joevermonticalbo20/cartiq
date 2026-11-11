@@ -3,7 +3,19 @@ import 'dart:typed_data';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
+/// The data-only push the server sends when the MENU changed (product
+/// archived, price or recipe edited, stock adjusted).
+///
+/// The app reloads its catalog on it - silently. No notification: a popup
+/// for every menu tweak would train the vendor to dismiss them.
+const String catalogChangedPushType = 'CATALOG_CHANGED';
+
+/// True when this message is the "the menu changed" signal.
+bool isCatalogChanged(Map<String, dynamic> data) =>
+    (data['type'] ?? '').toString().toUpperCase() == catalogChangedPushType;
 
 /// Server-side FCM metadata for one CartIQ alert. The backend stores the
 /// same values in the targeted-alert payload so a tap can refresh the list,
@@ -53,6 +65,16 @@ class CartIQPushService {
   /// notifications, with the alert id/type parsed from the payload.
   Future<void> Function(String type, int? alertId)? onNotificationOpened;
 
+  /// Invoked when the server says the menu changed (a product was archived,
+  /// a price or recipe edited, stock adjusted). The app reloads its catalog:
+  /// the vendor must stop selling a product the owner just pulled.
+  Future<void> Function()? onCatalogChanged;
+
+  /// Test seam: when set, the local notification goes here instead of the
+  /// notification plugin, so a test can prove that a message stays silent.
+  @visibleForTesting
+  Future<void> Function(CartIQPushPayload payload)? notificationSink;
+
   bool _ready = false;
   Future<bool>? _registrationFuture;
   StreamSubscription<RemoteMessage>? _foregroundSubscription;
@@ -98,7 +120,7 @@ class CartIQPushService {
       FirebaseMessaging.onBackgroundMessage(_backgroundMessageHandler);
 
       _foregroundSubscription ??= FirebaseMessaging.onMessage.listen((message) {
-        _showForeground(message);
+        handleForegroundMessage(message);
       });
       _openedSubscription ??= FirebaseMessaging.onMessageOpenedApp.listen((message) {
         _handleOpened(message);
@@ -158,8 +180,29 @@ class CartIQPushService {
         );
   }
 
+  /// Handle one incoming message.
+  ///
+  /// Split out of the Firebase listener so it can be tested without Firebase
+  /// (the listener itself needs the Firebase plugin).
+  ///
+  /// A menu change is a silent signal, not an alert: the app reloads the
+  /// catalog instead of showing a notification the vendor has to dismiss.
+  @visibleForTesting
+  Future<void> handleForegroundMessage(RemoteMessage message) async {
+    if (isCatalogChanged(message.data)) {
+      await onCatalogChanged?.call();
+      return;
+    }
+    await _showForeground(message);
+  }
+
   Future<void> _showForeground(RemoteMessage message) async {
     final payload = _payloadFor(message);
+    final sink = notificationSink;
+    if (sink != null) {
+      await sink(payload);
+      return;
+    }
     try {
       final androidDetails = AndroidNotificationDetails(
         channelId,
@@ -244,6 +287,9 @@ Future<void> _backgroundMessageHandler(RemoteMessage message) async {
     // The server's CartIQ data-only payload is the single source for title
     // and body; a bare notification payload is handled by FCM itself.
     if (message.notification != null) return;
+    // A menu change stays silent: the POS reloads the catalog when the app
+    // comes back to the foreground.
+    if (isCatalogChanged(message.data)) return;
     final title = (message.data['title'] ?? '').toString().trim();
     final body = (message.data['body'] ?? '').toString().trim();
     if (title.isEmpty && body.isEmpty) return;

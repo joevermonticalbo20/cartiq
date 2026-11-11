@@ -51,6 +51,12 @@ class AuthState extends ChangeNotifier {
     push.onNotificationOpened = (_, _) async {
       refreshMyAlerts().catchError((_) {});
     };
+    // The menu changed on the dashboard (product archived, price edited):
+    // tell the screens to re-read the catalog. The POS reloads it right
+    // away, so the vendor stops selling a product the owner just pulled.
+    push.onCatalogChanged = () async {
+      dataRefresh?.bump('catalog');
+    };
   }
 
   bool get isLoggedIn => token != null;
