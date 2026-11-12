@@ -78,7 +78,6 @@ void main() {
 
   group('DigitsOnlyFormatter', () {
     TextEditingValue apply(String text, {int maxDigits = 7}) {
-      const formatter = DigitsOnlyFormatter(maxDigits: 7);
       final f = DigitsOnlyFormatter(maxDigits: maxDigits);
       return f.formatEditUpdate(
         const TextEditingValue(),
