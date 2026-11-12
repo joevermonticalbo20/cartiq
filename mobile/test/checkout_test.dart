@@ -169,4 +169,25 @@ void main() {
     await tester.tap(find.text('₱100'));
     expect(selected, 100);
   });
+
+  testWidgets('the change box says "Too much" above the cash limit', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PosChangeDisplay(
+            total: 80,
+            tendered: 1200,
+            maxTendered: 1080,
+          ),
+        ),
+      ),
+    );
+
+    // 1200 is over the limit (80 + 1000): it is NOT a 1120 change.
+    expect(find.text('Too much'), findsOneWidget);
+    expect(find.text('Change'), findsNothing);
+    expect(find.text('₱120'), findsOneWidget);
+  });
 }

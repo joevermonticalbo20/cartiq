@@ -1619,6 +1619,7 @@ class _CartSheetState extends State<_CartSheet> {
                     PosChangeDisplay(
                       total: cart.total,
                       tendered: _tendered ?? 0,
+                      maxTendered: PaymentRules.maxCashFor(cart.total),
                     ),
                   ] else ...[
                     if (_gcashProofImage != null)

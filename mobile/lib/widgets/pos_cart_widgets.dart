@@ -97,15 +97,26 @@ class PosChangeDisplay extends StatelessWidget {
     super.key,
     required this.total,
     required this.tendered,
+    this.maxTendered,
   });
   final double total;
   final double tendered;
 
+  /// The most cash that may be typed for this total (total + the change
+  /// limit). Null means "no limit known".
+  final double? maxTendered;
+
   @override
   Widget build(BuildContext context) {
-    final enough = tendered >= total;
-    final color = enough ? AppColors.ok : AppColors.danger;
-    final amount = enough ? tendered - total : total - tendered;
+    final ceiling = maxTendered;
+    final tooMuch = ceiling != null && tendered > ceiling;
+    final tooLittle = tendered < total;
+    final ok = !tooMuch && !tooLittle;
+    final color = ok ? AppColors.ok : AppColors.danger;
+    final label = tooMuch ? 'Too much' : (tooLittle ? 'Short by' : 'Change');
+    final amount = tooMuch
+        ? tendered - ceiling
+        : (tooLittle ? total - tendered : tendered - total);
 
     return Container(
       padding: const EdgeInsets.all(AppSpacing.space3),
@@ -118,7 +129,7 @@ class PosChangeDisplay extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
-            enough ? 'Change' : 'Short by',
+            label,
             style: TextStyle(color: color, fontWeight: FontWeight.w700),
           ),
           Text(
