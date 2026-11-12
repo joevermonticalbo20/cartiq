@@ -1,20 +1,51 @@
-import 'money_input.dart';
-
 /// The rules for the cash the customer hands over.
 ///
-/// Two limits, both about the stall's reality:
-///  - the cash can never be LESS than the total (that is not a payment), and
-///  - the cash can never be more than the total plus the biggest change the
-///    stall can hand back. Without that ceiling a typo ("2000" for a 50-peso
-///    order) would look like a 1,950-peso change and the till would be short.
+/// The cash may never be less than the total (that is not a payment), and it
+/// may never be more than the next round amount above the total - nobody
+/// hands over P2,000 for a P990 order, and a slip of the finger must not
+/// look like one:
+///
+///   total P15    -> P1,000   (the biggest note in the till)
+///   total P990   -> P1,000
+///   total P1,500 -> P2,000   (P1,500 exact is always allowed)
+///   total P1,700 -> P2,000
+///
+/// The exact total is always allowed: it is never above the ceiling.
 class PaymentRules {
   const PaymentRules._();
 
-  /// The most change the stall can give back in one sale.
-  static const double maxChange = 1000;
+  /// The notes a customer actually hands over.
+  static const List<double> denominations = [
+    20,
+    50,
+    100,
+    200,
+    500,
+    1000,
+    2000,
+    5000,
+  ];
 
-  /// The largest cash amount that may be typed for [total].
-  static double maxCashFor(double total) => total + maxChange;
+  /// The round amounts the ceiling steps through. The stall's biggest note
+  /// (P1,000) is the ceiling for a small order; a bigger order steps up.
+  static const List<double> roundSteps = [1000, 2000, 3000, 5000, 10000];
+
+  /// The most cash that may be typed for [total].
+  static double maxCashFor(double total) {
+    for (final step in roundSteps) {
+      if (step > total) return step;
+    }
+    // Above the biggest round amount: the next thousand, so the exact total
+    // and a bit more are still payable.
+    final next = (total / 1000).ceil() * 1000.0;
+    return next <= total ? next + 1000 : next;
+  }
+
+  /// How many digits the typed cash may have (the ceiling decides it).
+  ///
+  /// A ceiling of P1,000 means four digits - "10000" cannot be typed.
+  static int maxDigits(double total) =>
+      maxCashFor(total).floor().toString().length;
 
   /// Why the typed cash cannot be used, or null when it can.
   ///
@@ -27,20 +58,22 @@ class PaymentRules {
     }
     final max = maxCashFor(total);
     if (tendered > max) {
-      return 'Maximum ₱${_peso(max)} (total + ₱${_peso(maxChange)})';
+      return 'Maximum ₱${_peso(max)} for a ₱${_peso(total)} order';
     }
     return null;
   }
 
   /// The quick amounts offered for [total]: the exact total first, then the
-  /// notes a customer would actually hand over (the smallest notes above the
-  /// total). Anything above the ceiling is left out.
+  /// notes a customer would actually hand over (the nearest ones above the
+  /// total, up to the ceiling).
   static List<double> quickCashAmounts(double total) {
     final amounts = <double>[total];
-    for (final note in MoneyInput.cashDenominations) {
+    final max = maxCashFor(total);
+    for (final note in denominations) {
       if (note <= total) continue;
-      if (note > maxCashFor(total)) continue;
-      amounts.add(note.toDouble());
+      if (note > max) break;
+      amounts.add(note);
+      if (amounts.length >= 5) break;
     }
     return amounts;
   }

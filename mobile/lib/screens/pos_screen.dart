@@ -17,8 +17,8 @@ import '../services/sync_service.dart';
 import '../state/cart_state.dart';
 import '../theme.dart';
 import '../utils/app_messenger.dart';
+import '../utils/digits_input.dart';
 import '../utils/haptics.dart';
-import '../utils/money_input.dart';
 import '../utils/payment_rules.dart';
 import '../utils/sizes.dart';
 import '../widgets/app_dialog.dart';
@@ -229,6 +229,11 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// The last catalog the screen loaded. The size sheet re-checks the stock
+  /// against this before adding, so a line that went out of stock while the
+  /// sheet was open cannot slip into the cart.
+  List<Map<String, dynamic>> _catalog = const [];
+
   Future<List<Map<String, dynamic>>> _loadCatalog({
     bool forceRefresh = false,
   }) async {
@@ -241,7 +246,9 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       final cached = await auth.api.catalogCache();
       if (cached != null && cached['products'] is List) {
         _rememberCatalogVersion(cached);
-        return (cached['products'] as List).cast<Map<String, dynamic>>();
+        final products = (cached['products'] as List).cast<Map<String, dynamic>>();
+        _catalog = products;
+        return products;
       }
       throw ApiException(
         'No saved product list on this device. Connect once to load the catalog.',
@@ -251,7 +258,9 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
     try {
       final data = await auth.api.catalog(token, forceRefresh: forceRefresh);
       _rememberCatalogVersion(data);
-      return (data['products'] as List).cast<Map<String, dynamic>>();
+      final products = (data['products'] as List).cast<Map<String, dynamic>>();
+      _catalog = products;
+      return products;
     } on ApiException catch (e) {
       if (e.statusCode == 401 &&
           await auth.refreshSession() &&
@@ -261,7 +270,9 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
           forceRefresh: forceRefresh,
         );
         _rememberCatalogVersion(data);
-        return (data['products'] as List).cast<Map<String, dynamic>>();
+        final products = (data['products'] as List).cast<Map<String, dynamic>>();
+        _catalog = products;
+        return products;
       }
       rethrow;
     }
@@ -578,8 +589,31 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                       onAdd: picked == null
                           ? null
                           : () {
+                              final name = picked!;
+                              final wanted = quantities[name] ?? 1;
+                              // The stock may have moved while the sheet was
+                              // open (a sale on another cart, an owner edit).
+                              // Check the freshest catalog before it goes in.
+                              final live = _liveStockFor(
+                                product['name'] as String,
+                                name,
+                              );
+                              final ceiling =
+                                  live ?? _sizeStock(sizes, name);
+                              if (ceiling != null && wanted > ceiling) {
+                                setSheetState(() {
+                                  quantities[name] = ceiling;
+                                });
+                                AppMessenger.showGlassToast(
+                                  context: context,
+                                  message:
+                                      'Stock changed - only $ceiling left now',
+                                  isSuccess: false,
+                                );
+                                return;
+                              }
                               _addSizeSelection(product, sizes, {
-                                picked!: quantities[picked] ?? 1,
+                                name: wanted,
                               });
                               Navigator.pop(sheetContext);
                             },
@@ -610,6 +644,27 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
         final stock = size['availableServings'];
         if (stock is num) return stock.toInt();
       }
+    }
+    return null;
+  }
+
+  /// The stock of [sizeName] in the FRESHEST catalog the POS holds.
+  ///
+  /// The size sheet shows a snapshot from when it was opened. If the stock
+  /// moved meanwhile (a sale on another cart, an owner edit), the number the
+  /// vendor typed may no longer be sellable - so the Add action checks here
+  /// before it puts the line in the cart.
+  int? _liveStockFor(String productName, String sizeName) {
+    for (final product in _catalog) {
+      if (product['name'] != productName) continue;
+      final options = product['flavors'];
+      if (options is! List) return null;
+      for (final option in options.whereType<Map<String, dynamic>>()) {
+        if (option['name'] != sizeName) continue;
+        final stock = option['availableServings'];
+        if (stock is num) return stock.toInt();
+      }
+      return null;
     }
     return null;
   }
@@ -1580,10 +1635,14 @@ class _CartSheetState extends State<_CartSheet> {
                   if (_method == PaymentMethod.cash) ...[
                     TextField(
                       controller: _cashController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      inputFormatters: [MoneyInputFormatter()],
+                      keyboardType: TextInputType.number,
+                      // Whole pesos only, and never more digits than the
+                      // ceiling allows (a P990 order may not take P10,000).
+                      inputFormatters: [
+                        DigitsOnlyFormatter(
+                          maxDigits: PaymentRules.maxDigits(cart.total),
+                        ),
+                      ],
                       textInputAction: TextInputAction.done,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w800,
@@ -1626,26 +1685,65 @@ class _CartSheetState extends State<_CartSheet> {
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          PosProofThumbnail(
-                            file: _gcashProofImage!,
-                            onTap: () => showPosImageViewer(
-                              context,
-                              file: _gcashProofImage,
+                          // The photo fills the preview: no second tap to
+                          // "view proof" - tap the photo itself for the
+                          // full screen.
+                          Expanded(
+                            child: SizedBox(
+                              height: 150,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.m,
+                                ),
+                                child: GestureDetector(
+                                  onTap: () => showPosImageViewer(
+                                    context,
+                                    file: _gcashProofImage,
+                                  ),
+                                  child: Image.file(
+                                    _gcashProofImage!,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, _, _) => Container(
+                                      color: AppColors.danger.withValues(
+                                        alpha: 0.12,
+                                      ),
+                                      child: const Icon(
+                                        Icons.broken_image_rounded,
+                                        color: AppColors.danger,
+                                        size: 40,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                           const SizedBox(width: AppSpacing.space3),
                           Expanded(
+                            flex: 2,
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  'Proof captured',
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                    color: AppColors.ok,
-                                  ),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.check_circle_rounded,
+                                      color: AppColors.ok,
+                                      size: 18,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Flexible(
+                                      child: Text(
+                                        'Proof captured',
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleSmall?.copyWith(
+                                          fontWeight: FontWeight.w800,
+                                          color: AppColors.ok,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
@@ -1687,22 +1785,67 @@ class _CartSheetState extends State<_CartSheet> {
                         ],
                       )
                     else
-                      OutlinedButton.icon(
-                        onPressed: _isPickingImage ? null : _pickGCashProof,
-                        icon: _isPickingImage
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.camera_alt_outlined),
-                        label: Text(
-                          _isPickingImage
-                              ? 'Opening camera…'
-                              : 'Capture Proof of Payment',
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size.fromHeight(56),
+                      // The big tap area: the whole block opens the camera,
+                      // so nobody has to aim at a small button.
+                      InkWell(
+                        onTap: _isPickingImage ? null : _pickGCashProof,
+                        borderRadius: BorderRadius.circular(AppRadius.m),
+                        child: Container(
+                          width: double.infinity,
+                          height: 176,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(AppRadius.m),
+                            border: Border.all(
+                              color: AppColors.primary.withValues(alpha: 0.45),
+                              width: 2,
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                width: 62,
+                                height: 62,
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withValues(
+                                    alpha: 0.14,
+                                  ),
+                                  shape: BoxShape.circle,
+                                ),
+                                alignment: Alignment.center,
+                                child: _isPickingImage
+                                    ? const SizedBox(
+                                        width: 26,
+                                        height: 26,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2.5,
+                                          color: AppColors.primary,
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.camera_alt_rounded,
+                                        color: AppColors.primary,
+                                        size: 30,
+                                      ),
+                              ),
+                              const SizedBox(height: AppSpacing.space3),
+                              Text(
+                                _isPickingImage
+                                    ? 'Opening camera…'
+                                    : 'Tap to capture the GCash receipt',
+                                style: Theme.of(context).textTheme.titleSmall
+                                    ?.copyWith(fontWeight: FontWeight.w800),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'The photo is attached to this sale',
+                                style: Theme.of(context).textTheme.bodySmall,
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     if (_method == PaymentMethod.gcash &&

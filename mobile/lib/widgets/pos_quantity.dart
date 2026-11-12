@@ -5,7 +5,9 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../theme.dart';
+import '../utils/digits_input.dart';
 import '../utils/haptics.dart';
+import '../utils/quantity_input.dart';
 
 /// The typed-quantity field the vendor uses for a big order ("200 fries").
 ///
@@ -100,6 +102,11 @@ class _PosQuantityFieldState extends State<PosQuantityField> {
       keyboardType: TextInputType.number,
       textInputAction: TextInputAction.done,
       textAlign: TextAlign.center,
+      // The stock on hand decides how many digits may be typed: a stock of
+      // 130 means three digits - "1310" cannot even be typed.
+      inputFormatters: [
+        DigitsOnlyFormatter(maxDigits: QuantityInput.maxDigits(widget.maxQuantity)),
+      ],
       style: Theme.of(
         context,
       ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),

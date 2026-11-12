@@ -71,6 +71,46 @@ void main() {
       expect(changed, 0);
     });
 
+    testWidgets('the stock decides how many digits may be typed', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          PosQuantityField(
+            quantity: 1,
+            maxQuantity: 130,
+            onChanged: (_) {},
+          ),
+        ),
+      );
+
+      // A stock of 130 means three digits: "1310" cannot even be typed.
+      await tester.enterText(find.byType(TextField), '1310');
+      await tester.pump();
+      final shortText = tester
+          .widget<TextField>(find.byType(TextField))
+          .controller!
+          .text;
+      expect(shortText.length, lessThanOrEqualTo(3));
+
+      // A stock of 1,300 gets four digits.
+      await tester.pumpWidget(
+        _wrap(
+          PosQuantityField(
+            quantity: 1,
+            maxQuantity: 1300,
+            onChanged: (_) {},
+          ),
+        ),
+      );
+      await tester.enterText(find.byType(TextField), '1300');
+      await tester.pump();
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        '1300',
+      );
+    });
+
     testWidgets('the - and + buttons move by one and stop at the stock', (
       tester,
     ) async {

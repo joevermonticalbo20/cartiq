@@ -40,4 +40,13 @@ class QuantityInput {
     if (value > ceiling) return ceiling;
     return value;
   }
+
+  /// How many digits the field may hold: the stock on hand decides it.
+  ///
+  /// A stock of 130 means three digits - "1310" cannot even be typed, let
+  /// alone accepted.
+  static int maxDigits(int? max) {
+    if (max == null || max < minimum) return 5;
+    return max.toString().length;
+  }
 }
