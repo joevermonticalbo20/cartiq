@@ -2656,7 +2656,22 @@ async function handlePutTimeClock(req, origin, user) {
 /** Read several _counters docs at once (read phase). */
 async function readCounters(models) {
   const out = {};
-  await Promise.all(models.map(async (m) => { out[m] = await fsGet("_counters", m); }));
+  await Promise.all(models.map(async (m) => {
+    const c = await fsGet("_counters", m);
+    // The liveEvents counter was lost (or never created): every broadcastEvent
+    // then tried to reuse id 1, which already exists, and failed silently. The
+    // web's SSE stream never saw another event after the first one. Recover the
+    // counter from the collection so the next write gets a fresh id.
+    if (m === "liveEvents" && (!c || c.next === undefined)) {
+      // No orderBy: a freshly created collection has no index on `id`, and a
+      // composite index is overkill for a collection that grows one row per tap.
+      const docs = await fsRunQuery(LIVE_EVENTS_COLLECTION, { limit: 1000 }).catch(() => []);
+      const maxId = docs.reduce((max, d) => Math.max(max, Number(d?.id) || 0), 0);
+      out[m] = { next: maxId + 1, _updateTime: null };
+    } else {
+      out[m] = c;
+    }
+  }));
   return out;
 }
 
