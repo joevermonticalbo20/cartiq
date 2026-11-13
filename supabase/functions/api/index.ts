@@ -4756,12 +4756,12 @@ async function handleDeviceShifts(req, _origin, device) {
       if (e._registrationOnly) continue;
       const event = String(e.event ?? "").toUpperCase();
       if (!uid || uid.length > 64 || !SHIFT_EVENTS.includes(event)) {
-        rejected.push({ staff_uid: uid || null, reason: "invalid uid or event" });
+        rejected.push({ staff_uid: uid || null, event, reason: "invalid uid or event" });
         continue;
       }
       const ts = e.ts ? new Date(e.ts) : new Date();
       if (!Number.isFinite(ts.getTime())) {
-        rejected.push({ staff_uid: uid || null, reason: "invalid ts" });
+        rejected.push({ staff_uid: uid || null, event, reason: "invalid ts" });
         continue;
       }
       // Server-side backstop for the "Time in / Time out is greyed out in the
@@ -4770,7 +4770,7 @@ async function handleDeviceShifts(req, _origin, device) {
       // only the shift is blocked.
       const verdict = timeClockVerdict(clock, event, ts.getTime());
       if (verdict) {
-        rejected.push({ staff_uid: uid, reason: verdict });
+        rejected.push({ staff_uid: uid, event, reason: verdict });
         const dedupeKey = `timeclock:${location.id}:${event}`;
         const dup =
           createdNeedles.has(dedupeKey) ||
@@ -4869,18 +4869,41 @@ async function handleDeviceShifts(req, _origin, device) {
 
   // A tap must show up on the screens right away: publish it for the SSE
   // stream (the web dashboard) and push it to the devices (the POS app).
+  // Every outcome travels - a refused tap or an unregistered card must say
+  // so on the phone, otherwise the tap looks like nothing happened.
   for (const acc of outcome.accepted) {
+    const status = acc.matched ? "recorded" : "unregistered";
     await broadcastEvent("shift:new", {
       staff_uid: acc.staff_uid,
       event: acc.event,
       staff_name: acc.matched ?? null,
       location_code: location.code,
+      status,
     }).catch(() => {});
     await sendDevicePush("SHIFT", {
+      status,
       event: acc.event,
       staffUid: acc.staff_uid,
       staffName: acc.matched ?? null,
       locationCode: location.code,
+    }).catch(() => {});
+  }
+  for (const rej of outcome.rejected) {
+    await broadcastEvent("shift:new", {
+      staff_uid: rej.staff_uid ?? null,
+      event: rej.event ?? "",
+      staff_name: null,
+      location_code: location.code,
+      status: "refused",
+      reason: rej.reason,
+    }).catch(() => {});
+    await sendDevicePush("SHIFT", {
+      status: "refused",
+      event: rej.event ?? "",
+      staffUid: rej.staff_uid ?? "",
+      staffName: null,
+      locationCode: location.code,
+      reason: rej.reason,
     }).catch(() => {});
   }
 

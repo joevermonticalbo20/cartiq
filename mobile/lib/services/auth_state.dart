@@ -59,8 +59,26 @@ class AuthState extends ChangeNotifier {
     };
     // A card was tapped on the reader: the shift is already recorded on the
     // server, so refresh today's attendance now - the tap must show up at
-    // once, not on the next poll.
-    push.onShiftEvent = () async {
+    // once, not on the next poll. A tap the server refused (outside the
+    // clock window) or that belongs to an unregistered card says so on
+    // screen: a tap that silently does nothing looks like broken hardware.
+    push.onShiftEvent = (data) async {
+      final status = shiftStatusOf(data);
+      if (status == shiftRefused) {
+        final reason = shiftReasonOf(data);
+        dataRefresh?.bump(
+          'shift',
+          reason.isEmpty ? 'That tap was not recorded.' : reason,
+        );
+        return;
+      }
+      if (status == shiftUnregistered) {
+        dataRefresh?.bump(
+          'shift',
+          'This card is not registered yet - register it first.',
+        );
+        return;
+      }
       await refreshMyShifts();
       dataRefresh?.bump('shift');
     };

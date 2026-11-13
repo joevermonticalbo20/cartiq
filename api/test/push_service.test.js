@@ -177,6 +177,7 @@ describe("push service (card tapped)", () => {
     // Every device gets it: the tap must show on whichever phone is open.
     assert.deepEqual(sent[0].tokens, ["token-a", "token-b"]);
     assert.equal(sent[0].data.type, "SHIFT");
+    assert.equal(sent[0].data.status, "recorded");
     assert.equal(sent[0].data.event, "IN");
     assert.equal(sent[0].data.staffUid, "5A436083");
     assert.equal(sent[0].data.staffName, "Stall Staff 1");
@@ -185,6 +186,36 @@ describe("push service (card tapped)", () => {
     assert.equal(sent[0].notification, undefined);
     assert.equal(sent[0].android.priority, "high");
     assert.equal(sent[0].android.collapseKey, "shift");
+  });
+
+  it("carries the reason a tap was refused", async () => {
+    const sent = [];
+    const messaging = {
+      sendEachForMulticast: async (message) => {
+        sent.push(message);
+        return {
+          successCount: message.tokens.length,
+          failureCount: 0,
+          responses: message.tokens.map(() => ({ success: true })),
+        };
+      },
+    };
+    await sendShiftPush(
+      {
+        event: "OUT",
+        staffUid: "5A436083",
+        locationCode: "CART-01",
+        status: "refused",
+        reason: "Time out is only open 16:30-16:40 (Manila time). Try again then.",
+      },
+      { db: fakeDb([{ userId: 3, token: "token-a" }]), messaging },
+    );
+    // A refused tap still reaches the phone: a tap that does nothing silently
+    // looks like broken hardware.
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].data.status, "refused");
+    assert.equal(sent[0].data.event, "OUT");
+    assert.match(sent[0].data.reason, /only open 16:30-16:40/);
   });
 
   it("never throws when messaging is unavailable", async () => {

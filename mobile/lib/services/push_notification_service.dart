@@ -24,6 +24,29 @@ const String shiftPushType = 'SHIFT';
 bool isShiftEvent(Map<String, dynamic> data) =>
     (data['type'] ?? '').toString().toUpperCase() == shiftPushType;
 
+/// What the server did with the tap.
+///
+/// "recorded" - the shift is written, the app refreshes the attendance.
+/// "unregistered" - the card belongs to nobody yet.
+/// "refused" - the server would not log it (outside the clock window).
+///
+/// Every outcome is pushed, not just the happy one: a tap that silently does
+/// nothing looks like broken hardware.
+const String shiftRecorded = 'recorded';
+const String shiftUnregistered = 'unregistered';
+const String shiftRefused = 'refused';
+
+/// The outcome of a tap push, defaulting to "recorded" (the old behaviour).
+String shiftStatusOf(Map<String, dynamic> data) {
+  final status = (data['status'] ?? '').toString().toLowerCase();
+  if (status == shiftUnregistered || status == shiftRefused) return status;
+  return shiftRecorded;
+}
+
+/// The human reason the server gave for refusing a tap (empty when none).
+String shiftReasonOf(Map<String, dynamic> data) =>
+    (data['reason'] ?? '').toString().trim();
+
 /// Server-side FCM metadata for one CartIQ alert. The backend stores the
 /// same values in the targeted-alert payload so a tap can refresh the list,
 /// not merely acknowledge a local notification.
@@ -77,10 +100,14 @@ class CartIQPushService {
   /// the vendor must stop selling a product the owner just pulled.
   Future<void> Function()? onCatalogChanged;
 
-  /// Invoked when a card was tapped on the reader and the shift was
-  /// recorded. The app refreshes the attendance right away - the tap is the
-  /// whole point of the reader, so it must show up at once.
-  Future<void> Function()? onShiftEvent;
+  /// Invoked when a card was tapped on the reader. The app reflects the tap
+  /// right away - the tap is the whole point of the reader, so it must show
+  /// up at once.
+  ///
+  /// The payload says what the server did with the tap: a recorded shift
+  /// (refresh the attendance), an unregistered card, or a refusal with a
+  /// reason. A tap that silently does nothing looks like broken hardware.
+  Future<void> Function(Map<String, dynamic> data)? onShiftEvent;
 
   /// Test seam: when set, the local notification goes here instead of the
   /// notification plugin, so a test can prove that a message stays silent.
@@ -206,7 +233,7 @@ class CartIQPushService {
       return;
     }
     if (isShiftEvent(message.data)) {
-      await onShiftEvent?.call();
+      await onShiftEvent?.call(message.data);
       return;
     }
     await _showForeground(message);

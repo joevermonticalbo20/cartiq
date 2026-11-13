@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
+import '../services/data_refresh.dart';
 import '../services/persisted_queue.dart';
 import '../services/rfid_registration.dart';
 import '../services/sync_service.dart';
@@ -47,6 +48,7 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   int _queuedOrders = 0;
   bool _syncListenerAdded = false;
   SyncResult? _handledSyncResult;
+  DataRefresh? _bus;
 
   // TINANGGAL NA ANG LIVE STOCK DITO
   final List<Map<String, dynamic>> _navItems = [
@@ -92,6 +94,14 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
     _sync = context.read<SyncService>();
     _sync.addListener(_onSyncChanged);
     _syncListenerAdded = true;
+    // A card tapped on the reader: say what the server did with it. The tap
+    // happens outside the app, so the app is the only place the vendor can
+    // see that it was refused.
+    final bus = context.read<DataRefresh?>();
+    if (bus != null && !identical(bus, _bus)) {
+      _bus?.removeListener(_onDataChanged);
+      _bus = bus..addListener(_onDataChanged);
+    }
   }
 
   @override
@@ -99,7 +109,23 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _queueSubscription.cancel();
     if (_syncListenerAdded) _sync.removeListener(_onSyncChanged);
+    _bus?.removeListener(_onDataChanged);
     super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    final message = _bus?.lastMessage;
+    if (message == null || message.isEmpty) return;
+    if (_bus?.lastReason != 'shift') return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      AppMessenger.showGlassToast(
+        context: context,
+        message: message,
+        isSuccess: false,
+      );
+    });
   }
 
   @override

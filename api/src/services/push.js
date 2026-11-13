@@ -133,15 +133,23 @@ export const __pushTestHelpers = {
 };
 
 /**
- * Tell every registered device about a shift that was just recorded.
+ * Tell every registered device what a card tap did.
  *
  * The vendor taps a card on the reader and the app must show it right away -
  * the tap is the whole point of the reader. The POS app refreshes on this
  * push (a DATA-ONLY message: no notification to dismiss), and the web
  * dashboard gets the same thing over its SSE stream.
+ *
+ * Every outcome travels, not just the happy one: a tap that was refused
+ * (outside the clock window) or that belongs to a card nobody has registered
+ * yet must say so on the phone. A tap that silently does nothing looks like
+ * broken hardware.
+ *
+ * status: "recorded" (the shift is written) | "unregistered" (the card is
+ * not on any staff account) | "refused" (the server would not log it).
  */
 export async function sendShiftPush(
-  { event, staffUid, staffName, locationCode } = {},
+  { event, staffUid, staffName, locationCode, status = "recorded", reason = "" } = {},
   { db = prisma, messaging = undefined } = {},
 ) {
   try {
@@ -151,10 +159,12 @@ export async function sendShiftPush(
 
     const data = {
       type: "SHIFT",
+      status: String(status ?? "recorded"),
       event: String(event ?? "").toUpperCase(),
       staffUid: String(staffUid ?? ""),
       staffName: String(staffName ?? ""),
       locationCode: String(locationCode ?? ""),
+      reason: String(reason ?? "").slice(0, 300),
     };
     const message = {
       tokens,

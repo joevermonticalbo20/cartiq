@@ -45,12 +45,22 @@ void main() {
       expect(isShiftEvent(<String, dynamic>{}), isFalse);
     });
 
+    test('reads what the server did with the tap', () {
+      expect(shiftStatusOf({'type': 'SHIFT'}), 'recorded');
+      expect(shiftStatusOf({'type': 'SHIFT', 'status': 'recorded'}), 'recorded');
+      expect(shiftStatusOf({'type': 'SHIFT', 'status': 'unregistered'}),
+          'unregistered');
+      expect(shiftStatusOf({'type': 'SHIFT', 'status': 'refused'}), 'refused');
+      expect(shiftReasonOf({'reason': 'outside the window'}), 'outside the window');
+      expect(shiftReasonOf(<String, dynamic>{}), '');
+    });
+
     test('a shift message refreshes the app instead of popping a notification',
         () async {
       final service = CartIQPushService();
       var refreshes = 0;
       var notifications = 0;
-      service.onShiftEvent = () async {
+      service.onShiftEvent = (_) async {
         refreshes++;
       };
       service.notificationSink = (_) async {
@@ -86,10 +96,52 @@ void main() {
         reason = bus.lastReason;
       });
 
-      await auth.push.onShiftEvent?.call();
+      await auth.push.onShiftEvent?.call({
+        'type': 'SHIFT',
+        'status': 'recorded',
+        'event': 'IN',
+      });
 
       expect(reason, 'shift');
       expect(bus.version, 1);
+    });
+
+    test('a refused tap says why instead of looking like nothing happened',
+        () async {
+      final bus = DataRefresh();
+      final auth = AuthState(
+        apiClient: FakeApi(),
+        secureStorage: FakeStore(),
+        dataRefresh: bus,
+      );
+
+      await auth.push.onShiftEvent?.call({
+        'type': 'SHIFT',
+        'status': 'refused',
+        'event': 'OUT',
+        'reason': 'Time out is only open 16:30-16:40 (Manila time).',
+      });
+
+      expect(bus.lastReason, 'shift');
+      expect(bus.lastMessage, contains('16:30-16:40'));
+    });
+
+    test('a tap on an unregistered card says so', () async {
+      final bus = DataRefresh();
+      final auth = AuthState(
+        apiClient: FakeApi(),
+        secureStorage: FakeStore(),
+        dataRefresh: bus,
+      );
+
+      await auth.push.onShiftEvent?.call({
+        'type': 'SHIFT',
+        'status': 'unregistered',
+        'event': 'IN',
+      });
+
+      expect(bus.lastReason, 'shift');
+      expect(bus.lastMessage, contains('not registered'));
     });
   });
 }
