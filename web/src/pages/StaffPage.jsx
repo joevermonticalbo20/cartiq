@@ -5,6 +5,7 @@ import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
+import { LIVE_EVENTS, useLiveEvent } from "../hooks/useLiveStream.js";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
@@ -103,6 +104,12 @@ export default function StaffPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial top-data load on mount/filter change
     fetchTopData();
   }, [fetchTopData]);
+
+  // A card tapped on the reader: refresh who is on shift right away instead of
+  // waiting for the next poll.
+  useLiveEvent(LIVE_EVENTS.shiftNew, () => {
+    fetchTopData();
+  });
 
   useEffect(() => {
     if (!addOpen || tsTouched) return undefined;

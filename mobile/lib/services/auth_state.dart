@@ -57,6 +57,13 @@ class AuthState extends ChangeNotifier {
     push.onCatalogChanged = () async {
       dataRefresh?.bump('catalog');
     };
+    // A card was tapped on the reader: the shift is already recorded on the
+    // server, so refresh today's attendance now - the tap must show up at
+    // once, not on the next poll.
+    push.onShiftEvent = () async {
+      await refreshMyShifts();
+      dataRefresh?.bump('shift');
+    };
   }
 
   bool get isLoggedIn => token != null;

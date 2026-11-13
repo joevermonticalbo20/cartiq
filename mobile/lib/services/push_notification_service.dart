@@ -17,6 +17,13 @@ const String catalogChangedPushType = 'CATALOG_CHANGED';
 bool isCatalogChanged(Map<String, dynamic> data) =>
     (data['type'] ?? '').toString().toUpperCase() == catalogChangedPushType;
 
+/// The data-only push the server sends when a card was tapped on the reader.
+const String shiftPushType = 'SHIFT';
+
+/// True when this message is a recorded card tap.
+bool isShiftEvent(Map<String, dynamic> data) =>
+    (data['type'] ?? '').toString().toUpperCase() == shiftPushType;
+
 /// Server-side FCM metadata for one CartIQ alert. The backend stores the
 /// same values in the targeted-alert payload so a tap can refresh the list,
 /// not merely acknowledge a local notification.
@@ -69,6 +76,11 @@ class CartIQPushService {
   /// a price or recipe edited, stock adjusted). The app reloads its catalog:
   /// the vendor must stop selling a product the owner just pulled.
   Future<void> Function()? onCatalogChanged;
+
+  /// Invoked when a card was tapped on the reader and the shift was
+  /// recorded. The app refreshes the attendance right away - the tap is the
+  /// whole point of the reader, so it must show up at once.
+  Future<void> Function()? onShiftEvent;
 
   /// Test seam: when set, the local notification goes here instead of the
   /// notification plugin, so a test can prove that a message stays silent.
@@ -191,6 +203,10 @@ class CartIQPushService {
   Future<void> handleForegroundMessage(RemoteMessage message) async {
     if (isCatalogChanged(message.data)) {
       await onCatalogChanged?.call();
+      return;
+    }
+    if (isShiftEvent(message.data)) {
+      await onShiftEvent?.call();
       return;
     }
     await _showForeground(message);

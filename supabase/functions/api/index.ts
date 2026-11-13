@@ -651,18 +651,17 @@ const PUSH_ALERT_TYPES = new Set(["VOID_DECISION", "RESTOCK_UPDATE", "LOW_STOCK_
 const CATALOG_PUSH_TYPE = "CATALOG_CHANGED";
 
 /**
- * Tell every registered POS device that the menu moved.
+ * Send a DATA-ONLY push to every registered device.
  *
- * The phones poll the catalog version every 30s, which is fine for "is
- * anything new?" but too slow for "the owner just archived a product and
- * the vendor must stop selling it". This is the push that closes that gap:
- * a high-priority DATA-ONLY message, so Android stays silent and the app
- * simply reloads its menu.
+ * Data-only means Android stays silent: the app decides what to do with it (a
+ * menu change reloads the menu, a shift tap refreshes the attendance). A
+ * visible notification for every menu tweak would train the vendor to dismiss
+ * them.
  *
  * Best-effort: a failed push must never fail the mutation that caused it -
- * the 30-second version poll is the fallback.
+ * the phones still poll, so nothing is lost.
  */
-async function sendCatalogPush(payload = {}) {
+async function sendDevicePush(type: string, payload: Record<string, unknown>) {
   try {
     const rows = await fsListAll("pushTokens");
     const tokens = rows
@@ -670,12 +669,7 @@ async function sendCatalogPush(payload = {}) {
       .filter((token) => token && token.length <= 4096);
     if (!tokens.length) return;
     const accessToken = await googleAccessToken("https://www.googleapis.com/auth/firebase.messaging");
-    const data = {
-      type: CATALOG_PUSH_TYPE,
-      scope: String(payload.scope ?? "catalog").slice(0, 40),
-      name: payload.name ? String(payload.name).slice(0, 120) : "",
-      version: payload.version == null ? "" : String(payload.version),
-    };
+    const data = { type, ...payload };
     for (const token of tokens) {
       try {
         const res = await fetch(
@@ -692,7 +686,7 @@ async function sendCatalogPush(payload = {}) {
                 // Data only: no notification block, so nothing pops up.
                 data,
                 android: {
-                  collapse_key: "catalog",
+                  collapse_key: type === "SHIFT" ? "shift" : "catalog",
                   priority: "high",
                 },
               },
@@ -708,7 +702,7 @@ async function sendCatalogPush(payload = {}) {
           }
         }
       } catch {
-        // Best-effort: the phone's 30s version poll still sees the change.
+        // Best-effort: the phone's next poll still sees the change.
       }
     }
   } catch {
@@ -2270,7 +2264,7 @@ async function bumpCatalogVersion() {
 async function announceCatalogChange(event: string, payload: Record<string, unknown>) {
   await bumpCatalogVersion().catch(() => {});
   await broadcastEvent(event, payload).catch(() => {});
-  await sendCatalogPush({
+  await sendDevicePush(CATALOG_PUSH_TYPE, {
     scope: payload?.scope ?? "catalog",
     name: payload?.name ?? null,
   }).catch(() => {});
@@ -4871,6 +4865,23 @@ async function handleDeviceShifts(req, _origin, device) {
       (a) => normalizeRfidUid(a.staff_uid) === reg.rfidUid && a.matched,
     );
     await resolveClaim(reg.claimId, CLAIM_BOUND, reg.rfidUid, null, written?.event ?? null);
+  }
+
+  // A tap must show up on the screens right away: publish it for the SSE
+  // stream (the web dashboard) and push it to the devices (the POS app).
+  for (const acc of outcome.accepted) {
+    await broadcastEvent("shift:new", {
+      staff_uid: acc.staff_uid,
+      event: acc.event,
+      staff_name: acc.matched ?? null,
+      location_code: location.code,
+    }).catch(() => {});
+    await sendDevicePush("SHIFT", {
+      event: acc.event,
+      staffUid: acc.staff_uid,
+      staffName: acc.matched ?? null,
+      locationCode: location.code,
+    }).catch(() => {});
   }
 
   return {

@@ -9,6 +9,8 @@ import { lookupUid, normalizeRfidUid } from "../services/rfid.js";
 import { readTimeClock, timeClockVerdict } from "../services/time_clock.js";
 import { CLAIM_BOUND, resolveClaim } from "../services/rfid_claims.js";
 import { bindClaimedTag } from "../services/rfid_bind.js";
+import { sendShiftPush } from "../services/push.js";
+import { emit } from "./events.js";
 
 const router = Router();
 
@@ -378,6 +380,23 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
         (a) => normalizeRfidUid(a.staff_uid) === reg.rfidUid && a.matched,
       );
       resolveClaim(reg.claimId, CLAIM_BOUND, reg.rfidUid, null, written?.event ?? null);
+    }
+
+    // A tap must show up on the screens right away: publish it for the SSE
+    // stream (the web dashboard) and push it to the devices (the POS app).
+    for (const acc of outcome.accepted) {
+      emit("shift:new", {
+        staff_uid: acc.staff_uid,
+        event: acc.event,
+        staff_name: acc.matched ?? null,
+        location_code: location.code,
+      });
+      await sendShiftPush({
+        event: acc.event,
+        staffUid: acc.staff_uid,
+        staffName: acc.matched ?? null,
+        locationCode: location.code,
+      });
     }
 
     return res.status(201).json({

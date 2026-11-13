@@ -133,6 +133,65 @@ export const __pushTestHelpers = {
 };
 
 /**
+ * Tell every registered device about a shift that was just recorded.
+ *
+ * The vendor taps a card on the reader and the app must show it right away -
+ * the tap is the whole point of the reader. The POS app refreshes on this
+ * push (a DATA-ONLY message: no notification to dismiss), and the web
+ * dashboard gets the same thing over its SSE stream.
+ */
+export async function sendShiftPush(
+  { event, staffUid, staffName, locationCode } = {},
+  { db = prisma, messaging = undefined } = {},
+) {
+  try {
+    const rows = await db.pushTokens.findMany({});
+    const tokens = rows.map((row) => cleanToken(row?.token)).filter(Boolean);
+    if (!tokens.length) return;
+
+    const data = {
+      type: "SHIFT",
+      event: String(event ?? "").toUpperCase(),
+      staffUid: String(staffUid ?? ""),
+      staffName: String(staffName ?? ""),
+      locationCode: String(locationCode ?? ""),
+    };
+    const message = {
+      tokens,
+      data,
+      android: {
+        priority: "high",
+        // One pending refresh is enough: the newest state wins.
+        collapseKey: "shift",
+      },
+    };
+
+    let result;
+    try {
+      result = await (messaging ?? getMessaging()).sendEachForMulticast(message);
+    } catch {
+      // Messaging is unavailable (no credentials, local dev): the app still
+      // picks the tap up on its next poll.
+      return;
+    }
+
+    const invalid = [];
+    (result?.responses ?? []).forEach((response, index) => {
+      const code = String(response?.error?.code ?? "");
+      if (
+        !response?.success &&
+        (/not-found|unregistered|invalid-argument|invalid-token|registration-token-not-registered/i.test(code))
+      ) {
+        invalid.push(tokens[index]);
+      }
+    });
+    await pruneTokens(invalid, db);
+  } catch {
+    // Never let push delivery affect the tap that caused it.
+  }
+}
+
+/**
  * Tell every registered POS device that the menu moved.
  *
  * The phones poll the catalog version every 30s, which is fine for "is

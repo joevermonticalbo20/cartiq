@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { sendTargetedPush, sendCatalogPush, CATALOG_PUSH_TYPE, __pushTestHelpers } from "../src/services/push.js";
+import { sendTargetedPush, sendCatalogPush, sendShiftPush, CATALOG_PUSH_TYPE, __pushTestHelpers } from "../src/services/push.js";
 
 function fakeDb(rows, deleted = []) {
   return {
@@ -152,6 +152,68 @@ describe("push service (menu changed)", () => {
     };
     const db = fakeDb([{ userId: 3, token: "bad" }, { userId: 3, token: "good" }], deleted);
     await sendCatalogPush({ scope: "inventory", name: "BBQ Powder" }, { db, messaging });
+    assert.deepEqual(deleted, [{ where: { token: { in: ["bad"] } } }]);
+  });
+});
+
+describe("push service (card tapped)", () => {
+  it("pushes the tap to every device so the app shows it at once", async () => {
+    const sent = [];
+    const messaging = {
+      sendEachForMulticast: async (message) => {
+        sent.push(message);
+        return {
+          successCount: message.tokens.length,
+          failureCount: 0,
+          responses: message.tokens.map(() => ({ success: true })),
+        };
+      },
+    };
+    await sendShiftPush(
+      { event: "IN", staffUid: "5A436083", staffName: "Stall Staff 1", locationCode: "CART-01" },
+      { db: fakeDb([{ userId: 3, token: "token-a" }, { userId: 9, token: "token-b" }]), messaging },
+    );
+    assert.equal(sent.length, 1);
+    // Every device gets it: the tap must show on whichever phone is open.
+    assert.deepEqual(sent[0].tokens, ["token-a", "token-b"]);
+    assert.equal(sent[0].data.type, "SHIFT");
+    assert.equal(sent[0].data.event, "IN");
+    assert.equal(sent[0].data.staffUid, "5A436083");
+    assert.equal(sent[0].data.staffName, "Stall Staff 1");
+    assert.equal(sent[0].data.locationCode, "CART-01");
+    // No notification block: the app refreshes silently.
+    assert.equal(sent[0].notification, undefined);
+    assert.equal(sent[0].android.priority, "high");
+    assert.equal(sent[0].android.collapseKey, "shift");
+  });
+
+  it("never throws when messaging is unavailable", async () => {
+    const messaging = {
+      sendEachForMulticast: async () => {
+        throw new Error("no credentials");
+      },
+    };
+    await sendShiftPush(
+      { event: "OUT", staffUid: "5A436083" },
+      { db: fakeDb([{ userId: 3, token: "token-a" }]), messaging },
+    );
+    // The tap that caused the push must not fail.
+  });
+
+  it("prunes tokens FCM reports as unregistered", async () => {
+    const deleted = [];
+    const messaging = {
+      sendEachForMulticast: async () => ({
+        successCount: 1,
+        failureCount: 1,
+        responses: [
+          { success: false, error: { code: "messaging/unregistered" } },
+          { success: true },
+        ],
+      }),
+    };
+    const db = fakeDb([{ userId: 3, token: "bad" }, { userId: 3, token: "good" }], deleted);
+    await sendShiftPush({ event: "IN", staffUid: "5A436083" }, { db, messaging });
     assert.deepEqual(deleted, [{ where: { token: { in: ["bad"] } } }]);
   });
 });
