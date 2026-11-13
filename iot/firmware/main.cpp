@@ -299,6 +299,7 @@ void setup() {
     delay(500);
   }
   Serial.println("[dbg] configTime done");
+  Serial.printf("[dbg] clock %ld\n", (long)time(nullptr));
 
   if (WiFi.status() == WL_CONNECTED) checkDeviceAuth();
 }
