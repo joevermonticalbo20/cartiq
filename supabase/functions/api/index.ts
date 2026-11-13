@@ -8585,9 +8585,17 @@ async function handleEventStream(req, origin, inUrl) {
 
   // Newest-first by numeric id (single-field index, no full scan).
   const idDesc = [{ field: "id", dir: "DESCENDING" }];
-  let lastOrderId = 0;
-  let lastAlertId = 0;
-  let lastLiveId = 0;
+  // Seed the cursors with the newest id already in the collections, so a fresh
+  // connection re-emits nothing that was already delivered to a tab earlier.
+  // Without this, every reconnect re-toasted the very first RFID registration.
+  const [orderSeed, alertSeed, liveSeed] = await Promise.all([
+    fsRunQuery("orders", { orderBy: idDesc, limit: 1 }).catch(() => []),
+    fsRunQuery("alerts", { orderBy: idDesc, limit: 1 }).catch(() => []),
+    fsRunQuery(LIVE_EVENTS_COLLECTION, { orderBy: idDesc, limit: 1 }).catch(() => []),
+  ]);
+  let lastOrderId = orderSeed.length ? Number(orderSeed[0].id) || 0 : 0;
+  let lastAlertId = alertSeed.length ? Number(alertSeed[0].id) || 0 : 0;
+  let lastLiveId = liveSeed.length ? Number(liveSeed[0].id) || 0 : 0;
   try {
     const [orders, alerts, live] = await Promise.all([
       fsRunQuery("orders", { orderBy: idDesc, limit: 1 }),
