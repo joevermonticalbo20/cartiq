@@ -88,13 +88,21 @@ void connectWifi() {
 
   // Drop any in-flight attempt first. Calling begin() while the driver is still
   // associating is rejected with "wifi:sta is connecting, cannot set config".
-  WiFi.disconnect(true);
+  // Keep the stored config (no erase): erasing it makes the radio rescan,
+  // and the scan + re-associate is a current spike this node cannot afford on
+  // a marginal USB supply.
+  WiFi.disconnect(false);
   Serial.println("[dbg] disconnect done");
   delay(200);
   WiFi.mode(WIFI_STA);
   Serial.println("[dbg] mode done");
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.println("[dbg] begin done");
+  // Lower the TX power. The router sits right next to the cart (-40 dBm), so a
+  // full-power burst buys nothing - but it DOES pull the 3.3 V rail down on a
+  // weak USB supply, and the brownout detector then reboots the node in the
+  // middle of a request ("E BOD: Brownout detector was triggered").
+  WiFi.setTxPower(WIFI_POWER_11dBm);
   Serial.printf("Connecting to Wi-Fi ssid=\"%s\"", WIFI_SSID);
 
   unsigned long start = millis();
@@ -260,6 +268,12 @@ void setup() {
   Serial.printf("CartIQ node %s (cart %s)\n", DEVICE_ID, DEVICE_CART_ID);
   Serial.printf("API base: %s\n", API_BASE_URL);
   pinMode(LED_PIN, OUTPUT);
+
+  // The cart's USB port is marginal: with the RFID reader on the 3.3 V rail
+  // the Wi-Fi start-up dip trips the brownout detector and the node reboots
+  // ("E BOD: Brownout detector was triggered"). Keep the stored config so the
+  // radio does not rescan, and turn the TX power down (the router sits right
+  // next to the cart).
 
   // SCK, MISO, MOSI. SS/CS stays -1 because the MFRC522 library drives GPIO5
   // itself. (The ESP32 core default is already -1; being explicit keeps this
