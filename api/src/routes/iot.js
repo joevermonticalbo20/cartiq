@@ -379,6 +379,24 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
           }
         }
         accepted.push({ staff_uid: uid, event, matched: user ? user.name : null });
+        // The owner wants a record when a real person clocks in or out at their
+        // cart: a SHIFT alert lands in the notification center.
+        if (user) {
+          newAlerts.push({
+            type: "SHIFT",
+            message: `${user.name} ${event === "OUT" ? "timed out" : "timed in"} at ${location.code}`,
+            payload: JSON.stringify({
+              staffId: user.id,
+              staffUid: uid,
+              event,
+              locationId: location.id,
+              locationCode: location.code,
+              ts: ts.toISOString(),
+            }),
+            locationId: location.id,
+            locationCode: location.code,
+          });
+        }
       }
 
       // ---- ID ALLOCATION (last reads of the transaction) ----

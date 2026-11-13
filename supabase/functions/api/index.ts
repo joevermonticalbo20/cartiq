@@ -5173,6 +5173,25 @@ async function handleDeviceShifts(req, _origin, device) {
         }
       }
       accepted.push({ staff_uid: uid, event, matched: user ? user.name : null });
+      // The owner wants a record when a real person clocks in or out at their
+      // cart: a SHIFT alert lands in the notification center, and the push
+      // below tells them at once.
+      if (user) {
+        newAlerts.push({
+          type: "SHIFT",
+          message: `${user.name} ${event === "OUT" ? "timed out" : "timed in"} at ${location.code}`,
+          payload: JSON.stringify({
+            staffId: user.id,
+            staffUid: uid,
+            event,
+            locationId: location.id,
+            locationCode: location.code,
+            ts: ts.toISOString(),
+          }),
+          locationId: location.id,
+          locationCode: location.code,
+        });
+      }
     }
 
     const counters = await readCounters(["shifts", "alerts"]);
