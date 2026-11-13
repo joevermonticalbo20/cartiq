@@ -83,6 +83,44 @@ export const CLAIM_EXPIRED = "expired";
  */
 export const CLAIM_UNREGISTERED = "unregistered";
 
+/**
+ * The tapped card is enrolled at another cart.
+ *
+ * A card belongs to the cart where it was enrolled: each cart has its own
+ * team, so a card enrolled at CART-01 does not work at CART-02.
+ */
+export const CLAIM_WRONG_CART = "wrong_cart";
+
+/**
+ * The cart a card is enrolled at, or null when the card is not bound to one.
+ *
+ * Stored as the cart CODE ("CART-01") next to the tag on the user row, so the
+ * check needs no extra read and the message can name the cart directly.
+ */
+export function cardLocationCode(user) {
+  const code = String(user?.rfidLocationCode ?? "").trim();
+  return code || null;
+}
+
+/**
+ * True when the card is enrolled at a different cart than the one it was
+ * tapped at. A card without a cart of its own (enrolled before carts were
+ * tracked) is free to work anywhere - never lock a staff member out on a
+ * technicality.
+ */
+export function cardBelongsToAnotherCart(user, locationCode) {
+  const enrolled = cardLocationCode(user);
+  if (!enrolled) return false;
+  return (
+    String(locationCode ?? "").trim().toUpperCase() !== enrolled.toUpperCase()
+  );
+}
+
+/** The sentence the app shows when a card is tapped at the wrong cart. */
+export function wrongCartMessage(enrolledCode) {
+  return `This card is registered at ${enrolledCode}.`;
+}
+
 /** True when the claim is still waiting for a tap. */
 export function isClaimActive(claim, now = Date.now()) {
   return Boolean(claim) && claim.exp > now && claim.status === CLAIM_PENDING;

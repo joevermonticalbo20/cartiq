@@ -347,6 +347,25 @@ void main() {
       );
     });
 
+    test('a card that belongs to another cart is reported, not enrolled', () async {
+      // Each cart has its own team: a card enrolled at CART-01 does not work
+      // at CART-02, and it is never re-registered there.
+      final api = FakeApi();
+      api.claimViews.add({
+        'status': 'wrong_cart',
+        'cardLocationCode': 'CART-01',
+      });
+      final result = await RfidRegistrationService(apiClient: api).register(
+        token: 'tok',
+        event: 'IN',
+      );
+      expect(result, isA<RfidWrongCart>());
+      expect(
+        RfidRegistrationService.describe(result, event: 'IN'),
+        contains('CART-01'),
+      );
+    });
+
     test('a card that belongs to nobody is reported, not enrolled', () async {
       // The server refuses to enrol a card during clocking: only the explicit
       // "register card" flow may attach a tag to an account.
@@ -556,6 +575,10 @@ void main() {
       expect(
         RfidRegistrationService.describe(const RfidUnregistered()),
         contains('not registered'),
+      );
+      expect(
+        RfidRegistrationService.describe(const RfidWrongCart('CART-01')),
+        contains('CART-01'),
       );
       expect(
         RfidRegistrationService.describe(const RfidFailed('boom')),

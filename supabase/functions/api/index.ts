@@ -1002,6 +1002,40 @@ const CLAIM_EXPIRED = "expired";
 // ("Time in" / "Time out"): clocking must never enrol a card, only the
 // explicit "register card" flow may do that.
 const CLAIM_UNREGISTERED = "unregistered";
+// The tapped card is enrolled at another cart. A card belongs to the cart where
+// it was enrolled: each cart has its own team, so a card enrolled at CART-01
+// does not work at CART-02.
+const CLAIM_WRONG_CART = "wrong_cart";
+
+/**
+ * The cart a card is enrolled at, or null when the card is not bound to one.
+ *
+ * Stored as the cart CODE ("CART-01") next to the tag on the user row, so the
+ * check needs no extra read and the message can name the cart directly.
+ */
+function cardLocationCode(user) {
+  const code = String(user?.rfidLocationCode ?? "").trim();
+  return code || null;
+}
+
+/**
+ * True when the card is enrolled at a different cart than the one it was
+ * tapped at. A card without a cart of its own (enrolled before carts were
+ * tracked) is free to work anywhere - never lock a staff member out on a
+ * technicality.
+ */
+function cardBelongsToAnotherCart(user, locationCode) {
+  const enrolled = cardLocationCode(user);
+  if (!enrolled) return false;
+  return (
+    String(locationCode ?? "").trim().toUpperCase() !== enrolled.toUpperCase()
+  );
+}
+
+/** The sentence the app shows when a card is tapped at the wrong cart. */
+function wrongCartMessage(enrolledCode) {
+  return `This card is registered at ${enrolledCode}.`;
+}
 
 const RFID_CLAIM_TTL_MS = 90 * 1000;
 const RFID_CLAIM_MAX = 200;
@@ -1064,6 +1098,9 @@ async function openClaim({ userId, locationId, locationCode, event }) {
     status: CLAIM_PENDING,
     rfidUid: null,
     holderName: null,
+    // The cart the tapped card is enrolled at, when the tap was refused
+    // because the card belongs to another cart. The app names it.
+    cardLocationCode: null,
     exp: new Date(now + RFID_CLAIM_TTL_MS),
     createdAt: new Date(now),
   };
@@ -1078,7 +1115,7 @@ async function getClaim(claimId) {
   return rec ? { ...rec, claimId } : null;
 }
 
-async function resolveClaim(claimId, status, rfidUid, holderName, event) {
+async function resolveClaim(claimId, status, rfidUid, holderName, event, cardLocationCode) {
   const rec = await getClaim(claimId);
   if (!rec || rec.status !== CLAIM_PENDING) return null;
   await fsPatch(CLAIM_COLLECTION, claimId, {
@@ -1086,8 +1123,16 @@ async function resolveClaim(claimId, status, rfidUid, holderName, event) {
     rfidUid: rfidUid ?? null,
     holderName: holderName ?? null,
     resolvedEvent: event ?? null,
+    cardLocationCode: cardLocationCode ?? null,
   });
-  return { ...rec, status, rfidUid, holderName, resolvedEvent: event };
+  return {
+    ...rec,
+    status,
+    rfidUid,
+    holderName,
+    resolvedEvent: event,
+    cardLocationCode: cardLocationCode ?? null,
+  };
 }
 
 async function findActiveClaimForLocation(locationId) {
@@ -1114,6 +1159,9 @@ function claimView(claim, now = Date.now()) {
     rfidUid: claim.rfidUid ?? null,
     holderName: claim.holderName ?? null,
     locationCode: claim.locationCode,
+    // The cart the card is enrolled at, when the tap was refused because the
+    // card belongs to another cart.
+    cardLocationCode: claim.cardLocationCode ?? null,
     event: claim.event ?? null,
     resolvedEvent: claim.resolvedEvent ?? null,
     expiresAt: new Date(claimExpiry(claim)).toISOString(),
@@ -4647,8 +4695,38 @@ async function bindClaimedTag({ rawUid, locationId }) {
       locationCode: claim.locationCode,
       holderName: holder.name,
       claimedBy: claim.userId,
-    });
+    }).catch(() => {});
     return { outcome: "conflict", rfidUid, holderName: holder.name };
+  }
+
+  // A card belongs to the cart where it was enrolled: each cart has its own
+  // team, so a card enrolled at CART-01 does not work at CART-02. Checked
+  // after ownership (a card that is not yours is the bigger problem), and
+  // before anything else, so the card is neither moved nor used there.
+  if (holder && cardBelongsToAnotherCart(holder, claim.locationCode)) {
+    const enrolledAt = cardLocationCode(holder);
+    await resolveClaim(
+      claim.claimId,
+      CLAIM_WRONG_CART,
+      rfidUid,
+      holder.name,
+      null,
+      enrolledAt,
+    );
+    await broadcastEvent("rfid:wrong_cart", {
+      rfidUid,
+      locationCode: claim.locationCode,
+      cardLocationCode: enrolledAt,
+      holderName: holder.name,
+      claimedBy: claim.userId,
+      event: claim.event ?? null,
+    }).catch(() => {});
+    return {
+      outcome: "wrong_cart",
+      rfidUid,
+      cardLocationCode: enrolledAt,
+      holderName: holder.name,
+    };
   }
 
   // Clocking in or out must NEVER enrol a card. The person pressed Time in /
@@ -4684,7 +4762,11 @@ async function bindClaimedTag({ rawUid, locationId }) {
   const replacedExisting = !holder && !!previousUid && previousUid !== rfidUid;
 
   if (!holder) {
-    await fsCommit([updateWrite("users", target.id, { rfidUid }, null)]);
+    // The card is enrolled at THIS cart, and that is what it remembers: a tap
+    // at another cart is refused instead of silently working there.
+    await fsCommit([
+      updateWrite("users", target.id, { rfidUid, rfidLocationCode: claim.locationCode ?? null }, null),
+    ]);
   }
   await resolveClaim(claim.claimId, CLAIM_BOUND, rfidUid, null, claim.event);
   await broadcastEvent("rfid:bound", {
@@ -4694,6 +4776,11 @@ async function bindClaimedTag({ rawUid, locationId }) {
     rfidUid,
     previousRfidUid: replacedExisting ? previousUid : null,
     locationCode: claim.locationCode,
+    // The cart the card belongs to: the one it was enrolled at. A card that
+    // was just enrolled belongs to this cart.
+    cardLocationCode: holder
+      ? cardLocationCode(holder)
+      : (claim.locationCode ?? null),
     replacedExisting,
   });
   return {
@@ -4821,6 +4908,17 @@ async function handleDeviceShifts(req, _origin, device) {
         continue;
       }
       const user = byUid.get(lookupUid(uid)) ?? null;
+      // A card belongs to the cart where it was enrolled: each cart has its
+      // own team, so a card enrolled at CART-01 does not clock in at CART-02.
+      // The tap is refused and no shift is written.
+      if (user && cardBelongsToAnotherCart(user, location.code)) {
+        rejected.push({
+          staff_uid: uid,
+          event,
+          reason: wrongCartMessage(cardLocationCode(user)),
+        });
+        continue;
+      }
       plans.push({ uid, event, ts, user });
       if (!user) {
         const dedupeKey = `unknown:${location.id}:${uid}`;
@@ -7850,10 +7948,12 @@ async function handleCreateStaff(req) {
   }
   let locationId = null;
   // Owners have full access; cart assignment and RFID are staff-only.
+  let locationCodeForRfid = null;
   if (cleanRole === "STAFF" && locationCode) {
     const loc = await fsQueryEqual("locations", "code", String(locationCode), 1).then((r) => r[0]);
     if (!loc) return { status: 404, body: { error: "Location not found" } };
     locationId = loc.id;
+    locationCodeForRfid = loc.code;
   }
   // Normalize to the form the reader emits (zero-padded uppercase hex) so a
   // later tap matches. An unparseable uid is rejected outright rather than
@@ -7881,6 +7981,9 @@ async function handleCreateStaff(req) {
       active: true,
       locationId,
       rfidUid: cleanRfid,
+      // A card belongs to the cart it was enrolled at: the card only works
+      // there. Handed-in cards are enrolled at the staff member's own cart.
+      rfidLocationCode: cleanRfid ? locationCodeForRfid : null,
       email: cleanEmail,
       createdAt: new Date(),
     };
@@ -7903,6 +8006,9 @@ async function handlePatchStaff(req, id, me) {
     return { status: 400, body: { error: "You cannot deactivate your own account" } };
   }
   const data = {};
+  // The cart the staff member works at, used to enrol a card handed in by
+  // hand (a card belongs to the cart it was enrolled at).
+  let rfidCartCode = null;
   if (active !== undefined) data.active = Boolean(active);
   if (name !== undefined) {
     const nameCheck = validateNameEdge(name, "Name", 100);
@@ -7937,15 +8043,19 @@ async function handlePatchStaff(req, id, me) {
   if (locationCode !== undefined) {
     if (locationCode === null || locationCode === "") {
       data.locationId = null;
+      rfidCartCode = null;
     } else {
       const loc = await fsQueryEqual("locations", "code", String(locationCode), 1).then((r) => r[0]);
       if (!loc) return { status: 404, body: { error: "Location not found" } };
       data.locationId = loc.id;
+      rfidCartCode = loc.code;
     }
   }
   if (rfidUid !== undefined) {
     if (rfidUid === null || String(rfidUid).trim() === "") {
       data.rfidUid = null;
+      // The card is gone: it no longer belongs to any cart.
+      data.rfidLocationCode = null;
     } else {
       const cleanRfid = cleanRfidUid(rfidUid);
       if (!cleanRfid) {
@@ -7962,6 +8072,13 @@ async function handlePatchStaff(req, id, me) {
         return { status: 409, body: { error: "RFID UID already registered" } };
       }
       data.rfidUid = cleanRfid;
+      // A card belongs to the cart it was enrolled at. A handed-in card
+      // follows the staff member's own cart; the location may have just
+      // changed in the same request, so prefer that.
+      const staffLoc = rfidCartCode
+        ? null
+        : await fsGet("locations", Number(user.locationId)).catch(() => null);
+      data.rfidLocationCode = rfidCartCode ?? staffLoc?.code ?? null;
     }
   }
   if (email !== undefined) {

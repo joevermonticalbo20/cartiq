@@ -21,6 +21,7 @@ import {
   CLAIM_EXPIRED,
   CLAIM_PENDING,
   CLAIM_UNREGISTERED,
+  CLAIM_WRONG_CART,
   RFID_CLAIM_MAX,
   RFID_CLAIM_TTL_MS,
   isClaimActive,
@@ -67,6 +68,9 @@ export function openClaim({ userId, locationId, locationCode, event }) {
     resolvedEvent: null,
     status: CLAIM_PENDING,
     rfidUid: null,
+    // The cart the tapped card is enrolled at, when the tap was refused
+    // because the card belongs to another cart. The app names it.
+    cardLocationCode: null,
     createdAt: Date.now(),
     exp,
   });
@@ -84,8 +88,17 @@ export function getClaim(claimId) {
  * [holderName] is set on a conflict so the app can say whose card it was
  * instead of showing a bare "already registered".
  * [event] is the shift that was actually written, which is what the app toasts.
+ * [cardLocationCode] is the cart the card is enrolled at, for a refusal
+ * because the card belongs to another cart.
  */
-export function resolveClaim(claimId, status, rfidUid, holderName, event) {
+export function resolveClaim(
+  claimId,
+  status,
+  rfidUid,
+  holderName,
+  event,
+  cardLocationCode,
+) {
   pruneClaims();
   const rec = _claims.get(claimId);
   if (!rec || rec.status !== CLAIM_PENDING) return null;
@@ -93,6 +106,7 @@ export function resolveClaim(claimId, status, rfidUid, holderName, event) {
   rec.rfidUid = rfidUid ?? null;
   rec.holderName = holderName ?? null;
   rec.resolvedEvent = event ?? null;
+  rec.cardLocationCode = cardLocationCode ?? null;
   return rec;
 }
 
@@ -125,6 +139,9 @@ export function claimView(claim, now = Date.now()) {
     rfidUid: claim.rfidUid,
     holderName: claim.holderName ?? null,
     locationCode: claim.locationCode,
+    // The cart the card is enrolled at, when the tap was refused because the
+    // card belongs to another cart.
+    cardLocationCode: claim.cardLocationCode ?? null,
     // What was asked for, and what the shift log actually recorded. They can
     // differ if the tap was rejected, so the app toasts resolvedEvent, not this.
     event: claim.event ?? null,
@@ -138,4 +155,4 @@ export function resetClaims() {
   _claims.clear();
 }
 
-export { CLAIM_BOUND, CLAIM_CONFLICT, CLAIM_EXPIRED, CLAIM_PENDING, CLAIM_UNREGISTERED };
+export { CLAIM_BOUND, CLAIM_CONFLICT, CLAIM_EXPIRED, CLAIM_PENDING, CLAIM_UNREGISTERED, CLAIM_WRONG_CART };

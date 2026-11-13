@@ -5,7 +5,13 @@ import { requireDevice } from "../middleware/device.js";
 import { manilaDayRange, manilaDayStart } from "../services/timezone.js";
 import { lowStockDedupeKey, shouldOpenLowStockAlert } from "../services/low_stock_alert.js";
 import { notifyAssignedStaffOfLowStock } from "../services/staff_low_stock_notify.js";
-import { lookupUid, normalizeRfidUid } from "../services/rfid.js";
+import {
+  cardBelongsToAnotherCart,
+  cardLocationCode,
+  lookupUid,
+  normalizeRfidUid,
+  wrongCartMessage,
+} from "../services/rfid.js";
 import { readTimeClock, timeClockVerdict } from "../services/time_clock.js";
 import { CLAIM_BOUND, resolveClaim } from "../services/rfid_claims.js";
 import { bindClaimedTag } from "../services/rfid_bind.js";
@@ -312,6 +318,17 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
           continue;
         }
         const user = byUid.get(lookupUid(uid)) ?? null;
+        // A card belongs to the cart where it was enrolled: each cart has its
+        // own team, so a card enrolled at CART-01 does not clock in at
+        // CART-02. The tap is refused and no shift is written.
+        if (user && cardBelongsToAnotherCart(user, location.code)) {
+          rejected.push({
+            staff_uid: uid,
+            event,
+            reason: wrongCartMessage(cardLocationCode(user)),
+          });
+          continue;
+        }
         plans.push({ uid, event, ts, user });
         if (!user) {
           const dedupeKey = `unknown:${location.id}:${uid}`;

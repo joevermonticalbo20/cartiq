@@ -51,6 +51,20 @@ export function formatRfidUnregistered(data) {
 }
 
 /**
+ * `rfid:wrong_cart` - a card that belongs to another cart was tapped here.
+ *
+ * Each cart has its own team, so a card enrolled at CART-01 does not work at
+ * CART-02. The owner hears about it instead of wondering why a card stopped
+ * working at one stall.
+ */
+export function formatRfidWrongCart(data) {
+  const home = data?.cardLocationCode ?? "another cart";
+  const cart = data?.locationCode ?? "this cart";
+  const holder = data?.holderName ? ` (${data.holderName})` : "";
+  return `Card ${data?.rfidUid ?? "unknown"}${holder} belongs to ${home} - it does not work at ${cart}`;
+}
+
+/**
  * Mount once in the app shell.
  *
  * [onChange] is called after every binding change so a page holding a staff
@@ -81,8 +95,13 @@ export function useRfidEvents({ onChange } = {}) {
     toast(formatRfidUnregistered(data), "warn");
   }, []);
 
+  const handleWrongCart = useCallback((data) => {
+    toast(formatRfidWrongCart(data), "warn");
+  }, []);
+
   useLiveEvent("rfid:bound", handleBound);
   useLiveEvent("rfid:unbound", handleUnbound);
   useLiveEvent("rfid:conflict", handleConflict);
   useLiveEvent("rfid:unregistered", handleUnregistered);
+  useLiveEvent("rfid:wrong_cart", handleWrongCart);
 }

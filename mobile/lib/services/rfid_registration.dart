@@ -37,6 +37,16 @@ class RfidUnregistered extends RfidClaimResult {
   const RfidUnregistered();
 }
 
+/// The card is enrolled at another cart.
+///
+/// A card belongs to the cart where it was enrolled: each cart has its own
+/// team, so a card enrolled at CART-01 does not work at CART-02.
+/// [cardLocationCode] is the cart it belongs to, so the app can name it.
+class RfidWrongCart extends RfidClaimResult {
+  const RfidWrongCart(this.cardLocationCode);
+  final String cardLocationCode;
+}
+
 /// Nobody tapped before the window closed.
 class RfidExpired extends RfidClaimResult {
   const RfidExpired();
@@ -169,6 +179,10 @@ class RfidRegistrationService {
             // refused to enrol it, so the app says so instead of pretending
             // the shift was recorded.
             return const RfidUnregistered();
+          case 'wrong_cart':
+            // The card is enrolled at another cart. It does not work here, so
+            // the app names the cart it belongs to.
+            return RfidWrongCart(view['cardLocationCode'] as String? ?? '');
           case 'expired':
             return const RfidExpired();
           case 'pending':
@@ -228,6 +242,10 @@ class RfidRegistrationService {
             : 'That card already belongs to $holderName.';
       case RfidUnregistered():
         return 'This card is not registered yet - register it in Settings first.';
+      case RfidWrongCart(:final cardLocationCode):
+        return cardLocationCode.isEmpty
+            ? 'That card belongs to another cart.'
+            : 'That card is registered at $cardLocationCode.';
       case RfidExpired():
         return 'No card tapped in time.';
       case RfidNoShift():

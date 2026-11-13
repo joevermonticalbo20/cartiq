@@ -7,14 +7,19 @@
 
 import { db as prisma } from "../firestore.js";
 import { emit } from "../routes/events.js";
-import { normalizeRfidUid } from "./rfid.js";
 import {
   CLAIM_BOUND,
   CLAIM_CONFLICT,
   CLAIM_UNREGISTERED,
+  CLAIM_WRONG_CART,
   findActiveClaimForLocation,
   resolveClaim,
 } from "./rfid_claims.js";
+import {
+  cardBelongsToAnotherCart,
+  cardLocationCode,
+  normalizeRfidUid,
+} from "./rfid.js";
 
 /**
  * Try to satisfy the live claim on [locationId] using the tapped tag [rawUid].
@@ -25,6 +30,7 @@ import {
  *   { outcome: "bound",        rfidUid, userId, name, username, locationCode }
  *   { outcome: "conflict",     rfidUid, holderName }   tag belongs to someone else
  *   { outcome: "unregistered", rfidUid }               tag belongs to nobody
+ *   { outcome: "wrong_cart",   rfidUid, cardLocationCode } tag belongs to another cart
  *   { outcome: "error",        message }               claim target vanished
  *
  * Safe to call with a tag that is already registered: re-tapping your own card
@@ -54,6 +60,36 @@ export async function bindClaimedTag({ rawUid, locationId }) {
       claimedBy: claim.userId,
     });
     return { outcome: "conflict", rfidUid, holderName: holder.name };
+  }
+
+  // A card belongs to the cart where it was enrolled: each cart has its own
+  // team, so a card enrolled at CART-01 does not work at CART-02. Checked
+  // after ownership (a card that is not yours is the bigger problem), and
+  // before anything else, so the card is neither moved nor used there.
+  if (holder && cardBelongsToAnotherCart(holder, claim.locationCode)) {
+    const enrolledAt = cardLocationCode(holder);
+    resolveClaim(
+      claim.claimId,
+      CLAIM_WRONG_CART,
+      rfidUid,
+      holder.name,
+      null,
+      enrolledAt,
+    );
+    emit("rfid:wrong_cart", {
+      rfidUid,
+      locationCode: claim.locationCode,
+      cardLocationCode: enrolledAt,
+      holderName: holder.name,
+      claimedBy: claim.userId,
+      event: claim.event ?? null,
+    });
+    return {
+      outcome: "wrong_cart",
+      rfidUid,
+      cardLocationCode: enrolledAt,
+      holderName: holder.name,
+    };
   }
 
   // Clocking in or out must NEVER enrol a card. The person pressed Time in /
@@ -90,7 +126,12 @@ export async function bindClaimedTag({ rawUid, locationId }) {
   const replacedExisting = !holder && Boolean(previousUid) && previousUid !== rfidUid;
 
   if (!holder) {
-    await prisma.user.update({ where: { id: target.id }, data: { rfidUid } });
+    // The card is enrolled at THIS cart, and that is what it remembers: a tap
+    // at another cart is refused instead of silently working there.
+    await prisma.user.update({
+      where: { id: target.id },
+      data: { rfidUid, rfidLocationCode: claim.locationCode ?? null },
+    });
   }
   resolveClaim(claim.claimId, CLAIM_BOUND, rfidUid, null, claim.event);
   emit("rfid:bound", {
@@ -100,6 +141,11 @@ export async function bindClaimedTag({ rawUid, locationId }) {
     rfidUid,
     previousRfidUid: replacedExisting ? previousUid : null,
     locationCode: claim.locationCode,
+    // The cart the card belongs to: the one it was enrolled at. A card that
+    // was just enrolled belongs to this cart.
+    cardLocationCode: holder
+      ? cardLocationCode(holder)
+      : (claim.locationCode ?? null),
     replacedExisting,
   });
   return {

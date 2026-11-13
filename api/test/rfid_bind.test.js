@@ -11,14 +11,27 @@ import {
   CLAIM_BOUND,
   CLAIM_CONFLICT,
   CLAIM_UNREGISTERED,
+  CLAIM_WRONG_CART,
 } from "../src/services/rfid.js";
 import { getClaim, openClaim, resetClaims } from "../src/services/rfid_claims.js";
 import { bindClaimedTag } from "../src/services/rfid_bind.js";
 
 // A tiny in-memory stand-in for the users table.
 const users = [
-  { id: 2, name: "Stall Staff 1", username: "staff01", rfidUid: "3A20704F" },
-  { id: 4, name: "Stall Staff 3", username: "staff03", rfidUid: "06C4D5E6" },
+  {
+    id: 2,
+    name: "Stall Staff 1",
+    username: "staff01",
+    rfidUid: "3A20704F",
+    rfidLocationCode: "CART-01",
+  },
+  {
+    id: 4,
+    name: "Stall Staff 3",
+    username: "staff03",
+    rfidUid: "06C4D5E6",
+    rfidLocationCode: "CART-03",
+  },
 ];
 
 const originalUser = prisma.user;
@@ -33,7 +46,12 @@ prisma.user = {
   },
   async update({ where, data }) {
     const user = users.find((u) => u.id === where.id);
-    if (user) user.rfidUid = data.rfidUid;
+    if (user) {
+      if (data.rfidUid !== undefined) user.rfidUid = data.rfidUid;
+      if (data.rfidLocationCode !== undefined) {
+        user.rfidLocationCode = data.rfidLocationCode;
+      }
+    }
     return user;
   },
 };
@@ -41,7 +59,9 @@ prisma.user = {
 function reset() {
   resetClaims();
   users[0].rfidUid = "3A20704F";
+  users[0].rfidLocationCode = "CART-01";
   users[1].rfidUid = "06C4D5E6";
+  users[1].rfidLocationCode = "CART-03";
 }
 
 test("clocking in with a card nobody owns does NOT register it", async () => {
@@ -131,6 +151,91 @@ test("clocking in with your own card logs the shift and enrols nothing", async (
   assert.equal(result.outcome, "bound");
   assert.equal(result.desiredEvent, "IN", "the tap route uses this for the shift");
   assert.equal(users[0].rfidUid, "3A20704F");
+  assert.equal(getClaim(claim.claimId).status, CLAIM_BOUND);
+});
+
+test("a card belongs to the cart it was enrolled at", async () => {
+  reset();
+  // Stall Staff 1's card is enrolled at CART-01. At CART-02 the same card
+  // must not work - and must certainly not be (re)registered there.
+  const claim = openClaim({
+    userId: 2,
+    locationId: 2,
+    locationCode: "CART-02",
+    event: "IN",
+  });
+
+  const result = await bindClaimedTag({ rawUid: "3A20704F", locationId: 2 });
+
+  assert.equal(result.outcome, "wrong_cart");
+  assert.equal(result.cardLocationCode, "CART-01");
+  assert.equal(
+    users[0].rfidUid,
+    "3A20704F",
+    "the card stays where it is",
+  );
+  assert.equal(
+    getClaim(claim.claimId).status,
+    CLAIM_WRONG_CART,
+    "the app is told which cart the card belongs to",
+  );
+  assert.equal(
+    getClaim(claim.claimId).cardLocationCode,
+    "CART-01",
+    "the app names the cart",
+  );
+});
+
+test("enrolling at another cart is refused too", async () => {
+  reset();
+  const claim = openClaim({
+    userId: 2,
+    locationId: 2,
+    locationCode: "CART-02",
+  });
+
+  const result = await bindClaimedTag({ rawUid: "3A20704F", locationId: 2 });
+
+  assert.equal(result.outcome, "wrong_cart");
+  assert.equal(users[0].rfidUid, "3A20704F");
+  assert.equal(users[0].rfidLocationCode, "CART-01");
+  assert.equal(getClaim(claim.claimId).status, CLAIM_WRONG_CART);
+});
+
+test("a card with no cart of its own still works anywhere", async () => {
+  reset();
+  // Enrolled before carts were tracked: never lock a staff member out on a
+  // technicality.
+  users[0].rfidLocationCode = null;
+  const claim = openClaim({
+    userId: 2,
+    locationId: 2,
+    locationCode: "CART-02",
+    event: "IN",
+  });
+
+  const result = await bindClaimedTag({ rawUid: "3A20704F", locationId: 2 });
+
+  assert.equal(result.outcome, "bound");
+  assert.equal(getClaim(claim.claimId).status, CLAIM_BOUND);
+});
+
+test("a fresh card is enrolled at the cart where it was tapped", async () => {
+  reset();
+  const claim = openClaim({
+    userId: 2,
+    locationId: 2,
+    locationCode: "CART-02",
+  });
+
+  await bindClaimedTag({ rawUid: "DEADBEEF", locationId: 2 });
+
+  assert.equal(users[0].rfidUid, "DEADBEEF");
+  assert.equal(
+    users[0].rfidLocationCode,
+    "CART-02",
+    "the card now belongs to CART-02",
+  );
   assert.equal(getClaim(claim.claimId).status, CLAIM_BOUND);
 });
 
