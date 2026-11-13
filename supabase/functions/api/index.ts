@@ -1288,7 +1288,7 @@ async function claimDeviceOnline(locationId) {
 async function broadcastEvent(event, data) {
   try {
     const counters = await readCounters(["liveEvents"]);
-    const { ids } = counterWritesFor(counters, { liveEvents: 1 });
+    const { ids, writes } = counterWritesFor(counters, { liveEvents: 1 });
     await fsCommit([
       createWrite(LIVE_EVENTS_COLLECTION, ids.liveEvents[0], {
         id: ids.liveEvents[0],
@@ -1296,6 +1296,7 @@ async function broadcastEvent(event, data) {
         payload: JSON.stringify(data),
         createdAt: new Date(),
       }),
+      ...writes,
     ]);
   } catch {
     // A missed live event must never fail the request that caused it: the
