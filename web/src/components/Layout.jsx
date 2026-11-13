@@ -23,6 +23,7 @@ import ConfirmDialog from "./ConfirmDialog.jsx";
 import { useLiveStream } from "../hooks/useLiveStream.js";
 import { useOrderNotifications } from "../hooks/useOrderNotifications.js";
 import { useRfidEvents } from "../hooks/useRfidEvents.js";
+import { useShiftNotices } from "../hooks/useShiftNotices.js";
 import { useOrderSound } from "../hooks/useOrderSound.js";
 import NotificationBell from "./NotificationBell.jsx";
 
@@ -71,6 +72,9 @@ export default function Layout() {
   // Card registrations happen on a phone at the cart, so the dashboard is where
   // the owner needs to see them land.
   useRfidEvents();
+  // Same for a time in / time out: the tap happens on a phone the owner is not
+  // holding, so the dashboard says it out loud.
+  useShiftNotices();
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem("cartiq_sidebar_collapsed") === "1"
   );

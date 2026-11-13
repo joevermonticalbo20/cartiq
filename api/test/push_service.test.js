@@ -1,10 +1,21 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { sendTargetedPush, sendCatalogPush, sendShiftPush, CATALOG_PUSH_TYPE, __pushTestHelpers } from "../src/services/push.js";
+import { sendTargetedPush, sendCatalogPush, sendShiftPush, pushToOwners, CATALOG_PUSH_TYPE, __pushTestHelpers } from "../src/services/push.js";
 
 function fakeDb(rows, deleted = []) {
   return {
+    user: {
+      // Mirrors the real filter: only owners, and only active ones.
+      findMany: async ({ where } = {}) => {
+        const all = [
+          { id: 1, role: "OWNER", active: true },
+          { id: 23, role: "OWNER", active: false },
+          { id: 2, role: "STAFF", active: true },
+        ];
+        return all.filter((u) => !where?.role || u.role === where.role);
+      },
+    },
     pushTokens: {
       findMany: async () => rows,
       deleteMany: async (args) => {
@@ -246,5 +257,70 @@ describe("push service (card tapped)", () => {
     const db = fakeDb([{ userId: 3, token: "bad" }, { userId: 3, token: "good" }], deleted);
     await sendShiftPush({ event: "IN", staffUid: "5A436083" }, { db, messaging });
     assert.deepEqual(deleted, [{ where: { token: { in: ["bad"] } } }]);
+  });
+});
+
+describe("push service (owner notices)", () => {
+  it("tells the owners, and only the owners, that somebody clocked in", async () => {
+    const sent = [];
+    const messaging = {
+      sendEachForMulticast: async (message) => {
+        sent.push(message);
+        return {
+          successCount: message.tokens.length,
+          failureCount: 0,
+          responses: message.tokens.map(() => ({ success: true })),
+        };
+      },
+    };
+    await pushToOwners(
+      {
+        title: "Time in",
+        body: "Stall Staff 1 timed in at CART-01",
+        data: { event: "IN", locationCode: "CART-01" },
+      },
+      {
+        db: fakeDb([
+          { userId: 1, token: "owner-a" },
+          { userId: 23, token: "owner-b" },
+          { userId: 2, token: "staff-phone" },
+        ]),
+        messaging,
+      },
+    );
+    assert.equal(sent.length, 1);
+    // The staff phone is not told about its own tap; the disabled owner
+    // account is skipped.
+    assert.deepEqual(sent[0].tokens, ["owner-a"]);
+    assert.equal(sent[0].data.type, "OWNER_NOTICE");
+    assert.equal(sent[0].data.body, "Stall Staff 1 timed in at CART-01");
+    // Unlike the staff signals this one is a real notification: the owner may
+    // have the phone in their pocket.
+    assert.equal(sent[0].notification.title, "Time in");
+    assert.equal(sent[0].notification.body, "Stall Staff 1 timed in at CART-01");
+    assert.equal(sent[0].android.priority, "high");
+  });
+
+  it("never throws when messaging is unavailable", async () => {
+    const messaging = {
+      sendEachForMulticast: async () => {
+        throw new Error("no credentials");
+      },
+    };
+    await pushToOwners(
+      { title: "Time out", body: "Stall Staff 1 timed out at CART-01" },
+      { db: fakeDb([{ userId: 1, token: "owner-a" }]), messaging },
+    );
+    // The shift that caused it must not fail.
+  });
+
+  it("says nothing when no owner device is registered", async () => {
+    let called = false;
+    const messaging = { sendEachForMulticast: async () => { called = true; } };
+    await pushToOwners(
+      { title: "Time in", body: "x" },
+      { db: fakeDb([{ userId: 2, token: "staff-phone" }]), messaging },
+    );
+    assert.equal(called, false);
   });
 });

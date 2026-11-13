@@ -82,6 +82,14 @@ class AuthState extends ChangeNotifier {
       await refreshMyShifts();
       dataRefresh?.bump('shift');
     };
+    // An OWNER notice: a staff member timed in or out at a cart, or a card was
+    // registered. Said out loud, because the owner is usually not looking at
+    // the dashboard when it happens.
+    push.onOwnerNotice = (message) async {
+      dataRefresh?.bump('notice', message, true);
+      // Somebody clocked in or out somewhere: the staff list is stale now.
+      refreshMyShifts().catchError((_) {});
+    };
   }
 
   bool get isLoggedIn => token != null;

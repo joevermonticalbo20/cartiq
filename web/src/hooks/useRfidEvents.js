@@ -28,8 +28,8 @@ export function formatRfidBound(data) {
   const swap = data?.replacedExisting
     ? ` (replaced ${data.previousRfidUid ?? "their previous card"})`
     : "";
-  const where = cart ? ` on ${cart}` : "";
-  return `${who} registered card ${uid}${where}${swap}`;
+  const where = cart ? ` at ${cart}` : "";
+  return `Card registered - ${who} - ${uid}${where}${swap}`;
 }
 
 /** `rfid:conflict` - somebody tapped a card that already has an owner. */

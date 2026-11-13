@@ -651,6 +651,80 @@ const PUSH_ALERT_TYPES = new Set(["VOID_DECISION", "RESTOCK_UPDATE", "LOW_STOCK_
 const CATALOG_PUSH_TYPE = "CATALOG_CHANGED";
 
 /**
+ * Tell the owners and admins, on their own phones, that something happened at
+ * a cart.
+ *
+ * The staff member's phone is NOT told: the tap they made is their own
+ * business. The owner wants to know who clocked in at which cart, and that the
+ * card they registered actually landed.
+ *
+ * This one carries a notification block (title + body), so it shows up even
+ * when the owner's phone is in their pocket. The app turns it into a toast
+ * while it is open.
+ */
+async function pushToOwners({ title, body, data = {} }: { title: string; body: string; data?: Record<string, unknown> }) {
+  try {
+    const users = await fsListAll("users");
+    const ownerIds = new Set(
+      users
+        .filter((u) => String(u?.role ?? "").toUpperCase() === "OWNER" && u?.active !== false)
+        .map((u) => Number(u.id)),
+    );
+    if (!ownerIds.size) return;
+    const rows = await fsListAll("pushTokens");
+    const tokens = rows
+      .filter((row) => ownerIds.has(Number(row?.userId)))
+      .map((row) => (typeof row?.token === "string" ? row.token.trim() : ""))
+      .filter((token) => token && token.length <= 4096);
+    if (!tokens.length) return;
+    const accessToken = await googleAccessToken("https://www.googleapis.com/auth/firebase.messaging");
+    for (const token of tokens) {
+      try {
+        const res = await fetch(
+          "https://fcm.googleapis.com/v1/projects/" + getProjectId() + "/messages:send",
+          {
+            method: "POST",
+            headers: {
+              Authorization: "Bearer " + accessToken,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              message: {
+                token,
+                notification: { title: String(title).slice(0, 120), body: String(body).slice(0, 400) },
+                data: { type: "OWNER_NOTICE", title: String(title).slice(0, 120), body: String(body).slice(0, 400), ...data },
+                android: {
+                  collapse_key: "owner_notice",
+                  priority: "high",
+                  notification: {
+                    channel_id: FCM_CHANNEL_ID,
+                    tag: "cartiq-owner-notice",
+                    visibility: "public",
+                    click_action: "FLUTTER_NOTIFICATION_CLICK",
+                  },
+                },
+              },
+            }),
+          },
+        );
+        if (!res.ok) {
+          let detail = "";
+          try { detail = await res.text(); } catch { /* detail is best-effort */ }
+          if (/UNREGISTERED|NOT_FOUND|invalid-argument|registration-token-not-registered/i.test(detail)) {
+            const row = rows.find((r) => r.token === token);
+            if (row?._name) await fsDeleteByName(row._name).catch(() => {});
+          }
+        }
+      } catch {
+        // Best-effort: the dashboard still shows it.
+      }
+    }
+  } catch {
+    // Push must never fail the thing that caused it.
+  }
+}
+
+/**
  * Send a DATA-ONLY push to every registered device.
  *
  * Data-only means Android stays silent: the app decides what to do with it (a
@@ -4897,7 +4971,13 @@ async function bindClaimedTag({ rawUid, locationId }) {
       ? cardLocationCode(holder)
       : (claim.locationCode ?? null),
     replacedExisting,
-  });
+  }).catch(() => {});
+  // The owner registered a card: tell them it landed, on their own phone.
+  await pushToOwners({
+    title: "Card registered",
+    body: `${target.name} registered card ${rfidUid} at ${claim.locationCode}`,
+    data: { rfidUid, staffName: target.name, locationCode: claim.locationCode },
+  }).catch(() => {});
   return {
     outcome: "bound",
     rfidUid,
@@ -5143,6 +5223,14 @@ async function handleDeviceShifts(req, _origin, device) {
       staffName: acc.matched ?? null,
       locationCode: location.code,
     }).catch(() => {});
+    // The owner wants to know who clocked in at which cart, right away.
+    if (acc.matched) {
+      await pushToOwners({
+        title: acc.event === "OUT" ? "Time out" : "Time in",
+        body: `${acc.matched} ${acc.event === "OUT" ? "timed out" : "timed in"} at ${location.code}`,
+        data: { event: acc.event, staffName: acc.matched, locationCode: location.code },
+      }).catch(() => {});
+    }
   }
   for (const rej of outcome.rejected) {
     await broadcastEvent("shift:new", {

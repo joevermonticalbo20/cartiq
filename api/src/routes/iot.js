@@ -20,7 +20,7 @@ import {
 import { readTimeClock, timeClockVerdict } from "../services/time_clock.js";
 import { CLAIM_BOUND, resolveClaim } from "../services/rfid_claims.js";
 import { bindClaimedTag } from "../services/rfid_bind.js";
-import { sendShiftPush } from "../services/push.js";
+import { sendShiftPush, pushToOwners } from "../services/push.js";
 import { emit } from "./events.js";
 
 const router = Router();
@@ -448,6 +448,18 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
         locationCode: location.code,
         status,
       });
+      // The owner wants to know who clocked in at which cart, right away.
+      if (acc.matched) {
+        await pushToOwners({
+          title: acc.event === "OUT" ? "Time out" : "Time in",
+          body: `${acc.matched} ${acc.event === "OUT" ? "timed out" : "timed in"} at ${location.code}`,
+          data: {
+            event: acc.event,
+            staffName: acc.matched,
+            locationCode: location.code,
+          },
+        });
+      }
     }
     for (const rej of outcome.rejected) {
       emit("shift:new", {

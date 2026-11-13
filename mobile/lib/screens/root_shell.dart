@@ -117,7 +117,22 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
     if (!mounted) return;
     final message = _bus?.lastMessage;
     if (message == null || message.isEmpty) return;
-    if (_bus?.lastReason != 'shift') return;
+    final reason = _bus?.lastReason;
+    // A refused tap is a warning; an owner notice (somebody timed in or out at
+    // a cart) is good news and reads in green.
+    if (reason == 'notice') {
+      final ok = _bus?.lastMessageIsSuccess ?? true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        AppMessenger.showGlassToast(
+          context: context,
+          message: message,
+          isSuccess: ok,
+        );
+      });
+      return;
+    }
+    if (reason != 'shift') return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       AppMessenger.showGlassToast(

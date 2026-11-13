@@ -144,6 +144,54 @@ void main() {
       expect(bus.lastMessage, 'You already timed in today at 5:23 PM.');
     });
 
+    test('recognises the owner notice', () {
+      expect(isOwnerNotice({'type': 'OWNER_NOTICE'}), isTrue);
+      expect(isOwnerNotice({'type': 'owner_notice'}), isTrue);
+      expect(isOwnerNotice({'type': 'SHIFT'}), isFalse);
+      expect(
+        ownerNoticeMessage({
+          'type': 'OWNER_NOTICE',
+          'body': 'Stall Staff 1 timed in at CART-01',
+        }),
+        'Stall Staff 1 timed in at CART-01',
+      );
+    });
+
+    test('an owner notice is said out loud', () async {
+      final service = CartIQPushService();
+      final said = <String>[];
+      service.onOwnerNotice = (message) async {
+        said.add(message);
+      };
+
+      await service.handleForegroundMessage(
+        const RemoteMessage(
+          data: {
+            'type': 'OWNER_NOTICE',
+            'title': 'Time in',
+            'body': 'Stall Staff 1 timed in at CART-01',
+          },
+        ),
+      );
+
+      expect(said, ['Stall Staff 1 timed in at CART-01']);
+    });
+
+    test('an owner notice reaches the screens', () async {
+      final bus = DataRefresh();
+      final auth = AuthState(
+        apiClient: FakeApi(),
+        secureStorage: FakeStore(),
+        dataRefresh: bus,
+      );
+
+      await auth.push.onOwnerNotice?.call('Stall Staff 1 timed in at CART-01');
+
+      expect(bus.lastReason, 'notice');
+      expect(bus.lastMessage, 'Stall Staff 1 timed in at CART-01');
+      expect(bus.lastMessageIsSuccess, isTrue);
+    });
+
     test('a tap on an unregistered card is silent', () async {
       final bus = DataRefresh();
       final auth = AuthState(

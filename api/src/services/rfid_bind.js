@@ -7,6 +7,7 @@
 
 import { db as prisma } from "../firestore.js";
 import { emit } from "../routes/events.js";
+import { pushToOwners } from "./push.js";
 import {
   CLAIM_ALREADY_REGISTERED,
   CLAIM_BOUND,
@@ -173,6 +174,16 @@ export async function bindClaimedTag({ rawUid, locationId }) {
       ? cardLocationCode(holder)
       : (claim.locationCode ?? null),
     replacedExisting,
+  });
+  // The owner registered a card: tell them it landed, on their own phone.
+  await pushToOwners({
+    title: "Card registered",
+    body: `${target.name} registered card ${rfidUid} at ${claim.locationCode}`,
+    data: {
+      rfidUid,
+      staffName: target.name,
+      locationCode: claim.locationCode,
+    },
   });
   return {
     outcome: "bound",

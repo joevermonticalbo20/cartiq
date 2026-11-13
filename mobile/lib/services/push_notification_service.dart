@@ -47,6 +47,26 @@ String shiftStatusOf(Map<String, dynamic> data) {
 String shiftReasonOf(Map<String, dynamic> data) =>
     (data['reason'] ?? '').toString().trim();
 
+/// The push an OWNER gets when something happens at a cart: a staff member
+/// timed in or out, or a card was registered.
+///
+/// Unlike the staff-side signals this one already carries the sentence to show
+/// ("Stall Staff 1 timed in at CART-01"), so the app does not have to rebuild
+/// it from ids.
+const String ownerNoticePushType = 'OWNER_NOTICE';
+
+/// True when this message is a notice for the owner/admin account.
+bool isOwnerNotice(Map<String, dynamic> data) =>
+    (data['type'] ?? '').toString().toUpperCase() == ownerNoticePushType;
+
+/// The sentence an owner notice should say, e.g. "Stall Staff 1 timed in at
+/// CART-01". Empty when the push carried none.
+String ownerNoticeMessage(Map<String, dynamic> data) {
+  final body = (data['body'] ?? '').toString().trim();
+  if (body.isNotEmpty) return body;
+  return (data['message'] ?? '').toString().trim();
+}
+
 /// Server-side FCM metadata for one CartIQ alert. The backend stores the
 /// same values in the targeted-alert payload so a tap can refresh the list,
 /// not merely acknowledge a local notification.
@@ -99,6 +119,11 @@ class CartIQPushService {
   /// a price or recipe edited, stock adjusted). The app reloads its catalog:
   /// the vendor must stop selling a product the owner just pulled.
   Future<void> Function()? onCatalogChanged;
+
+  /// Invoked when an OWNER notice arrives: a staff member timed in or out at a
+  /// cart, or a card was registered. The app says it out loud - the owner is
+  /// usually not looking at the dashboard.
+  Future<void> Function(String message)? onOwnerNotice;
 
   /// Invoked when a card was tapped on the reader. The app reflects the tap
   /// right away - the tap is the whole point of the reader, so it must show
@@ -234,6 +259,14 @@ class CartIQPushService {
     }
     if (isShiftEvent(message.data)) {
       await onShiftEvent?.call(message.data);
+      return;
+    }
+    if (isOwnerNotice(message.data)) {
+      // The owner sees this while the app is open: say it. No extra local
+      // notification on top - the toast is already the news, and the push's
+      // own notification block covers the app being closed.
+      final text = ownerNoticeMessage(message.data);
+      if (text.isNotEmpty) await onOwnerNotice?.call(text);
       return;
     }
     await _showForeground(message);

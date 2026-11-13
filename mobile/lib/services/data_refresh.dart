@@ -14,6 +14,7 @@ class DataRefresh extends ChangeNotifier {
   int _version = 0;
   String? _lastReason;
   String? _lastMessage;
+  bool _lastMessageIsSuccess = false;
 
   /// Increments on every [bump]. Screens may use it to ignore a reload they
   /// triggered themselves, avoiding a request loop.
@@ -26,15 +27,20 @@ class DataRefresh extends ChangeNotifier {
   /// "Time out is only open 16:30-16:40"). Null when there is nothing to say.
   String? get lastMessage => _lastMessage;
 
+  /// Whether [lastMessage] is good news (a recorded tap, a staff member who
+  /// clocked in) or bad (a refused tap). Decides the colour of the toast.
+  bool get lastMessageIsSuccess => _lastMessageIsSuccess;
+
   /// Signal that server-side data changed.
   ///
   /// [message] rides along with the signal so a service (a push handler, for
   /// example) can tell the screen what happened without needing a BuildContext
   /// of its own.
-  void bump([String? reason, String? message]) {
+  void bump([String? reason, String? message, bool messageIsSuccess = false]) {
     _version++;
     _lastReason = reason;
     _lastMessage = message;
+    _lastMessageIsSuccess = message != null && messageIsSuccess;
     notifyListeners();
   }
 }

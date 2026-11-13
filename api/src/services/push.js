@@ -263,3 +263,70 @@ export async function sendCatalogPush(
     // Never let push delivery affect the API mutation.
   }
 }
+
+/**
+ * Tell the owners and admins, on their own phones, that something happened at
+ * a cart.
+ *
+ * The staff member's phone is NOT told: the tap they made is their own
+ * business. The owner wants to know who clocked in at which cart, and that the
+ * card they registered actually landed.
+ *
+ * This one carries a notification block (title + body), so it shows up even
+ * when the owner's phone is in their pocket. The app turns it into a toast
+ * while it is open.
+ */
+export async function pushToOwners(
+  { title, body, data = {} } = {},
+  { db = prisma, messaging = undefined } = {},
+) {
+  try {
+    const owners = await db.user.findMany({ where: { role: "OWNER" } });
+    const ownerIds = new Set(
+      owners
+        .filter((u) => u.active !== false)
+        .map((u) => Number(u.id)),
+    );
+    if (!ownerIds.size) return;
+    const rows = await db.pushTokens.findMany({});
+    const tokens = rows
+      .filter((row) => ownerIds.has(Number(row?.userId)))
+      .map((row) => cleanToken(row?.token))
+      .filter(Boolean);
+    if (!tokens.length) return;
+
+    const cleanTitle = String(title ?? "").slice(0, 120);
+    const cleanBody = String(body ?? "").slice(0, 400);
+    const message = {
+      tokens,
+      notification: { title: cleanTitle, body: cleanBody },
+      data: { type: "OWNER_NOTICE", title: cleanTitle, body: cleanBody, ...data },
+      android: {
+        priority: "high",
+        collapseKey: "owner_notice",
+      },
+    };
+
+    let result;
+    try {
+      result = await (messaging ?? getMessaging()).sendEachForMulticast(message);
+    } catch {
+      // Messaging is unavailable: the dashboard still shows it.
+      return;
+    }
+
+    const invalid = [];
+    (result?.responses ?? []).forEach((response, index) => {
+      const code = String(response?.error?.code ?? "");
+      if (
+        !response?.success &&
+        (/not-found|unregistered|invalid-argument|invalid-token|registration-token-not-registered/i.test(code))
+      ) {
+        invalid.push(tokens[index]);
+      }
+    });
+    await pruneTokens(invalid, db);
+  } catch {
+    // Never let push delivery affect the thing that caused it.
+  }
+}
