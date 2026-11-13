@@ -4966,52 +4966,64 @@ async function bindClaimedTag({ rawUid, locationId }) {
   const previousUid = target.rfidUid ? normalizeRfidUid(target.rfidUid) : null;
   const replacedExisting = !holder && !!previousUid && previousUid !== rfidUid;
 
-  // The card is enrolled at THIS cart, and that is what it remembers: a tap
-  // at another cart is refused instead of silently working there.
-  //
-  // The owner gets a record too: a RFID_BOUND alert lands in the notification
-  // center, and the push below tells them at once.
-  const counters = await readCounters(["alerts"]);
-  const { ids, writes } = counterWritesFor(counters, { alerts: 1 });
+  // Only a card that was actually enrolled (free before, bound now) is news:
+  // re-tapping a card that is already on this account changes nothing, so it
+  // must not announce a registration (and no "card registered" toast fires
+  // during a time in).
   if (!holder) {
+    // The card is enrolled at THIS cart, and that is what it remembers: a tap
+    // at another cart is refused instead of silently working there.
+    const counters = await readCounters(["alerts"]);
+    const { ids, writes } = counterWritesFor(counters, { alerts: 1 });
     writes.push(updateWrite("users", target.id, { rfidUid, rfidLocationCode: claim.locationCode ?? null }, null));
-  }
-  writes.push(createWrite("alerts", ids.alerts[0], {
-    id: ids.alerts[0],
-    type: "RFID_BOUND",
-    message: `${target.name} registered card ${rfidUid} at ${claim.locationCode}`,
-    payload: JSON.stringify({
-      staffId: target.id,
-      rfidUid,
+    // The owner gets a record too: a RFID_BOUND alert lands in the notification
+    // center, and the push below tells them at once.
+    writes.push(createWrite("alerts", ids.alerts[0], {
+      id: ids.alerts[0],
+      type: "RFID_BOUND",
+      message: `${target.name} registered card ${rfidUid} at ${claim.locationCode}`,
+      payload: JSON.stringify({
+        staffId: target.id,
+        rfidUid,
+        locationId: claim.locationId,
+        locationCode: claim.locationCode,
+      }),
       locationId: claim.locationId,
       locationCode: claim.locationCode,
-    }),
-    locationId: claim.locationId,
-    locationCode: claim.locationCode,
-    createdAt: new Date(),
-  }));
-  await fsCommit(writes);
-  await resolveClaim(claim.claimId, CLAIM_BOUND, rfidUid, null, claim.event);
-  await broadcastEvent("rfid:bound", {
-    userId: target.id,
-    name: target.name,
-    username: target.username,
-    rfidUid,
-    previousRfidUid: replacedExisting ? previousUid : null,
-    locationCode: claim.locationCode,
-    // The cart the card belongs to: the one it was enrolled at. A card that
-    // was just enrolled belongs to this cart.
-    cardLocationCode: holder
-      ? cardLocationCode(holder)
-      : (claim.locationCode ?? null),
-    replacedExisting,
-  }).catch(() => {});
-  // The owner registered a card: tell them it landed, on their own phone.
-  await pushToOwners({
-    title: "Card registered",
-    body: `${target.name} registered card ${rfidUid} at ${claim.locationCode}`,
-    data: { rfidUid, staffName: target.name, locationCode: claim.locationCode },
-  }).catch(() => {});
+      createdAt: new Date(),
+    }));
+    await fsCommit(writes);
+    await resolveClaim(claim.claimId, CLAIM_BOUND, rfidUid, null, claim.event);
+    await broadcastEvent("rfid:bound", {
+      userId: target.id,
+      name: target.name,
+      username: target.username,
+      rfidUid,
+      previousRfidUid: replacedExisting ? previousUid : null,
+      locationCode: claim.locationCode,
+      // The cart the card belongs to: the one it was enrolled at. A card that
+      // was just enrolled belongs to this cart.
+      cardLocationCode: claim.locationCode ?? null,
+      replacedExisting,
+    }).catch(() => {});
+    await broadcastEvent("alert:new", {
+      id: ids.alerts[0],
+      type: "RFID_BOUND",
+      message: `${target.name} registered card ${rfidUid} at ${claim.locationCode}`,
+      locationId: claim.locationId,
+      createdAt: new Date().toISOString(),
+    }).catch(() => {});
+    // The owner registered a card: tell them it landed, on their own phone.
+    await pushToOwners({
+      title: "Card registered",
+      body: `${target.name} registered card ${rfidUid} at ${claim.locationCode}`,
+      data: { rfidUid, staffName: target.name, locationCode: claim.locationCode },
+    }).catch(() => {});
+  } else {
+    // Card already on this account: nothing changed. Still resolve the claim
+    // (so the clocking flow gets its shift) but announce nothing.
+    await resolveClaim(claim.claimId, CLAIM_BOUND, rfidUid, null, claim.event);
+  }
   return {
     outcome: "bound",
     rfidUid,

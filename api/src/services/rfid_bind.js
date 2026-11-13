@@ -8,6 +8,7 @@
 import { db as prisma } from "../firestore.js";
 import { emit } from "../routes/events.js";
 import { pushToOwners } from "./push.js";
+import { normalizeRfidUid } from "./rfid.js";
 import {
   CLAIM_ALREADY_REGISTERED,
   CLAIM_BOUND,
@@ -20,7 +21,6 @@ import {
 import {
   cardBelongsToAnotherCart,
   cardLocationCode,
-  normalizeRfidUid,
 } from "./rfid.js";
 
 /**
@@ -33,7 +33,7 @@ import {
  *   { outcome: "conflict",     rfidUid, holderName }   tag belongs to someone else
  *   { outcome: "unregistered", rfidUid }               tag belongs to nobody
  *   { outcome: "wrong_cart",   rfidUid, cardLocationCode } tag belongs to another cart
- *   { outcome: "already_registered", rfidUid }          tag is already on this account
+ *   { outcome: "already_registered", rfidUid, holderName } tag is already on this account
  *   { outcome: "error",        message }               claim target vanished
  *
  * The card always ends up on the claim's TARGET account (targetUserId), which
@@ -44,7 +44,7 @@ import {
  * while the prompt is open resolves the claim instead of erroring, so the app
  * can be retried without the user having to unregister first.
  */
-export async function bindClaimedTag({ rawUid, locationId }) {
+export async function bindClaimedTag({ rawUid, locationId, db = prisma, messaging = undefined, skipPush = false }) {
   const claim = findActiveClaimForLocation(locationId);
   if (!claim) return null;
 
@@ -55,7 +55,7 @@ export async function bindClaimedTag({ rawUid, locationId }) {
   // member; everyone else enrols their own card.
   const targetUserId = claim.targetUserId ?? claim.userId;
 
-  const holder = await prisma.user.findFirst({
+  const holder = await db.user.findFirst({
     where: { rfidUid },
     include: { location: true },
   });
@@ -122,7 +122,7 @@ export async function bindClaimedTag({ rawUid, locationId }) {
 
   let target = holder;
   if (!target) {
-    target = await prisma.user.findUnique({ where: { id: targetUserId } });
+    target = await db.user.findUnique({ where: { id: targetUserId } });
     if (!target) {
       resolveClaim(claim.claimId, CLAIM_CONFLICT, rfidUid);
       return { outcome: "error", message: "Account not found" };
@@ -152,39 +152,75 @@ export async function bindClaimedTag({ rawUid, locationId }) {
   const previousUid = target.rfidUid ? normalizeRfidUid(target.rfidUid) : null;
   const replacedExisting = !holder && Boolean(previousUid) && previousUid !== rfidUid;
 
+  // Only a card that was actually enrolled (free before, bound now) is news:
+  // re-tapping a card that is already on this account changes nothing, so it
+  // must not announce a registration (and no "card registered" toast fires
+  // during a time in).
   if (!holder) {
     // The card is enrolled at THIS cart, and that is what it remembers: a tap
     // at another cart is refused instead of silently working there.
-    await prisma.user.update({
+    await db.user.update({
       where: { id: target.id },
       data: { rfidUid, rfidLocationCode: claim.locationCode ?? null },
     });
-  }
-  resolveClaim(claim.claimId, CLAIM_BOUND, rfidUid, null, claim.event);
-  emit("rfid:bound", {
-    userId: target.id,
-    name: target.name,
-    username: target.username,
-    rfidUid,
-    previousRfidUid: replacedExisting ? previousUid : null,
-    locationCode: claim.locationCode,
-    // The cart the card belongs to: the one it was enrolled at. A card that
-    // was just enrolled belongs to this cart.
-    cardLocationCode: holder
-      ? cardLocationCode(holder)
-      : (claim.locationCode ?? null),
-    replacedExisting,
-  });
-  // The owner registered a card: tell them it landed, on their own phone.
-  await pushToOwners({
-    title: "Card registered",
-    body: `${target.name} registered card ${rfidUid} at ${claim.locationCode}`,
-    data: {
+    resolveClaim(claim.claimId, CLAIM_BOUND, rfidUid, null, claim.event);
+    emit("rfid:bound", {
+      userId: target.id,
+      name: target.name,
+      username: target.username,
       rfidUid,
-      staffName: target.name,
+      previousRfidUid: replacedExisting ? previousUid : null,
       locationCode: claim.locationCode,
-    },
-  });
+      // The cart the card belongs to: the one it was enrolled at. A card that
+      // was just enrolled belongs to this cart.
+      cardLocationCode: claim.locationCode ?? null,
+      replacedExisting,
+    });
+    // The owner gets a record too: a RFID_BOUND alert lands in the notification
+    // center, and the push below tells them at once.
+    try {
+      const alert = await db.alert.create({
+        data: {
+          type: "RFID_BOUND",
+          message: `${target.name} registered card ${rfidUid} at ${claim.locationCode}`,
+          payload: JSON.stringify({
+            staffId: target.id,
+            rfidUid,
+            locationCode: claim.locationCode,
+          }),
+          locationId: claim.locationId,
+          locationCode: claim.locationCode,
+        },
+      });
+      emit("alert:new", {
+        id: alert.id,
+        type: "RFID_BOUND",
+        message: alert.message,
+        locationId: claim.locationId,
+        createdAt: new Date().toISOString(),
+      });
+    } catch {
+      // A missed alert must never fail the registration that caused it.
+    }
+    if (!skipPush) {
+      await pushToOwners(
+        {
+          title: "Card registered",
+          body: `${target.name} registered card ${rfidUid} at ${claim.locationCode}`,
+          data: {
+            rfidUid,
+            staffName: target.name,
+            locationCode: claim.locationCode,
+          },
+        },
+        { db, messaging },
+      );
+    }
+  } else {
+    // Card already on this account: nothing changed. Still resolve the claim
+    // (so the clocking flow gets its shift) but announce nothing.
+    resolveClaim(claim.claimId, CLAIM_BOUND, rfidUid, null, claim.event);
+  }
   return {
     outcome: "bound",
     rfidUid,
