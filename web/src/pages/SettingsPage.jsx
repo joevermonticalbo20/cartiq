@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import {
   AlertCircle,
@@ -22,6 +22,7 @@ import {
   ShoppingCart,
   Trash2,
   Users,
+  Nfc,
 } from "lucide-react";
 
 import api, { clearSession } from "../api.js";
@@ -53,8 +54,20 @@ const TIMECLOCK_DEFAULTS = {
 const TIMECLOCK_ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 const HOURS_12 = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const MINUTES_60 = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
-const DAY_CHIPS = [
-  { value: 1, label: "Mon" },
+/**
+ * Seconds left on the reader countdown.
+ *
+ * Module-level on purpose: reading the clock during render is impure, and the
+ * countdown is a side effect of a click, not of a render.
+ */
+const readerSecondsLeft = (expiresAtIso, fallbackMs = 90000) => {
+  const expires = expiresAtIso
+    ? new Date(expiresAtIso).getTime()
+    : Date.now() + fallbackMs;
+  return Math.max(0, Math.round((expires - Date.now()) / 1000));
+};
+
+const DAY_CHIPS = [  { value: 1, label: "Mon" },
   { value: 2, label: "Tue" },
   { value: 3, label: "Wed" },
   { value: 4, label: "Thu" },
@@ -223,6 +236,25 @@ export default function SettingsPage() {
   const [staffEditing, setStaffEditing] = useState(null);
   const [staffEditClosing, setStaffEditClosing] = useState(false);
   const [isStaffEditing, setIsStaffEditing] = useState(false);
+
+  // -- REGISTER A STAFF CARD AT THE READER --
+  // The owner opens a claim for a staff member, walks to that staff member's
+  // cart and taps the card on the reader. The card is then enrolled on that
+  // account, at that cart.
+  const [cardStaff, setCardStaff] = useState(null);
+  const [cardClaim, setCardClaim] = useState(null);
+  const [cardSecondsLeft, setCardSecondsLeft] = useState(0);
+  const [cardReaderOnline, setCardReaderOnline] = useState(false);
+  const [cardError, setCardError] = useState("");
+  const [cardDone, setCardDone] = useState("");
+  const cardPollRef = useRef(null);
+  const cardTickRef = useRef(null);
+
+  // Never leave a poll running after the page goes away.
+  useEffect(() => () => {
+    if (cardPollRef.current) clearInterval(cardPollRef.current);
+    if (cardTickRef.current) clearInterval(cardTickRef.current);
+  }, []);
 
   const [pwError, setPwError] = useState("");
   const [staffError, setStaffError] = useState("");
@@ -845,10 +877,104 @@ export default function SettingsPage() {
     }
   }
 
+  // -- REGISTER A STAFF CARD AT THE READER --
+  // The owner opens a claim FOR a staff member, walks to that staff member's
+  // cart and taps the card on the reader. The cart is never picked here: a
+  // card belongs to the cart where it is used, so it is the staff member's.
+  function stopCardTimers() {
+    if (cardPollRef.current) {
+      clearInterval(cardPollRef.current);
+      cardPollRef.current = null;
+    }
+    if (cardTickRef.current) {
+      clearInterval(cardTickRef.current);
+      cardTickRef.current = null;
+    }
+  }
+
+  function closeCardModal() {
+    stopCardTimers();
+    setCardStaff(null);
+    setCardClaim(null);
+    setCardError("");
+    setCardDone("");
+    setCardSecondsLeft(0);
+  }
+
+  async function openRegisterCard(s) {
+    setCardStaff(s);
+    setCardError("");
+    setCardDone("");
+    setCardClaim(null);
+    setCardSecondsLeft(0);
+    if (!s.location?.code) {
+      setCardError(
+        `${s.name} has no cart yet - assign one first. A card belongs to the cart where it is used.`,
+      );
+      return;
+    }
+    try {
+      const { data } = await api.post("/auth/my-rfid/claim", { targetUserId: s.id });
+      const claim = data?.claim;
+      setCardClaim(claim);
+      setCardReaderOnline(claim?.deviceOnline !== false);
+      setCardSecondsLeft(readerSecondsLeft(claim?.expiresAt));
+      cardTickRef.current = setInterval(() => {
+        setCardSecondsLeft((s2) => (s2 > 0 ? s2 - 1 : 0));
+      }, 1000);
+      cardPollRef.current = setInterval(() => pollCardClaim(claim.claimId), 1000);
+    } catch (err) {
+      setCardError(getFriendlyError(err, "Could not open the reader - try again."));
+    }
+  }
+
+  async function pollCardClaim(claimId) {
+    try {
+      const { data } = await api.get(`/auth/my-rfid/claim/${encodeURIComponent(claimId)}`);
+      const claim = data?.claim;
+      if (!claim) return;
+      setCardReaderOnline(claim.deviceOnline !== false);
+      if (claim.status === "pending") return;
+      stopCardTimers();
+      if (claim.status === "bound") {
+        setCardDone(`Card ${claim.rfidUid} registered to ${cardStaff?.name}.`);
+        toast(`Card ${claim.rfidUid} registered to ${cardStaff?.name}`, "success");
+        reloadStaff();
+        return;
+      }
+      if (claim.status === "already_registered") {
+        setCardError("This card is already registered.");
+        return;
+      }
+      if (claim.status === "conflict") {
+        setCardError(
+          claim.holderName
+            ? `That card already belongs to ${claim.holderName}.`
+            : "That card already belongs to somebody else.",
+        );
+        return;
+      }
+      if (claim.status === "wrong_cart") {
+        setCardError(
+          claim.cardLocationCode
+            ? `That card is registered at ${claim.cardLocationCode}.`
+            : "That card belongs to another cart.",
+        );
+        return;
+      }
+      if (claim.status === "expired") {
+        setCardError("No card tapped in time.");
+        return;
+      }
+      setCardError("That tap was not registered.");
+    } catch {
+      // A flaky poll must not kill the flow: the next tick tries again.
+    }
+  }
+
   async function handleEditStaff(e) {
     e.preventDefault();
     setStaffError("");
-
     const nameCheck = validatePersonName(staffEditing?.name);
     if (!nameCheck.ok) {
       setStaffError(nameCheck.error);
@@ -1908,7 +2034,16 @@ export default function SettingsPage() {
                             </span>
                           </td>
                           <td className="settings-hide-narrow">{s.location ? <Badge variant="info">{s.location.code}</Badge> : <span className="muted">-</span>}</td>
-                          <td className="muted small settings-hide-narrow">{s.rfidUid ?? "-"}</td>
+                          <td className="muted small settings-hide-narrow">
+                            {s.rfidUid ? (
+                              <>
+                                {s.rfidUid}
+                                {s.rfidLocationCode ? ` · ${s.rfidLocationCode}` : ""}
+                              </>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
                           <td className="settings-indicator-cell">
                             <span className="settings-indicator">
                               <Badge variant={s.active ? "ok" : "danger"}>
@@ -1925,6 +2060,18 @@ export default function SettingsPage() {
                                 title={s.active ? "Edit Staff Details" : "Enable the account before editing"}
                               >
                                 <Edit2 size={13} />
+                              </button>
+                              <button
+                                className="ghost small-btn"
+                                onClick={() => openRegisterCard(s)}
+                                disabled={!s.active}
+                                title={
+                                  s.active
+                                    ? "Register a card for this staff member at their cart"
+                                    : "Enable the account first"
+                                }
+                              >
+                                <Nfc size={13} />
                               </button>
                               <button
                                 className="ghost small-btn"
@@ -2421,6 +2568,13 @@ export default function SettingsPage() {
                     onChange={(e) => setStaffEditing({ ...staffEditing, rfidUid: e.target.value })}
                     style={{ height: "36px" }}
                   />
+                  <span className="muted small">
+                    The owner sets or changes a staff card here - the staff member cannot do it
+                    in the app. A card only works at the cart it is registered on
+                    {staffEditing?.rfidLocationCode ? ` (${staffEditing.rfidLocationCode})` : ""}.
+                    You can also register it at the reader with the contactless button in the
+                    staff list.
+                  </span>
                 </label>
                 <label className="field">
                   Recovery email (optional - enables password reset)
@@ -2444,6 +2598,64 @@ export default function SettingsPage() {
                 </div>
                 {staffError && <p className="error-box" role="alert">{staffError}</p>}
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* REGISTER A STAFF CARD AT THE READER */}
+        {cardStaff && (
+          <div className="modal-backdrop">
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h3>Register a card for {cardStaff.name}</h3>
+
+              <p className="muted" style={{ marginTop: "var(--space-2)" }}>
+                Walk to <strong>{cardStaff.location?.code ?? "their cart"}</strong> and tap the
+                staff card on the reader. The card is registered on this account and only
+                works at that cart.
+              </p>
+
+              {!cardDone && cardClaim && (
+                <div
+                  className="info-box"
+                  style={{ marginTop: "var(--space-3)", display: "flex", alignItems: "center", gap: "10px" }}
+                >
+                  <Nfc size={18} />
+                  <span>
+                    {cardReaderOnline
+                      ? "Reader online - waiting for the card..."
+                      : "Connecting to the reader..."}
+                  </span>
+                  <strong style={{ marginLeft: "auto" }}>{cardSecondsLeft}s</strong>
+                </div>
+              )}
+
+              {cardDone && (
+                <div className="success-box" style={{ marginTop: "var(--space-3)" }} role="status">
+                  {cardDone}
+                </div>
+              )}
+              {cardError && (
+                <p className="error-box" role="alert" style={{ marginTop: "var(--space-3)" }}>
+                  {cardError}
+                </p>
+              )}
+
+              <div className="modal-actions" style={{ marginTop: "var(--space-3)" }}>
+                <button type="button" className="ghost" onClick={closeCardModal}>
+                  Close
+                </button>
+                {!cardDone && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeCardModal();
+                      openRegisterCard(cardStaff);
+                    }}
+                  >
+                    Try again
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}

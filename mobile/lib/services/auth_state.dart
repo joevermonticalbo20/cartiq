@@ -640,6 +640,27 @@ class AuthState extends ChangeNotifier {
 
   bool get hasRfidCard => (rfidUid ?? '').isNotEmpty;
 
+  /// Re-read the profile from the server.
+  ///
+  /// The owner sets and changes staff cards in the dashboard, so the app has to
+  /// see that change: without this, the phone would keep showing the old card
+  /// number until the next sign-in. Best-effort: a failed refresh keeps the
+  /// cached profile rather than wiping the session.
+  Future<void> refreshProfile() async {
+    final current = token;
+    if (current == null || offlineMode) return;
+    try {
+      final data = await api.me(current);
+      final fresh = data['user'] as Map<String, dynamic>?;
+      if (fresh == null) return;
+      user = fresh;
+      await _persistSession();
+      notifyListeners();
+    } catch (_) {
+      // Keep the cached profile: a flaky network must not sign the person out.
+    }
+  }
+
   /// Fold a just-registered card into [user] so the rest of the app sees it
   /// without a re-login. Called by the claim dialog when the server reports
   /// the tap bound; persisted so a cold start keeps the card.

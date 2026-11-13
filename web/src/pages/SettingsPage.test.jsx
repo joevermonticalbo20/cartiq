@@ -648,6 +648,73 @@ describe("SettingsPage administrators", () => {
     expect(within(panel).getByTitle("Enable the account before resetting password")).toBeDisabled();
   });
 
+  it("shows the card and the cart it belongs to", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/auth/me") {
+        return Promise.resolve({ data: { user: { id: 1, name: "Owner", username: "owner", role: "OWNER" } } });
+      }
+      if (url === "/auth/staff") {
+        return Promise.resolve({
+          data: { data: [ownerRow, { ...staffRow, rfidLocationCode: "CART-01" }] },
+        });
+      }
+      return emptyOk(url);
+    });
+    renderOwnerPage();
+    expect(await screen.findByText("Stall Staff 1")).toBeInTheDocument();
+    // A card only works at the cart it was registered on, so the owner sees
+    // both numbers.
+    expect(screen.getByText(/1A1336E1 · CART-01/)).toBeInTheDocument();
+  });
+
+  it("registers a staff card at the reader for that staff member's cart", async () => {
+    api.post.mockResolvedValue({
+      data: {
+        claim: {
+          claimId: "claim-1",
+          status: "pending",
+          locationCode: "CART-01",
+          deviceOnline: true,
+          expiresAt: new Date(Date.now() + 90000).toISOString(),
+        },
+      },
+    });
+    renderOwnerPage();
+    expect(await screen.findByText("Stall Staff 1")).toBeInTheDocument();
+    const panel = screen.getByText("Staff accounts").closest("section");
+    fireEvent.click(within(panel).getByTitle("Register a card for this staff member at their cart"));
+
+    // The claim is for THAT staff member; the cart is the server's business.
+    await vi.waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith("/auth/my-rfid/claim", {
+        targetUserId: 2,
+      }),
+    );
+    expect(await screen.findByText(/Register a card for Stall Staff 1/)).toBeInTheDocument();
+    expect(screen.getByText(/Reader online/)).toBeInTheDocument();
+  });
+
+  it("refuses to open a reader claim for a staff member with no cart", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/auth/me") {
+        return Promise.resolve({ data: { user: { id: 1, name: "Owner", username: "owner", role: "OWNER" } } });
+      }
+      if (url === "/auth/staff") {
+        return Promise.resolve({
+          data: { data: [ownerRow, { ...staffRow, location: null }] },
+        });
+      }
+      return emptyOk(url);
+    });
+    renderOwnerPage();
+    expect(await screen.findByText("Stall Staff 1")).toBeInTheDocument();
+    const panel = screen.getByText("Staff accounts").closest("section");
+    fireEvent.click(within(panel).getByTitle("Register a card for this staff member at their cart"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("has no cart yet");
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
   it("creates an owner-level account", async () => {
     renderOwnerPage();
     expect(await screen.findByText("Administrators")).toBeInTheDocument();

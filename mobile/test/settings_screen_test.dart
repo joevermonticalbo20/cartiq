@@ -223,11 +223,14 @@ void main() {
       await tester.tap(find.text('RFID card'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Remove this card'), findsOneWidget);
-      await tester.tap(find.text('Remove this card'));
-      await tester.pumpAndSettle();
-
+      // Changing a card is the owner's job, so the only thing the staff
+      // member can do here is remove the card they have.
       expect(find.text('Remove this card?'), findsOneWidget);
+      expect(
+        find.textContaining('ask the owner to change it'),
+        findsOneWidget,
+        reason: 'the copy points at the owner',
+      );
       await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
       await tester.pumpAndSettle();
 

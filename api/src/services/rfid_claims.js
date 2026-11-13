@@ -16,6 +16,7 @@ import { randomBytes } from "node:crypto";
 
 import { evictOverflow } from "../routes/events.js";
 import {
+  CLAIM_ALREADY_REGISTERED,
   CLAIM_BOUND,
   CLAIM_CONFLICT,
   CLAIM_EXPIRED,
@@ -45,8 +46,13 @@ function pruneClaims(now = Date.now()) {
  * would leave two claims, and findActiveClaimForLocation would resolve the tap
  * against whichever was inserted first. That silently registers the wrong
  * person's card, which is exactly the outcome this handshake must never have.
+ *
+ * [targetUserId] is the account the card ends up on. It defaults to the person
+ * who opened the claim (a staff member enrolling their own card). An OWNER may
+ * open a claim FOR another staff member - that is how the owner registers a
+ * staff card at the reader without the staff member being there.
  */
-export function openClaim({ userId, locationId, locationCode, event }) {
+export function openClaim({ userId, locationId, locationCode, event, targetUserId }) {
   pruneClaims();
   for (const [id, rec] of _claims) {
     if (isClaimActive(rec) && (rec.userId === userId || rec.locationId === locationId)) {
@@ -58,6 +64,8 @@ export function openClaim({ userId, locationId, locationCode, event }) {
   _claims.set(claimId, {
     claimId,
     userId,
+    // The account the card is enrolled on. Falls back to the opener.
+    targetUserId: targetUserId ?? userId,
     locationId,
     locationCode,
     // What the person pressed in the app: "IN" to clock on, "OUT" to clock
@@ -139,6 +147,9 @@ export function claimView(claim, now = Date.now()) {
     rfidUid: claim.rfidUid,
     holderName: claim.holderName ?? null,
     locationCode: claim.locationCode,
+    // The account the card is enrolled on (the opener, unless an OWNER opened
+    // the claim for a staff member).
+    targetUserId: claim.targetUserId ?? claim.userId,
     // The cart the card is enrolled at, when the tap was refused because the
     // card belongs to another cart.
     cardLocationCode: claim.cardLocationCode ?? null,
@@ -155,4 +166,4 @@ export function resetClaims() {
   _claims.clear();
 }
 
-export { CLAIM_BOUND, CLAIM_CONFLICT, CLAIM_EXPIRED, CLAIM_PENDING, CLAIM_UNREGISTERED, CLAIM_WRONG_CART };
+export { CLAIM_ALREADY_REGISTERED, CLAIM_BOUND, CLAIM_CONFLICT, CLAIM_EXPIRED, CLAIM_PENDING, CLAIM_UNREGISTERED, CLAIM_WRONG_CART };

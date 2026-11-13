@@ -1002,6 +1002,10 @@ const CLAIM_EXPIRED = "expired";
 // ("Time in" / "Time out"): clocking must never enrol a card, only the
 // explicit "register card" flow may do that.
 const CLAIM_UNREGISTERED = "unregistered";
+// The tapped card is already registered to the account the claim is for.
+// Enrolment only: nothing changes, and the app says so instead of claiming a
+// card was registered when it was not. Clocking is untouched.
+const CLAIM_ALREADY_REGISTERED = "already_registered";
 // The tapped card is enrolled at another cart. A card belongs to the cart where
 // it was enrolled: each cart has its own team, so a card enrolled at CART-01
 // does not work at CART-02.
@@ -1067,7 +1071,7 @@ function claimIsPending(rec, now = Date.now()) {
  * Without this, two people prompting on the same cart leave two claims and a tap
  * resolves against whichever was found first - registering the wrong card.
  */
-async function openClaim({ userId, locationId, locationCode, event }) {
+async function openClaim({ userId, locationId, locationCode, event, targetUserId }) {
   const claimId = crypto.randomUUID().replace(/-/g, "");
   const now = Date.now();
 
@@ -1091,6 +1095,9 @@ async function openClaim({ userId, locationId, locationCode, event }) {
   const rec = {
     claimId,
     userId,
+    // The account the card is enrolled on. Falls back to the person who
+    // opened the claim; an OWNER may open a claim for a staff member.
+    targetUserId: targetUserId ?? userId,
     locationId,
     locationCode,
     event: event ?? null,
@@ -1159,6 +1166,9 @@ function claimView(claim, now = Date.now()) {
     rfidUid: claim.rfidUid ?? null,
     holderName: claim.holderName ?? null,
     locationCode: claim.locationCode,
+    // The account the card is enrolled on (the opener, unless an OWNER opened
+    // the claim for a staff member).
+    targetUserId: claim.targetUserId ?? claim.userId,
     // The cart the card is enrolled at, when the tap was refused because the
     // card belongs to another cart.
     cardLocationCode: claim.cardLocationCode ?? null,
@@ -4771,7 +4781,11 @@ async function bindClaimedTag({ rawUid, locationId }) {
   const users = await fsListAll("users");
   const holder = users.find((u) => u.rfidUid && normalizeRfidUid(u.rfidUid) === rfidUid) || null;
 
-  if (holder && Number(holder.id) !== Number(claim.userId)) {
+  // The account the card is for. An OWNER may open the claim for a staff
+  // member; everyone else enrols their own card.
+  const targetUserId = claim.targetUserId ?? claim.userId;
+
+  if (holder && Number(holder.id) !== Number(targetUserId)) {
     // Never silently move another person's card. Say who holds it instead: the
     // person at the cart needs to know they grabbed the wrong card.
     await resolveClaim(claim.claimId, CLAIM_CONFLICT, rfidUid, holder.name);
@@ -4833,11 +4847,27 @@ async function bindClaimedTag({ rawUid, locationId }) {
 
   let target = holder;
   if (!target) {
-    target = users.find((u) => Number(u.id) === Number(claim.userId)) || null;
+    target = users.find((u) => Number(u.id) === Number(targetUserId)) || null;
     if (!target) {
       await resolveClaim(claim.claimId, CLAIM_CONFLICT, rfidUid);
       return { outcome: "error", message: "Account not found" };
     }
+  }
+
+  // The card is already on this account. Enrolling it again would change
+  // nothing, so say that instead of claiming a card was registered.
+  // Clocking is NOT affected: tapping your own card to time in still records
+  // the shift, and that never reaches this point.
+  if (holder && !claim.event) {
+    await resolveClaim(claim.claimId, CLAIM_ALREADY_REGISTERED, rfidUid, holder.name);
+    await broadcastEvent("rfid:already_registered", {
+      rfidUid,
+      locationCode: claim.locationCode,
+      holderName: holder.name,
+      claimedBy: claim.userId,
+      targetUserId,
+    }).catch(() => {});
+    return { outcome: "already_registered", rfidUid, holderName: holder.name };
   }
 
   // Re-registering replaces the old card rather than failing, so a staff member
@@ -8005,6 +8035,8 @@ function staffPublic(u, locById) {
     role: u.role,
     active: u.active,
     rfidUid: u.rfidUid ?? null,
+    // The cart the card belongs to: a card only works there.
+    rfidLocationCode: u.rfidLocationCode ?? null,
     email: u.email ?? null,
     location: loc ? { code: loc.code, name: loc.name } : null,
     createdAt: u.createdAt ?? null,
@@ -8256,7 +8288,7 @@ async function handleMyRfidUnbind(_req, origin, user) {
 
 async function handleRfidClaimOpen(req, origin, user) {
   const body = await req.json().catch(() => null);
-  const { locationCode, event } = body || {};
+  const { locationCode, event, targetUserId } = body || {};
 
   // null = enrolling a card only. IN/OUT = the person is clocking on or off,
   // and the tap must record that instead of the firmware's blind toggle.
@@ -8273,8 +8305,38 @@ async function handleRfidClaimOpen(req, origin, user) {
     }
   }
 
+  // The account the card is for. Without a target it is the caller. An OWNER
+  // may open the claim FOR a staff member - that is how the owner registers a
+  // staff card at the reader without the staff member being there.
+  let targetUserIdFinal = user.id;
+  let targetUser = null;
+  if (targetUserId !== undefined && targetUserId !== null && String(targetUserId) !== String(user.id)) {
+    if (user.role !== "OWNER") {
+      return jsonRes(origin, { error: "Forbidden: only an owner can register a card for somebody else" }, 403);
+    }
+    targetUser = await fsGet("users", Number(targetUserId)).catch(() => null);
+    if (!targetUser) return jsonRes(origin, { error: "Staff account not found" }, 404);
+    if (targetUser.role !== "STAFF") {
+      return jsonRes(origin, { error: "A card can only be registered on a staff account" }, 400);
+    }
+    if (targetUser.locationId === null || targetUser.locationId === undefined) {
+      return jsonRes(origin, {
+        error: `${targetUser.name} has no cart yet - assign one first, a card belongs to the cart where it is used`,
+      }, 400);
+    }
+    targetUserIdFinal = targetUser.id;
+  }
+
   let location = null;
-  if (locationCode !== undefined && locationCode !== null && String(locationCode).trim() !== "") {
+  if (targetUserIdFinal !== user.id) {
+    // The owner's claim is always at the staff member's own cart.
+    location = await fsGet("locations", Number(targetUser.locationId)).catch(() => null);
+    if (!location) {
+      return jsonRes(origin, {
+        error: "The staff account has no cart - assign one first, a card belongs to the cart where it is used",
+      }, 400);
+    }
+  } else if (locationCode !== undefined && locationCode !== null && String(locationCode).trim() !== "") {
     const code = String(locationCode).trim().toUpperCase();
     location = await fsQueryEqual("locations", "code", code, 1).then((r) => r[0] || null).catch(() => null);
     if (!location) return jsonRes(origin, { error: "Location not found" }, 404);
@@ -8292,6 +8354,7 @@ async function handleRfidClaimOpen(req, origin, user) {
 
   const claim = await openClaim({
     userId: user.id,
+    targetUserId: targetUserIdFinal,
     locationId: location.id,
     locationCode: location.code,
     event: cleanEvent,

@@ -37,6 +37,7 @@ export const LIVE_EVENT_NAMES = Object.freeze([
   "rfid:conflict",
   "rfid:unregistered",
   "rfid:wrong_cart",
+  "rfid:already_registered",
   // The catalog moved: a product, flavor, recipe, price or photo changed.
   "product:updated",
   // Stock rows moved: an item was added/edited/removed or adjusted by hand.
@@ -57,6 +58,7 @@ export const LIVE_EVENTS = Object.freeze({
   rfidConflict: "rfid:conflict",
   rfidUnregistered: "rfid:unregistered",
   rfidWrongCart: "rfid:wrong_cart",
+  rfidAlreadyRegistered: "rfid:already_registered",
   productUpdated: "product:updated",
   inventoryUpdated: "inventory:updated",
   shiftNew: "shift:new",

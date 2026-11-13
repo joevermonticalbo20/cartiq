@@ -65,6 +65,15 @@ export function formatRfidWrongCart(data) {
 }
 
 /**
+ * `rfid:already_registered` - the tapped card is already on the account it
+ * was being enrolled for, so nothing changed.
+ */
+export function formatRfidAlreadyRegistered(data) {
+  const holder = data?.holderName ? ` (${data.holderName})` : "";
+  return `Card ${data?.rfidUid ?? "unknown"}${holder} is already registered - nothing changed`;
+}
+
+/**
  * Mount once in the app shell.
  *
  * [onChange] is called after every binding change so a page holding a staff
@@ -99,9 +108,14 @@ export function useRfidEvents({ onChange } = {}) {
     toast(formatRfidWrongCart(data), "warn");
   }, []);
 
+  const handleAlreadyRegistered = useCallback((data) => {
+    toast(formatRfidAlreadyRegistered(data), "warn");
+  }, []);
+
   useLiveEvent("rfid:bound", handleBound);
   useLiveEvent("rfid:unbound", handleUnbound);
   useLiveEvent("rfid:conflict", handleConflict);
   useLiveEvent("rfid:unregistered", handleUnregistered);
   useLiveEvent("rfid:wrong_cart", handleWrongCart);
+  useLiveEvent("rfid:already_registered", handleAlreadyRegistered);
 }

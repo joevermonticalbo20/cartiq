@@ -69,8 +69,14 @@ class FakeApi extends ApiClient {
   /// a cold-start test can assert the card survived being written to storage.
   Map<String, dynamic>? meUser;
 
+  /// When true, /auth/me fails - a flaky network must not sign the person out.
+  bool meError = false;
+
   @override
   Future<Map<String, dynamic>> me(String token) async {
+    if (meError) {
+      throw ApiException('Network error', statusCode: null);
+    }
     final u = meUser;
     if (u != null) return {'user': u};
     // Fall back to whatever was persisted, mimicking the server echo.
@@ -347,6 +353,21 @@ void main() {
       );
     });
 
+    test('a card that is already on the account says so', () async {
+      // Enrolling a card that is already registered changes nothing, and the
+      // app must not claim a card was registered.
+      final api = FakeApi();
+      api.claimViews.add({'status': 'already_registered'});
+      final result = await RfidRegistrationService(apiClient: api).register(
+        token: 'tok',
+      );
+      expect(result, isA<RfidAlreadyRegistered>());
+      expect(
+        RfidRegistrationService.describe(result),
+        'This card is already registered.',
+      );
+    });
+
     test('a card that belongs to another cart is reported, not enrolled', () async {
       // Each cart has its own team: a card enrolled at CART-01 does not work
       // at CART-02, and it is never re-registered there.
@@ -502,6 +523,55 @@ void main() {
     });
   });
 
+  group('AuthState.refreshProfile', () {
+    test('picks up a card the owner changed in the dashboard', () async {
+      final api = FakeApi();
+      final store = FakeStore();
+      final auth = AuthState(apiClient: api, secureStorage: store);
+      auth.token = 'tok';
+      auth.user = {
+        'username': 'staff01',
+        'role': 'STAFF',
+        'name': 'Stall Staff 1',
+        'rfidUid': '3A20704F',
+        'location': {'code': 'CART-01'},
+      };
+      // The owner swapped the card on the dashboard.
+      api.meUser = {
+        'username': 'staff01',
+        'role': 'STAFF',
+        'name': 'Stall Staff 1',
+        'rfidUid': 'FEEDFACE',
+        'location': {'code': 'CART-01'},
+      };
+
+      await auth.refreshProfile();
+
+      expect(auth.rfidUid, 'FEEDFACE');
+    });
+
+    test('keeps the cached profile when the server cannot be reached', () async {
+      final api = FakeApi();
+      final store = FakeStore();
+      final auth = AuthState(apiClient: api, secureStorage: store);
+      auth.token = 'tok';
+      auth.user = {
+        'username': 'staff01',
+        'role': 'STAFF',
+        'name': 'Stall Staff 1',
+        'rfidUid': '3A20704F',
+        'location': {'code': 'CART-01'},
+      };
+      api.meUser = null;
+      api.meError = true;
+
+      await auth.refreshProfile();
+
+      // A flaky network must not wipe the session or the card.
+      expect(auth.rfidUid, '3A20704F');
+    });
+  });
+
   group('RfidRegistrationService', () {
     test('polls until the claim binds and reports the countdown', () async {
       final api = FakeApi();
@@ -594,6 +664,10 @@ void main() {
       expect(
         RfidRegistrationService.describe(const RfidWrongCart('CART-01')),
         contains('CART-01'),
+      );
+      expect(
+        RfidRegistrationService.describe(const RfidAlreadyRegistered()),
+        'This card is already registered.',
       );
       expect(
         RfidRegistrationService.describe(const RfidFailed('boom')),

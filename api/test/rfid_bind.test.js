@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 
 import { db as prisma } from "../src/firestore.js";
 import {
+  CLAIM_ALREADY_REGISTERED,
   CLAIM_BOUND,
   CLAIM_CONFLICT,
   CLAIM_UNREGISTERED,
@@ -237,6 +238,97 @@ test("a fresh card is enrolled at the cart where it was tapped", async () => {
     "the card now belongs to CART-02",
   );
   assert.equal(getClaim(claim.claimId).status, CLAIM_BOUND);
+});
+
+test("enrolling a card that is already on the account changes nothing", async () => {
+  reset();
+  const claim = openClaim({
+    userId: 2,
+    locationId: 1,
+    locationCode: "CART-01",
+  });
+
+  const result = await bindClaimedTag({ rawUid: "3A20704F", locationId: 1 });
+
+  // Nothing changed, and the app is told so instead of claiming a card was
+  // registered.
+  assert.equal(result.outcome, "already_registered");
+  assert.equal(users[0].rfidUid, "3A20704F");
+  assert.equal(users[0].rfidLocationCode, "CART-01");
+  assert.equal(getClaim(claim.claimId).status, CLAIM_ALREADY_REGISTERED);
+});
+
+test("clocking in with your own card still records the shift", async () => {
+  reset();
+  const claim = openClaim({
+    userId: 2,
+    locationId: 1,
+    locationCode: "CART-01",
+    event: "IN",
+  });
+
+  const result = await bindClaimedTag({ rawUid: "3A20704F", locationId: 1 });
+
+  // The "already registered" rule is enrolment only: clocking writes the shift.
+  assert.equal(result.outcome, "bound");
+  assert.equal(result.desiredEvent, "IN");
+  assert.equal(getClaim(claim.claimId).status, CLAIM_BOUND);
+});
+
+test("an owner can register a card for a staff member", async () => {
+  reset();
+  // The owner opens the claim for Stall Staff 3; the card lands on THEIR
+  // account, at THEIR cart.
+  const claim = openClaim({
+    userId: 1,
+    targetUserId: 4,
+    locationId: 3,
+    locationCode: "CART-03",
+  });
+
+  const result = await bindClaimedTag({ rawUid: "FEEDFACE", locationId: 3 });
+
+  assert.equal(result.outcome, "bound");
+  assert.equal(result.userId, 4);
+  assert.equal(users[1].rfidUid, "FEEDFACE");
+  assert.equal(users[1].rfidLocationCode, "CART-03");
+  assert.equal(users[0].rfidUid, "3A20704F", "the other staff member is untouched");
+  assert.equal(getClaim(claim.claimId).status, CLAIM_BOUND);
+});
+
+test("an owner's claim never takes another person's card", async () => {
+  reset();
+  const claim = openClaim({
+    userId: 1,
+    targetUserId: 4,
+    locationId: 3,
+    locationCode: "CART-03",
+  });
+
+  const result = await bindClaimedTag({ rawUid: "3A20704F", locationId: 3 });
+
+  // Stall Staff 1's card stays theirs, even for an owner.
+  assert.equal(result.outcome, "conflict");
+  assert.equal(result.holderName, "Stall Staff 1");
+  assert.equal(users[0].rfidUid, "3A20704F");
+  assert.equal(users[1].rfidUid, "06C4D5E6");
+  assert.equal(getClaim(claim.claimId).status, CLAIM_CONFLICT);
+});
+
+test("an owner's claim for a card already on that account changes nothing", async () => {
+  reset();
+  const claim = openClaim({
+    userId: 1,
+    targetUserId: 4,
+    locationId: 3,
+    locationCode: "CART-03",
+  });
+
+  const result = await bindClaimedTag({ rawUid: "06C4D5E6", locationId: 3 });
+
+  assert.equal(result.outcome, "already_registered");
+  assert.equal(users[1].rfidUid, "06C4D5E6");
+  assert.equal(getClaim(claim.claimId).status, CLAIM_ALREADY_REGISTERED);
 });
 
 test.after(() => {

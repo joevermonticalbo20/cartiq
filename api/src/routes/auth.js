@@ -467,11 +467,16 @@ async function deviceOnlineForLocation(locationId) {
 }
 
 // POST /api/auth/my-rfid/claim (Bearer)
-// Body: { locationCode? } - optional for STAFF (their own cart), required for
-// OWNER, who is not assigned to a cart.
+// Body: { locationCode?, event?, targetUserId? } - optional for STAFF (their own
+// cart), required for OWNER, who is not assigned to a cart.
+//
+// targetUserId: an OWNER may open the claim FOR a staff member - that is how
+// the owner registers a staff card at the reader without the staff member
+// being there. The cart is then the staff member's own cart, never one the
+// caller picks: a card belongs to the cart where it is used.
 router.post("/my-rfid/claim", requireAuth, async (req, res, next) => {
   try {
-    const { locationCode, event } = req.body ?? {};
+    const { locationCode, event, targetUserId } = req.body ?? {};
     // null = enrolling a card only. IN/OUT = the person is clocking on or off,
     // and the tap must record that instead of the firmware's blind toggle.
     let cleanEvent = null;
@@ -486,8 +491,41 @@ router.post("/my-rfid/claim", requireAuth, async (req, res, next) => {
         return res.status(403).json({ error: verdict, code: "TIMECLOCK_LOCKED" });
       }
     }
+
+    // The account the card is for. Without a target it is the caller.
+    let targetUserIdFinal = req.user.sub;
+    if (targetUserId !== undefined && targetUserId !== null && String(targetUserId) !== String(req.user.sub)) {
+      if (req.user.role !== "OWNER") {
+        return res.status(403).json({
+          error: "Forbidden: only an owner can register a card for somebody else",
+        });
+      }
+      const target = await prisma.user.findUnique({ where: { id: Number(targetUserId) } });
+      if (!target) return res.status(404).json({ error: "Staff account not found" });
+      if (target.role !== "STAFF") {
+        return res.status(400).json({ error: "A card can only be registered on a staff account" });
+      }
+      if (!target.locationId) {
+        return res.status(400).json({
+          error: `${target.name} has no cart yet - assign one first, a card belongs to the cart where it is used`,
+        });
+      }
+      targetUserIdFinal = target.id;
+    }
+
     let location;
-    if (locationCode !== undefined && locationCode !== null && String(locationCode).trim() !== "") {
+    if (targetUserIdFinal !== req.user.sub) {
+      // The owner's claim is always at the staff member's own cart.
+      const target = await prisma.user.findUnique({ where: { id: targetUserIdFinal } });
+      location = target?.locationId
+        ? await prisma.location.findUnique({ where: { id: target.locationId } })
+        : null;
+      if (!location) {
+        return res.status(400).json({
+          error: "The staff account has no cart - assign one first, a card belongs to the cart where it is used",
+        });
+      }
+    } else if (locationCode !== undefined && locationCode !== null && String(locationCode).trim() !== "") {
       location = await prisma.location.findUnique({
         where: { code: String(locationCode).trim().toUpperCase() },
       });
@@ -507,6 +545,7 @@ router.post("/my-rfid/claim", requireAuth, async (req, res, next) => {
     }
     const claim = openClaim({
       userId: req.user.sub,
+      targetUserId: targetUserIdFinal,
       locationId: location.id,
       locationCode: location.code,
       event: cleanEvent,
@@ -1007,6 +1046,8 @@ router.get("/staff", requireAuth, requireRole("OWNER"), async (_req, res, next) 
         role: u.role,
         active: u.active,
         rfidUid: u.rfidUid,
+        // The cart the card belongs to: a card only works there.
+        rfidLocationCode: u.rfidLocationCode ?? null,
         email: u.email ?? null,
         location: u.location ? { code: u.location.code, name: u.location.name } : null,
         createdAt: u.createdAt,

@@ -92,6 +92,15 @@ export const CLAIM_UNREGISTERED = "unregistered";
 export const CLAIM_WRONG_CART = "wrong_cart";
 
 /**
+ * The tapped card is already registered to the account the claim is for.
+ *
+ * Enrolment only: nothing changes, and the app says so instead of claiming a
+ * card was registered when it was not. Clocking is untouched - tapping your own
+ * card to time in still records the shift.
+ */
+export const CLAIM_ALREADY_REGISTERED = "already_registered";
+
+/**
  * The cart a card is enrolled at, or null when the card is not bound to one.
  *
  * Stored as the cart CODE ("CART-01") next to the tag on the user row, so the

@@ -47,6 +47,15 @@ class RfidWrongCart extends RfidClaimResult {
   final String cardLocationCode;
 }
 
+/// The card is already registered to this account.
+///
+/// Enrolling it again would change nothing, so the app says that instead of
+/// claiming a card was registered. Clocking is not affected: tapping your own
+/// card to time in still records the shift.
+class RfidAlreadyRegistered extends RfidClaimResult {
+  const RfidAlreadyRegistered();
+}
+
 /// Nobody tapped before the window closed.
 class RfidExpired extends RfidClaimResult {
   const RfidExpired();
@@ -183,6 +192,10 @@ class RfidRegistrationService {
             // The card is enrolled at another cart. It does not work here, so
             // the app names the cart it belongs to.
             return RfidWrongCart(view['cardLocationCode'] as String? ?? '');
+          case 'already_registered':
+            // The card is already on this account. Nothing changed, and the
+            // app says so instead of claiming a card was registered.
+            return const RfidAlreadyRegistered();
           case 'expired':
             return const RfidExpired();
           case 'pending':
@@ -258,6 +271,8 @@ class RfidRegistrationService {
         return cardLocationCode.isEmpty
             ? 'That card belongs to another cart.'
             : 'That card is registered at $cardLocationCode.';
+      case RfidAlreadyRegistered():
+        return 'This card is already registered.';
       case RfidExpired():
         return 'No card tapped in time.';
       case RfidNoShift():

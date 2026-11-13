@@ -42,6 +42,10 @@ class SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadAuthData() async {
     final auth = context.read<AuthState>();
+    // The owner sets and changes staff cards in the dashboard, so the card
+    // number shown here must be the current one - not the one from the last
+    // sign-in.
+    await auth.refreshProfile();
     final hasPin = await auth.pin.hasPin;
     final lastOnline = await auth.lastOnline;
     final eligibility = await auth.checkOfflineEligibility();
@@ -184,9 +188,10 @@ class SettingsScreenState extends State<SettingsScreen> {
   /// RFID card management, and the permanent way back in for anyone who skipped
   /// the post-login prompt.
   ///
-  /// A registered card can be replaced (lost card) or removed (borrowed or
-  /// handed back). Both need the server, so offline is refused up front rather
-  /// than after a long wait.
+  /// A registered card can be removed (borrowed or handed back). Changing it is
+  /// the owner's job - they set the card in Settings > Staff accounts - so the
+  /// app never offers to swap it. Offline is refused up front rather than after
+  /// a long wait.
   Future<void> _rfidFlow(AuthState auth) async {
     if (auth.offlineMode || auth.token == null) {
       AppMessenger.showGlassToast(
@@ -198,39 +203,26 @@ class SettingsScreenState extends State<SettingsScreen> {
     }
 
     if (auth.hasRfidCard) {
-      final action = await showAppChoices(
+      final confirmed = await showAppConfirm(
         context,
-        title: 'RFID card',
-        message: 'Card ${auth.rfidUid} is registered to this account.',
-        choices: const [
-          AppChoice(value: 'replace', label: 'Tap a different card'),
-          AppChoice(value: 'remove', label: 'Remove this card', danger: true),
-        ],
+        title: 'Remove this card?',
+        message:
+            'You will have to type your username to clock in and out until a card is registered again. To use a different card, ask the owner to change it in Settings > Staff accounts.',
+        confirmLabel: 'Remove',
+        danger: true,
       );
-      if (!mounted || action == null) return;
-
-      if (action == 'remove') {
-        final confirmed = await showAppConfirm(
-          context,
-          title: 'Remove this card?',
-          message:
-              'You will have to type your username to clock in and out until you register a new card.',
-          confirmLabel: 'Remove',
-          danger: true,
-        );
-        if (!confirmed || !mounted) return;
-        final removed = await auth.unbindRfid();
-        if (!mounted) return;
-        // Say it straight away. The card is already gone on the server, so the
-        // person must not wait for a reload (or a failed reload) to find out.
-        AppMessenger.showGlassToast(
-          context: context,
-          message: RfidRegistrationService.describe(removed),
-          isSuccess: removed is RfidUnbound,
-        );
-        await reload().catchError((_) {});
-        return;
-      }
+      if (!confirmed || !mounted) return;
+      final removed = await auth.unbindRfid();
+      if (!mounted) return;
+      // Say it straight away. The card is already gone on the server, so the
+      // person must not wait for a reload (or a failed reload) to find out.
+      AppMessenger.showGlassToast(
+        context: context,
+        message: RfidRegistrationService.describe(removed),
+        isSuccess: removed is RfidUnbound,
+      );
+      await reload().catchError((_) {});
+      return;
     }
 
     final result = await RfidClaimDialog.show(
@@ -238,10 +230,9 @@ class SettingsScreenState extends State<SettingsScreen> {
       token: auth.token!,
       registration: auth.rfidRegistration,
       onBound: auth.applyRfidBound,
-      title: auth.hasRfidCard ? 'Tap your new card' : 'Tap your RFID card',
-      message: auth.hasRfidCard
-          ? 'Card ${auth.rfidUid} will be replaced by whichever card you tap next. This tap only registers the new card; it does not log a shift.'
-          : null,
+      title: 'Tap your RFID card',
+      message:
+          'Hold your staff card against the reader on the cart to register it to your staff account. This tap only registers the card and does not log a shift.',
     );
     if (!mounted) return;
     await reload();
