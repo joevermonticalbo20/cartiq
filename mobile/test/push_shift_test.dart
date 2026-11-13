@@ -126,7 +126,25 @@ void main() {
       expect(bus.lastMessage, contains('16:30-16:40'));
     });
 
-    test('a tap on an unregistered card says so', () async {
+    test('a tap after the person already timed in says why', () async {
+      final bus = DataRefresh();
+      final auth = AuthState(
+        apiClient: FakeApi(),
+        secureStorage: FakeStore(),
+        dataRefresh: bus,
+      );
+
+      await auth.push.onShiftEvent?.call({
+        'type': 'SHIFT',
+        'status': 'refused',
+        'event': 'IN',
+        'reason': 'You already timed in today at 5:23 PM.',
+      });
+
+      expect(bus.lastMessage, 'You already timed in today at 5:23 PM.');
+    });
+
+    test('a tap on an unregistered card is silent', () async {
       final bus = DataRefresh();
       final auth = AuthState(
         apiClient: FakeApi(),
@@ -140,8 +158,10 @@ void main() {
         'event': 'IN',
       });
 
-      expect(bus.lastReason, 'shift');
-      expect(bus.lastMessage, contains('not registered'));
+      // That tap is not about this phone - it may be anybody's card. A toast
+      // about it would be noise on every device.
+      expect(bus.lastMessage, isNull);
+      expect(bus.version, 0, reason: 'nothing to refresh either');
     });
   });
 }

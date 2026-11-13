@@ -26,6 +26,7 @@ import {
 
 import api, { clearSession } from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
+import { timeClockScheduleError } from "../utils/timeClock.js";
 import { useRfidEvents } from "../hooks/useRfidEvents.js";
 import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
@@ -106,8 +107,7 @@ const normalizeTimeClock = (c) => {
   };
 };
 /** "HH:MM" -> { hour, minute, ampm } for the 12h editor. */
-const to12h = (time) => {
-  const canon = canonicalHm(time) ?? "00:00";
+const to12h = (time) => {  const canon = canonicalHm(time) ?? "00:00";
   const [h, m] = canon.split(":").map(Number);
   const ampm = h >= 12 ? "PM" : "AM";
   const hour = h % 12 === 0 ? 12 : h % 12;
@@ -459,6 +459,18 @@ export default function SettingsPage() {
     }
     if (hmToMinutes(outOpen) >= hmToMinutes(outClose)) {
       setClockError("Time out: the opening time must be before the closing time.");
+      return;
+    }
+    // A shift must start before it can end: the Time out window may not be
+    // earlier than the Time in window.
+    const scheduleError = timeClockScheduleError({
+      inOpen,
+      inClose,
+      outOpen,
+      outClose,
+    });
+    if (scheduleError) {
+      setClockError(scheduleError);
       return;
     }
     const days = [...timeClock.days].sort((a, b) => a - b);

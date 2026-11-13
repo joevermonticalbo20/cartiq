@@ -484,6 +484,73 @@ describe("SettingsPage time clock", () => {
     );
     expect(api.put).not.toHaveBeenCalled();
   });
+
+  it("blocks saving a Time out that is earlier than the Time in", async () => {
+    // Time in 4:00-4:10 PM with Time out 3:00-3:10 PM is not a schedule: a
+    // shift has to start before it can end.
+    renderOwnerPage();
+    expect(await screen.findByText("Time clock")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.change(screen.getByLabelText("Time in opens hour"), { target: { value: "4" } });
+    fireEvent.change(screen.getByLabelText("Time in opens AM or PM"), {
+      target: { value: "PM" },
+    });
+    fireEvent.change(screen.getByLabelText("Time in closes hour"), { target: { value: "4" } });
+    fireEvent.change(screen.getByLabelText("Time in closes minute"), { target: { value: "10" } });
+    fireEvent.change(screen.getByLabelText("Time in closes AM or PM"), {
+      target: { value: "PM" },
+    });
+    fireEvent.change(screen.getByLabelText("Time out opens hour"), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText("Time out opens AM or PM"), {
+      target: { value: "PM" },
+    });
+    fireEvent.change(screen.getByLabelText("Time out closes hour"), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText("Time out closes minute"), { target: { value: "10" } });
+    fireEvent.change(screen.getByLabelText("Time out closes AM or PM"), {
+      target: { value: "PM" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Time out cannot be earlier than Time in",
+    );
+    expect(api.put).not.toHaveBeenCalled();
+  });
+
+  it("still saves the all-day schedule", async () => {
+    // Both windows cover the whole day: a real choice for a stall.
+    renderOwnerPage();
+    expect(await screen.findByText("Time clock")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.change(screen.getByLabelText("Time in opens hour"), { target: { value: "12" } });
+    fireEvent.change(screen.getByLabelText("Time in opens AM or PM"), {
+      target: { value: "AM" },
+    });
+    fireEvent.change(screen.getByLabelText("Time in closes hour"), { target: { value: "11" } });
+    fireEvent.change(screen.getByLabelText("Time in closes minute"), { target: { value: "59" } });
+    fireEvent.change(screen.getByLabelText("Time in closes AM or PM"), {
+      target: { value: "PM" },
+    });
+    fireEvent.change(screen.getByLabelText("Time out opens hour"), { target: { value: "12" } });
+    fireEvent.change(screen.getByLabelText("Time out opens AM or PM"), {
+      target: { value: "AM" },
+    });
+    fireEvent.change(screen.getByLabelText("Time out closes hour"), { target: { value: "11" } });
+    fireEvent.change(screen.getByLabelText("Time out closes minute"), { target: { value: "59" } });
+    fireEvent.change(screen.getByLabelText("Time out closes AM or PM"), {
+      target: { value: "PM" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    await vi.waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith("/settings/timeclock", {
+        enabled: true,
+        inOpen: "00:00",
+        inClose: "23:59",
+        outOpen: "00:00",
+        outClose: "23:59",
+        days: [0, 1, 2, 3, 4, 5, 6],
+      }),
+    );
+  });
 });
 
 describe("SettingsPage administrators", () => {

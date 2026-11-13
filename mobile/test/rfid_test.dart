@@ -378,7 +378,22 @@ void main() {
       expect(result, isA<RfidUnregistered>());
       expect(
         RfidRegistrationService.describe(result, event: 'IN'),
-        contains('not registered'),
+        contains('not registered here'),
+      );
+      expect(
+        RfidRegistrationService.describe(result, event: 'IN'),
+        contains('tap the registered card'),
+      );
+    });
+
+    test('with no card on the account, the answer is to register one', () {
+      expect(
+        RfidRegistrationService.describe(
+          const RfidUnregistered(),
+          event: 'IN',
+          hasRegisteredCard: false,
+        ),
+        contains('Register your card first'),
       );
     });
 
@@ -574,7 +589,7 @@ void main() {
       expect(RfidRegistrationService.describe(const RfidUnbound()), isNotEmpty);
       expect(
         RfidRegistrationService.describe(const RfidUnregistered()),
-        contains('not registered'),
+        contains('not registered here'),
       );
       expect(
         RfidRegistrationService.describe(const RfidWrongCart('CART-01')),

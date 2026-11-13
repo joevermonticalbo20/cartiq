@@ -170,7 +170,11 @@ class SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     AppMessenger.showGlassToast(
       context: context,
-      message: RfidRegistrationService.describe(result, event: event),
+      message: RfidRegistrationService.describe(
+        result,
+        event: event,
+        hasRegisteredCard: auth.hasRfidCard,
+      ),
       isSuccess: ok,
     );
     // Pull the fresh shift in so the buttons grey out immediately.

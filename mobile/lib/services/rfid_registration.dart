@@ -228,7 +228,15 @@ class RfidRegistrationService {
   /// [event] is what the person pressed ("IN"/"OUT"), because the outcome object
   /// is shared between clocking and card enrolment. The wording always follows
   /// [RfidBound.event] - what the server wrote - never the request.
-  static String describe(RfidClaimResult result, {String? event}) {
+  ///
+  /// [hasRegisteredCard] says whether the account already has a card: it
+  /// decides whether the person is told to tap the card they have, or to
+  /// register one first.
+  static String describe(
+    RfidClaimResult result, {
+    String? event,
+    bool hasRegisteredCard = true,
+  }) {
     switch (result) {
       case RfidBound():
         final written = result.event;
@@ -241,7 +249,11 @@ class RfidRegistrationService {
             ? 'That card is already registered to someone else.'
             : 'That card already belongs to $holderName.';
       case RfidUnregistered():
-        return 'This card is not registered yet - register it in Settings first.';
+        // The card is on nobody's account. Clocking never enrols a card, so
+        // the person is pointed back at the card they already have.
+        return hasRegisteredCard
+            ? 'This card is not registered here. Please tap the registered card.'
+            : 'This card is not registered here. Register your card first.';
       case RfidWrongCart(:final cardLocationCode):
         return cardLocationCode.isEmpty
             ? 'That card belongs to another cart.'

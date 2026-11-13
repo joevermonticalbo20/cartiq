@@ -7,6 +7,7 @@ import {
   writeTimeClock,
   canonicalHm,
   hmToMinutes,
+  timeClockScheduleError,
 } from "../services/time_clock.js";
 
 const router = Router();
@@ -41,6 +42,12 @@ router.put(
       }
       if (hmToMinutes(outOpen) >= hmToMinutes(outClose)) {
         return res.status(400).json({ error: "Time out: the opening time must be before the closing time." });
+      }
+      // A shift must start before it can end: the Time out window may not be
+      // earlier than the Time in window.
+      const scheduleError = timeClockScheduleError({ inOpen, inClose, outOpen, outClose });
+      if (scheduleError) {
+        return res.status(400).json({ error: scheduleError });
       }
       const rawDays = body.days;
       let days;

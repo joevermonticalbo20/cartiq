@@ -3,6 +3,11 @@ import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { requireDevice } from "../middleware/device.js";
 import { manilaDayRange, manilaDayStart } from "../services/timezone.js";
+import {
+  duplicateShiftReason,
+  manilaDayKeyOf,
+  shiftsOfPersonOnDay,
+} from "../services/shift_rules.js";
 import { lowStockDedupeKey, shouldOpenLowStockAlert } from "../services/low_stock_alert.js";
 import { notifyAssignedStaffOfLowStock } from "../services/staff_low_stock_notify.js";
 import {
@@ -267,6 +272,15 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
       const plans = [];
       const createdNeedles = new Set();
       const newAlerts = [];
+      // One IN and one OUT per person per Manila day. A tap on the reader
+      // never goes through the app, so the app's own guard (the greyed button)
+      // cannot be the only thing standing between a person and a duplicate
+      // shift. Read this cart's recent shifts (today and yesterday, so a tap
+      // stamped just before midnight still finds its neighbour) and check per
+      // person, per day of the tap itself.
+      const recentShifts = await tx.shift.findMany({
+        where: { locationId: location.id, ts: { gte: manilaDayStart(1) } },
+      });
       for (const e of rows) {
         const uid = String(e.staff_uid ?? "").trim();
         if (e._registrationOnly) continue;
@@ -328,6 +342,21 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
             reason: wrongCartMessage(cardLocationCode(user)),
           });
           continue;
+        }
+        // One IN and one OUT per person per Manila day. After a time in, the
+        // next tap is a duplicate, not a new shift.
+        if (user) {
+          const dayKey = manilaDayKeyOf(ts);
+          const todays = shiftsOfPersonOnDay(recentShifts, {
+            staffId: user.id,
+            staffUid: uid,
+            dayKey,
+          });
+          const duplicate = duplicateShiftReason(todays, event);
+          if (duplicate) {
+            rejected.push({ staff_uid: uid, event, reason: duplicate });
+            continue;
+          }
         }
         plans.push({ uid, event, ts, user });
         if (!user) {

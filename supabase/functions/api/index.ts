@@ -2415,6 +2415,30 @@ function hmToMinutes(v) {
   return h * 60 + min;
 }
 
+/**
+ * Why this schedule is impossible, or null when it is fine.
+ *
+ * A shift must start before it can end, so the Time out window may not be
+ * earlier than the Time in window: "Time in 16:00-16:10" with "Time out
+ * 15:00-15:10" is not a schedule, it is a mistake that would leave a vendor
+ * unable to ever clock out. The all-day schedule (both windows 00:00-23:59)
+ * stays valid - that is a real choice, not a mistake.
+ *
+ * Mirrors api/src/services/time_clock.js.
+ */
+function timeClockScheduleError({ inOpen, inClose, outOpen, outClose } = {}) {
+  const iOpen = hmToMinutes(inOpen);
+  const iClose = hmToMinutes(inClose);
+  const oOpen = hmToMinutes(outOpen);
+  const oClose = hmToMinutes(outClose);
+  // Garbage in, garbage out: the callers validate the shape first.
+  if ([iOpen, iClose, oOpen, oClose].some(Number.isNaN)) return null;
+  if (oOpen < iOpen || oClose < iClose) {
+    return "Time out cannot be earlier than Time in - a shift must start before it can end.";
+  }
+  return null;
+}
+
 /** Snap a time to canonical "HH:MM", or null when invalid. */
 function canonicalHm(v) {
   const n = hmToMinutes(v);
@@ -2510,6 +2534,13 @@ async function handlePutTimeClock(req, origin, user) {
   }
   if (hmToMinutes(outOpen) >= hmToMinutes(outClose)) {
     return jsonRes(origin, { error: "Time out: the opening time must be before the closing time." }, 400);
+  }
+  // A shift must start before it can end: the Time out window may not be
+  // earlier than the Time in window. The all-day schedule (both windows
+  // 00:00-23:59) stays valid - that is a real choice, not a mistake.
+  const scheduleError = timeClockScheduleError({ inOpen, inClose, outOpen, outClose });
+  if (scheduleError) {
+    return jsonRes(origin, { error: scheduleError }, 400);
   }
   const rawDays = body?.days;
   let days;
@@ -3461,6 +3492,60 @@ function manilaDayStart(daysAgo) {
   manilaNow.setUTCHours(0, 0, 0, 0);
   manilaNow.setUTCDate(manilaNow.getUTCDate() - (daysAgo || 0));
   return new Date(manilaNow.getTime() - MANILA_OFFSET_MS);
+}
+
+// ---------- shift rules (mirror of api/src/services/shift_rules.js) ----------
+//
+// One IN and one OUT per person per Manila day. A tap on the reader never
+// goes through the app, so the app's own guard (the greyed button) cannot be
+// the only thing standing between a person and a duplicate shift.
+
+/** Shift an instant into "Manila wall-clock space". */
+function inManila(date) {
+  return new Date(new Date(date).getTime() + 8 * 60 * 60 * 1000);
+}
+
+/** 12-hour Manila wall-clock label, such as `5:23 PM` (matches the app). */
+function formatManilaClock12(date) {
+  if (!date) return "";
+  const m = inManila(date);
+  const hour = m.getUTCHours() % 12 === 0 ? 12 : m.getUTCHours() % 12;
+  const minute = String(m.getUTCMinutes()).padStart(2, "0");
+  const period = m.getUTCHours() < 12 ? "AM" : "PM";
+  return `${hour}:${minute} ${period}`;
+}
+
+/** YYYY-MM-DD calendar date in Manila for any instant. */
+function manilaDayKeyOf(date) {
+  const m = inManila(date);
+  const y = m.getUTCFullYear();
+  const mo = String(m.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(m.getUTCDate()).padStart(2, "0");
+  return `${y}-${mo}-${d}`;
+}
+
+/** The shifts of one person for one Manila day. */
+function shiftsOfPersonOnDay(shifts, { staffId, staffUid, dayKey }) {
+  return (shifts ?? []).filter((s) => {
+    if (!s) return false;
+    const key = s.staffId != null ? `id:${s.staffId}` : `uid:${s.staffUid}`;
+    const wanted = staffId != null ? `id:${staffId}` : `uid:${staffUid}`;
+    if (key !== wanted) return false;
+    return manilaDayKeyOf(s.ts) === dayKey;
+  });
+}
+
+/** The reason this tap must not be recorded, or null when it may be. */
+function duplicateShiftReason(todayShifts, event) {
+  const wanted = String(event ?? "").toUpperCase();
+  if (wanted !== "IN" && wanted !== "OUT") return null;
+  const same = (todayShifts ?? []).find(
+    (s) => String(s?.event ?? "").toUpperCase() === wanted,
+  );
+  if (!same) return null;
+  const label = wanted === "OUT" ? "out" : "in";
+  const at = same.ts ? ` at ${formatManilaClock12(same.ts)}` : "";
+  return `You already timed ${label} today${at}.`;
 }
 
 async function handlePublicSalesToday() {
@@ -4838,13 +4923,20 @@ async function handleDeviceShifts(req, _origin, device) {
   const outcome = await withRetry(async () => {
     const accepted = [];
     const rejected = [];
-    const [users, unknownAlerts, timeclockAlerts] = await Promise.all([
+    const [users, unknownAlerts, timeclockAlerts, recentShifts] = await Promise.all([
       fsListAll("users"),
       // Only recent unread alerts matter for the dedupe checks below.
       // A limit of 10000 read every one of them on EVERY tap batch - with a few
       // hundred stale alerts that alone could burn thousands of reads per tap.
       fsQueryEqual("alerts", "type", "UNKNOWN_CARD", 50),
       fsQueryEqual("alerts", "type", "TIMECLOCK_WINDOW", 50),
+      // The shifts of the last two days, for the "one time in and one time out
+      // per person per day" rule. A range on ts alone needs no composite
+      // index, and a day of taps is a handful of rows.
+      fsRunQuery("shifts", {
+        filters: [{ field: "ts", op: "GREATER_THAN_OR_EQUAL", value: manilaDayStart(1) }],
+        limit: 500,
+      }).catch(() => []),
     ]);
     const unreadAlerts = [...unknownAlerts, ...timeclockAlerts].filter((a) => a.isRead === false);
     // Both sides of the comparison are normalized. A row stored before the
@@ -4918,6 +5010,21 @@ async function handleDeviceShifts(req, _origin, device) {
           reason: wrongCartMessage(cardLocationCode(user)),
         });
         continue;
+      }
+      // One IN and one OUT per person per Manila day. After a time in, the
+      // next tap is a duplicate, not a new shift.
+      if (user) {
+        const dayKey = manilaDayKeyOf(ts);
+        const todays = shiftsOfPersonOnDay(recentShifts, {
+          staffId: user.id,
+          staffUid: uid,
+          dayKey,
+        });
+        const duplicate = duplicateShiftReason(todays, event);
+        if (duplicate) {
+          rejected.push({ staff_uid: uid, event, reason: duplicate });
+          continue;
+        }
       }
       plans.push({ uid, event, ts, user });
       if (!user) {

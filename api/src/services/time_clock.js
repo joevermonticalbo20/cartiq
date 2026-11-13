@@ -110,9 +110,32 @@ export async function writeTimeClock({ enabled, inOpen, inClose, outOpen, outClo
   return normalizeTimeClock(snap);
 }
 
+/**
+ * Why this schedule is impossible, or null when it is fine.
+ *
+ * A shift must start before it can end, so the Time out window may not be
+ * earlier than the Time in window: "Time in 16:00-16:10" with "Time out
+ * 15:00-15:10" is not a schedule, it is a mistake that would leave a vendor
+ * unable to ever clock out. The all-day schedule (both windows 00:00-23:59)
+ * stays valid - that is a real choice, not a mistake.
+ *
+ * Returns a sentence for the owner, or null when the schedule may be saved.
+ */
+export function timeClockScheduleError({ inOpen, inClose, outOpen, outClose } = {}) {
+  const iOpen = hmToMinutes(inOpen);
+  const iClose = hmToMinutes(inClose);
+  const oOpen = hmToMinutes(outOpen);
+  const oClose = hmToMinutes(outClose);
+  // Garbage in, garbage out: the callers validate the shape first.
+  if ([iOpen, iClose, oOpen, oClose].some(Number.isNaN)) return null;
+  if (oOpen < iOpen || oClose < iClose) {
+    return "Time out cannot be earlier than Time in - a shift must start before it can end.";
+  }
+  return null;
+}
+
 /** null when unrestricted/open; otherwise a human reason for the refusal. */
-export function timeClockVerdict(clock, event, nowMs) {
-  if (!clock || clock.enabled !== true) return null;
+export function timeClockVerdict(clock, event, nowMs) {  if (!clock || clock.enabled !== true) return null;
   const inOpen = hmToMinutes(clock.inOpen);
   const inClose = hmToMinutes(clock.inClose);
   const outOpen = hmToMinutes(clock.outOpen);
