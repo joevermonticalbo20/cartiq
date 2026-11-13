@@ -8417,13 +8417,31 @@ async function handleMyRfid(_req, origin, user) {
 async function handleMyRfidUnbind(_req, origin, user) {
   const previous = user.rfidUid ? normalizeRfidUid(user.rfidUid) : null;
   if (!previous) return jsonRes(origin, { rfidUid: null, removed: false });
-  await fsPatch("users", user.id, { rfidUid: null });
+  // The card is gone: it no longer belongs to any cart.
+  await fsPatch("users", user.id, { rfidUid: null, rfidLocationCode: null });
+  // An alert so the owner sees it in the notification center, not just as a
+  // toast: a card being handed back is an attendance change worth a record.
+  const counters = await readCounters(["alerts"]);
+  const { ids, writes } = counterWritesFor(counters, { alerts: 1 });
+  writes.push(createWrite("alerts", ids.alerts[0], {
+    id: ids.alerts[0],
+    type: "RFID_UNBOUND",
+    message: `${user.name} removed card ${previous}`,
+    payload: JSON.stringify({ staffId: user.id, rfidUid: previous }),
+    createdAt: new Date(),
+  }));
+  await fsCommit(writes);
   await broadcastEvent("rfid:unbound", {
     userId: user.id,
     name: user.name,
     username: user.username,
     rfidUid: previous,
   });
+  await pushToOwners({
+    title: "Card removed",
+    body: `${user.name} removed card ${previous}`,
+    data: { rfidUid: previous, staffName: user.name },
+  }).catch(() => {});
   return jsonRes(origin, { rfidUid: null, removed: true });
 }
 

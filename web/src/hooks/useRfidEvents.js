@@ -79,9 +79,16 @@ export function formatRfidAlreadyRegistered(data) {
  * [onChange] is called after every binding change so a page holding a staff
  * list can refetch instead of showing a stale card number.
  */
+const seenRfidEventIds = new Set();
+
 export function useRfidEvents({ onChange } = {}) {
   const handleBound = useCallback(
     (data) => {
+      const id = data?.id;
+      if (id != null) {
+        if (seenRfidEventIds.has(id)) return;
+        seenRfidEventIds.add(id);
+      }
       toast(formatRfidBound(data), "success");
       onChange?.(data);
     },
@@ -90,6 +97,11 @@ export function useRfidEvents({ onChange } = {}) {
 
   const handleUnbound = useCallback(
     (data) => {
+      const id = data?.id;
+      if (id != null) {
+        if (seenRfidEventIds.has(id)) return;
+        seenRfidEventIds.add(id);
+      }
       toast(`${data?.name ?? "Staff"} removed card ${data?.rfidUid ?? ""}`, "warn");
       onChange?.(data);
     },
@@ -97,18 +109,38 @@ export function useRfidEvents({ onChange } = {}) {
   );
 
   const handleConflict = useCallback((data) => {
+    const id = data?.id;
+    if (id != null) {
+      if (seenRfidEventIds.has(id)) return;
+      seenRfidEventIds.add(id);
+    }
     toast(formatRfidConflict(data), "warn");
   }, []);
 
   const handleUnregistered = useCallback((data) => {
+    const id = data?.id;
+    if (id != null) {
+      if (seenRfidEventIds.has(id)) return;
+      seenRfidEventIds.add(id);
+    }
     toast(formatRfidUnregistered(data), "warn");
   }, []);
 
   const handleWrongCart = useCallback((data) => {
+    const id = data?.id;
+    if (id != null) {
+      if (seenRfidEventIds.has(id)) return;
+      seenRfidEventIds.add(id);
+    }
     toast(formatRfidWrongCart(data), "warn");
   }, []);
 
   const handleAlreadyRegistered = useCallback((data) => {
+    const id = data?.id;
+    if (id != null) {
+      if (seenRfidEventIds.has(id)) return;
+      seenRfidEventIds.add(id);
+    }
     toast(formatRfidAlreadyRegistered(data), "warn");
   }, []);
 

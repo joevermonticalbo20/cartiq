@@ -285,6 +285,8 @@ export function useOrderNotifications({ onOrder, playSound, user } = {}) {
     // The RFID_BOUND alert is still fetched into the bell, so the toast must
     // not fire a second time. The bell still shows the alert.
     if (String(data?.type ?? "").toUpperCase() === "RFID_BOUND") return;
+    // A card removal is already announced by `rfid:unbound` (useRfidEvents).
+    if (String(data?.type ?? "").toUpperCase() === "RFID_UNBOUND") return;
     if (data?.id != null && toastedAlertIds.has(data.id)) return;
     if (data?.id != null) toastedAlertIds.add(data.id);
     const message = data?.message ?? "New alert";

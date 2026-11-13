@@ -582,7 +582,35 @@ router.delete("/my-rfid", requireAuth, async (req, res, next) => {
     if (!previous) {
       return res.json({ rfidUid: null, removed: false });
     }
-    await prisma.user.update({ where: { id: user.id }, data: { rfidUid: null } });
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { rfidUid: null, rfidLocationCode: null },
+    });
+    // An alert so the owner sees it in the notification center, not just as a
+    // toast: a card being handed back is an attendance change worth a record.
+    try {
+      const alert = await prisma.alert.create({
+        data: {
+          type: "RFID_UNBOUND",
+          message: `${user.name} removed card ${previous}`,
+          payload: JSON.stringify({ staffId: user.id, rfidUid: previous }),
+        },
+      });
+      emit("alert:new", {
+        id: alert.id,
+        type: "RFID_UNBOUND",
+        message: alert.message,
+        locationId: user.locationId ?? null,
+        createdAt: new Date().toISOString(),
+      });
+    } catch {
+      // A missed alert must never fail the removal that caused it.
+    }
+    await pushToOwners({
+      title: "Card removed",
+      body: `${user.name} removed card ${previous}`,
+      data: { rfidUid: previous, staffName: user.name },
+    });
     emit("rfid:unbound", {
       userId: user.id,
       name: user.name,

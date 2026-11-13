@@ -50,9 +50,18 @@ export const SHIFT_EVENT_NAME = "shift:new";
  * [onChange] is called after a recorded shift so a page holding the staff list
  * can refetch instead of showing yesterday's attendance.
  */
+// A reconnect of the SSE stream must not re-toast a shift that was already
+// announced. Keyed by the event's id, which the server hands out once.
+const seenShiftIds = new Set();
+
 export function useShiftNotices({ onChange } = {}) {
   const handle = useCallback(
     (data) => {
+      const id = data?.id;
+      if (id != null) {
+        if (seenShiftIds.has(id)) return;
+        seenShiftIds.add(id);
+      }
       const notice = formatShiftNotice(data);
       if (!notice) return;
       toast(notice.message, notice.tone);
