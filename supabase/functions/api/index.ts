@@ -998,6 +998,10 @@ const CLAIM_PENDING = "pending";
 const CLAIM_BOUND = "bound";
 const CLAIM_CONFLICT = "conflict";
 const CLAIM_EXPIRED = "expired";
+// The tapped card is not on any account. Only reachable from a clocking claim
+// ("Time in" / "Time out"): clocking must never enrol a card, only the
+// explicit "register card" flow may do that.
+const CLAIM_UNREGISTERED = "unregistered";
 
 const RFID_CLAIM_TTL_MS = 90 * 1000;
 const RFID_CLAIM_MAX = 200;
@@ -4645,6 +4649,23 @@ async function bindClaimedTag({ rawUid, locationId }) {
       claimedBy: claim.userId,
     });
     return { outcome: "conflict", rfidUid, holderName: holder.name };
+  }
+
+  // Clocking in or out must NEVER enrol a card. The person pressed Time in /
+  // Time out and tapped their staff card; if that card is not on an account
+  // the honest answer is "this card is not registered", not "here, let me
+  // attach it to you". Only the explicit "register card" flow enrols a tag -
+  // that way a tag can never be taken over by whoever happens to clock in
+  // with it.
+  if (!holder && claim.event) {
+    await resolveClaim(claim.claimId, CLAIM_UNREGISTERED, rfidUid);
+    await broadcastEvent("rfid:unregistered", {
+      rfidUid,
+      locationCode: claim.locationCode,
+      claimedBy: claim.userId,
+      event: claim.event,
+    }).catch(() => {});
+    return { outcome: "unregistered", rfidUid };
   }
 
   let target = holder;

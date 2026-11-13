@@ -217,13 +217,14 @@ class SettingsScreenState extends State<SettingsScreen> {
         if (!confirmed || !mounted) return;
         final removed = await auth.unbindRfid();
         if (!mounted) return;
-        await reload();
-        if (!mounted) return;
+        // Say it straight away. The card is already gone on the server, so the
+        // person must not wait for a reload (or a failed reload) to find out.
         AppMessenger.showGlassToast(
           context: context,
           message: RfidRegistrationService.describe(removed),
           isSuccess: removed is RfidUnbound,
         );
+        await reload().catchError((_) {});
         return;
       }
     }
@@ -2148,7 +2149,10 @@ class _NotificationsSectionState extends State<_NotificationsSection> {
   }
 
   Future<void> _refresh() async {
-    if (mounted) setState(() => _loading = true);
+    // The screen can be gone by the time the post-frame callback runs (the
+    // person navigated away). Touching `context` after that throws.
+    if (!mounted) return;
+    setState(() => _loading = true);
     await context.read<AuthState>().refreshMyAlerts();
     if (mounted) setState(() => _loading = false);
   }

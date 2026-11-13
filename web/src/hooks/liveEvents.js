@@ -30,10 +30,12 @@ export const LIVE_EVENT_NAMES = Object.freeze([
   // Restock requests filed from the POS, and their resolution.
   "restock-request:new",
   "restock-request:updated",
-  // RFID card binding changes (register / replace / unbind / conflict).
+  // RFID card binding changes (register / replace / unbind / conflict) and a
+  // tap with a card that is on nobody's account.
   "rfid:bound",
   "rfid:unbound",
   "rfid:conflict",
+  "rfid:unregistered",
   // The catalog moved: a product, flavor, recipe, price or photo changed.
   "product:updated",
   // Stock rows moved: an item was added/edited/removed or adjusted by hand.
@@ -52,6 +54,7 @@ export const LIVE_EVENTS = Object.freeze({
   rfidBound: "rfid:bound",
   rfidUnbound: "rfid:unbound",
   rfidConflict: "rfid:conflict",
+  rfidUnregistered: "rfid:unregistered",
   productUpdated: "product:updated",
   inventoryUpdated: "inventory:updated",
   shiftNew: "shift:new",

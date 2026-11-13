@@ -73,6 +73,16 @@ export const CLAIM_BOUND = "bound";
 export const CLAIM_CONFLICT = "conflict";
 export const CLAIM_EXPIRED = "expired";
 
+/**
+ * The tapped card is not on any account.
+ *
+ * Only reachable from a clocking claim ("Time in" / "Time out"): the person
+ * tapped a tag that belongs to nobody. It is deliberately NOT a registration -
+ * clocking must never enrol a card, only the explicit "register card" flow
+ * may do that.
+ */
+export const CLAIM_UNREGISTERED = "unregistered";
+
 /** True when the claim is still waiting for a tap. */
 export function isClaimActive(claim, now = Date.now()) {
   return Boolean(claim) && claim.exp > now && claim.status === CLAIM_PENDING;

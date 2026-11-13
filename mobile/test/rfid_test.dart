@@ -347,6 +347,22 @@ void main() {
       );
     });
 
+    test('a card that belongs to nobody is reported, not enrolled', () async {
+      // The server refuses to enrol a card during clocking: only the explicit
+      // "register card" flow may attach a tag to an account.
+      final api = FakeApi();
+      api.claimViews.add({'status': 'unregistered'});
+      final result = await RfidRegistrationService(apiClient: api).register(
+        token: 'tok',
+        event: 'IN',
+      );
+      expect(result, isA<RfidUnregistered>());
+      expect(
+        RfidRegistrationService.describe(result, event: 'IN'),
+        contains('not registered'),
+      );
+    });
+
     test('never toasts Time in when the server wrote no shift', () {
       // Asked to clock in, but the shift log has nothing: the toast must not
       // claim a success the server cannot back up.
@@ -537,6 +553,10 @@ void main() {
       );
       expect(RfidRegistrationService.describe(const RfidExpired()), isNotEmpty);
       expect(RfidRegistrationService.describe(const RfidUnbound()), isNotEmpty);
+      expect(
+        RfidRegistrationService.describe(const RfidUnregistered()),
+        contains('not registered'),
+      );
       expect(
         RfidRegistrationService.describe(const RfidFailed('boom')),
         'boom',

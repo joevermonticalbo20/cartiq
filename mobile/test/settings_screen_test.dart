@@ -30,6 +30,13 @@ class _FakeStore implements KeyValueStore {
 class _FakeApi extends ApiClient {
   _FakeApi({KeyValueStore? store})
     : super(secureStorage: store ?? _FakeStore());
+
+  /// Removing a card must succeed without a server.
+  @override
+  Future<Map<String, dynamic>> unbindRfid(String token) async => {
+    'rfidUid': null,
+    'removed': true,
+  };
 }
 
 class _FakeQueue implements OfflineQueue {
@@ -192,6 +199,46 @@ void main() {
       expect(find.text('Catalog cache'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('Disabled accounts'), 200);
       expect(find.text('Version'), findsOneWidget);
+    });
+
+    testWidgets('removing the card says so straight away', (tester) async {
+      final store = _FakeStore();
+      final auth = AuthState(
+        apiClient: _FakeApi(store: store),
+        secureStorage: store,
+      );
+      auth.token = 'tok';
+      auth.user = {
+        'name': 'S1',
+        'username': 'staff01',
+        'role': 'STAFF',
+        'rfidUid': '3A20704F',
+        'location': {'code': 'CART-01'},
+      };
+      await tester.pumpWidget(_settingsHarness(auth));
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(find.text('RFID card'), 300);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('RFID card'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Remove this card'), findsOneWidget);
+      await tester.tap(find.text('Remove this card'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Remove this card?'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
+      await tester.pumpAndSettle();
+
+      // The card is gone on the server: the person must be told now, not after
+      // a reload that might not even arrive.
+      expect(find.text('Card removed from this account.'), findsOneWidget);
+      expect(auth.hasRfidCard, isFalse);
+
+      // Let the toast time out so no timer outlives the test.
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
     });
   });
 }

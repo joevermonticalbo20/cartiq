@@ -11,6 +11,7 @@ import { normalizeRfidUid } from "./rfid.js";
 import {
   CLAIM_BOUND,
   CLAIM_CONFLICT,
+  CLAIM_UNREGISTERED,
   findActiveClaimForLocation,
   resolveClaim,
 } from "./rfid_claims.js";
@@ -21,9 +22,10 @@ import {
  * Returns null when nobody is registering on that cart, which is the normal
  * case - the caller then falls through to its ordinary tap handling. Otherwise
  * returns one of:
- *   { outcome: "bound",    rfidUid, userId, name, username, locationCode }
- *   { outcome: "conflict", rfidUid, holderName }   tag belongs to someone else
- *   { outcome: "error",    message }               claim target vanished
+ *   { outcome: "bound",        rfidUid, userId, name, username, locationCode }
+ *   { outcome: "conflict",     rfidUid, holderName }   tag belongs to someone else
+ *   { outcome: "unregistered", rfidUid }               tag belongs to nobody
+ *   { outcome: "error",        message }               claim target vanished
  *
  * Safe to call with a tag that is already registered: re-tapping your own card
  * while the prompt is open resolves the claim instead of erroring, so the app
@@ -52,6 +54,23 @@ export async function bindClaimedTag({ rawUid, locationId }) {
       claimedBy: claim.userId,
     });
     return { outcome: "conflict", rfidUid, holderName: holder.name };
+  }
+
+  // Clocking in or out must NEVER enrol a card. The person pressed Time in /
+  // Time out and tapped their staff card; if that card is not on an account
+  // the honest answer is "this card is not registered", not "here, let me
+  // attach it to you". Only the explicit "register card" flow enrols a tag -
+  // that way a tag can never be taken over by whoever happens to clock in
+  // with it.
+  if (!holder && claim.event) {
+    resolveClaim(claim.claimId, CLAIM_UNREGISTERED, rfidUid);
+    emit("rfid:unregistered", {
+      rfidUid,
+      locationCode: claim.locationCode,
+      claimedBy: claim.userId,
+      event: claim.event,
+    });
+    return { outcome: "unregistered", rfidUid };
   }
 
   let target = holder;

@@ -40,6 +40,17 @@ export function formatRfidConflict(data) {
 }
 
 /**
+ * `rfid:unregistered` - somebody clocked in or out with a card that is on
+ * nobody's account. The server refuses to enrol it, so the owner hears about
+ * the card that will not work instead of finding out at the next shift.
+ */
+export function formatRfidUnregistered(data) {
+  const cart = data?.locationCode ?? "this cart";
+  const when = data?.event === "OUT" ? "clock out" : "clock in";
+  return `Card ${data?.rfidUid ?? "unknown"} on ${cart} is not registered - it was not enrolled when someone tried to ${when}`;
+}
+
+/**
  * Mount once in the app shell.
  *
  * [onChange] is called after every binding change so a page holding a staff
@@ -66,7 +77,12 @@ export function useRfidEvents({ onChange } = {}) {
     toast(formatRfidConflict(data), "warn");
   }, []);
 
+  const handleUnregistered = useCallback((data) => {
+    toast(formatRfidUnregistered(data), "warn");
+  }, []);
+
   useLiveEvent("rfid:bound", handleBound);
   useLiveEvent("rfid:unbound", handleUnbound);
   useLiveEvent("rfid:conflict", handleConflict);
+  useLiveEvent("rfid:unregistered", handleUnregistered);
 }

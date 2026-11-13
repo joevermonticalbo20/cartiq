@@ -27,6 +27,16 @@ class RfidConflict extends RfidClaimResult {
   final String holderName;
 }
 
+/// The card is not on any account yet.
+///
+/// Only possible while clocking in or out: the person pressed Time in / Time
+/// out and tapped a tag that belongs to nobody. The tap is NOT a registration -
+/// the card must be enrolled deliberately from Settings, so a tag can never be
+/// taken over by whoever happens to clock in with it.
+class RfidUnregistered extends RfidClaimResult {
+  const RfidUnregistered();
+}
+
 /// Nobody tapped before the window closed.
 class RfidExpired extends RfidClaimResult {
   const RfidExpired();
@@ -154,6 +164,11 @@ class RfidRegistrationService {
             // The server names the holder so the person at the cart knows they
             // grabbed somebody else's card rather than seeing a bare error.
             return RfidConflict(view['holderName'] as String? ?? '');
+          case 'unregistered':
+            // Clocking with a card that is on nobody's account. The server
+            // refused to enrol it, so the app says so instead of pretending
+            // the shift was recorded.
+            return const RfidUnregistered();
           case 'expired':
             return const RfidExpired();
           case 'pending':
@@ -211,6 +226,8 @@ class RfidRegistrationService {
         return holderName.isEmpty
             ? 'That card is already registered to someone else.'
             : 'That card already belongs to $holderName.';
+      case RfidUnregistered():
+        return 'This card is not registered yet - register it in Settings first.';
       case RfidExpired():
         return 'No card tapped in time.';
       case RfidNoShift():
