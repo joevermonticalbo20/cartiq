@@ -47,6 +47,15 @@ String shiftStatusOf(Map<String, dynamic> data) {
 String shiftReasonOf(Map<String, dynamic> data) =>
     (data['reason'] ?? '').toString().trim();
 
+/// The data-only push the server sends when the owner changes the clock
+/// windows. The app re-reads the windows and the buttons update at once -
+/// no notification to dismiss, and no 5-minute wait.
+const String timeClockChangedPushType = 'TIME_CLOCK_CHANGED';
+
+/// True when this message is a clock-window change.
+bool isTimeClockChanged(Map<String, dynamic> data) =>
+    (data['type'] ?? '').toString().toUpperCase() == timeClockChangedPushType;
+
 /// The push an OWNER gets when something happens at a cart: a staff member
 /// timed in or out, or a card was registered.
 ///
@@ -124,6 +133,10 @@ class CartIQPushService {
   /// cart, or a card was registered. The app says it out loud - the owner is
   /// usually not looking at the dashboard.
   Future<void> Function(String message)? onOwnerNotice;
+
+  /// Invoked when the owner changes the clock windows. The app re-reads them
+  /// at once, so the Time in / Time out buttons follow without a refresh.
+  Future<void> Function()? onTimeClockChanged;
 
   /// Invoked when a card was tapped on the reader. The app reflects the tap
   /// right away - the tap is the whole point of the reader, so it must show
@@ -259,6 +272,10 @@ class CartIQPushService {
     }
     if (isShiftEvent(message.data)) {
       await onShiftEvent?.call(message.data);
+      return;
+    }
+    if (isTimeClockChanged(message.data)) {
+      await onTimeClockChanged?.call();
       return;
     }
     if (isOwnerNotice(message.data)) {

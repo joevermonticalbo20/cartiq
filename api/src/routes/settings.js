@@ -9,6 +9,8 @@ import {
   hmToMinutes,
   timeClockScheduleError,
 } from "../services/time_clock.js";
+import { sendDevicePush } from "../services/push.js";
+import { emit } from "./events.js";
 
 const router = Router();
 
@@ -67,6 +69,17 @@ router.put(
         { enabled, inOpen, inClose, outOpen, outClose, days },
         req.user?.name ?? req.user?.username ?? null,
       );
+      // The owner just changed the clock windows: every phone at every cart must
+      // see the new buttons without waiting for the 5-minute poll.
+      emit("settings:timeclock", { clock });
+      await sendDevicePush("TIME_CLOCK_CHANGED", {
+        inOpen: clock.inOpen,
+        inClose: clock.inClose,
+        outOpen: clock.outOpen,
+        outClose: clock.outClose,
+        enabled: clock.enabled ? "true" : "false",
+        days: (clock.days ?? []).join(","),
+      });
       return res.json({ clock });
     } catch (err) {
       return next(err);

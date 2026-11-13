@@ -44,6 +44,8 @@ export const LIVE_EVENT_NAMES = Object.freeze([
   "inventory:updated",
   // A card was tapped on the reader: a shift was recorded.
   "shift:new",
+  // The owner changed the clock windows.
+  "settings:timeclock",
 ]);
 
 /** Named constants for the call sites, so a typo cannot silently break a feed. */
@@ -62,4 +64,5 @@ export const LIVE_EVENTS = Object.freeze({
   productUpdated: "product:updated",
   inventoryUpdated: "inventory:updated",
   shiftNew: "shift:new",
+  settingsTimeclock: "settings:timeclock",
 });

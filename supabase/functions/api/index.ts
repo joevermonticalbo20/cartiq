@@ -2651,7 +2651,21 @@ async function handlePutTimeClock(req, origin, user) {
     updatedAt: new Date(),
     updatedByName: user?.name ?? null,
   });
-  return jsonRes(origin, { clock: normalizeTimeClock(saved) }, 200);
+  const clock = normalizeTimeClock(saved);
+  // The owner just changed the clock windows: every phone at every cart must
+  // see the new buttons without waiting for the 5-minute poll. The app
+  // refreshes on this data-only push (no notification - it is a setting, not
+  // an alert).
+  await broadcastEvent("settings:timeclock", { clock }).catch(() => {});
+  await sendDevicePush("TIME_CLOCK_CHANGED", {
+    inOpen: clock.inOpen,
+    inClose: clock.inClose,
+    outOpen: clock.outOpen,
+    outClose: clock.outClose,
+    enabled: clock.enabled ? "true" : "false",
+    days: (clock.days ?? []).join(","),
+  }).catch(() => {});
+  return jsonRes(origin, { clock }, 200);
 }
 
 /** Read several _counters docs at once (read phase). */

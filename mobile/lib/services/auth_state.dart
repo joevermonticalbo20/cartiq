@@ -57,6 +57,11 @@ class AuthState extends ChangeNotifier {
     push.onCatalogChanged = () async {
       dataRefresh?.bump('catalog');
     };
+    // The owner changed the clock windows: re-read them at once so the Time in /
+    // Time out buttons follow without waiting for the 5-minute poll.
+    push.onTimeClockChanged = () async {
+      await refreshTimeClock();
+    };
     // A card was tapped on the reader: the shift is already recorded on the
     // server, so refresh today's attendance now - the tap must show up at
     // once, not on the next poll. A tap the server refused (outside the clock

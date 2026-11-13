@@ -148,6 +148,63 @@ export const __pushTestHelpers = {
  * status: "recorded" (the shift is written) | "unregistered" (the card is
  * not on any staff account) | "refused" (the server would not log it).
  */
+/**
+ * Send a DATA-ONLY push to every registered device.
+ *
+ * Data-only means Android stays silent: the app decides what to do with it.
+ * Used for things like a menu change or a new clock window - the app
+ * refreshes on its own without a notification the vendor has to dismiss.
+ */
+export async function sendDevicePush(
+  type,
+  payload = {},
+  { db = prisma, messaging = undefined } = {},
+) {
+  try {
+    const rows = await db.pushTokens.findMany({});
+    const tokens = rows.map((row) => cleanToken(row?.token)).filter(Boolean);
+    if (!tokens.length) return;
+
+    const data = { type: String(type ?? ""), ...payload };
+    // FCM data values must be strings.
+    for (const k of Object.keys(data)) {
+      if (data[k] === null || data[k] === undefined) data[k] = "";
+      else if (typeof data[k] !== "string") data[k] = String(data[k]);
+    }
+
+    const message = {
+      tokens,
+      data,
+      android: {
+        priority: "high",
+        collapseKey: String(type ?? "").toLowerCase().replace(/[^a-z0-9]/g, "") || "device",
+      },
+    };
+
+    let result;
+    try {
+      result = await (messaging ?? getMessaging()).sendEachForMulticast(message);
+    } catch {
+      // Messaging is unavailable: the app's own poll still picks the change up.
+      return;
+    }
+
+    const invalid = [];
+    (result?.responses ?? []).forEach((response, index) => {
+      const code = String(response?.error?.code ?? "");
+      if (
+        !response?.success &&
+        (/not-found|unregistered|invalid-argument|invalid-token|registration-token-not-registered/i.test(code))
+      ) {
+        invalid.push(tokens[index]);
+      }
+    });
+    await pruneTokens(invalid, db);
+  } catch {
+    // Never let push delivery affect the API mutation.
+  }
+}
+
 export async function sendShiftPush(
   { event, staffUid, staffName, locationCode, status = "recorded", reason = "" } = {},
   { db = prisma, messaging = undefined } = {},
