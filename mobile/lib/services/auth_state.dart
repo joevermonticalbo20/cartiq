@@ -87,7 +87,9 @@ class AuthState extends ChangeNotifier {
     // the dashboard when it happens.
     push.onOwnerNotice = (message) async {
       dataRefresh?.bump('notice', message, true);
-      // Somebody clocked in or out somewhere: the staff list is stale now.
+      // The notice is also a record: refresh the alert list and the attendance
+      // so the bell and the staff list stay in step.
+      refreshMyAlerts().catchError((_) {});
       refreshMyShifts().catchError((_) {});
     };
   }

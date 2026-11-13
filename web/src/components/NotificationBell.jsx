@@ -100,7 +100,11 @@ export default function NotificationBell() {
     }, 600);
   }, [refresh]);
 
+  // A recorded shift (time in / time out) creates a SHIFT alert. Refetch on the
+  // same event the dashboard toasts on, so the notification center and the
+  // toast land at the same time instead of the bell missing the new entry.
   useLiveEvent("alert:new", liveRefresh);
+  useLiveEvent("shift:new", liveRefresh);
   useLiveEvent("order:new", liveRefresh);
 
   const closePanel = () => {

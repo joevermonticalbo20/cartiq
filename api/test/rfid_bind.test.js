@@ -18,6 +18,10 @@ import { getClaim, openClaim, resetClaims } from "../src/services/rfid_claims.js
 import { bindClaimedTag } from "../src/services/rfid_bind.js";
 
 // A tiny in-memory stand-in for the users table.
+const mockMessaging = {
+  sendEachForMulticast: async () => ({ responses: [], successCount: 0, failureCount: 0 }),
+};
+
 const users = [
   {
     id: 2,
@@ -36,6 +40,7 @@ const users = [
 ];
 
 const originalUser = prisma.user;
+const originalPushTokens = prisma.pushTokens;
 prisma.user = {
   async findFirst({ where }) {
     return (
@@ -54,6 +59,20 @@ prisma.user = {
       }
     }
     return user;
+  },
+  async findMany({ where } = {}) {
+    const all = users.map((u) => ({ ...u, active: true, role: u.id === 1 ? "OWNER" : "STAFF" }));
+    // The owner is user 1 in this fake (so pushToOwners finds a target).
+    if (where?.role === "OWNER") return all.filter((u) => u.role === "OWNER");
+    return all;
+  },
+};
+prisma.pushTokens = {
+  async findMany() {
+    return [{ userId: 1, token: "owner-token" }];
+  },
+  async deleteMany() {
+    return { count: 0 };
   },
 };
 
@@ -74,7 +93,7 @@ test("clocking in with a card nobody owns does NOT register it", async () => {
     event: "IN",
   });
 
-  const result = await bindClaimedTag({ rawUid: "DEADBEEF", locationId: 1 });
+  const result = await bindClaimedTag({ db: prisma, messaging: mockMessaging, rawUid: "DEADBEEF", locationId: 1 });
 
   assert.equal(result.outcome, "unregistered");
   assert.equal(
@@ -98,7 +117,7 @@ test("clocking out with a card nobody owns does NOT register it either", async (
     event: "OUT",
   });
 
-  const result = await bindClaimedTag({ rawUid: "DEADBEEF", locationId: 1 });
+  const result = await bindClaimedTag({ db: prisma, messaging: mockMessaging, rawUid: "DEADBEEF", locationId: 1 });
 
   assert.equal(result.outcome, "unregistered");
   assert.equal(users[0].rfidUid, "3A20704F");
@@ -113,7 +132,7 @@ test("registering a card that nobody owns still binds it", async () => {
     locationCode: "CART-01",
   });
 
-  const result = await bindClaimedTag({ rawUid: "DEADBEEF", locationId: 1 });
+  const result = await bindClaimedTag({ db: prisma, messaging: mockMessaging, rawUid: "DEADBEEF", locationId: 1 });
 
   assert.equal(result.outcome, "bound");
   assert.equal(users[0].rfidUid, "DEADBEEF");
@@ -129,7 +148,7 @@ test("clocking in with somebody else's card is refused and never moves it", asyn
     event: "IN",
   });
 
-  const result = await bindClaimedTag({ rawUid: "06C4D5E6", locationId: 1 });
+  const result = await bindClaimedTag({ db: prisma, messaging: mockMessaging, rawUid: "06C4D5E6", locationId: 1 });
 
   assert.equal(result.outcome, "conflict");
   assert.equal(result.holderName, "Stall Staff 3");
@@ -147,7 +166,7 @@ test("clocking in with your own card logs the shift and enrols nothing", async (
     event: "IN",
   });
 
-  const result = await bindClaimedTag({ rawUid: "3A20704F", locationId: 1 });
+  const result = await bindClaimedTag({ db: prisma, messaging: mockMessaging, rawUid: "3A20704F", locationId: 1 });
 
   assert.equal(result.outcome, "bound");
   assert.equal(result.desiredEvent, "IN", "the tap route uses this for the shift");
@@ -166,7 +185,7 @@ test("a card belongs to the cart it was enrolled at", async () => {
     event: "IN",
   });
 
-  const result = await bindClaimedTag({ rawUid: "3A20704F", locationId: 2 });
+  const result = await bindClaimedTag({ db: prisma, messaging: mockMessaging, rawUid: "3A20704F", locationId: 2 });
 
   assert.equal(result.outcome, "wrong_cart");
   assert.equal(result.cardLocationCode, "CART-01");
@@ -195,7 +214,7 @@ test("enrolling at another cart is refused too", async () => {
     locationCode: "CART-02",
   });
 
-  const result = await bindClaimedTag({ rawUid: "3A20704F", locationId: 2 });
+  const result = await bindClaimedTag({ db: prisma, messaging: mockMessaging, rawUid: "3A20704F", locationId: 2 });
 
   assert.equal(result.outcome, "wrong_cart");
   assert.equal(users[0].rfidUid, "3A20704F");
@@ -215,7 +234,7 @@ test("a card with no cart of its own still works anywhere", async () => {
     event: "IN",
   });
 
-  const result = await bindClaimedTag({ rawUid: "3A20704F", locationId: 2 });
+  const result = await bindClaimedTag({ db: prisma, messaging: mockMessaging, rawUid: "3A20704F", locationId: 2 });
 
   assert.equal(result.outcome, "bound");
   assert.equal(getClaim(claim.claimId).status, CLAIM_BOUND);
@@ -229,7 +248,7 @@ test("a fresh card is enrolled at the cart where it was tapped", async () => {
     locationCode: "CART-02",
   });
 
-  await bindClaimedTag({ rawUid: "DEADBEEF", locationId: 2 });
+  await bindClaimedTag({ db: prisma, messaging: mockMessaging, rawUid: "DEADBEEF", locationId: 2 });
 
   assert.equal(users[0].rfidUid, "DEADBEEF");
   assert.equal(
@@ -248,7 +267,7 @@ test("enrolling a card that is already on the account changes nothing", async ()
     locationCode: "CART-01",
   });
 
-  const result = await bindClaimedTag({ rawUid: "3A20704F", locationId: 1 });
+  const result = await bindClaimedTag({ db: prisma, messaging: mockMessaging, rawUid: "3A20704F", locationId: 1 });
 
   // Nothing changed, and the app is told so instead of claiming a card was
   // registered.
@@ -267,7 +286,7 @@ test("clocking in with your own card still records the shift", async () => {
     event: "IN",
   });
 
-  const result = await bindClaimedTag({ rawUid: "3A20704F", locationId: 1 });
+  const result = await bindClaimedTag({ db: prisma, messaging: mockMessaging, rawUid: "3A20704F", locationId: 1 });
 
   // The "already registered" rule is enrolment only: clocking writes the shift.
   assert.equal(result.outcome, "bound");
@@ -286,7 +305,7 @@ test("an owner can register a card for a staff member", async () => {
     locationCode: "CART-03",
   });
 
-  const result = await bindClaimedTag({ rawUid: "FEEDFACE", locationId: 3 });
+  const result = await bindClaimedTag({ db: prisma, messaging: mockMessaging, rawUid: "FEEDFACE", locationId: 3 });
 
   assert.equal(result.outcome, "bound");
   assert.equal(result.userId, 4);
@@ -305,7 +324,7 @@ test("an owner's claim never takes another person's card", async () => {
     locationCode: "CART-03",
   });
 
-  const result = await bindClaimedTag({ rawUid: "3A20704F", locationId: 3 });
+  const result = await bindClaimedTag({ db: prisma, messaging: mockMessaging, rawUid: "3A20704F", locationId: 3 });
 
   // Stall Staff 1's card stays theirs, even for an owner.
   assert.equal(result.outcome, "conflict");
@@ -324,7 +343,7 @@ test("an owner's claim for a card already on that account changes nothing", asyn
     locationCode: "CART-03",
   });
 
-  const result = await bindClaimedTag({ rawUid: "06C4D5E6", locationId: 3 });
+  const result = await bindClaimedTag({ db: prisma, messaging: mockMessaging, rawUid: "06C4D5E6", locationId: 3 });
 
   assert.equal(result.outcome, "already_registered");
   assert.equal(users[1].rfidUid, "06C4D5E6");
@@ -333,4 +352,5 @@ test("an owner's claim for a card already on that account changes nothing", asyn
 
 test.after(() => {
   prisma.user = originalUser;
+  prisma.pushTokens = originalPushTokens;
 });

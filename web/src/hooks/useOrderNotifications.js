@@ -277,6 +277,14 @@ export function useOrderNotifications({ onOrder, playSound, user } = {}) {
     // toast (and browser notification) above; the SALE alert would only
     // duplicate it. The bell still shows the alert.
     if (isDuplicateSaleAlert(data)) return;
+    // A recorded shift is already announced by `shift:new` (useShiftNotices).
+    // The SHIFT alert is still fetched into the bell, so the toast must not
+    // fire a second time. The bell still shows the alert.
+    if (String(data?.type ?? "").toUpperCase() === "SHIFT") return;
+    // A card registration is already announced by `rfid:bound` (useRfidEvents).
+    // The RFID_BOUND alert is still fetched into the bell, so the toast must
+    // not fire a second time. The bell still shows the alert.
+    if (String(data?.type ?? "").toUpperCase() === "RFID_BOUND") return;
     if (data?.id != null && toastedAlertIds.has(data.id)) return;
     if (data?.id != null) toastedAlertIds.add(data.id);
     const message = data?.message ?? "New alert";

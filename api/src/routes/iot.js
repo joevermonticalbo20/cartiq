@@ -226,12 +226,28 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
     // the user lookup below already sees the freshly bound tag - the tap then
     // records a real shift for the person who just registered.
     const registrations = [];
+    const registrationAlerts = [];
     for (const e of rows) {
       const uid = String(e?.staff_uid ?? "").trim();
       if (!uid) continue;
       const bound = await bindClaimedTag({ rawUid: uid, locationId: location.id });
       if (!bound) continue;
       registrations.push(bound);
+      // A brand-new card just landed on an account - the owner wants that
+      // on the notification center, not just on the dashboard toast.
+      if (bound.outcome === "bound" && !bound.desiredEvent) {
+        registrationAlerts.push({
+          type: "RFID_BOUND",
+          message: `${bound.name} registered card ${bound.rfidUid} at ${bound.locationCode}`,
+          payload: JSON.stringify({
+            staffId: bound.userId,
+            rfidUid: bound.rfidUid,
+            locationCode: bound.locationCode,
+          }),
+          locationId: location.id,
+          locationCode: location.code,
+        });
+      }
       // The person pressed Time In or Time Out in the app. The firmware only
       // knows how to toggle, and toggling would silently log someone OUT when
       // they meant to clock IN. A registration-only tap has no event, so it
@@ -271,7 +287,7 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
       // ---- COMPUTE PHASE (same validation/messages as before) ----
       const plans = [];
       const createdNeedles = new Set();
-      const newAlerts = [];
+      const newAlerts = [...registrationAlerts];
       // One IN and one OUT per person per Manila day. A tap on the reader
       // never goes through the app, so the app's own guard (the greyed button)
       // cannot be the only thing standing between a person and a duplicate

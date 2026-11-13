@@ -4966,13 +4966,31 @@ async function bindClaimedTag({ rawUid, locationId }) {
   const previousUid = target.rfidUid ? normalizeRfidUid(target.rfidUid) : null;
   const replacedExisting = !holder && !!previousUid && previousUid !== rfidUid;
 
+  // The card is enrolled at THIS cart, and that is what it remembers: a tap
+  // at another cart is refused instead of silently working there.
+  //
+  // The owner gets a record too: a RFID_BOUND alert lands in the notification
+  // center, and the push below tells them at once.
+  const counters = await readCounters(["alerts"]);
+  const { ids, writes } = counterWritesFor(counters, { alerts: 1 });
   if (!holder) {
-    // The card is enrolled at THIS cart, and that is what it remembers: a tap
-    // at another cart is refused instead of silently working there.
-    await fsCommit([
-      updateWrite("users", target.id, { rfidUid, rfidLocationCode: claim.locationCode ?? null }, null),
-    ]);
+    writes.push(updateWrite("users", target.id, { rfidUid, rfidLocationCode: claim.locationCode ?? null }, null));
   }
+  writes.push(createWrite("alerts", ids.alerts[0], {
+    id: ids.alerts[0],
+    type: "RFID_BOUND",
+    message: `${target.name} registered card ${rfidUid} at ${claim.locationCode}`,
+    payload: JSON.stringify({
+      staffId: target.id,
+      rfidUid,
+      locationId: claim.locationId,
+      locationCode: claim.locationCode,
+    }),
+    locationId: claim.locationId,
+    locationCode: claim.locationCode,
+    createdAt: new Date(),
+  }));
+  await fsCommit(writes);
   await resolveClaim(claim.claimId, CLAIM_BOUND, rfidUid, null, claim.event);
   await broadcastEvent("rfid:bound", {
     userId: target.id,
