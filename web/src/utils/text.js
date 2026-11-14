@@ -102,6 +102,57 @@ export function validateUsername(raw) {
 
 // A recovery inbox has to survive a real mail server, so the shape is
 // checked here (the server still verifies the domain with an MX lookup).
+// Cart name and address rules (Add Cart). The backend enforces the same
+// rules - keep these in sync with api/src/services/cart_validation.js.
+export const CART_NAME_MIN = 2;
+export const CART_NAME_MAX = 50;
+export const CART_ADDRESS_MIN = 5;
+export const CART_ADDRESS_MAX = 150;
+
+// Unicode letters + digits, plus the allowed punctuation per field.
+const NAME_ALLOWED = /^[\p{L}\p{N}\p{M} '&-]+$/u;
+const ADDRESS_ALLOWED = /^[\p{L}\p{N}\p{M} ,./'#-]+$/u;
+const HAS_LETTER = /\p{L}/u;
+const HAS_ALPHANUMERIC = /[\p{L}\p{N}]/u;
+
+/** Validate a cart name. Returns { ok, value, error } - value trimmed. */
+export function validateCartName(raw) {
+  const value = String(raw ?? "").trim();
+  if (!value) return { ok: false, value, error: "Cart Name is required." };
+  if (value.length < CART_NAME_MIN) {
+    return { ok: false, value, error: "Cart Name must be at least 2 characters." };
+  }
+  if (value.length > CART_NAME_MAX) {
+    return { ok: false, value, error: "Cart Name must not exceed 50 characters." };
+  }
+  if (!NAME_ALLOWED.test(value)) {
+    return { ok: false, value, error: "Please enter a valid Cart Name." };
+  }
+  if (!HAS_LETTER.test(value)) {
+    return { ok: false, value, error: "Please enter a valid Cart Name." };
+  }
+  return { ok: true, value };
+}
+
+/** Validate a cart address. Empty input is a valid (absent) address. */
+export function validateCartAddress(raw) {
+  const value = String(raw ?? "").trim();
+  if (!value) return { ok: true, value: null };
+  if (value.length < CART_ADDRESS_MIN) {
+    return { ok: false, value, error: "Address must be at least 5 characters." };
+  }
+  if (value.length > CART_ADDRESS_MAX) {
+    return { ok: false, value, error: "Address must not exceed 150 characters." };
+  }
+  if (!ADDRESS_ALLOWED.test(value)) {
+    return { ok: false, value, error: "Please enter a valid address." };
+  }
+  if (!HAS_ALPHANUMERIC.test(value)) {
+    return { ok: false, value, error: "Please enter a valid address." };
+  }
+  return { ok: true, value };
+}
+
 export const EMAIL_MAX = 120;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
 

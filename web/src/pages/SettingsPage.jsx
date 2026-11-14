@@ -41,7 +41,7 @@ import PasswordStrengthMeter, { meetsPasswordStrength } from "../components/Pass
 import { useToast } from "../components/Toast.jsx";
 import Select from "../components/Select.jsx";
 import EmptyState from "../components/EmptyState.jsx";
-import { sanitizeTextInput, countLetters, validatePersonName, validateUsername, validateEmail, validateRfidUid, validateDeviceId } from "../utils/text.js";
+import { sanitizeTextInput, validatePersonName, validateUsername, validateEmail, validateRfidUid, validateDeviceId, validateCartName, validateCartAddress, CART_NAME_MAX, CART_ADDRESS_MAX } from "../utils/text.js";
 
 // --- Time clock (owner-configured daily clock-in/out windows) ---
 // Mirror of the server-side settings/timeClock document (Asia/Manila 24h wire
@@ -329,6 +329,8 @@ export default function SettingsPage() {
   const [cartAddOpen, setCartAddOpen] = useState(false);
   const [cartAddClosing, setCartAddClosing] = useState(false);
   const [isCartAdding, setIsCartAdding] = useState(false);
+  const [cartNameError, setCartNameError] = useState("");
+  const [addressError, setAddressError] = useState("");
   const [cartError, setCartError] = useState("");
   const [newCart, setNewCart] = useState({ code: "", name: "", address: "", seedInventory: true });
   
@@ -1328,19 +1330,38 @@ export default function SettingsPage() {
     return String(v ?? "").toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 12);
   }
 
+  // Validate cart name + address with the same rules as the server.
+  function validateCartFields(name, address) {
+    const nameRes = validateCartName(name);
+    const addressRes = validateCartAddress(address);
+    return {
+      name: nameRes.ok ? nameRes.value : null,
+      address: addressRes.ok ? addressRes.value : null,
+      nameError: nameRes.ok ? "" : nameRes.error,
+      addressError: addressRes.ok ? "" : addressRes.error,
+    };
+  }
+
   async function createCart(e) {
     e.preventDefault();
     setCartError("");
-    
+    setCartNameError("");
+    setAddressError("");
+
     const code = sanitizeCartCode(newCart.code);
     if (!/^[A-Z0-9-]{3,12}$/.test(code)) {
       setCartError("Code must be 3-12 chars: A-Z, 0-9, dash (e.g. CART-04).");
       return;
     }
 
-    const name = sanitizeTextInput(newCart.name, 120).trim();
-    if (name.length < 2 || countLetters(name) < 2) {
-      setCartError("Name needs at least 2 letters.");
+    const { name, address, nameError, addressError } = validateCartFields(
+      newCart.name,
+      newCart.address,
+    );
+    if (nameError) setCartNameError(nameError);
+    if (addressError) setAddressError(addressError);
+    if (nameError || addressError) {
+      setCartError("");
       return;
     }
 
@@ -1349,7 +1370,7 @@ export default function SettingsPage() {
       const { data } = await api.post("/locations", {
         code,
         name,
-        address: newCart.address.trim() || null,
+        address,
         seedInventory: newCart.seedInventory,
       });
       toast(`Cart ${code} created with starter inventory`, "success");
@@ -1391,15 +1412,21 @@ export default function SettingsPage() {
   async function handleEditCart(e) {
     e.preventDefault();
     setCartError("");
-    
-    const name = sanitizeTextInput(cartEditing.name, 120).trim();
-    const address = sanitizeTextInput(cartEditing.address ?? "", 200).trim();
-    const original = carts.find((c) => c.id === cartEditing.id);
+    setCartNameError("");
+    setAddressError("");
 
-    if (name.length < 2 || countLetters(name) < 2) {
-      setCartError("Name needs at least 2 letters.");
+    const { name, address, nameError, addressError } = validateCartFields(
+      cartEditing?.name,
+      cartEditing?.address,
+    );
+    if (nameError) setCartNameError(nameError);
+    if (addressError) setAddressError(addressError);
+    if (nameError || addressError) {
+      setCartError("");
       return;
     }
+
+    const original = carts.find((c) => c.id === cartEditing.id);
 
     if (original && name === original.name && (address || "") === (original.address || "")) {
       toast("No changes - nothing to update on this cart.", "info");
@@ -2325,7 +2352,7 @@ export default function SettingsPage() {
             <section className="panel" style={{ padding: "var(--space-5)" }}>
               <div className="settings-table-heading">
                 <h3 className="section-title m-0 p-0" style={{ borderBottom: "none" }}>Carts</h3>
-                <button onClick={() => { setCartError(""); setCartAddOpen(true); }}>
+                <button onClick={() => { setCartError(""); setCartNameError(""); setAddressError(""); setCartAddOpen(true); }}>
                   <Plus size={15} /> Add cart
                 </button>
               </div>
@@ -2393,7 +2420,7 @@ export default function SettingsPage() {
                             <div className="settings-table-actions">
                               <button
                                 className="ghost small-btn"
-                                onClick={() => { setCartEditing({ ...c }); setCartError(""); }}
+                                onClick={() => { setCartEditing({ ...c }); setCartError(""); setCartNameError(""); setAddressError(""); }}
                                 disabled={c.status === "INACTIVE"}
                                 title={c.status === "INACTIVE" ? "Activate the cart before renaming" : "Rename cart"}
                               >
@@ -3078,23 +3105,43 @@ export default function SettingsPage() {
                     type="text"
                     required
                     minLength={2}
-                    maxLength={120}
+                    maxLength={CART_NAME_MAX}
                     placeholder="e.g. New Canteen"
-                    title="Min 2 letters"
+                    title="Letters, numbers, spaces, hyphens, apostrophes, ampersands"
                     value={newCart.name}
-                    onChange={(e) => setNewCart({ ...newCart, name: sanitizeTextInput(e.target.value, 120) })}
+                    onChange={(e) => {
+                      setNewCart({ ...newCart, name: sanitizeTextInput(e.target.value, CART_NAME_MAX) });
+                      if (cartNameError) setCartNameError("");
+                    }}
+                    aria-invalid={cartNameError ? "true" : undefined}
+                    aria-describedby={cartNameError ? "cart-name-error" : undefined}
                   />
+                  {cartNameError && (
+                    <span className="field-error" id="cart-name-error" role="alert">
+                      {cartNameError}
+                    </span>
+                  )}
                 </label>
-                
+
                 <label className="field">
                   Address (Optional)
                   <input
                     type="text"
-                    maxLength={200}
+                    maxLength={CART_ADDRESS_MAX}
                     placeholder="e.g. Sta. Cruz, Laguna"
                     value={newCart.address}
-                    onChange={(e) => setNewCart({ ...newCart, address: sanitizeTextInput(e.target.value, 200) })}
+                    onChange={(e) => {
+                      setNewCart({ ...newCart, address: sanitizeTextInput(e.target.value, CART_ADDRESS_MAX) });
+                      if (addressError) setAddressError("");
+                    }}
+                    aria-invalid={addressError ? "true" : undefined}
+                    aria-describedby={addressError ? "cart-address-error" : undefined}
                   />
+                  {addressError && (
+                    <span className="field-error" id="cart-address-error" role="alert">
+                      {addressError}
+                    </span>
+                  )}
                 </label>
                 
                 <label className="field" style={{ flexDirection: "row", alignItems: "center", gap: "8px", cursor: "pointer" }}>
@@ -3194,24 +3241,42 @@ export default function SettingsPage() {
                     type="text"
                     required
                     minLength={2}
-                    maxLength={120}
+                    maxLength={CART_NAME_MAX}
                     placeholder="e.g. New Canteen"
-                    title="Min 2 letters"
+                    title="Letters, numbers, spaces, hyphens, apostrophes, ampersands"
                     value={cartEditing?.name || ""}
-                    onChange={(e) => setCartEditing({ ...cartEditing, name: sanitizeTextInput(e.target.value, 120) })}
+                    onChange={(e) => {
+                      setCartEditing({ ...cartEditing, name: sanitizeTextInput(e.target.value, CART_NAME_MAX) });
+                      if (cartNameError) setCartNameError("");
+                    }}
+                    aria-invalid={cartNameError ? "true" : undefined}
                     autoFocus
                   />
+                  {cartNameError && (
+                    <span className="field-error" role="alert">
+                      {cartNameError}
+                    </span>
+                  )}
                 </label>
-                
+
                 <label className="field">
                   Address (Optional)
                   <input
                     type="text"
-                    maxLength={200}
+                    maxLength={CART_ADDRESS_MAX}
                     placeholder="e.g. Sta. Cruz, Laguna"
                     value={cartEditing?.address || ""}
-                    onChange={(e) => setCartEditing({ ...cartEditing, address: sanitizeTextInput(e.target.value, 200) })}
+                    onChange={(e) => {
+                      setCartEditing({ ...cartEditing, address: sanitizeTextInput(e.target.value, CART_ADDRESS_MAX) });
+                      if (addressError) setAddressError("");
+                    }}
+                    aria-invalid={addressError ? "true" : undefined}
                   />
+                  {addressError && (
+                    <span className="field-error" role="alert">
+                      {addressError}
+                    </span>
+                  )}
                 </label>
                 
                 <div className="modal-actions">

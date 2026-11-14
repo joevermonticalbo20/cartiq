@@ -129,7 +129,13 @@ label.field {
   color: var(--text);
 }
 
-/* ----- Base: error box ----- */
+/* ----- Base: field-level error under an input ----- */
+.field-error {
+  color: var(--danger);
+  font-size: var(--fs-xs, 12px);
+  font-weight: 600;
+  line-height: 1.4;
+}
 .error-box {
   background: var(--danger-bg);
   color: var(--danger);

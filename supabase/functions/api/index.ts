@@ -2833,11 +2833,16 @@ async function handleCreateLocation(req, _origin) {
   if (!CODE_RE.test(cartCode)) {
     return { status: 400, body: { error: "code must be 3-12 chars: A-Z, 0-9, dash (e.g. CART-04)" } };
   }
-  const nameCheck = validateNameEdge(name, "Cart name", 120);
+  // Same rules as the Add Cart UI: the server must refuse what the browser would.
+  const nameCheck = validateCartNameEdge(name);
   if (!nameCheck.ok) {
     return { status: 400, body: { error: nameCheck.error } };
   }
   const cartName = nameCheck.value;
+  const addressCheck = validateCartAddressEdge(address ?? null);
+  if (!addressCheck.ok) {
+    return { status: 400, body: { error: addressCheck.error } };
+  }
   if (await fsQueryEqual("locations", "code", cartCode, 1).then((r) => r[0])) {
     return { status: 409, body: { error: `Cart "${cartCode}" already exists` } };
   }
@@ -2860,7 +2865,7 @@ async function handleCreateLocation(req, _origin) {
     const [deviceRowId] = ids.devices;
     const location = {
       id: locationId, code: cartCode, name: cartName,
-      address: address ? String(address).slice(0, 200) : null, status: "ACTIVE",
+      address: addressCheck.value, status: "ACTIVE",
     };
     writes.push(createWrite("locations", locationId, location));
     const items = rows.map((row, i) => ({
@@ -2898,14 +2903,18 @@ async function handlePatchLocation(req, _origin, id) {
   if (!existing) return { status: 404, body: { error: "Location not found" } };
   const data = {};
   if (name !== undefined) {
-    const nameCheck = validateNameEdge(name, "Cart name", 120);
+    const nameCheck = validateCartNameEdge(name);
     if (!nameCheck.ok) {
       return { status: 400, body: { error: nameCheck.error } };
     }
     data.name = nameCheck.value;
   }
   if (address !== undefined) {
-    data.address = address === null || address === "" ? null : String(address).slice(0, 200);
+    const addressCheck = validateCartAddressEdge(address ?? null);
+    if (!addressCheck.ok) {
+      return { status: 400, body: { error: addressCheck.error } };
+    }
+    data.address = address === null || address === "" ? null : addressCheck.value;
   }
   if (status !== undefined) {
     const st = String(status).toUpperCase();
@@ -7827,6 +7836,58 @@ function validateNameEdge(raw, label = "Name", max = 100) {
 function cleanUsernameEdge(raw) {
   return String(raw ?? "").trim().toLowerCase();
 }
+// ---------- cart name and address (mirror api/src/services/cart_validation.js) ----------
+// Keep these in sync with the Express copy. The Add Cart UI validates with
+// the same rules; the server is the authority.
+const CART_NAME_MIN = 2;
+const CART_NAME_MAX = 50;
+const CART_ADDRESS_MIN = 5;
+const CART_ADDRESS_MAX = 150;
+
+// Unicode letters + digits plus the allowed punctuation per field.
+const _CART_NAME_ALLOWED = /^[\p{L}\p{N}\p{M} '&-]+$/u;
+const _CART_ADDRESS_ALLOWED = /^[\p{L}\p{N}\p{M} ,./'#-]+$/u;
+const _CART_LETTER_RE = /\p{L}/u;
+const _CART_ALNUM_RE = /[\p{L}\p{N}]/u;
+
+function validateCartNameEdge(raw) {
+  const value = String(raw ?? "").trim();
+  if (!value) return { ok: false, value, error: "Cart Name is required." };
+  if (value.length < CART_NAME_MIN) {
+    return { ok: false, value, error: "Cart Name must be at least 2 characters." };
+  }
+  if (value.length > CART_NAME_MAX) {
+    return { ok: false, value, error: "Cart Name must not exceed 50 characters." };
+  }
+  if (!_CART_NAME_ALLOWED.test(value)) {
+    return { ok: false, value, error: "Please enter a valid Cart Name." };
+  }
+  // At least one letter: digits-only and punctuation-only names are refused.
+  if (!_CART_LETTER_RE.test(value)) {
+    return { ok: false, value, error: "Please enter a valid Cart Name." };
+  }
+  return { ok: true, value };
+}
+
+function validateCartAddressEdge(raw) {
+  const value = String(raw ?? "").trim();
+  if (!value) return { ok: true, value: null };
+  if (value.length < CART_ADDRESS_MIN) {
+    return { ok: false, value, error: "Address must be at least 5 characters." };
+  }
+  if (value.length > CART_ADDRESS_MAX) {
+    return { ok: false, value, error: "Address must not exceed 150 characters." };
+  }
+  if (!_CART_ADDRESS_ALLOWED.test(value)) {
+    return { ok: false, value, error: "Please enter a valid address." };
+  }
+  // At least one letter or digit: punctuation-only addresses are refused.
+  if (!_CART_ALNUM_RE.test(value)) {
+    return { ok: false, value, error: "Please enter a valid address." };
+  }
+  return { ok: true, value };
+}
+
 function validateUsernameEdge(raw) {
   const value = cleanUsernameEdge(raw);
   if (!value) return { ok: false, value, error: "Username is required." };

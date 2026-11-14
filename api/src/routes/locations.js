@@ -3,7 +3,8 @@ import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { validateName } from "../services/validation.js";
+
+import { validateCartName, validateCartAddress } from "../services/cart_validation.js";
 import { announceChange } from "../services/announce.js";
 
 const router = Router();
@@ -91,11 +92,16 @@ router.post("/locations", requireAuth, requireRole("OWNER"), async (req, res, ne
     if (!CODE_RE.test(cartCode)) {
       return res.status(400).json({ error: "code must be 3-12 chars: A-Z, 0-9, dash (e.g. CART-04)" });
     }
-    const nameCheck = validateName(name, "Cart name", 120);
+    // Same rules as the Add Cart UI: the server must refuse what the browser would.
+    const nameCheck = validateCartName(name);
     if (!nameCheck.ok) {
       return res.status(400).json({ error: nameCheck.error });
     }
     const cartName = nameCheck.value;
+    const addressCheck = validateCartAddress(address ?? null);
+    if (!addressCheck.ok) {
+      return res.status(400).json({ error: addressCheck.error });
+    }
     const exists = await prisma.location.findUnique({ where: { code: cartCode } });
     if (exists) return res.status(409).json({ error: `Cart "${cartCode}" already exists` });
 
@@ -124,7 +130,7 @@ router.post("/locations", requireAuth, requireRole("OWNER"), async (req, res, ne
           id: locationId,
           code: cartCode,
           name: cartName,
-          address: address ? String(address).slice(0, 200) : null,
+           address: addressCheck.value,
           status: "ACTIVE",
         },
       });
@@ -170,14 +176,18 @@ router.patch("/locations/:id", requireAuth, requireRole("OWNER"), async (req, re
     if (!existing) return res.status(404).json({ error: "Location not found" });
     const data = {};
     if (name !== undefined) {
-      const nameCheck = validateName(name, "Cart name", 120);
+      const nameCheck = validateCartName(name);
       if (!nameCheck.ok) {
         return res.status(400).json({ error: nameCheck.error });
       }
       data.name = nameCheck.value;
     }
     if (address !== undefined) {
-      data.address = address === null || address === "" ? null : String(address).slice(0, 200);
+      const addressCheck = validateCartAddress(address);
+      if (!addressCheck.ok) {
+        return res.status(400).json({ error: addressCheck.error });
+      }
+      data.address = address === null || address === "" ? null : addressCheck.value;
     }
     if (status !== undefined) {
       const st = String(status).toUpperCase();
