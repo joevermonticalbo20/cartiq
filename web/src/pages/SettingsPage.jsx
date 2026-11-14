@@ -2313,11 +2313,9 @@ export default function SettingsPage() {
                     </button>
                   </div>
                   <span className="muted small">
-                    {emailCodeCooldown > 0
-                      ? `A code was sent to ${emailForm.email}. You can ask for another one in ${emailCodeCooldown}s. It expires in 10 minutes and can only be used once.`
-                      : emailCodeSent
-                        ? "Code sent. It expires in 10 minutes and can only be used once."
-                        : "Click Send code to get a code for this new email."}
+                    {emailCodeSent
+                      ? "Code sent. It expires in 10 minutes and can only be used once."
+                      : "Click Send code to get a code for this new email."}
                   </span>
                 </label>
                 <label className="field">
