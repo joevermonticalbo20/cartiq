@@ -7704,13 +7704,15 @@ function otpPurpose(rec) {
  * Reasons: "no_code" (nothing was requested), "expired", "wrong".
  * Mirrors evaluateCode() in api/src/services/password_reset.js.
  */
-function evaluateCodeEdge(rec, code) {
+function evaluateCodeEdge(rec, code, codeHash) {
   if (!rec) return { valid: false, reason: "no_code" };
   const expiresAt = new Date(rec.expiresAt ?? 0).getTime();
   if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
     return { valid: false, reason: "expired" };
   }
-  if (!otpEqualsHex(sha256Hex(code), rec.tokenHash)) {
+  // The hash arrives ready-made: sha256Hex is async, and comparing a promise
+  // with a string would make every code look wrong.
+  if (!otpEqualsHex(codeHash, rec.tokenHash)) {
     return { valid: false, reason: "wrong" };
   }
   return { valid: true };
@@ -8384,7 +8386,7 @@ async function handleMeEmailOtpVerify(req, user) {
     )
     .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0];
   if (!rec) return { status: 200, body: { valid: false, reason: "no_code" } };
-  const verdict = evaluateCodeEdge(rec, cleanCode);
+  const verdict = evaluateCodeEdge(rec, cleanCode, await sha256Hex(cleanCode));
   if (!verdict.valid) {
     if (verdict.reason === "expired" && rec._name) {
       await fsDeleteByName(rec._name).catch(() => {});
