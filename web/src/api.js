@@ -263,6 +263,9 @@ export function setupAuthInterceptor(navigate) {
 api.interceptors.request.use((config) => {
   const token = readStored(TOKEN_KEY);
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  // So the server can tell the dashboard from the POS app (and apply
+  // App Check / CAPTCHA policy per client).
+  config.headers["X-Client"] = "cartiq-web";
   // FormData uploads (Import & Export .xlsx import) need the browser's multipart
   // boundary. The instance default is application/json, so drop it here and
   // let axios set multipart/form-data automatically.

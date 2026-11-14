@@ -45,6 +45,19 @@ import {
   retryAfterSeconds,
 } from "../services/login_lockout.js";
 import { cleanRfidUid, normalizeRfidUid } from "../services/rfid.js";
+import {
+  captchaRequiredFor,
+  claimOtpSend,
+  logOtpSuspicion,
+  releaseOtpSend,
+} from "../services/otp_send_guard.js";
+import {
+  appCheckEnforced,
+  appCheckTokenFrom,
+  captchaTokenFrom,
+  verifyAppCheckToken,
+  verifyCaptchaToken,
+} from "../services/otp_anti_spam.js";
 import { readTimeClock, timeClockVerdict } from "../services/time_clock.js";
 import { announceChange } from "../services/announce.js";
 import { openClaim, getClaim, claimView } from "../services/rfid_claims.js";
@@ -295,6 +308,35 @@ router.post("/me/email-otp", requireAuth, changeOtpLimiter, async (req, res, nex
     });
     if (taken) return res.status(409).json({ error: "Email already registered" });
 
+    // Anti-spam gate: Firebase App Check (when enforced) and a CAPTCHA for
+    // suspicious traffic (when one is configured). Both are opt-in, so the
+    // existing flows are untouched until then.
+    const appCheck = await verifyAppCheckToken(appCheckTokenFrom(req));
+    if (appCheckEnforced() && !appCheck.ok) {
+      logOtpSuspicion({ reason: "app_check", email, ip: req.ip });
+      return res.status(403).json({
+        error: "This request could not be verified. Please reload the app and try again.",
+        code: "APP_CHECK_REQUIRED",
+      });
+    }
+    // The resend guard: the cooldown, the cap and the lockout are all decided
+    // on the server, so a refresh, a second tab or a direct API call cannot
+    // slip past them.
+    const claim = await claimOtpSend({ db: prisma, email: cleanEmail });
+    if (!claim.allowed) {
+      logOtpSuspicion({ reason: claim.reason, email: cleanEmail, ip: req.ip, userId: user.id });
+      return res.status(429).json({
+        error:
+          claim.reason === "locked"
+            ? "Too many codes were requested for this address. Try again later."
+            : "A code was sent recently. Wait a moment before asking for another one.",
+        code: claim.reason === "locked" ? "OTP_LOCKED" : "OTP_COOLDOWN",
+        retryAfterMs: claim.retryAfterMs ?? 0,
+        retryAfterSeconds: Math.ceil((claim.retryAfterMs ?? 0) / 1000),
+        lockedUntil: claim.lockedUntil ? new Date(claim.lockedUntil).toISOString() : null,
+      });
+    }
+
     const records = await prisma.passwordReset.findMany({
       where: { userId: user.id },
     });
@@ -304,6 +346,8 @@ router.post("/me/email-otp", requireAuth, changeOtpLimiter, async (req, res, nex
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
     if (freshVerify && Date.now() - new Date(freshVerify.createdAt).getTime() < OTP_RESEND_COOLDOWN_MS) {
       const retryAfterMs = OTP_RESEND_COOLDOWN_MS - (Date.now() - new Date(freshVerify.createdAt).getTime());
+      // The address already has a code: give the reserved slot back.
+      await releaseOtpSend({ db: prisma, email: cleanEmail });
       return res.json({
         sent: true,
         cooldown: true,
@@ -330,6 +374,8 @@ router.post("/me/email-otp", requireAuth, changeOtpLimiter, async (req, res, nex
       await sendOtpEmail({ to: cleanEmail, code, purpose: OTP_PURPOSE_VERIFY });
     } catch (err) {
       await prisma.passwordReset.delete({ where: { id: rec.id } }).catch(() => {});
+      // The mail never went out: give the slot back so a retry is not blocked.
+      await releaseOtpSend({ db: prisma, email: cleanEmail });
       console.error(`[api:email-otp] email delivery failed for user #${user.id}:`, err.message);
       return res.status(503).json({
         error: "Email delivery is not available right now. Please try again later.",
@@ -338,7 +384,11 @@ router.post("/me/email-otp", requireAuth, changeOtpLimiter, async (req, res, nex
     return res.json({
       sent: true,
       email: maskEmail(cleanEmail),
-      expiresInMinutes: 10,
+      expiresInMinutes: Math.round(OTP_TTL_MS / 60000),
+      // The UI counts the cooldown down from the server's timing, so the
+      // button and the server always agree.
+      retryAfterMs: OTP_RESEND_COOLDOWN_MS,
+      sentAt: new Date().toISOString(),
       message: "A 6-digit verification code was sent to that email.",
     });
   } catch (err) {
@@ -792,6 +842,44 @@ router.post("/forgot-password", forgotLimiter, async (req, res, next) => {
     if (!email || !validEmail(email)) {
       return res.status(400).json({ error: "A valid email address is required" });
     }
+    // Anti-spam gate: Firebase App Check (when enforced) and a CAPTCHA for
+    // suspicious traffic (when one is configured). Both are opt-in, so the
+    // existing flows are untouched until then.
+    const appCheck = await verifyAppCheckToken(appCheckTokenFrom(req));
+    if (appCheckEnforced() && !appCheck.ok) {
+      logOtpSuspicion({ reason: "app_check", email, ip: req.ip });
+      return res.status(403).json({
+        error: "This request could not be verified. Please reload the app and try again.",
+        code: "APP_CHECK_REQUIRED",
+      });
+    }
+    // The resend guard runs for EVERY address, registered or not, so the
+    // answer never depends on whether an account exists.
+    const claim = await claimOtpSend({ db: prisma, email });
+    if (!claim.allowed) {
+      logOtpSuspicion({ reason: claim.reason, email, ip: req.ip });
+      // Same generic success as always - but with the timing the UI needs.
+      return res.json({
+        success: true,
+        message: FORGOT_GENERIC_MESSAGE,
+        cooldown: true,
+        retryAfterMs: claim.retryAfterMs ?? 0,
+        retryAfterSeconds: Math.ceil((claim.retryAfterMs ?? 0) / 1000),
+        lockedUntil: claim.lockedUntil ? new Date(claim.lockedUntil).toISOString() : null,
+      });
+    }
+    if (captchaRequiredFor({ req, suspicious: claim.suspicious })) {
+      const captcha = await verifyCaptchaToken(captchaTokenFrom(req), { ip: req.ip });
+      if (!captcha.ok) {
+        // The slot was taken but no mail went out: give it back.
+        await releaseOtpSend({ db: prisma, email });
+        logOtpSuspicion({ reason: "captcha", email, ip: req.ip });
+        return res.status(403).json({
+          error: "Please complete the verification challenge before asking for another code.",
+          code: "CAPTCHA_REQUIRED",
+        });
+      }
+    }
     const user = await prisma.user.findUnique({ where: { email } });
     if (user && user.active !== false) {
       // Single active OTP per user: drop previous unused ones first, then
@@ -826,8 +914,10 @@ router.post("/forgot-password", forgotLimiter, async (req, res, next) => {
           await sendOtpEmail({ to: email, code, purpose: OTP_PURPOSE_RESET });
         } catch (err) {
           // Delivery failure must not reveal anything: log server-side and
-          // keep the generic response. The unsent code simply expires.
+          // keep the generic response. The unsent code simply expires, and the
+          // slot it took is given back so a retry is not blocked.
           console.error(`[api:forgot-password] email delivery failed for user #${user.id}:`, err.message);
+          await releaseOtpSend({ db: prisma, email });
         }
       }
     }
@@ -1008,6 +1098,34 @@ router.post("/change-password/otp", requireAuth, changeOtpLimiter, async (req, r
       });
     }
 
+    // Anti-spam gate: Firebase App Check (when enforced) and a CAPTCHA for
+    // suspicious traffic (when one is configured). Both are opt-in, so the
+    // existing flows are untouched until then.
+    const appCheck = await verifyAppCheckToken(appCheckTokenFrom(req));
+    if (appCheckEnforced() && !appCheck.ok) {
+      logOtpSuspicion({ reason: "app_check", email, ip: req.ip });
+      return res.status(403).json({
+        error: "This request could not be verified. Please reload the app and try again.",
+        code: "APP_CHECK_REQUIRED",
+      });
+    }
+    // The resend guard (server-side): a refresh, a second tab or a direct API
+    // call cannot slip past the cooldown, the cap or the lockout.
+    const claim = await claimOtpSend({ db: prisma, email });
+    if (!claim.allowed) {
+      logOtpSuspicion({ reason: claim.reason, email, ip: req.ip, userId: user.id });
+      return res.status(429).json({
+        error:
+          claim.reason === "locked"
+            ? "Too many codes were requested for this address. Try again later."
+            : "A code was sent recently. Wait a moment before asking for another one.",
+        code: claim.reason === "locked" ? "OTP_LOCKED" : "OTP_COOLDOWN",
+        retryAfterMs: claim.retryAfterMs ?? 0,
+        retryAfterSeconds: Math.ceil((claim.retryAfterMs ?? 0) / 1000),
+        lockedUntil: claim.lockedUntil ? new Date(claim.lockedUntil).toISOString() : null,
+      });
+    }
+
     // One live OTP per account: a new change code also invalidates any reset
     // code, matching the single-active-code rule of the forgot flow.
     for (const r of unused) {
@@ -1030,6 +1148,7 @@ router.post("/change-password/otp", requireAuth, changeOtpLimiter, async (req, r
       // we can report the failure instead of pretending success. Remove the
       // unusable code so a later retry is not blocked by the cooldown.
       await prisma.passwordReset.delete({ where: { id: rec.id } }).catch(() => {});
+      await releaseOtpSend({ db: prisma, email });
       console.error(`[api:change-password-otp] email delivery failed for user #${user.id}:`, err.message);
       return res.status(503).json({
         error: "Email delivery is not available right now. Please try again later.",
@@ -1038,7 +1157,9 @@ router.post("/change-password/otp", requireAuth, changeOtpLimiter, async (req, r
     return res.json({
       sent: true,
       email: maskEmail(email),
-      expiresInMinutes: 10,
+      expiresInMinutes: Math.round(OTP_TTL_MS / 60000),
+      retryAfterMs: OTP_RESEND_COOLDOWN_MS,
+      sentAt: new Date().toISOString(),
       message: "A 6-digit code was sent to your recovery email.",
     });
   } catch (err) {

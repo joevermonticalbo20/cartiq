@@ -15,6 +15,11 @@ import {
   OTP_TTL_MS,
   OTP_MAX_ATTEMPTS,
   OTP_RESEND_COOLDOWN_MS,
+  OTP_MAX_SENDS_PER_WINDOW,
+  OTP_SEND_WINDOW_MS,
+  OTP_LOCKOUT_MS,
+  OTP_GLOBAL_MAX_SENDS_PER_HOUR,
+  OTP_GLOBAL_WINDOW_MS,
   OTP_PURPOSE_RESET,
   OTP_PURPOSE_CHANGE,
   FORGOT_GENERIC_MESSAGE,
@@ -82,9 +87,19 @@ describe("generateOtp / hashOtp / otpMatches", () => {
 
 describe("policy constants", () => {
   it("short TTL, capped attempts, silent cooldown", () => {
-    assert.equal(OTP_TTL_MS, 10 * 60 * 1000);
+    // Five minutes: long enough to retype a code from an email, short enough
+    // that a code that leaks is worthless soon.
+    assert.equal(OTP_TTL_MS, 5 * 60 * 1000);
     assert.equal(OTP_MAX_ATTEMPTS, 5);
     assert.equal(OTP_RESEND_COOLDOWN_MS, 60 * 1000);
+  });
+
+  it("caps the sends per address and locks out after that", () => {
+    assert.equal(OTP_MAX_SENDS_PER_WINDOW, 5);
+    assert.equal(OTP_SEND_WINDOW_MS, 15 * 60 * 1000);
+    assert.equal(OTP_LOCKOUT_MS, 15 * 60 * 1000);
+    assert.ok(OTP_GLOBAL_MAX_SENDS_PER_HOUR > 0);
+    assert.equal(OTP_GLOBAL_WINDOW_MS, 60 * 60 * 1000);
   });
 
   it("generic messages reveal nothing", () => {

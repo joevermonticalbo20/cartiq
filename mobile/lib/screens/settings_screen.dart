@@ -501,6 +501,33 @@ class SettingsScreenState extends State<SettingsScreen> {
                               );
                             } on ApiException catch (e) {
                               if (closed || !dialogContext.mounted) return;
+                              // The guard refused (429): keep the countdown in
+                              // step with the server instead of guessing.
+                              final retry = e.retryAfterSeconds ?? 0;
+                              if (retry > 0) {
+                                setDialogState(() {
+                                  sendingCode = false;
+                                  codeSent = true;
+                                  cooldown = retry;
+                                  error = e.message;
+                                });
+                                cooldownTimer?.cancel();
+                                cooldownTimer = Timer.periodic(
+                                  const Duration(seconds: 1),
+                                  (t) {
+                                    if (closed || !dialogContext.mounted) {
+                                      t.cancel();
+                                      return;
+                                    }
+                                    setDialogState(() {
+                                      cooldown =
+                                          cooldown > 0 ? cooldown - 1 : 0;
+                                    });
+                                    if (cooldown <= 0) t.cancel();
+                                  },
+                                );
+                                return;
+                              }
                               setDialogState(() {
                                 sendingCode = false;
                                 error = e.message;

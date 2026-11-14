@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import '../config.dart';
+import 'app_check_service.dart';
 import 'kv_store.dart';
 
 export 'kv_store.dart' show KeyValueStore;
@@ -207,6 +208,11 @@ class ApiClient {
   Map<String, String> _headers({String? token}) => {
     'Content-Type': 'application/json',
     if (token != null) 'Authorization': 'Bearer $token',
+    // So the server can tell the app from a browser (and apply
+    // App Check / CAPTCHA policy per client).
+    'X-Client': 'cartiq-android',
+    if (AppCheckService.headerValue != null)
+      'X-Firebase-AppCheck': AppCheckService.headerValue!,
   };
 
   Future<http.Response> _send(

@@ -324,6 +324,11 @@ class _LoginScreenState extends State<LoginScreen> {
     var busy = false;
     var showPw = false;
     var closed = false;
+    // The resend cooldown (60s) and the lockout after too many codes. Both
+    // come from the server, so the button and the server always agree.
+    var resendCooldown = 0;
+    var lockoutSeconds = 0;
+    Timer? countdownTimer;
 
     try {
       await showModalBottomSheet<void>(
@@ -352,13 +357,75 @@ class _LoginScreenState extends State<LoginScreen> {
               try {
                 final data = await api.forgotPassword(email);
                 if (closed || !sheetContext.mounted) return;
-                setSheetState(() {
-                  busy = false;
-                  notice =
-                      (data['message'] as String?) ??
-                      'If an account exists for this email, a reset code was sent.';
-                  step = 'code';
-                });
+                // The server owns the timing: it says how long is left of the
+                // 60s cooldown, and how long the address is locked out when
+                // the cap was reached.
+                final retryMs = (data['retryAfterMs'] as num?)?.toInt() ?? 0;
+                final lockedRaw = data['lockedUntil'];
+                final lockedUntilMs = lockedRaw is num
+                    ? lockedRaw.toInt()
+                    : lockedRaw is String
+                        ? (DateTime.tryParse(lockedRaw)?.millisecondsSinceEpoch ??
+                            0)
+                        : 0;
+                countdownTimer?.cancel();
+                if (lockedUntilMs > 0) {
+                  final seconds = ((lockedUntilMs - DateTime.now()
+                              .millisecondsSinceEpoch) /
+                          1000)
+                      .ceil()
+                      .clamp(0, 1 << 30);
+                  setSheetState(() {
+                    lockoutSeconds = seconds;
+                    resendCooldown = seconds;
+                    busy = false;
+                    notice =
+                        (data['message'] as String?) ??
+                        'If an account exists for this email, a reset code was sent.';
+                    step = 'code';
+                  });
+                  countdownTimer = Timer.periodic(
+                    const Duration(seconds: 1),
+                    (t) {
+                      if (closed || !sheetContext.mounted) {
+                        t.cancel();
+                        return;
+                      }
+                      setSheetState(() {
+                        resendCooldown =
+                            resendCooldown > 0 ? resendCooldown - 1 : 0;
+                        lockoutSeconds =
+                            lockoutSeconds > 0 ? lockoutSeconds - 1 : 0;
+                      });
+                    },
+                  );
+                } else {
+                  setSheetState(() {
+                    lockoutSeconds = 0;
+                    resendCooldown =
+                        (retryMs / 1000).ceil().clamp(0, 1 << 30) == 0
+                            ? 60
+                            : (retryMs / 1000).ceil();
+                    busy = false;
+                    notice =
+                        (data['message'] as String?) ??
+                        'If an account exists for this email, a reset code was sent.';
+                    step = 'code';
+                  });
+                  countdownTimer = Timer.periodic(
+                    const Duration(seconds: 1),
+                    (t) {
+                      if (closed || !sheetContext.mounted) {
+                        t.cancel();
+                        return;
+                      }
+                      setSheetState(() {
+                        resendCooldown =
+                            resendCooldown > 0 ? resendCooldown - 1 : 0;
+                      });
+                    },
+                  );
+                }
                 await Haptics.success();
               } on ApiException catch (e) {
                 await Haptics.error();
@@ -459,7 +526,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: AppSpacing.space2),
                   Text(
-                    'Enter the recovery email saved on your account. We\'ll send a 6-digit code (expires in 10 minutes).',
+                    'Enter the recovery email saved on your account. We\'ll send a 6-digit code (expires in 5 minutes).',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: AppSpacing.space4),
@@ -510,6 +577,24 @@ class _LoginScreenState extends State<LoginScreen> {
                     showDigits: true,
                     onComplete: verifyCode,
                   ),
+                  const SizedBox(height: AppSpacing.space3),
+                  if (lockoutSeconds > 0)
+                    Text(
+                      'Too many codes were requested for this address. You can '
+                      'ask for another one in '
+                      '${(lockoutSeconds / 60).ceil()} minute(s).',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: AppColors.danger),
+                    )
+                  else
+                    TextButton(
+                      onPressed: busy || resendCooldown > 0 ? null : sendCode,
+                      child: Text(
+                        resendCooldown > 0
+                            ? 'Resend in ${resendCooldown}s'
+                            : 'Resend code',
+                      ),
+                    ),
                 ],
               );
             } else {
@@ -630,6 +715,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     } finally {
       closed = true;
+      countdownTimer?.cancel();
       emailCtrl.dispose();
       pwCtrl.dispose();
       pw2Ctrl.dispose();

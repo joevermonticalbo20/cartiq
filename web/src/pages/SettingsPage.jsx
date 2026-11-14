@@ -31,6 +31,7 @@ import { timeClockScheduleError } from "../utils/timeClock.js";
 import { useRfidEvents } from "../hooks/useRfidEvents.js";
 import { useLiveEvent } from "../hooks/useLiveStream.js";
 import { activeCarts, invalidateLiveList, useLiveList } from "../state/liveData.js";
+import { executeRecaptcha, recaptchaEnabled } from "../utils/recaptcha.js";
 import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import Skeleton, { TableSkeleton } from "../components/Skeleton.jsx";
@@ -659,6 +660,22 @@ export default function SettingsPage() {
     setEmailEditing(true);
   }
 
+  /**
+   * POST /auth/me/email-otp, transparently solving a CAPTCHA challenge when
+   * the server demands one (the resend guard flagged this traffic).
+   */
+  async function sendEmailCodeWithCaptcha(cleanEmail) {
+    try {
+      return await api.post("/auth/me/email-otp", { email: cleanEmail });
+    } catch (err) {
+      if (err?.code === "CAPTCHA_REQUIRED" && recaptchaEnabled()) {
+        const captchaToken = await executeRecaptcha("otp_request");
+        return api.post("/auth/me/email-otp", { email: cleanEmail, captchaToken });
+      }
+      throw err;
+    }
+  }
+
   async function sendEmailCode() {
     const cleanEmail = String(emailForm.email ?? "").trim().toLowerCase();
     if (!cleanEmail || !cleanEmail.includes("@") || cleanEmail.endsWith("@cartiq.local")) {
@@ -678,16 +695,24 @@ export default function SettingsPage() {
     setEmailError("");
     setIsSendingEmailCode(true);
     try {
-      const { data } = await api.post("/auth/me/email-otp", { email: cleanEmail });
+      const { data } = await sendEmailCodeWithCaptcha(cleanEmail);
       setEmailCodeSent(true);
-      // The server allows one code per minute. Count it down so the button
-      // cannot be spammed and the person knows when they can ask again.
+      // The server owns the timing: it says how long is left of the 60s
+      // cooldown, and how long the address is locked out when the cap was
+      // reached. The countdown follows the server, not a guess.
       const seconds = data?.cooldown
         ? Math.ceil((data.retryAfterMs ?? 60000) / 1000)
         : 60;
       setEmailCodeCooldown(Math.max(0, seconds));
       toast(data?.message || "A code was sent to that email.", "success");
     } catch (err) {
+      // The guard refused (429): show the reason and keep the countdown in
+      // step with the server.
+      const retryMs = Number(err?.data?.retryAfterMs ?? 0);
+      if (retryMs > 0) {
+        setEmailCodeCooldown(Math.max(0, Math.ceil(retryMs / 1000)));
+        setEmailCodeSent(true);
+      }
       setEmailError(getFriendlyError(err, "Could not send the verification code."));
     } finally {
       setIsSendingEmailCode(false);
@@ -737,6 +762,22 @@ export default function SettingsPage() {
     }
   }
 
+  /**
+   * POST /auth/change-password/otp, transparently solving a CAPTCHA
+   * challenge when the server demands one.
+   */
+  async function sendChangePasswordCodeWithCaptcha() {
+    try {
+      return await api.post("/auth/change-password/otp", {});
+    } catch (err) {
+      if (err?.code === "CAPTCHA_REQUIRED" && recaptchaEnabled()) {
+        const captchaToken = await executeRecaptcha("otp_request");
+        return api.post("/auth/change-password/otp", { captchaToken });
+      }
+      throw err;
+    }
+  }
+
   async function sendPwCode() {
     if (isSendingPwCode || pwCodeCooldown > 0) return;
     if (!hasRealEmail) {
@@ -746,15 +787,24 @@ export default function SettingsPage() {
     setPwError("");
     setIsSendingPwCode(true);
     try {
-      const { data } = await api.post("/auth/change-password/otp", {});
+      const { data } = await sendChangePasswordCodeWithCaptcha();
       setPwCodeSent(true);
       setPwCodeEmail(data?.email ?? "");
+      // The server owns the timing: it says how long is left of the 60s
+      // cooldown, and how long the address is locked out when the cap was
+      // reached.
       const seconds = data?.cooldown
         ? Math.ceil((data.retryAfterMs ?? 60000) / 1000)
         : 60;
       setPwCodeCooldown(Math.max(0, seconds));
       toast(data?.message ?? "Code sent - check your email.", "success");
     } catch (err) {
+      // The guard refused (429): keep the countdown in step with the server.
+      const retryMs = Number(err?.data?.retryAfterMs ?? 0);
+      if (retryMs > 0) {
+        setPwCodeSent(true);
+        setPwCodeCooldown(Math.max(0, Math.ceil(retryMs / 1000)));
+      }
       setPwError(getFriendlyError(err, "Could not send the code - try again."));
     } finally {
       setIsSendingPwCode(false);

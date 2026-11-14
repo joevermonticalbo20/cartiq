@@ -7641,9 +7641,17 @@ function utf8len(s) {
 // ---------- password reset via Gmail OTP (mirror api/src/services/*.js) ----------
 // Policy constants mirror api/src/services/password_reset.js — keep in sync.
 const OTP_LENGTH = 6;
-const OTP_TTL_MS = 10 * 60 * 1000;
+// A code is good for five minutes: long enough to retype it, short enough
+// that a code that leaks is worthless soon.
+const OTP_TTL_MS = 5 * 60 * 1000;
 const OTP_MAX_ATTEMPTS = 5;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+// --- resend / anti-spam policy (mirror api/src/services/password_reset.js) ---
+const OTP_MAX_SENDS_PER_WINDOW = 5;
+const OTP_SEND_WINDOW_MS = 15 * 60 * 1000;
+const OTP_LOCKOUT_MS = 15 * 60 * 1000;
+const OTP_GLOBAL_MAX_SENDS_PER_HOUR = 200;
+const OTP_GLOBAL_WINDOW_MS = 60 * 60 * 1000;
 const OTP_PURPOSE_RESET = "reset";
 const OTP_PURPOSE_CHANGE = "change";
 const OTP_PURPOSE_VERIFY = "verify";
@@ -8213,6 +8221,58 @@ async function handleForgotPassword(req, origin) {  const body = await req.json(
   if (!edgeRateAllowed(`forgot:${clientIp(req)}|${email}`, 5, 60 * 60 * 1000)) {
     return jsonRes(origin, { error: "Too many reset requests - please try again later" }, 429);
   }
+  // The resend guard runs for EVERY address, registered or not, so the answer
+  // never depends on whether an account exists.
+  // Anti-spam gate: Firebase App Check (when enforced) and a CAPTCHA for
+  // suspicious traffic (when one is configured). Both are opt-in, so the
+  // existing flows are untouched until then.
+  const appCheck = await verifyAppCheckTokenEdge(appCheckTokenFromEdge(req));
+  if (appCheckEnforced() && !appCheck.ok) {
+    logOtpSuspicion({ reason: "app_check", email, ip: clientIp(req) });
+    return jsonRes(
+      origin,
+      {
+        error: "This request could not be verified. Please reload the app and try again.",
+        code: "APP_CHECK_REQUIRED",
+      },
+      403,
+    );
+  }
+  const claim = await claimOtpSend({ email });
+  if (captchaRequiredForEdge({ req, suspicious: claim.suspicious })) {
+    const captcha = await verifyCaptchaTokenEdge(captchaTokenFromEdge(body), {
+      ip: clientIp(req),
+    });
+    if (!captcha.ok) {
+      // The slot was taken but no mail went out: give it back.
+      await releaseOtpSend({ email });
+      logOtpSuspicion({ reason: "captcha", email, ip: clientIp(req) });
+      return jsonRes(
+        origin,
+        {
+          error: "Please complete the verification challenge before asking for another code.",
+          code: "CAPTCHA_REQUIRED",
+        },
+        403,
+      );
+    }
+  }
+  if (!claim.allowed) {
+    logOtpSuspicion({ reason: claim.reason, email, ip: clientIp(req) });
+    // The same generic success as always - with the timing the UI needs.
+    return jsonRes(
+      origin,
+      {
+        success: true,
+        message: FORGOT_GENERIC_MESSAGE,
+        cooldown: true,
+        retryAfterMs: claim.retryAfterMs ?? 0,
+        retryAfterSeconds: Math.ceil((claim.retryAfterMs ?? 0) / 1000),
+        lockedUntil: claim.lockedUntil ? new Date(claim.lockedUntil).toISOString() : null,
+      },
+      200,
+    );
+  }
   const user = await fsQueryEqual("users", "email", email, 1).then((r) => r[0] || null);
   if (user && user.active !== false) {
     const existing = await fsQueryEqual("passwordResets", "userId", user.id, 100);
@@ -8240,6 +8300,8 @@ async function handleForgotPassword(req, origin) {  const body = await req.json(
         await sendOtpEmailEdge({ to: email, code, purpose: OTP_PURPOSE_RESET });
       } catch (e) {
         console.error(`[api:forgot-password] email delivery failed for user #${user.id}:`, String((e && e.message) || e));
+        // The mail never went out: give the slot back so a retry is not blocked.
+        await releaseOtpSend({ email });
       }
     }
   }
@@ -8327,6 +8389,54 @@ async function handleMeEmailOtp(req, user) {
   if (taken.some((u) => Number(u.id) !== Number(user.id))) {
     return { status: 409, body: { error: "Email already registered" } };
   }
+  // The resend guard: the cooldown, the cap and the lockout are decided on the
+  // server, so a refresh, a second tab or a direct API call cannot slip past.
+  // Anti-spam gate: Firebase App Check (when enforced) and a CAPTCHA for
+  // suspicious traffic (when one is configured). Both are opt-in.
+  const appCheck = await verifyAppCheckTokenEdge(appCheckTokenFromEdge(req));
+  if (appCheckEnforced() && !appCheck.ok) {
+    logOtpSuspicion({ reason: "app_check", email, ip: clientIp(req), userId: user.id });
+    return {
+      status: 403,
+      body: {
+        error: "This request could not be verified. Please reload the app and try again.",
+        code: "APP_CHECK_REQUIRED",
+      },
+    };
+  }
+  const claim = await claimOtpSend({ email });
+  if (captchaRequiredForEdge({ req, suspicious: claim.suspicious })) {
+    const captcha = await verifyCaptchaTokenEdge(captchaTokenFromEdge(body), {
+      ip: clientIp(req),
+    });
+    if (!captcha.ok) {
+      await releaseOtpSend({ email });
+      logOtpSuspicion({ reason: "captcha", email, ip: clientIp(req), userId: user.id });
+      return {
+        status: 403,
+        body: {
+          error: "Please complete the verification challenge before asking for another code.",
+          code: "CAPTCHA_REQUIRED",
+        },
+      };
+    }
+  }
+  if (!claim.allowed) {
+    logOtpSuspicion({ reason: claim.reason, email, ip: clientIp(req), userId: user.id });
+    return {
+      status: 429,
+      body: {
+        error:
+          claim.reason === "locked"
+            ? "Too many codes were requested for this address. Try again later."
+            : "A code was sent recently. Wait a moment before asking for another one.",
+        code: claim.reason === "locked" ? "OTP_LOCKED" : "OTP_COOLDOWN",
+        retryAfterMs: claim.retryAfterMs ?? 0,
+        retryAfterSeconds: Math.ceil((claim.retryAfterMs ?? 0) / 1000),
+        lockedUntil: claim.lockedUntil ? new Date(claim.lockedUntil).toISOString() : null,
+      },
+    };
+  }
   const records = await fsQueryEqual("passwordResets", "userId", user.id, 100);
   const unused = records.filter((r) => !r.used);
   const freshVerify = unused
@@ -8335,6 +8445,8 @@ async function handleMeEmailOtp(req, user) {
   if (freshVerify) {
     const age = Date.now() - new Date(freshVerify.createdAt || 0).getTime();
     if (age < OTP_RESEND_COOLDOWN_MS) {
+      // The address already has a code: give the reserved slot back.
+      await releaseOtpSend({ email });
       return {
         status: 200,
         body: {
@@ -8432,6 +8544,272 @@ async function handleMeEmailOtpVerify(req, user) {
   };
 }
 
+/**
+ * The verdict on a send request, from the counters kept for that address.
+ *
+ * Mirrors evaluateSendPolicy() in api/src/services/password_reset.js - keep
+ * both in sync when changing policy.
+ */
+function evaluateSendPolicy(state, now = Date.now()) {
+  const s = state ?? {};
+  const lockedUntil = Number(s.lockedUntil ?? 0) || 0;
+  if (lockedUntil > now) {
+    return { allowed: false, reason: "locked", retryAfterMs: lockedUntil - now, lockedUntil };
+  }
+  const lastSentAt = Number(s.lastSentAt ?? 0) || 0;
+  if (lastSentAt && now - lastSentAt < OTP_RESEND_COOLDOWN_MS) {
+    return {
+      allowed: false,
+      reason: "cooldown",
+      retryAfterMs: OTP_RESEND_COOLDOWN_MS - (now - lastSentAt),
+    };
+  }
+  const windowStartedAt = Number(s.windowStartedAt ?? 0) || 0;
+  const inWindow = windowStartedAt && now - windowStartedAt < OTP_SEND_WINDOW_MS;
+  const sends = inWindow ? Number(s.sends ?? 0) || 0 : 0;
+  if (sends >= OTP_MAX_SENDS_PER_WINDOW) {
+    const until = (inWindow ? windowStartedAt : now) + OTP_LOCKOUT_MS;
+    return {
+      allowed: false,
+      reason: "locked",
+      retryAfterMs: Math.max(0, until - now),
+      lockedUntil: until,
+    };
+  }
+  return { allowed: true, windowStartedAt: inWindow ? windowStartedAt : now, sends };
+}
+
+/** The system-wide cap. Mirrors evaluateGlobalPolicy() in the Express copy. */
+function evaluateGlobalPolicy(state, now = Date.now(), max = OTP_GLOBAL_MAX_SENDS_PER_HOUR) {
+  const s = state ?? {};
+  const windowStartedAt = Number(s.windowStartedAt ?? 0) || 0;
+  const inWindow = windowStartedAt && now - windowStartedAt < OTP_GLOBAL_WINDOW_MS;
+  const sends = inWindow ? Number(s.sends ?? 0) || 0 : 0;
+  if (sends >= max) {
+    const until = (inWindow ? windowStartedAt : now) + OTP_GLOBAL_WINDOW_MS;
+    return {
+      allowed: false,
+      reason: "global_limit",
+      retryAfterMs: Math.max(0, until - now),
+      lockedUntil: until,
+    };
+  }
+  return { allowed: true, windowStartedAt: inWindow ? windowStartedAt : now, sends };
+}
+
+/** The document id for an address (hashed: the id may not leak the address). */
+function otpLimitId(email) {
+  return sha256Hex(String(email ?? "").trim().toLowerCase());
+}
+
+/**
+ * Claim the right to send one code to [email].
+ *
+ * The claim has to be ATOMIC: two tabs, a refresh loop or a direct API call
+ * arrive at the same time; if each of them read "no recent send" before any
+ * of them wrote, the cooldown would be useless. So the counters are read and
+ * written with the document's updateTime as a precondition (the same
+ * optimistic-concurrency trick the rest of this file uses) and the whole thing
+ * is retried on contention.
+ */
+// ---------- anti-spam (mirror api/src/services/otp_anti_spam.js) ----------
+function appCheckEnforced() {
+  return String(env("APP_CHECK_ENFORCE") ?? "").toLowerCase() === "true";
+}
+
+function captchaConfigured() {
+  return Boolean(String(env("RECAPTCHA_SECRET") ?? "").trim());
+}
+
+/**
+ * Verify a Firebase App Check token with the service account this function
+ * already has. Returns { ok } - never throws, never leaks the token.
+ */
+async function verifyAppCheckTokenEdge(token) {
+  const value = String(token ?? "").trim();
+  if (!value) return { ok: false, reason: "missing" };
+  const project = getProjectId();
+  const app = String(env("FIREBASE_APP_ID") ?? "").trim();
+  if (!project || !app) return { ok: false, reason: "not_configured" };
+  try {
+    const accessToken = await googleAccessToken(
+      "https://www.googleapis.com/auth/cloud-platform",
+    );
+    const res = await fetch(
+      `https://firebaseappcheck.googleapis.com/v1/projects/${encodeURIComponent(project)}/apps/${encodeURIComponent(app)}:verifyAppCheckToken`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ appCheckToken: value }),
+      },
+    );
+    if (!res.ok) return { ok: false, reason: "verify_failed" };
+    const body = await res.json().catch(() => null);
+    const ttl = Number(body?.ttl ?? 0);
+    const expired = ttl > 0 && ttl * 1000 < Date.now();
+    return { ok: !expired, reason: expired ? "expired" : "" };
+  } catch {
+    return { ok: false, reason: "unreachable" };
+  }
+}
+
+/** Verify a reCAPTCHA v3 token (score based). */
+async function verifyCaptchaTokenEdge(token, { ip } = {}) {
+  const secret = String(env("RECAPTCHA_SECRET") ?? "").trim();
+  if (!secret) return { ok: false, reason: "not_configured" };
+  const value = String(token ?? "").trim();
+  if (!value) return { ok: false, reason: "missing" };
+  const minScore = Number(env("RECAPTCHA_MIN_SCORE") ?? 0.5);
+  try {
+    const body = new URLSearchParams({ secret, response: value });
+    if (ip) body.set("remoteip", String(ip));
+    const res = await fetch("https://www.google.com/recaptcha/api/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+    const out = await res.json().catch(() => null);
+    const score = Number(out?.score ?? 0);
+    const ok = out?.success === true && score >= minScore;
+    return { ok, score, reason: out?.success === true ? "" : "rejected" };
+  } catch {
+    return { ok: false, reason: "unreachable" };
+  }
+}
+
+function appCheckTokenFromEdge(req) {
+  try {
+    return req?.headers?.get?.("x-firebase-appcheck") ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function captchaTokenFromEdge(body) {
+  return body?.captchaToken ?? body?.recaptchaToken ?? null;
+}
+
+/**
+ * Whether this request must carry a CAPTCHA: only when one is configured
+ * (so nothing changes until the owner turns it on) and the request did not
+ * come from the app (the app proves itself with App Check instead).
+ */
+function captchaRequiredForEdge({ req, suspicious }) {
+  if (!suspicious) return false;
+  if (!captchaConfigured()) return false;
+  const client = String(req?.headers?.get?.("x-client") ?? "").toLowerCase();
+  if (client.includes("cartiq-android") || client.includes("cartiq-ios")) {
+    return false;
+  }
+  return true;
+}
+
+async function claimOtpSend({ email, now = Date.now(), maxGlobal = OTP_GLOBAL_MAX_SENDS_PER_HOUR }) {
+  const id = otpLimitId(email);
+  const cleanEmail = String(email ?? "").trim().toLowerCase();
+  return withRetry(async () => {
+    const [doc, globalDoc] = await Promise.all([
+      fsGet("otpRateLimits", id).catch(() => null),
+      fsGet("otpRateLimits", "global").catch(() => null),
+    ]);
+    const current = doc ?? {};
+    const suspicious = Number(current.suspiciousUntil ?? 0) > now;
+    const verdict = evaluateSendPolicy(current, now);
+    if (!verdict.allowed) {
+      if (verdict.reason === "locked" && verdict.lockedUntil) {
+        // Remember the lockout and mark the address suspicious: something is
+        // pushing it, so the next request wants a CAPTCHA.
+        await fsCommit([
+          updateWrite(
+            "otpRateLimits",
+            id,
+            {
+              ...current,
+              email: cleanEmail,
+              lockedUntil: new Date(verdict.lockedUntil),
+              suspiciousUntil: new Date(verdict.lockedUntil),
+              updatedAt: new Date(now),
+            },
+            doc?._updateTime ?? null,
+          ),
+        ]).catch(() => {});
+      }
+      return { allowed: false, suspicious, ...verdict };
+    }
+    const globalVerdict = evaluateGlobalPolicy(globalDoc ?? {}, now, maxGlobal);
+    if (!globalVerdict.allowed) {
+      return { allowed: false, suspicious, ...globalVerdict, reason: "global_limit" };
+    }
+    await fsCommit([
+      updateWrite(
+        "otpRateLimits",
+        id,
+        {
+          email: cleanEmail,
+          windowStartedAt: new Date(verdict.windowStartedAt),
+          sends: verdict.sends + 1,
+          lastSentAt: new Date(now),
+          lockedUntil: null,
+          updatedAt: new Date(now),
+        },
+        doc?._updateTime ?? null,
+      ),
+      updateWrite(
+        "otpRateLimits",
+        "global",
+        {
+          windowStartedAt: new Date(globalVerdict.windowStartedAt),
+          sends: globalVerdict.sends + 1,
+          updatedAt: new Date(now),
+        },
+        globalDoc?._updateTime ?? null,
+      ),
+    ]);
+    return { allowed: true, suspicious, sends: verdict.sends + 1 };
+  }, 4);
+}
+
+/**
+ * Give a reserved slot back after a failed delivery: the address keeps its
+ * cooldown (a failed send is still an attempt) but the budget is not spent on
+ * a mail nobody received.
+ */
+async function releaseOtpSend({ email, now = Date.now() }) {
+  const id = otpLimitId(email);
+  try {
+    const doc = await fsGet("otpRateLimits", id).catch(() => null);
+    if (!doc) return;
+    await fsCommit([
+      updateWrite(
+        "otpRateLimits",
+        id,
+        {
+          ...doc,
+          sends: Math.max(0, (Number(doc.sends ?? 0) || 0) - 1),
+          updatedAt: new Date(now),
+        },
+        doc._updateTime ?? null,
+      ),
+    ]);
+  } catch {
+    // A failed release only costs one send of budget - never fail the flow.
+  }
+}
+
+/**
+ * Log a request the guard turned away. Never the code, never a credential:
+ * only what is needed to spot a pattern.
+ */
+function logOtpSuspicion({ reason, email, ip, userId }) {
+  const who = email ? sha256Hex(String(email).trim().toLowerCase()).slice(0, 12) : "-";
+  console.warn(
+    `[otp:guard] blocked=${reason} address=${who} ip=${ip ?? "-"} user=${userId ?? "-"}`,
+  );
+}
+
 async function handlePatchMe(req, origin, user) {
   if (!edgeRateAllowed(`profile:${clientIp(req)}|${user.id}`, 10, 15 * 60 * 1000)) {
     return jsonRes(origin, { error: "Too many attempts - please try again later" }, 429);
@@ -8500,6 +8878,57 @@ async function handleChangePasswordOtp(req, user) {
   if (!email || !validEmailAddr(email) || isPlaceholderEmail(email)) {
     return { status: 400, body: { error: RECOVERY_EMAIL_REQUIRED_MESSAGE } };
   }
+  // The change-password route carries no required body, but a CAPTCHA token
+  // may arrive in one - read it if present.
+  const body = await req.json().catch(() => null);
+  // The resend guard (server-side): a refresh, a second tab or a direct API
+  // call cannot slip past the cooldown, the cap or the lockout.
+  // Anti-spam gate: Firebase App Check (when enforced) and a CAPTCHA for
+  // suspicious traffic (when one is configured). Both are opt-in.
+  const appCheck = await verifyAppCheckTokenEdge(appCheckTokenFromEdge(req));
+  if (appCheckEnforced() && !appCheck.ok) {
+    logOtpSuspicion({ reason: "app_check", email, ip: clientIp(req), userId: user.id });
+    return {
+      status: 403,
+      body: {
+        error: "This request could not be verified. Please reload the app and try again.",
+        code: "APP_CHECK_REQUIRED",
+      },
+    };
+  }
+  const claim = await claimOtpSend({ email });
+  if (captchaRequiredForEdge({ req, suspicious: claim.suspicious })) {
+    const captcha = await verifyCaptchaTokenEdge(captchaTokenFromEdge(body ?? {}), {
+      ip: clientIp(req),
+    });
+    if (!captcha.ok) {
+      await releaseOtpSend({ email });
+      logOtpSuspicion({ reason: "captcha", email, ip: clientIp(req), userId: user.id });
+      return {
+        status: 403,
+        body: {
+          error: "Please complete the verification challenge before asking for another code.",
+          code: "CAPTCHA_REQUIRED",
+        },
+      };
+    }
+  }
+  if (!claim.allowed) {
+    logOtpSuspicion({ reason: claim.reason, email, ip: clientIp(req), userId: user.id });
+    return {
+      status: 429,
+      body: {
+        error:
+          claim.reason === "locked"
+            ? "Too many codes were requested for this address. Try again later."
+            : "A code was sent recently. Wait a moment before asking for another one.",
+        code: claim.reason === "locked" ? "OTP_LOCKED" : "OTP_COOLDOWN",
+        retryAfterMs: claim.retryAfterMs ?? 0,
+        retryAfterSeconds: Math.ceil((claim.retryAfterMs ?? 0) / 1000),
+        lockedUntil: claim.lockedUntil ? new Date(claim.lockedUntil).toISOString() : null,
+      },
+    };
+  }
   const records = await fsQueryEqual("passwordResets", "userId", user.id, 100);
   const unused = records.filter((r) => !r.used);
   const freshChange = unused
@@ -8536,6 +8965,8 @@ async function handleChangePasswordOtp(req, user) {
     await sendOtpEmailEdge({ to: email, code, purpose: OTP_PURPOSE_CHANGE });
   } catch (e) {
     if (rec?._name) await fsDeleteByName(rec._name).catch(() => {});
+    // The mail never went out: give the slot back so a retry is not blocked.
+    await releaseOtpSend({ email });
     console.error(`[api:change-password-otp] email delivery failed for user #${user.id}:`, String((e && e.message) || e));
     return { status: 503, body: { error: "Email delivery is not available right now. Please try again later." } };
   }
@@ -8544,7 +8975,11 @@ async function handleChangePasswordOtp(req, user) {
     body: {
       sent: true,
       email: maskEmail(email),
-      expiresInMinutes: 10,
+      expiresInMinutes: Math.round(OTP_TTL_MS / 60000),
+      // The UI counts the cooldown down from the server's timing, so the
+      // button and the server always agree.
+      retryAfterMs: OTP_RESEND_COOLDOWN_MS,
+      sentAt: new Date().toISOString(),
       message: "A 6-digit code was sent to your recovery email.",
     },
   };

@@ -188,6 +188,23 @@ const MODELS = {
     }),
     uniques: [],
   },
+  // Resend/anti-spam counters for the OTP mails: one document per address
+  // (id = the hashed address) plus one "global" document for the system-wide
+  // cap. A separate collection because these are NOT OTP codes: they must
+  // survive the code being redeemed, and they are keyed by address rather
+  // than by account.
+  otpRateLimits: {
+    numeric: false,
+    defaults: () => ({
+      email: null,
+      windowStartedAt: null,
+      sends: 0,
+      lastSentAt: null,
+      lockedUntil: null,
+      updatedAt: now(),
+    }),
+    uniques: [],
+  },
 };
 
 function errDup() {

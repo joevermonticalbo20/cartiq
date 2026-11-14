@@ -7,6 +7,7 @@ import 'app_version.dart';
 import 'screens/login_screen.dart';
 import 'screens/root_shell.dart';
 import 'services/api_client.dart';
+import 'services/app_check_service.dart';
 import 'services/auth_state.dart';
 import 'services/cart_draft_store.dart';
 import 'services/data_refresh.dart';
@@ -52,6 +53,10 @@ Future<void> main() async {
   // Push notifications must never blank the POS.
   try {
     await Firebase.initializeApp();
+    // App Check proves the POS app is genuine; it is best-effort and never
+    // blocks startup. The server only enforces it when the owner turns
+    // APP_CHECK_ENFORCE=true.
+    await AppCheckService.startBestEffort();
   } catch (e) {
     startupWarnings.add('Push notifications unavailable ($e).');
   }

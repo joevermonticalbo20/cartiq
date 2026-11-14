@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Eye, EyeOff, Mail, ShieldCheck, Lock } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
+import { executeRecaptcha, recaptchaEnabled } from "../utils/recaptcha.js";
 import ErrorBox from "../components/ErrorBox.jsx";
 import PasswordStrengthMeter, { evaluatePassword } from "../components/PasswordStrengthMeter.jsx";
 
@@ -33,30 +34,64 @@ export default function RecoveryFlow({ onExitToLogin }) {
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
+  // Set when the server locked this address out (too many codes requested).
+  const [lockoutSeconds, setLockoutSeconds] = useState(0);
+  const isLockedOut = lockoutSeconds > 0;
   const boxRefs = useRef([]);
 
   // Countdown for the resend cooldown (60s, matching the backend).
   useEffect(() => {
-    if (resendCooldown <= 0) return undefined;
-    const timer = setTimeout(
-      () => setResendCooldown((s) => Math.max(0, s - 1)),
-      1000,
-    );
+    if (resendCooldown <= 0 && lockoutSeconds <= 0) return undefined;
+    const timer = setTimeout(() => {
+      setResendCooldown((s) => Math.max(0, s - 1));
+      setLockoutSeconds((s) => Math.max(0, s - 1));
+    }, 1000);
     return () => clearTimeout(timer);
-  }, [resendCooldown]);
+  }, [resendCooldown, lockoutSeconds]);
 
   async function sendCode(e) {
     e?.preventDefault();
     if (busy) return;
+    if (resendCooldown > 0) return;
     setBusy(true);
     setError("");
     try {
-      // Generic success either way (no enumeration); always advance.
-      await api.post("/auth/forgot-password", { email });
+      // Generic success either way (no enumeration); always advance. If the
+      // server demands a CAPTCHA because this traffic looks suspicious, solve
+      // it and retry once.
+      let data;
+      try {
+        const res = await api.post("/auth/forgot-password", { email });
+        data = res.data;
+      } catch (err) {
+        if (err?.code === "CAPTCHA_REQUIRED" && recaptchaEnabled()) {
+          const captchaToken = await executeRecaptcha("otp_request");
+          const res = await api.post("/auth/forgot-password", { email, captchaToken });
+          data = res.data;
+        } else {
+          throw err;
+        }
+      }
       setSentTo(email.trim());
       setCode("");
       setVerified(false);
-      setResendCooldown(60);
+      // The server owns the timing: it says how long is left of the 60s
+      // cooldown, and how long the address is locked out when the cap was
+      // reached. The countdown follows the server, not a guess.
+      const retryMs = Number(data?.retryAfterMs ?? 0);
+      const lockedUntilMs = data?.lockedUntil
+        ? typeof data.lockedUntil === "number"
+          ? data.lockedUntil
+          : new Date(data.lockedUntil).getTime()
+        : 0;
+      if (lockedUntilMs > 0) {
+        const seconds = Math.max(0, Math.ceil((lockedUntilMs - Date.now()) / 1000));
+        setLockoutSeconds(seconds);
+        setResendCooldown(seconds);
+      } else {
+        setLockoutSeconds(0);
+        setResendCooldown(Math.ceil(retryMs / 1000) || 60);
+      }
       setStep(2);
     } catch (err) {
       setError(getFriendlyError(err, "Couldn't send a reset code - try again."));
@@ -240,11 +275,19 @@ export default function RecoveryFlow({ onExitToLogin }) {
             >
               {busy
                 ? "Sending..."
-                : resendCooldown > 0
-                  ? `Resend in ${resendCooldown}s`
-                  : "Resend"}
+                : isLockedOut
+                  ? `Try again in ${resendCooldown}s`
+                  : resendCooldown > 0
+                    ? `Resend in ${resendCooldown}s`
+                    : "Resend"}
             </button>
           </p>
+          {isLockedOut && (
+            <p className="muted small" style={{ textAlign: "center" }}>
+              Too many codes were requested for this address. You can ask for another one in{" "}
+              {Math.max(1, Math.ceil(lockoutSeconds / 60))} minute(s).
+            </p>
+          )}
         </>
       )}
 
