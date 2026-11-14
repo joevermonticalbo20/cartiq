@@ -74,7 +74,7 @@ function entryFor(key) {
   if (!entry) {
     // Every resource here is a list, so an empty list is the honest "not
     // loaded yet" value (a null would break the pages that map over it).
-    entry = { data: [], error: null, loading: false, listeners: new Set(), promise: null };
+    entry = { data: [], error: null, loading: false, listeners: new Set(), promise: null, seq: 0 };
     store.set(key, entry);
   }
   return entry;
@@ -102,20 +102,29 @@ export function loadLiveList(key, { force = false } = {}) {
   // The GET cache is short-lived but real: drop it so a refetch never serves
   // the copy from before the change.
   clearApiCache();
+  // Two loads can overlap (a live event lands while a fetch is running). Only
+  // the newest answer may write, so a slow earlier request cannot put the old
+  // list back on the screen.
+  const seq = (entry.seq ?? 0) + 1;
+  entry.seq = seq;
   entry.promise = loader()
     .then((data) => {
-      entry.data = data;
-      entry.error = null;
+      if (entry.seq === seq) {
+        entry.data = data;
+        entry.error = null;
+      }
       return data;
     })
     .catch((err) => {
-      entry.error = err;
+      if (entry.seq === seq) entry.error = err;
       return entry.data;
     })
     .finally(() => {
-      entry.loading = false;
-      entry.promise = null;
-      publish(key);
+      if (entry.seq === seq) {
+        entry.loading = false;
+        entry.promise = null;
+        publish(key);
+      }
     });
   return entry.promise;
 }

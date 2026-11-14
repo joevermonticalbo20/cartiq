@@ -20,7 +20,7 @@ export function cacheKey(options) {
 }
 
 /** The cached response for [key], or null when there is none (or it expired). */
-export function readCached(key, ttlMs) {
+export function readCached(key) {
   const hit = _getCache.get(key);
   if (!hit) return null;
   if (hit.exp > Date.now()) return hit.data;

@@ -66,10 +66,6 @@ export function broadcastDataChange(kind) {
   }
 }
 
-function getCacheKey(options) {
-  return `${String(options?.method ?? "GET").toUpperCase()}|${options?.url ?? ""}|${JSON.stringify(options?.params ?? null)}`;
-}
-
 // Called once at app startup to wire up the navigate function and response interceptor
 // Prevent duplicate redirects when multiple concurrent 401s occur.
 let redirecting = false;
@@ -314,7 +310,7 @@ export async function fetchApi(options) {
   const cacheTtl = Number(options?.cacheTtl) || 0;
   const key = cacheKey({ ...options, method });
   if (isGet && cacheTtl > 0) {
-    const hit = readCached(key, cacheTtl);
+    const hit = readCached(key);
     if (hit) return { success: true, data: hit };
   }
   try {

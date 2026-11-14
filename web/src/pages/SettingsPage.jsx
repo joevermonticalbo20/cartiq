@@ -1095,9 +1095,14 @@ export default function SettingsPage() {
   const staffCartOptions = activeCarts(carts, newStaff.locationCode);
   const deviceCartOptions = activeCarts(carts, newDevice.locationCode);
   const editingCartOptions = activeCarts(carts, staffEditing?.locationCode);
+  // The reader being edited may sit on a cart that was deactivated after the
+  // assignment: that cart stays in its dropdown, so the form shows what is
+  // really assigned and saving does not silently move it.
+  const editingDeviceCartOptions = activeCarts(carts, deviceEditing?.cart);
   const locationOptions = staffCartOptions.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
   const deviceLocationOptions = deviceCartOptions.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
   const editingLocationOptions = editingCartOptions.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
+  const editingDeviceLocationOptions = editingDeviceCartOptions.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
 
   async function handleEditDevice(e) {
     e.preventDefault();
@@ -2772,7 +2777,7 @@ export default function SettingsPage() {
                   <Select
                     value={deviceEditing?.cart || ""}
                     onChange={(val) => setDeviceEditing({ ...deviceEditing, cart: val })}
-                    options={deviceLocationOptions}
+                    options={editingDeviceLocationOptions}
                     placeholder="Assign to cart..."
                   />
                 </label>
