@@ -339,12 +339,65 @@ class SettingsScreenState extends State<SettingsScreen> {
     // cannot be spammed and the person knows when they can ask again.
     var cooldown = 0;
     Timer? cooldownTimer;
+    // "idle" | "checking" | "valid" | "invalid" - is the typed code the right
+    // one? Only the server knows, so the field asks (debounced).
+    var codeCheck = 'idle';
+    var codeExpired = false;
+    Timer? checkTimer;
     var closed = false;
     final saved = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        builder: (context, setDialogState) {
+          // The border of the code field follows the verdict: red while it does
+          // not match, green once the server says it does.
+          OutlineInputBorder codeBorder(Color color) => OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppRadius.m),
+                borderSide: BorderSide(color: color, width: 1.5),
+              );
+
+          // Ask the server whether the typed code is the right one. It cannot
+          // be judged on the phone: only the server holds the code. Debounced,
+          // so a six-digit code is asked about once, not once per keystroke.
+          void checkCode(String value) {
+            checkTimer?.cancel();
+            final clean = value.trim();
+            if (clean.length != 6) {
+              setDialogState(() => codeCheck = 'idle');
+              return;
+            }
+            setDialogState(() => codeCheck = 'checking');
+            checkTimer = Timer(const Duration(milliseconds: 400), () async {
+              try {
+                final res = await auth.verifyEmailCode(
+                  email.text.trim().toLowerCase(),
+                  clean,
+                );
+                if (closed || !dialogContext.mounted) return;
+                final reason = '${res['reason'] ?? ''}';
+                if (res['valid'] == true) {
+                  setDialogState(() {
+                    codeExpired = false;
+                    codeCheck = 'valid';
+                  });
+                } else if (reason == 'no_code') {
+                  // Nothing was requested yet: that is not a wrong code.
+                  setDialogState(() => codeCheck = 'idle');
+                } else {
+                  setDialogState(() {
+                    codeExpired = reason == 'expired';
+                    codeCheck = 'invalid';
+                  });
+                }
+              } on ApiException {
+                if (closed || !dialogContext.mounted) return;
+                setDialogState(() => codeCheck = 'idle');
+              }
+            });
+          }
+
+          return AlertDialog(
           title: const Text('Recovery email'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -368,11 +421,43 @@ class SettingsScreenState extends State<SettingsScreen> {
                 controller: code,
                 keyboardType: TextInputType.number,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                // The server is the only one that knows whether the code is
+                // right, so the field asks (debounced) and turns red or green.
+                onChanged: (value) => checkCode(value),
                 decoration: InputDecoration(
                   labelText: 'Verification code',
-                  helperText: codeSent
-                      ? 'A 6-digit code was sent to that email.'
-                      : 'Send a code to that email first.',
+                  helperText: codeCheck == 'valid'
+                      ? 'Code verified. You can save it now.'
+                      : codeCheck == 'invalid'
+                          ? (codeExpired
+                              ? 'That code has expired. Send a new one.'
+                              : 'That code does not match. Check the digits.')
+                          : codeSent
+                              ? 'A 6-digit code was sent to that email.'
+                              : 'Send a code to that email first.',
+                  helperStyle: TextStyle(
+                    color: codeCheck == 'valid'
+                        ? AppColors.ok
+                        : codeCheck == 'invalid'
+                            ? AppColors.danger
+                            : null,
+                    fontWeight: codeCheck == 'idle' ? null : FontWeight.w600,
+                  ),
+                  border: codeCheck == 'valid'
+                      ? codeBorder(AppColors.ok)
+                      : codeCheck == 'invalid'
+                          ? codeBorder(AppColors.danger)
+                          : null,
+                  enabledBorder: codeCheck == 'valid'
+                      ? codeBorder(AppColors.ok)
+                      : codeCheck == 'invalid'
+                          ? codeBorder(AppColors.danger)
+                          : null,
+                  focusedBorder: codeCheck == 'valid'
+                      ? codeBorder(AppColors.ok)
+                      : codeCheck == 'invalid'
+                          ? codeBorder(AppColors.danger)
+                          : null,
                   suffixIcon: TextButton(
                     onPressed: sendingCode || cooldown > 0
                         ? null
@@ -439,8 +524,7 @@ class SettingsScreenState extends State<SettingsScreen> {
                   helperText:
                       'Required so a stolen session cannot redirect recovery',
                 ),
-              ),
-              if (error != null) ...[
+              ),              if (error != null) ...[
                 const SizedBox(height: AppSpacing.space2),
                 Text(
                   error!,
@@ -512,11 +596,13 @@ class SettingsScreenState extends State<SettingsScreen> {
               child: Text(pending ? 'Saving...' : 'Save'),
             ),
           ],
-        ),
+        );
+        },
       ),
     );
     closed = true;
     cooldownTimer?.cancel();
+    checkTimer?.cancel();
     email.dispose();
     password.dispose();
     code.dispose();

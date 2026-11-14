@@ -7693,6 +7693,29 @@ function otpPurpose(rec) {
   return OTP_PURPOSE_RESET;
 }
 
+/**
+ * The verdict on a typed code, WITHOUT changing anything.
+ *
+ * The recovery-email dialog turns its field red or green as the code is
+ * typed, and only the server holds the code - so the server has to answer.
+ * This never consumes an attempt: saving the email does. The guard is the
+ * code's own lifetime (10 minutes) plus the endpoint's rate limit.
+ *
+ * Reasons: "no_code" (nothing was requested), "expired", "wrong".
+ * Mirrors evaluateCode() in api/src/services/password_reset.js.
+ */
+function evaluateCodeEdge(rec, code) {
+  if (!rec) return { valid: false, reason: "no_code" };
+  const expiresAt = new Date(rec.expiresAt ?? 0).getTime();
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    return { valid: false, reason: "expired" };
+  }
+  if (!otpEqualsHex(sha256Hex(code), rec.tokenHash)) {
+    return { valid: false, reason: "wrong" };
+  }
+  return { valid: true };
+}
+
 function isPlaceholderEmail(v) {
   return normalizeEmailAddr(v).endsWith(`@${PLACEHOLDER_EMAIL_DOMAIN}`);
 }
@@ -8323,6 +8346,59 @@ async function handleMeEmailOtp(req, user) {
       email: maskEmail(email),
       expiresInMinutes: 10,
       message: "A 6-digit verification code was sent to that email.",
+    },
+  };
+}
+
+// POST /auth/me/email-otp/verify - check a 6-digit ownership code WITHOUT
+// saving anything.
+//
+// The dialog shows the field red for a wrong code and green for the right one,
+// and the client cannot tell on its own: only the server holds the code. This
+// asks the server.
+//
+// It deliberately does NOT consume an attempt - saving does. The guards are
+// this limiter and the 10-minute lifetime of the code: inside that window a
+// guesser can try a few dozen codes, which is nothing against a million.
+// Mirrors api/src/routes/auth.js.
+async function handleMeEmailOtpVerify(req, user) {
+  if (!edgeRateAllowed(`emailcheck:${clientIp(req)}|${user.id}`, 30, 5 * 60 * 1000)) {
+    return { status: 429, body: { error: "Too many code checks - please try again later" } };
+  }
+  const body = await req.json().catch(() => null);
+  const cleanEmail = normalizeEmailAddr(body?.email);
+  const cleanCode = String(body?.code ?? "").trim();
+  if (!cleanEmail || !validEmailAddr(cleanEmail)) {
+    return { status: 400, body: { error: "A valid email address is required" } };
+  }
+  if (!/^\d{6}$/.test(cleanCode)) {
+    return { status: 400, body: { error: CHANGE_INVALID_MESSAGE } };
+  }
+  const records = await fsQueryEqual("passwordResets", "userId", user.id, 100).catch(() => []);
+  const rec = records
+    .filter(
+      (r) =>
+        !r.used &&
+        otpPurpose(r) === OTP_PURPOSE_VERIFY &&
+        normalizeEmailAddr(r.email) === cleanEmail,
+    )
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0];
+  if (!rec) return { status: 200, body: { valid: false, reason: "no_code" } };
+  const verdict = evaluateCodeEdge(rec, cleanCode);
+  if (!verdict.valid) {
+    if (verdict.reason === "expired" && rec._name) {
+      await fsDeleteByName(rec._name).catch(() => {});
+    }
+    return { status: 200, body: verdict };
+  }
+  return {
+    status: 200,
+    body: {
+      valid: true,
+      expiresInSeconds: Math.max(
+        0,
+        Math.round((new Date(rec.expiresAt).getTime() - Date.now()) / 1000),
+      ),
     },
   };
 }
@@ -9135,6 +9211,12 @@ Deno.serve(async (req) => {
         const auth = await authUser(req);
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
         const out = await handleMeEmailOtp(req, auth.user);
+        return jsonRes(origin, out.body, out.status);
+      }
+      if (req.method === "POST" && path === "/auth/me/email-otp/verify") {
+        const auth = await authUser(req);
+        if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
+        const out = await handleMeEmailOtpVerify(req, auth.user);
         return jsonRes(origin, out.body, out.status);
       }
       if (req.method === "PATCH" && path === "/auth/me") {

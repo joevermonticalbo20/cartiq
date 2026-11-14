@@ -92,6 +92,27 @@ input[type="date"], input[type="month"] {
   min-height: 48px;
   line-height: 1.2;
 }
+
+/* ----- Base: a field that is being checked against the server ----- */
+/* The verification code: red while it does not match, green once the server
+   says it does. The selectors are as specific as `input:focus` (and come
+   after it) so a focused field keeps its verdict instead of the focus ring. */
+input.input-code-invalid {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-bg);
+}
+input.input-code-valid {
+  border-color: var(--success);
+  box-shadow: 0 0 0 3px var(--success-bg);
+}
+.code-ok {
+  color: var(--success);
+  font-weight: 600;
+}
+.code-bad {
+  color: var(--danger);
+  font-weight: 600;
+}
 input[type="date"]::-webkit-datetime-edit, input[type="month"]::-webkit-datetime-edit {
   padding: 0;
   line-height: 1.2;

@@ -83,6 +83,28 @@ export function otpPurpose(record) {
   return OTP_PURPOSE_RESET;
 }
 
+/**
+ * The verdict on a typed code, WITHOUT changing anything.
+ *
+ * The recovery-email dialog turns its field red or green as the code is
+ * typed, and only the server holds the code - so the server has to answer.
+ * This never consumes an attempt: saving the email does. The guard is the
+ * code's own lifetime (10 minutes) plus the endpoint's rate limit.
+ *
+ * Reasons: "no_code" (nothing was requested), "expired", "wrong".
+ */
+export function evaluateCode(record, code, now = Date.now()) {
+  if (!record) return { valid: false, reason: "no_code" };
+  const expiresAt = new Date(record.expiresAt ?? 0).getTime();
+  if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+    return { valid: false, reason: "expired" };
+  }
+  if (!otpMatches(code, record.tokenHash)) {
+    return { valid: false, reason: "wrong" };
+  }
+  return { valid: true };
+}
+
 /** A visible but non-deliverable recovery address, e.g. staff01@cartiq.local. */
 export function placeholderEmailFor(username) {
   const local = String(username ?? "")

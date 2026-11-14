@@ -197,6 +197,54 @@ describe("SettingsPage recovery email", () => {
       "no code is requested for an address that is already the recovery email",
     ).not.toHaveBeenCalledWith("/auth/me/email-otp", expect.anything());
   });
+
+  it("turns the code field red for a wrong code and green for the right one", async () => {
+    ownerWithEmail("owner@cartiq.local");
+    let codeIsValid = false;
+    api.post.mockImplementation((url) => {
+      if (url === "/auth/me/email-otp") {
+        return Promise.resolve({
+          data: {
+            sent: true,
+            email: "o***@example.com",
+            expiresInMinutes: 10,
+            message: "A 6-digit verification code was sent to that email.",
+          },
+        });
+      }
+      if (url === "/auth/me/email-otp/verify") {
+        return Promise.resolve({ data: { valid: codeIsValid } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    renderPage();
+    await screen.findByText("owner@cartiq.local");
+    fireEvent.click(screen.getByTitle("Edit recovery email"));
+    const dialog = await screen.findByRole("dialog", { name: "Recovery email" });
+    fireEvent.change(within(dialog).getByLabelText("Email address"), {
+      target: { value: "owner@example.com" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Send code/ }));
+    await vi.waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith("/auth/me/email-otp", { email: "owner@example.com" }),
+    );
+    // The button turns into a resend (with the countdown) once the code is on
+    // its way.
+    await within(dialog).findByRole("button", { name: /Resend/ });
+
+    // A wrong code: the field turns red and says so.
+    const codeInput = within(dialog).getByLabelText(/Verification code/);
+    fireEvent.change(codeInput, { target: { value: "123456" } });
+    expect(await within(dialog).findByText(/does not match/)).toBeInTheDocument();
+    expect(codeInput.className).toContain("input-code-invalid");
+
+    // The right code: the field turns green.
+    codeIsValid = true;
+    fireEvent.change(codeInput, { target: { value: "654321" } });
+    expect(await within(dialog).findByText(/Code verified/)).toBeInTheDocument();
+    expect(codeInput.className).toContain("input-code-valid");
+  });
 });
 
 describe("SettingsPage password change", () => {

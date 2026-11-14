@@ -632,6 +632,25 @@ class AuthState extends ChangeNotifier {
     return api.sendEmailVerificationCode(activeToken, email: email);
   }
 
+  /// Check whether a 6-digit ownership code is the right one.
+  ///
+  /// Returns the server's answer ({valid, reason}). It never consumes an
+  /// attempt - saving the email does.
+  Future<Map<String, dynamic>> verifyEmailCode(
+    String email,
+    String code,
+  ) async {
+    final activeToken = token;
+    if (activeToken == null) {
+      throw const ApiException('Sign in again to update your email.');
+    }
+    return api.verifyEmailCode(
+      activeToken,
+      email: email,
+      code: code,
+    );
+  }
+
   Future<void> updateEmail({
     required String email,
     required String currentPassword,

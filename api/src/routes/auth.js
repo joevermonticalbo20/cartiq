@@ -11,6 +11,7 @@ import {
   hashOtp,
   otpMatches,
   otpPurpose,
+  evaluateCode,
   isPlaceholderEmail,
   maskEmail,
   OTP_TTL_MS,
@@ -128,6 +129,16 @@ const passwordCheckLimiter = rateLimit({
   max: 10,
   keyGenerator: (req) => `${req.ip ?? ""}|${req.user?.sub ?? ""}`,
   message: { error: "Too many attempts - please try again later" },
+});
+// Checking a code as it is typed (the dialog turns the field red or green).
+// It never consumes an attempt - the save does - so the guard is this limit
+// plus the 10-minute lifetime of the code: in that window a guesser can try
+// a few dozen codes, which is nothing against a million.
+const codeCheckLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 30,
+  keyGenerator: (req) => `${req.ip ?? ""}|${req.user?.sub ?? ""}`,
+  message: { error: "Too many code checks - please try again later" },
 });
 
 const router = Router();
@@ -329,6 +340,59 @@ router.post("/me/email-otp", requireAuth, changeOtpLimiter, async (req, res, nex
       email: maskEmail(cleanEmail),
       expiresInMinutes: 10,
       message: "A 6-digit verification code was sent to that email.",
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /auth/me/email-otp/verify - check a 6-digit ownership code WITHOUT
+// saving anything.
+//
+// The dialog shows the field red for a wrong code and green for the right one,
+// and the client cannot tell on its own: only the server holds the code. This
+// asks the server.
+//
+// It deliberately does NOT consume an attempt - saving does. The guards are
+// this limiter and the 10-minute lifetime of the code: inside that window a
+// guesser can try a few dozen codes, which is nothing against a million.
+router.post("/me/email-otp/verify", requireAuth, codeCheckLimiter, async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const cleanEmail = normalizeEmail(req.body?.email);
+    const cleanCode = String(req.body?.code ?? "").trim();
+    if (!cleanEmail || !validEmail(cleanEmail)) {
+      return res.status(400).json({ error: "A valid email address is required" });
+    }
+    if (!/^\d{6}$/.test(cleanCode)) {
+      return res.status(400).json({ error: CHANGE_INVALID_MESSAGE });
+    }
+    const records = await prisma.passwordReset.findMany({
+      where: { userId: user.id },
+    });
+    const rec = records
+      .filter(
+        (r) =>
+          !r.used &&
+          otpPurpose(r) === OTP_PURPOSE_VERIFY &&
+          normalizeEmail(r.email) === cleanEmail,
+      )
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+    if (!rec) return res.json({ valid: false, reason: "no_code" });
+    const verdict = evaluateCode(rec, cleanCode);
+    if (!verdict.valid) {
+      if (verdict.reason === "expired") {
+        await prisma.passwordReset.delete({ where: { id: rec.id } });
+      }
+      return res.json(verdict);
+    }
+    return res.json({
+      valid: true,
+      expiresInSeconds: Math.max(
+        0,
+        Math.round((new Date(rec.expiresAt).getTime() - Date.now()) / 1000),
+      ),
     });
   } catch (err) {
     return next(err);

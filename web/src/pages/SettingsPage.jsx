@@ -217,6 +217,12 @@ export default function SettingsPage() {
   // counts it down so nobody can spam it (and so the person knows when they can
   // try again).
   const [emailCodeCooldown, setEmailCodeCooldown] = useState(0);
+  // Is the typed code the right one? Only the server knows, so the field asks
+  // (debounced) and turns red or green. "idle" = nothing typed yet.
+  const [emailCodeCheck, setEmailCodeCheck] = useState("idle");
+  // An expired code gets its own words ("send a new one"), not "wrong".
+  const [emailCodeExpired, setEmailCodeExpired] = useState(false);
+  const emailCodeTimerRef = useRef(null);
   const [isSendingEmailCode, setIsSendingEmailCode] = useState(false);
   const [isSavingEmail, setIsSavingEmail] = useState(false);
   const [showEmailPw, setShowEmailPw] = useState(false);
@@ -423,6 +429,54 @@ export default function SettingsPage() {
     );
     return () => clearTimeout(timer);
   }, [emailCodeCooldown]);
+
+  // Never leave the code checker running after the page goes away.
+  useEffect(
+    () => () => {
+      if (emailCodeTimerRef.current) clearTimeout(emailCodeTimerRef.current);
+    },
+    [],
+  );
+
+  /**
+   * Ask the server whether the typed code is the right one.
+   *
+   * The client cannot tell: only the server holds the code. The check is
+   * debounced so a six-digit code is asked about once, not once per keystroke,
+   * and it never consumes an attempt (saving does).
+   */
+  function checkEmailCode(code) {
+    if (emailCodeTimerRef.current) clearTimeout(emailCodeTimerRef.current);
+    const clean = String(code ?? "").trim();
+    if (clean.length !== 6) {
+      setEmailCodeCheck("idle");
+      return;
+    }
+    setEmailCodeCheck("checking");
+    emailCodeTimerRef.current = setTimeout(async () => {
+      try {
+        const { data } = await api.post("/auth/me/email-otp/verify", {
+          email: emailForm.email.trim().toLowerCase(),
+          code: clean,
+        });
+        const reason = String(data?.reason ?? "");
+        if (data?.valid) {
+          setEmailCodeExpired(false);
+          setEmailCodeCheck("valid");
+        } else if (reason === "no_code") {
+          // No code was requested for that address yet: that is not a wrong
+          // code, it is simply nothing to check.
+          setEmailCodeCheck("idle");
+        } else {
+          setEmailCodeExpired(reason === "expired");
+          setEmailCodeCheck("invalid");
+        }
+      } catch {
+        // A failed check tells us nothing: leave the field as it is.
+        setEmailCodeCheck("idle");
+      }
+    }, 400);
+  }
 
   function reloadStaff() {
     // A card is registered from the POS app at the cart, so this list goes
@@ -2279,6 +2333,7 @@ export default function SettingsPage() {
                     onChange={(e) => {
                       setEmailForm({ ...emailForm, email: e.target.value });
                       setEmailCodeSent(false);
+                      setEmailCodeCheck("idle");
                     }}
                     style={{ height: "36px" }}
                   />
@@ -2289,12 +2344,23 @@ export default function SettingsPage() {
                     <input
                       required
                       value={emailForm.code}
-                      onChange={(e) => setEmailForm({ ...emailForm, code: e.target.value.replace(/\D/g, "").slice(0, 6) })}
+                      onChange={(e) => {
+                        const next = e.target.value.replace(/\D/g, "").slice(0, 6);
+                        setEmailForm({ ...emailForm, code: next });
+                        checkEmailCode(next);
+                      }}
                       inputMode="numeric"
                       autoComplete="one-time-code"
                       placeholder="6-digit code"
                       maxLength={6}
                       style={{ height: "36px", flex: 1 }}
+                      className={
+                        emailCodeCheck === "valid"
+                          ? "input-code-valid"
+                          : emailCodeCheck === "invalid"
+                            ? "input-code-invalid"
+                            : undefined
+                      }
                     />
                     <button
                       type="button"
@@ -2313,9 +2379,21 @@ export default function SettingsPage() {
                     </button>
                   </div>
                   <span className="muted small">
-                    {emailCodeSent
-                      ? "Code sent. It expires in 10 minutes and can only be used once."
-                      : "Click Send code to get a code for this new email."}
+                    {emailCodeCheck === "valid" ? (
+                      <span className="code-ok">Code verified. You can save it now.</span>
+                    ) : emailCodeCheck === "invalid" ? (
+                      <span className="code-bad">
+                        {emailCodeExpired
+                          ? "That code has expired. Send a new one."
+                          : "That code does not match. Check the digits and try again."}
+                      </span>
+                    ) : emailCodeCheck === "checking" ? (
+                      <span>Checking the code...</span>
+                    ) : emailCodeSent ? (
+                      "Code sent. It expires in 10 minutes and can only be used once."
+                    ) : (
+                      "Click Send code to get a code for this new email."
+                    )}
                   </span>
                 </label>
                 <label className="field">

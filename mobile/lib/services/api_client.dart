@@ -370,6 +370,26 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  /// Check a 6-digit ownership code WITHOUT saving anything.
+  ///
+  /// The dialog turns the field red or green as the code is typed, and only
+  /// the server knows which one is right. The check never consumes an attempt
+  /// (saving does) and the code's own 10-minute lifetime is the real guard.
+  Future<Map<String, dynamic>> verifyEmailCode(
+    String token, {
+    required String email,
+    required String code,
+  }) async {
+    final res = await _send(
+      () => _http.post(
+        _uri('/auth/me/email-otp/verify'),
+        headers: _headers(token: token),
+        body: jsonEncode({'email': email, 'code': code}),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> updateProfile(
     String token, {
     required String email,
