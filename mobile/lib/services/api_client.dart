@@ -380,17 +380,22 @@ class ApiClient {
   ///
   /// The dialog turns the field red or green as the code is typed, and only
   /// the server knows which one is right. The check never consumes an attempt
-  /// (saving does) and the code's own 10-minute lifetime is the real guard.
+  /// (saving does) and the code's own lifetime is the real guard.
+  ///
+  /// [purpose] selects WHICH code is being checked: the default "verify"
+  /// checks the recovery-email ownership code; "change" checks the
+  /// change-password code.
   Future<Map<String, dynamic>> verifyEmailCode(
     String token, {
     required String email,
     required String code,
+    String purpose = 'verify',
   }) async {
     final res = await _send(
       () => _http.post(
         _uri('/auth/me/email-otp/verify'),
         headers: _headers(token: token),
-        body: jsonEncode({'email': email, 'code': code}),
+        body: jsonEncode({'email': email, 'code': code, 'purpose': purpose}),
       ),
     );
     return jsonDecode(res.body) as Map<String, dynamic>;

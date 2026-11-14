@@ -8509,7 +8509,15 @@ async function handleMeEmailOtpVerify(req, user) {
   const body = await req.json().catch(() => null);
   const cleanEmail = normalizeEmailAddr(body?.email);
   const cleanCode = String(body?.code ?? "").trim();
-  if (!cleanEmail || !validEmailAddr(cleanEmail)) {
+  // Which kind of code is being checked: the recovery-email ownership code
+  // ("verify") or the change-password code ("change"). Defaults to "verify"
+  // so older clients keep working.
+  const purpose =
+    String(body?.purpose ?? "").trim().toLowerCase() === "change"
+      ? OTP_PURPOSE_CHANGE
+      : OTP_PURPOSE_VERIFY;
+  if (purpose === OTP_PURPOSE_VERIFY &&
+      (!cleanEmail || !validEmailAddr(cleanEmail))) {
     return { status: 400, body: { error: "A valid email address is required" } };
   }
   if (!/^\d{6}$/.test(cleanCode)) {
@@ -8520,8 +8528,10 @@ async function handleMeEmailOtpVerify(req, user) {
     .filter(
       (r) =>
         !r.used &&
-        otpPurpose(r) === OTP_PURPOSE_VERIFY &&
-        normalizeEmailAddr(r.email) === cleanEmail,
+        otpPurpose(r) === purpose &&
+        (purpose === OTP_PURPOSE_VERIFY
+          ? normalizeEmailAddr(r.email) === cleanEmail
+          : true),
     )
     .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0];
   if (!rec) return { status: 200, body: { valid: false, reason: "no_code" } };

@@ -412,7 +412,13 @@ router.post("/me/email-otp/verify", requireAuth, codeCheckLimiter, async (req, r
     if (!user) return res.status(404).json({ error: "User not found" });
     const cleanEmail = normalizeEmail(req.body?.email);
     const cleanCode = String(req.body?.code ?? "").trim();
-    if (!cleanEmail || !validEmail(cleanEmail)) {
+    // Which kind of code is being checked: the recovery-email ownership code
+    // ("verify") or the change-password code ("change"). Anything else is the
+    // verify default, so older clients keep working.
+    const purpose = String(req.body?.purpose ?? "").trim().toLowerCase() === "change"
+      ? OTP_PURPOSE_CHANGE
+      : OTP_PURPOSE_VERIFY;
+    if (purpose === OTP_PURPOSE_VERIFY && (!cleanEmail || !validEmail(cleanEmail))) {
       return res.status(400).json({ error: "A valid email address is required" });
     }
     if (!/^\d{6}$/.test(cleanCode)) {
@@ -425,8 +431,10 @@ router.post("/me/email-otp/verify", requireAuth, codeCheckLimiter, async (req, r
       .filter(
         (r) =>
           !r.used &&
-          otpPurpose(r) === OTP_PURPOSE_VERIFY &&
-          normalizeEmail(r.email) === cleanEmail,
+          otpPurpose(r) === purpose &&
+          (purpose === OTP_PURPOSE_VERIFY
+            ? normalizeEmail(r.email) === cleanEmail
+            : true),
       )
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
     if (!rec) return res.json({ valid: false, reason: "no_code" });

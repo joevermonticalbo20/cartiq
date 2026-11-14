@@ -636,10 +636,14 @@ class AuthState extends ChangeNotifier {
   ///
   /// Returns the server's answer ({valid, reason}). It never consumes an
   /// attempt - saving the email does.
+  ///
+  /// [purpose] selects WHICH code: the default "verify" checks the
+  /// recovery-email ownership code; "change" checks the change-password code.
   Future<Map<String, dynamic>> verifyEmailCode(
     String email,
-    String code,
-  ) async {
+    String code, {
+    String purpose = 'verify',
+  }) async {
     final activeToken = token;
     if (activeToken == null) {
       throw const ApiException('Sign in again to update your email.');
@@ -648,6 +652,7 @@ class AuthState extends ChangeNotifier {
       activeToken,
       email: email,
       code: code,
+      purpose: purpose,
     );
   }
 

@@ -205,6 +205,11 @@ export default function SettingsPage() {
 
   const [pw, setPw] = useState({ current: "", next: "", confirm: "", code: "" });
   const [pwCodeSent, setPwCodeSent] = useState(false);
+  // Is the typed change-password code the right one? Only the server knows,
+  // so the field asks (debounced) and turns red or green.
+  const [pwCodeCheck, setPwCodeCheck] = useState("idle");
+  const [pwCodeExpired, setPwCodeExpired] = useState(false);
+  const pwCodeTimerRef = useRef(null);
   const [pwCodeEmail, setPwCodeEmail] = useState("");
   const [pwCodeCooldown, setPwCodeCooldown] = useState(0);
   const [isSendingPwCode, setIsSendingPwCode] = useState(false);
@@ -435,9 +440,44 @@ export default function SettingsPage() {
   useEffect(
     () => () => {
       if (emailCodeTimerRef.current) clearTimeout(emailCodeTimerRef.current);
+      if (pwCodeTimerRef.current) clearTimeout(pwCodeTimerRef.current);
     },
     [],
   );
+
+  /**
+   * Ask the server whether the typed change-password code is the right one.
+   * Debounced; never consumes an attempt (saving does).
+   */
+  function checkPwCode(code) {
+    if (pwCodeTimerRef.current) clearTimeout(pwCodeTimerRef.current);
+    const clean = String(code ?? "").trim();
+    if (clean.length !== 6) {
+      setPwCodeCheck("idle");
+      return;
+    }
+    setPwCodeCheck("checking");
+    pwCodeTimerRef.current = setTimeout(async () => {
+      try {
+        const { data } = await api.post("/auth/me/email-otp/verify", {
+          purpose: "change",
+          code: clean,
+        });
+        const reason = String(data?.reason ?? "");
+        if (data?.valid) {
+          setPwCodeExpired(false);
+          setPwCodeCheck("valid");
+        } else if (reason === "no_code") {
+          setPwCodeCheck("idle");
+        } else {
+          setPwCodeExpired(reason === "expired");
+          setPwCodeCheck("invalid");
+        }
+      } catch {
+        setPwCodeCheck("idle");
+      }
+    }, 400);
+  }
 
   /**
    * Ask the server whether the typed code is the right one.
@@ -751,6 +791,7 @@ export default function SettingsPage() {
       setProfile(data?.user ?? profile);
       // Codes sent to the old inbox were just invalidated server-side.
       setPwCodeSent(false);
+      setPwCodeCheck("idle");
       setPwCodeEmail("");
       setPwCodeCooldown(0);
       toast("Recovery email updated", "success");
@@ -789,6 +830,7 @@ export default function SettingsPage() {
     try {
       const { data } = await sendChangePasswordCodeWithCaptcha();
       setPwCodeSent(true);
+      setPwCodeCheck("idle");
       setPwCodeEmail(data?.email ?? "");
       // The server owns the timing: it says how long is left of the 60s
       // cooldown, and how long the address is locked out when the cap was
@@ -1567,18 +1609,46 @@ export default function SettingsPage() {
                         <input
                           id="settings-pw-code"
                           value={pw.code}
-                          onChange={(e) => setPw({ ...pw, code: e.target.value.replace(/\D/g, "").slice(0, 6) })}
+                          onChange={(e) => {
+                            const next = e.target.value.replace(/\D/g, "").slice(0, 6);
+                            setPw({ ...pw, code: next });
+                            checkPwCode(next);
+                          }}
                           inputMode="numeric"
                           autoComplete="one-time-code"
                           placeholder="6-digit code"
                           maxLength={6}
                           aria-describedby="settings-pw-code-hint"
+                          className={
+                            pwCodeCheck === "valid"
+                              ? "input-code-valid"
+                              : pwCodeCheck === "invalid"
+                                ? "input-code-invalid"
+                                : undefined
+                          }
                         />
                       </div>
-                      {pwCodeSent ? (
+                      {pwCodeCheck === "valid" ? (
                         <p className="settings-pw-hint is-sent" id="settings-pw-code-hint">
                           <CheckCircle2 size={13} aria-hidden="true" />
-                          Sent to {pwCodeEmail || displayEmail}. It expires in 10 minutes.
+                          Code verified. You can change the password now.
+                        </p>
+                      ) : pwCodeCheck === "invalid" ? (
+                        <p className="settings-pw-hint is-warn" id="settings-pw-code-hint">
+                          <AlertCircle size={13} aria-hidden="true" />
+                          {pwCodeExpired
+                            ? "That code has expired. Send a new one."
+                            : "That code does not match. Check the digits and try again."}
+                        </p>
+                      ) : pwCodeCheck === "checking" ? (
+                        <p className="settings-pw-hint" id="settings-pw-code-hint">
+                          <Info size={13} aria-hidden="true" />
+                          Checking the code...
+                        </p>
+                      ) : pwCodeSent ? (
+                        <p className="settings-pw-hint is-sent" id="settings-pw-code-hint">
+                          <CheckCircle2 size={13} aria-hidden="true" />
+                          Sent to {pwCodeEmail || displayEmail}. It expires in 5 minutes.
                         </p>
                       ) : (
                         <p className="settings-pw-hint" id="settings-pw-code-hint">
@@ -2440,7 +2510,7 @@ export default function SettingsPage() {
                     ) : emailCodeCheck === "checking" ? (
                       <span>Checking the code...</span>
                     ) : emailCodeSent ? (
-                      "Code sent. It expires in 10 minutes and can only be used once."
+                      "Code sent. It expires in 5 minutes and can only be used once."
                     ) : (
                       "Click Send code to get a code for this new email."
                     )}

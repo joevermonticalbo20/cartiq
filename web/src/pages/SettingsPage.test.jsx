@@ -252,6 +252,66 @@ describe("SettingsPage password change", () => {
     vi.clearAllMocks();
   });
 
+  it("turns the upgrade code field red or green as the code is typed", async () => {
+    // The change-password code - the "Recovery code" field - must show
+    // whether the typed code is right, like the recovery-email field does.
+    let codeIsValid = false;
+    api.get.mockImplementation((url) => {
+      if (url === "/auth/me") {
+        return Promise.resolve({
+          data: {
+            user: {
+              name: "Owner",
+              username: "owner",
+              role: "OWNER",
+              email: "owner@example.com",
+            },
+          },
+        });
+      }
+      return emptyOk(url);
+    });
+    api.post.mockImplementation((url) => {
+      if (url === "/auth/change-password/otp") {
+        return Promise.resolve({
+          data: { sent: true, email: "o***@example.com", message: "Code sent." },
+        });
+      }
+      if (url === "/auth/me/email-otp/verify") {
+        return Promise.resolve({ data: { valid: codeIsValid } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <ToastProvider>
+          <Routes>
+            <Route element={<Outlet context={{ user: { name: "Owner", role: "OWNER" } }} />}>
+              <Route element={<SettingsPage />} path="/" />
+            </Route>
+          </Routes>
+        </ToastProvider>
+      </MemoryRouter>
+    );
+    expect(await screen.findByText("owner@example.com")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Send code" }));
+    await vi.waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith("/auth/change-password/otp", {}),
+    );
+    const codeInput = screen.getByPlaceholderText("6-digit code");
+
+    // A wrong code: the field turns red and says so.
+    fireEvent.change(codeInput, { target: { value: "123456" } });
+    expect(await screen.findByText(/does not match/)).toBeInTheDocument();
+    expect(codeInput.className).toContain("input-code-invalid");
+
+    // The right code: the field turns green.
+    codeIsValid = true;
+    fireEvent.change(codeInput, { target: { value: "654321" } });
+    expect(await screen.findByText(/Code verified/)).toBeInTheDocument();
+    expect(codeInput.className).toContain("input-code-valid");
+  });
+
   it("logs out and redirects to login after a code-confirmed change", async () => {
     api.get.mockImplementation((url) => {
       if (url === "/auth/me") {
