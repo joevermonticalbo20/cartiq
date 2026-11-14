@@ -105,16 +105,48 @@ async function main() {
         seen?.status === "VOID" && typeof seen?.total === "number");
 
   // ---- staff alert acknowledgement ----
-  const uid = `H7-${run}`;
+  // A tap nobody asked for records nothing, so the alert to acknowledge comes
+  // from a deliberate one: the owner opens a claim for a staff member, the
+  // card is tapped, and the shift lands in the notification center.
+  await req("/settings/timeclock", {
+    method: "PUT",
+    token: tok,
+    body: {
+      enabled: true,
+      inOpen: "00:00",
+      inClose: "23:59",
+      outOpen: "00:00",
+      outClose: "23:59",
+      days: [0, 1, 2, 3, 4, 5, 6],
+    },
+  });
+  const cardUid = `9${Date.now().toString(16).toUpperCase().slice(-7)}`;
+  const ackStaff = await req("/staff", {
+    method: "POST",
+    token: tok,
+    body: {
+      name: "Ack Tester",
+      username: `ack${run}`,
+      password: "ack123456",
+      locationCode: "CART-01",
+      rfidUid: cardUid,
+    },
+  });
+  check("setup staff account created", ackStaff.status === 201 && Boolean(ackStaff.data?.user?.id));
+  await req("/auth/my-rfid/claim", {
+    method: "POST",
+    token: tok,
+    body: { event: "IN", targetUserId: ackStaff.data?.user?.id },
+  });
   await req("/shifts", {
     method: "POST", token: DEV_TOKEN,
-    body: { events: [{ staff_uid: uid, event: "IN" }] },
+    body: { events: [{ staff_uid: cardUid, event: "IN" }] },
   });
   const alerts = await req("/alerts?page=1&pageSize=50", { token: tok });
   const target = (alerts.data?.data ?? []).find(
-    (a) => a.type === "UNKNOWN_CARD" && (a.message ?? "").includes(uid)
+    (a) => a.type === "SHIFT" && (a.message ?? "").includes("Ack Tester")
   );
-  check("UNKNOWN_CARD alert raised for test tap", Boolean(target?.id));
+  check("SHIFT alert raised for the deliberate tap", Boolean(target?.id));
 
   const anonAck = await req(`/alerts/${target?.id}/ack`, { method: "PATCH" });
   check("unauthenticated ack rejected", anonAck.status === 401);

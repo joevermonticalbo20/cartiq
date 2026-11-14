@@ -103,7 +103,7 @@ Channel mapping: `LPG_TANK` → `LPG Tank` row, `CHEESE_BIN` → `Cheese Powder`
 | Endpoint | Method | Notes |
 |---|---|---|
 | `/iot/readings` | POST | Device auth. `{cart_id?, device_id?, readings:[{channel:"LPG_TANK"\|"CHEESE_BIN", kg 0-1000, ts?}]}` max 200 — `cart_id` mismatch → 400; stale `ts` older than current stock (>60s tolerance) is stored but rejected from stock mirror; mirrors kg into the matching inventory row, fires deduped LOW_STOCK alerts (structured key). |
-| `/shifts` | POST | Device auth. `{cart_id?, device_id?, events:[{staff_uid, event:"IN"\|"OUT", ts?}]}` max 200 — `cart_id` mismatch → 400; matches UID to staff via `User.rfidUid`; unknown cards raise UNKNOWN_CARD alerts (structured key) but are still logged. |
+| `/shifts` | POST | Device auth. `{cart_id?, device_id?, events:[{staff_uid, event:"IN"\|"OUT", ts?}]}` max 200 — `cart_id` mismatch → 400; matches UID to staff via `User.rfidUid`. **Only a tap that resolves an open claim is recorded** (the app asked for a clock-in / time-out, or for a card to be registered). A tap with nothing pending, or one whose claim was refused, records nothing at all: no shift, no alert, no toast, no push. A recorded shift also writes a `SHIFT` alert (the notification-center entry) and pushes to the owners. |
 | `/shifts/manual` | POST | OWNER user-JWT (never device token). Manager correction for a missed tap: `{staffId, locationCode, event:"IN"\|"OUT", ts?}` → 201 `{shift}` (`deviceId:"MANUAL"`). Powers the dashboard Manual Shift Entry. |
 | `/staff/on-shift` | GET | Latest event per person per cart today; `IN` = currently on shift; unregistered cards flagged. Includes last 20 events. |
 | `/readings/recent?code&channel&limit` | GET | Ascending series for dashboard charts. |

@@ -23,7 +23,7 @@ one business day; the owner validates results against the paper records.
 | UAT-12 | Excel export | Export sales for current month (.xlsx) | File opens in Excel; line items and summary totals match dashboard | |
 | UAT-13 | Bulk import preview+commit | Import product workbook with one bad row, then corrected file | Bad row blocked with reason; clean file commits only valid products | |
 | UAT-14 | Role security | Log in as staff01; attempt alert mark-read / product import | Both denied (403); owner account succeeds | |
-| UAT-15 | Unknown RFID card | Tap an unregistered card | Shift logged but flagged UNREGISTERED; UNKNOWN_CARD alert created | |
+| UAT-15 | Tap with nothing pending | Tap a card at the reader while no phone is waiting for it | Nothing is recorded: no shift, no notification, no toast (web or app). A deliberate tap (Time in / Time out pressed in the app first) is the one that counts. | |
 
 ### Sign-off
 

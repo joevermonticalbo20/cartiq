@@ -96,7 +96,13 @@ async function maybeTapCard() {
   const events = [{ staff_uid: UID, event: shiftOpen ? "IN" : "OUT" }];
   const result = await post("/shifts", { cart_id: CART, device_id: `sim-${CART.toLowerCase()}`, events });
   if (result) {
-    stamp(`RFID ${events[0].event}`, { accepted: result.accepted });
+    // Only a tap that resolves an open claim is recorded: the app has to be
+    // waiting (Time in / Time out, or Register card). A stray tap records
+    // nothing, so accepted stays empty - that is the rule, not a failure.
+    stamp(
+      `RFID ${events[0].event}${result.accepted.length ? "" : " (no claim open - not recorded)"}`,
+      { accepted: result.accepted }
+    );
   }
 }
 

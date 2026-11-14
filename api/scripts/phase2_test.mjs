@@ -86,30 +86,76 @@ async function main() {
   );
   check("LOW_STOCK alert fired once for LPG", lowAlerts.length === 1);
 
-  // 4. RFID known card
+  // 4. a tap nobody asked for leaves no trace
+  //    The reader posts every tap it sees. Only a tap that resolves an open
+  //    claim (the app asked for a clock-in or a card registration) is recorded.
+  const strayTap = await req("/shifts", {
+    method: "POST",
+    token: DEV_TOKEN,
+    body: { events: [{ staff_uid: "04A2B3C4", event: "IN" }] },
+  });
+  check("a tap with nothing pending records nothing",
+        strayTap.status === 201 &&
+        (strayTap.data.accepted ?? []).length === 0 &&
+        (strayTap.data.rejected ?? []).length === 0);
+
+  // 5. a deliberate tap - the app opened a claim - is the one that counts
+  // Open the clock window first so a clock-in is allowed in the test.
+  await req("/settings/timeclock", {
+    method: "PUT",
+    token: ownerTok,
+    body: {
+      enabled: true,
+      inOpen: "00:00",
+      inClose: "23:59",
+      outOpen: "00:00",
+      outClose: "23:59",
+      days: [0, 1, 2, 3, 4, 5, 6],
+    },
+  });
+  const staffList = await req("/staff", { token: ownerTok });
+  const staffOne = staffList.data?.data?.find((u) => u.rfidUid === "04A2B3C4");
+  const claim = await req("/auth/my-rfid/claim", {
+    method: "POST",
+    token: ownerTok,
+    body: { event: "IN", targetUserId: staffOne?.id },
+  });
+  check("claim opened for the staff card",
+        claim.status === 201 && Boolean(claim.data?.claim?.claimId));
   const tapIn = await req("/shifts", {
     method: "POST",
     token: DEV_TOKEN,
     body: { events: [{ staff_uid: "04A2B3C4", event: "IN" }] },
   });
   check("known UID matched to staff", tapIn.data.accepted[0]?.matched === "Stall Staff 1");
+  const claimAfter = await req(`/auth/my-rfid/claim/${claim.data?.claim?.claimId}`, { token: ownerTok });
+  check("the claim says the shift was written",
+        claimAfter.data?.claim?.resolvedEvent === "IN");
 
-  // 5. unknown card -> alert, still recorded
+  // 6. an unknown card with a claim open is refused, and records nothing
+  const unknownClaim = await req("/auth/my-rfid/claim", {
+    method: "POST",
+    token: ownerTok,
+    body: { event: "IN", targetUserId: staffOne?.id },
+  });
   await req("/shifts", {
     method: "POST",
     token: DEV_TOKEN,
     body: { events: [{ staff_uid: "DEADBEEF", event: "IN" }] },
   });
+  const unknownView = await req(`/auth/my-rfid/claim/${unknownClaim.data?.claim?.claimId}`, { token: ownerTok });
+  check("an unknown card is refused by the claim",
+        unknownView.data?.claim?.status === "unregistered");
   const alerts2 = await req("/alerts?unread_only=true", { token: ownerTok });
   const unknown = alerts2.data.data.filter((a) => a.type === "UNKNOWN_CARD");
-  check("UNKNOWN_CARD alert created", unknown.length === 1);
+  check("no UNKNOWN_CARD alert is raised", unknown.length === 0);
 
-  // 6. on-shift view
+  // 7. on-shift view
   const onShift = await req("/staff/on-shift", { token: ownerTok });
   const staff1 = onShift.data.on_shift.find((s) => s.name === "Stall Staff 1");
   const ghost = onShift.data.on_shift.find((s) => s.name?.includes("Unregistered"));
   check("staff01 shown ON SHIFT", Boolean(staff1));
-  check("unknown card shown unregistered on shift", Boolean(ghost));
+  check("an unknown card is not on shift", !ghost);
 
   // 7. readings series endpoint
   const series = await req("/readings/recent?code=CART-01&channel=LPG_TANK", { token: ownerTok });
