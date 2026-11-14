@@ -356,6 +356,12 @@ describe("SettingsPage password change", () => {
     await vi.waitFor(() =>
       expect(api.post).toHaveBeenCalledWith("/auth/change-password/otp", {}),
     );
+    // The Update button stays disabled until the code-sent state has flushed
+    // to React - clicking before that is a no-op and would make this test
+    // look for an error that is never rendered.
+    await vi.waitFor(() =>
+      expect(screen.getByRole("button", { name: "Update password" })).not.toBeDisabled(),
+    );
     fireEvent.change(screen.getByPlaceholderText("6-digit code"), { target: { value: "482916" } });
     // 9 chars, lower + digits only: "Fair", not "Good".
     fireEvent.change(screen.getByPlaceholderText("At least 8 characters"), { target: { value: "newpass123" } });
