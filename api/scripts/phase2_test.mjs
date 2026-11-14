@@ -100,7 +100,8 @@ async function main() {
         (strayTap.data.rejected ?? []).length === 0);
 
   // 5. a deliberate tap - the app opened a claim - is the one that counts
-  // Open the clock window first so a clock-in is allowed in the test.
+  // The staff member presses Time in, the app opens the claim on their own
+  // cart, and the reader's tap resolves it.
   await req("/settings/timeclock", {
     method: "PUT",
     token: ownerTok,
@@ -113,39 +114,47 @@ async function main() {
       days: [0, 1, 2, 3, 4, 5, 6],
     },
   });
-  const staffList = await req("/staff", { token: ownerTok });
-  const staffOne = staffList.data?.data?.find((u) => u.rfidUid === "04A2B3C4");
+  const staffLogin = await req("/auth/login", {
+    method: "POST",
+    body: { username: "staff01", password: "staff123" },
+  });
+  const staffTok = staffLogin.data?.token;
+  check("staff login", Boolean(staffTok));
   const claim = await req("/auth/my-rfid/claim", {
     method: "POST",
-    token: ownerTok,
-    body: { event: "IN", targetUserId: staffOne?.id },
+    token: staffTok,
+    body: { event: "IN" },
   });
   check("claim opened for the staff card",
-        claim.status === 201 && Boolean(claim.data?.claim?.claimId));
+        claim.status === 201 && Boolean(claim.data?.claim?.claimId),
+        `status=${claim.status} body=${JSON.stringify(claim.data)}`);
   const tapIn = await req("/shifts", {
     method: "POST",
     token: DEV_TOKEN,
     body: { events: [{ staff_uid: "04A2B3C4", event: "IN" }] },
   });
-  check("known UID matched to staff", tapIn.data.accepted[0]?.matched === "Stall Staff 1");
-  const claimAfter = await req(`/auth/my-rfid/claim/${claim.data?.claim?.claimId}`, { token: ownerTok });
+  check("known UID matched to staff", tapIn.data.accepted[0]?.matched === "Stall Staff 1",
+        JSON.stringify(tapIn.data));
+  const claimAfter = await req(`/auth/my-rfid/claim/${claim.data?.claim?.claimId}`, { token: staffTok });
   check("the claim says the shift was written",
-        claimAfter.data?.claim?.resolvedEvent === "IN");
+        claimAfter.data?.claim?.resolvedEvent === "IN",
+        JSON.stringify(claimAfter.data));
 
   // 6. an unknown card with a claim open is refused, and records nothing
   const unknownClaim = await req("/auth/my-rfid/claim", {
     method: "POST",
-    token: ownerTok,
-    body: { event: "IN", targetUserId: staffOne?.id },
+    token: staffTok,
+    body: { event: "IN" },
   });
   await req("/shifts", {
     method: "POST",
     token: DEV_TOKEN,
     body: { events: [{ staff_uid: "DEADBEEF", event: "IN" }] },
   });
-  const unknownView = await req(`/auth/my-rfid/claim/${unknownClaim.data?.claim?.claimId}`, { token: ownerTok });
+  const unknownView = await req(`/auth/my-rfid/claim/${unknownClaim.data?.claim?.claimId}`, { token: staffTok });
   check("an unknown card is refused by the claim",
-        unknownView.data?.claim?.status === "unregistered");
+        unknownView.data?.claim?.status === "unregistered",
+        JSON.stringify(unknownView.data));
   const alerts2 = await req("/alerts?unread_only=true", { token: ownerTok });
   const unknown = alerts2.data.data.filter((a) => a.type === "UNKNOWN_CARD");
   check("no UNKNOWN_CARD alert is raised", unknown.length === 0);

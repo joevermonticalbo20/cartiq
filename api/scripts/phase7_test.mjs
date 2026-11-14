@@ -133,11 +133,20 @@ async function main() {
     },
   });
   check("setup staff account created", ackStaff.status === 201 && Boolean(ackStaff.data?.user?.id));
-  await req("/auth/my-rfid/claim", {
+  const ackLogin = await req("/auth/login", {
     method: "POST",
-    token: tok,
-    body: { event: "IN", targetUserId: ackStaff.data?.user?.id },
+    body: { username: `ack${run}`, password: "ack123456" },
   });
+  const ackTok = ackLogin.data?.token;
+  check("setup staff login", Boolean(ackTok));
+  const ackClaim = await req("/auth/my-rfid/claim", {
+    method: "POST",
+    token: ackTok,
+    body: { event: "IN" },
+  });
+  check("claim opened for the setup staff",
+        ackClaim.status === 201 && Boolean(ackClaim.data?.claim?.claimId),
+        `status=${ackClaim.status} body=${JSON.stringify(ackClaim.data)}`);
   await req("/shifts", {
     method: "POST", token: DEV_TOKEN,
     body: { events: [{ staff_uid: cardUid, event: "IN" }] },
