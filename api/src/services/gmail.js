@@ -85,6 +85,30 @@ function base64Url(bytes) {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+/**
+ * Encode a MIME header value (RFC 2047).
+ *
+ * A subject like "Verify your email — CartIQ" carries an em dash. Written
+ * raw into the header, its UTF-8 bytes are read as latin-1 by the mail client
+ * and the subject arrives as "â€"". ASCII is left alone; anything else is
+ * encoded as "=?UTF-8?B?...?=".
+ */
+export function encodeMimeHeader(value) {
+  const s = String(value ?? "");
+  if (/^[\x20-\x7E]*$/.test(s)) return s;
+  const bytes = new TextEncoder().encode(s);
+  return `=?UTF-8?B?${Buffer.from(bytes).toString("base64")}?=`;
+}
+
+/** Same, but for an address: only the display name is encoded. */
+export function encodeAddressHeader(value) {
+  const s = String(value ?? "").trim();
+  const m = /^(.*)<([^>]+)>$/.exec(s);
+  if (!m) return encodeMimeHeader(s);
+  const name = m[1].trim().replace(/^"|"$/g, "");
+  return `${encodeMimeHeader(name)} <${m[2]}>`;
+}
+
 async function getAccessToken() {
   if (_cached && _cached.expMs - 60000 > Date.now()) return _cached.token;
   const { clientId, clientSecret, refreshToken } = gmailEnv();
@@ -170,9 +194,9 @@ export async function sendGmail({ to, subject, text, html }) {
   const boundary = html ? "cartiq_" + Math.random().toString(36).slice(2) : null;
   const raw = html
     ? [
-        `From: ${from}`,
-        `To: ${to}`,
-        `Subject: ${subject}`,
+        `From: ${encodeAddressHeader(from)}`,
+        `To: ${encodeAddressHeader(to)}`,
+        `Subject: ${encodeMimeHeader(subject)}`,
         `MIME-Version: 1.0`,
         `Content-Type: multipart/alternative; boundary="${boundary}"`,
         "",
@@ -187,9 +211,9 @@ export async function sendGmail({ to, subject, text, html }) {
         `--${boundary}--`,
       ].join("\\r\\n")
     : [
-        `From: ${from}`,
-        `To: ${to}`,
-        `Subject: ${subject}`,
+        `From: ${encodeAddressHeader(from)}`,
+        `To: ${encodeAddressHeader(to)}`,
+        `Subject: ${encodeMimeHeader(subject)}`,
         `Content-Type: text/plain; charset="UTF-8"`,
         "",
         text,
@@ -327,7 +351,7 @@ export function changeEmailContent(code) {
 /** Subject + body for a recovery-email ownership check. */
 export function verifyEmailContent(code) {
   return {
-    subject: "Verify your email — CartIQ",
+    subject: "Verify your email - CartIQ",
     text:
       `Your CartIQ email verification code is:\n\n${code}\n\n` +
       `It expires in 10 minutes and can only be used once.\n` +
