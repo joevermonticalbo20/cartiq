@@ -3,8 +3,10 @@ import { useOutletContext } from "react-router-dom";
 import { Trash2, ReceiptText, X, Plus, Edit2, Wallet } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
+import { useLiveList } from "../state/liveData.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
+import { useLiveEvent } from "../hooks/useLiveStream.js";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
@@ -32,7 +34,10 @@ export default function ExpensesPage() {
   const currentMonth = new Date().toISOString().slice(0, 7);
 
   const [code, setCode] = useState("");
-  const [locations, setLocations] = useState([]);
+  // One shared, live copy of the carts: a cart the owner added or
+  // deactivated shows up in the filter at once.
+  const { data: cartList } = useLiveList("carts");
+  const locations = Array.isArray(cartList) ? cartList : [];
   const [month, setMonth] = useState(currentMonth);
   const [category, setCategory] = useState("");
 
@@ -62,10 +67,6 @@ export default function ExpensesPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editError, setEditError] = useState("");
 
-  useEffect(() => {
-    api.get("/catalog", { cacheTtl: 120000 }).then(({ data }) => setLocations(data?.locations ?? [])).catch(() => {});
-  }, []);
-
   const path = (p) =>
     `/expenses?page=${p}&pageSize=50` +
     (code ? `&code=${code}` : "") +
@@ -77,6 +78,22 @@ export default function ExpensesPage() {
     month,
     category,
   ]);
+
+  // An expense was added, edited or deleted (here, in another tab or on the
+  // phone that filed the receipt): the list has to show it at once.
+  useLiveEvent("expenses:updated", () => {
+    refresh();
+    // The totals follow the list.
+    api
+      .get(
+        `/expenses?page=1&pageSize=1` +
+          (code ? `&code=${code}` : "") +
+          (month ? `&month=${month}` : "") +
+          (category ? `&category=${encodeURIComponent(category)}` : "")
+      )
+      .then(({ data }) => setSummary(data))
+      .catch(() => {});
+  });
 
   const loadSummary = useCallback(async () => {
     try {

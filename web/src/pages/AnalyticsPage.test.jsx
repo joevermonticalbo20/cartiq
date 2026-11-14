@@ -28,6 +28,7 @@ vi.mock("recharts", () => {
 });
 
 import api from "../api.js";
+import { __resetLiveData } from "../state/liveData.js";
 import AnalyticsPage from "./AnalyticsPage.jsx";
 
 function renderPage() {
@@ -109,6 +110,9 @@ function calledUrls() {
 describe("AnalyticsPage loading/error states", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The live store is a module singleton (one fetch, shared by every
+    // screen): each test starts from a clean slate.
+    __resetLiveData();
   });
 
   it("shows a loading skeleton while fetching", () => {
@@ -142,6 +146,9 @@ describe("AnalyticsPage loading/error states", () => {
 describe("AnalyticsPage forecast honesty guards", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The live store is a module singleton (one fetch, shared by every
+    // screen): each test starts from a clean slate.
+    __resetLiveData();
     mockApiAllOk();
   });
 
@@ -192,6 +199,9 @@ describe("AnalyticsPage forecast honesty guards", () => {
 describe("AnalyticsPage Top Item trend honesty", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The live store is a module singleton (one fetch, shared by every
+    // screen): each test starts from a clean slate.
+    __resetLiveData();
     mockApiAllOk();
   });
 

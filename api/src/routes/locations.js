@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { validateName } from "../services/validation.js";
+import { announceChange } from "../services/announce.js";
 
 const router = Router();
 
@@ -141,6 +142,10 @@ router.post("/locations", requireAuth, requireRole("OWNER"), async (req, res, ne
       return { location, items, device };
     });
 
+    // A new cart: every cart list and every "assign a cart" dropdown has to
+    // show it at once - in this tab, in the other tabs and on the phones.
+    await announceChange("locations", { id: result.location.id, code: result.location.code });
+
     return res.status(201).json({
       location: result.location,
       items: result.items,
@@ -182,6 +187,9 @@ router.patch("/locations/:id", requireAuth, requireRole("OWNER"), async (req, re
       data.status = st;
     }
     const location = await prisma.location.update({ where: { id: existing.id }, data });
+    // Renaming, deactivating or reactivating a cart changes every list that
+    // shows carts, and every dropdown that offers one.
+    await announceChange("locations", { id: location.id, code: location.code, status: location.status ?? "ACTIVE" });
     return res.json({ location });
   } catch (err) {
     return next(err);

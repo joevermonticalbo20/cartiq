@@ -1,5 +1,6 @@
 import axios from "axios";
 import { getFriendlyError } from "./utils/errors.js";
+import { cacheKey, clearApiCache, readCached, writeCached } from "./apiCache.js";
 
 // --- Configuration ---
 const API_BASE = import.meta.env.VITE_API_BASE || "/api";
@@ -28,9 +29,41 @@ export function _setHttpClientForTests(client) {
 // a 60s client cache makes page switches feel instant. Any successful
 // mutation (POST/PATCH/PUT/DELETE) clears the whole cache so edits,
 // adds, and voids can never serve stale reads past one TTL window.
-const _getCache = new Map();
-export function clearApiCache() {
-  _getCache.clear();
+// The short-lived GET cache lives in its own module so that code outside
+// api.js (the live store) can drop it without importing the HTTP client.
+// See apiCache.js for why it exists.
+export { clearApiCache } from "./apiCache.js";
+
+// --- cross-tab: tell the other tabs of this browser what changed ---
+//
+// The server announces every owner change (a live frame + a push), but the
+// other tabs of the SAME browser can know about it instantly and for free.
+// Without this they would wait for the live stream (up to 8 s on the Edge).
+const _changeChannel =
+  typeof BroadcastChannel !== "undefined"
+    ? new BroadcastChannel("cartiq-data-changed")
+    : null;
+
+/** Which list a mutation touches. The URL is the contract with the server. */
+function changeKindFor(url) {
+  const u = String(url ?? "");
+  if (u.startsWith("/locations")) return "locations";
+  if (u.startsWith("/devices")) return "devices";
+  if (u.startsWith("/auth/staff")) return "staff";
+  if (u.startsWith("/expenses")) return "expenses";
+  if (u.startsWith("/alerts")) return "alerts";
+  if (u.startsWith("/settings")) return "settings";
+  return null;
+}
+
+/** Announce a change to the other tabs of this browser. */
+export function broadcastDataChange(kind) {
+  if (!kind || !_changeChannel) return;
+  try {
+    _changeChannel.postMessage({ kind });
+  } catch {
+    /* a closed channel must never fail the mutation */
+  }
 }
 
 function getCacheKey(options) {
@@ -279,20 +312,20 @@ export async function fetchApi(options) {
   const method = String(options?.method ?? "GET").toUpperCase();
   const isGet = method === "GET";
   const cacheTtl = Number(options?.cacheTtl) || 0;
-  const key = getCacheKey({ ...options, method });
+  const key = cacheKey({ ...options, method });
   if (isGet && cacheTtl > 0) {
-    const hit = _getCache.get(key);
-    if (hit && hit.exp > Date.now()) {
-      return { success: true, data: hit.data };
-    }
-    if (hit) _getCache.delete(key);
+    const hit = readCached(key, cacheTtl);
+    if (hit) return { success: true, data: hit };
   }
   try {
     const response = await httpClient.request(options);
     if (isGet && cacheTtl > 0) {
-      _getCache.set(key, { exp: Date.now() + cacheTtl, data: response.data });
+      writeCached(key, cacheTtl, response.data);
     } else if (!isGet) {
-      _getCache.clear();
+      // A mutation: drop every cached read (nothing may be stale now) and
+      // tell the other tabs of this browser, so their lists update at once.
+      clearApiCache();
+      broadcastDataChange(changeKindFor(options?.url));
     }
     return { success: true, data: response.data };
   } catch (err) {
@@ -303,7 +336,7 @@ export async function fetchApi(options) {
       try {
         const response = await httpClient.request({ ...options, _retried: true });
         if (isGet && cacheTtl > 0) {
-          _getCache.set(key, { exp: Date.now() + cacheTtl, data: response.data });
+          writeCached(key, cacheTtl, response.data);
         }
         return { success: true, data: response.data };
       } catch (retryErr) {

@@ -6,6 +6,7 @@ import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
 import { LIVE_EVENTS, useLiveEvent } from "../hooks/useLiveStream.js";
+import { useLiveList } from "../state/liveData.js";
 import DataTable from "../components/DataTable.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
@@ -34,11 +35,19 @@ export default function StaffPage() {
   const isOwner = user?.role === "OWNER";
   
   const [onShift, setOnShift] = useState([]);
-  const [locations, setLocations] = useState([]);
-  const [staffList, setStaffList] = useState([]);
   const [loc, setLoc] = useState("");
   const [performance, setPerformance] = useState(null);
   const [perfLoading, setPerfLoading] = useState(true);
+
+  // One shared, live copy of the staff accounts and of the carts. A new
+  // account, a disabled account or a deactivated cart shows up here at once,
+  // in this tab and in the other tabs.
+  const { data: cartList } = useLiveList("carts");
+  const { data: staffAll } = useLiveList("staff", { enabled: isOwner });
+  const locations = Array.isArray(cartList) ? cartList : [];
+  const staffList = Array.isArray(staffAll)
+    ? staffAll.filter((s) => s.role !== "OWNER")
+    : [];
 
   // --- NEW STATES FOR MANUAL ENTRY & EDIT ---
   const [addOpen, setAddOpen] = useState(false);
@@ -85,17 +94,9 @@ export default function StaffPage() {
       isOwner
         ? track("performance", api.get("/analytics/staff-performance?days=28"), { data: { staff: [] } })
         : Promise.resolve({ data: { staff: [] } }),
-      track("catalog", api.get("/catalog", { cacheTtl: 120000 }), { data: { locations: [] } }),
-      isOwner
-        ? track("staff", api.get("/auth/staff"), { data: { data: [] } })
-        : Promise.resolve({ data: { data: [] } })
-    ]).then(([shiftRes, perfRes, catRes, staffRes]) => {
+    ]).then(([shiftRes, perfRes]) => {
       setOnShift(shiftRes.data?.on_shift ?? []);
       setPerformance(perfRes.data ?? { staff: [] });
-      setLocations(catRes.data?.locations ?? []);
-      if (staffRes?.data?.data) {
-        setStaffList(staffRes.data.data.filter((s) => s.role !== "OWNER"));
-      }
       setPerfLoading(false);
     });
   }, [isOwner]);

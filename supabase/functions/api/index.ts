@@ -2873,6 +2873,10 @@ async function handleCreateLocation(req, _origin) {
     return { location, items, device };
   }, 4);
 
+  // A new cart: every cart list and every "assign a cart" dropdown has to
+  // show it at once - in this tab, in the other tabs and on the phones.
+  await announceChange("locations", { id: result.location.id, code: result.location.code });
+
   return {
     status: 201,
     body: {
@@ -2911,6 +2915,13 @@ async function handlePatchLocation(req, _origin, id) {
     data.status = st;
   }
   await fsPatch("locations", existing.id, data);
+  // Renaming, deactivating or reactivating a cart changes every list that
+  // shows carts, and every dropdown that offers one.
+  await announceChange("locations", {
+    id: existing.id,
+    code: existing.code,
+    status: data.status ?? existing.status ?? "ACTIVE",
+  });
   return { status: 200, body: { location: cleanDoc(await fsGet("locations", existing.id)) } };
 }
 
@@ -2961,6 +2972,9 @@ async function handleCreateDevice(req) {
     await fsCommit(writes);
     return doc;
   }, 4);
+  // The device list is shown on the dashboard: it must show the new reader
+  // without a reload.
+  await announceChange("devices", { id: device.id, deviceId: device.deviceId });
   return {
     status: 201,
     body: { device: { id: device.id, deviceId: device.deviceId, active: device.active }, deviceToken },
@@ -2985,6 +2999,9 @@ async function handlePatchDevice(req, id) {
   if (active !== undefined) data.active = Boolean(active);
   await fsPatch("devices", device.id, data);
   const updated = await fsGet("devices", device.id);
+  // Reassigning or disabling a reader is shown on the dashboard and changes
+  // which cart it belongs to.
+  await announceChange("devices", { id: updated.id, deviceId: updated.deviceId });
   return { status: 200, body: { device: { id: updated.id, deviceId: updated.deviceId, active: updated.active } } };
 }
 
@@ -2992,6 +3009,7 @@ async function handleDeleteDevice(id) {
   const device = await fsGet("devices", id);
   if (!device) return { status: 404, body: { error: "Device not found" } };
   await fsDeleteByName(device._name);
+  await announceChange("devices", { id: device.id, deviceId: device.deviceId });
   return { status: 200, body: { deleted: true } };
 }
 
@@ -3657,6 +3675,9 @@ async function handleAlertsReadAll(req, user) {
     }
     updated++;
   }
+  // The bell counts unread alerts in every tab: mark-all-read has to show up
+  // everywhere, not only in the tab that pressed the button.
+  await announceChange("alerts", { markedRead: updated });
   return { updated };
 }
 
@@ -3668,6 +3689,8 @@ async function handleAlertReadOne(id, user) {
     return { status: 403, body: { error: "Forbidden" } };
   }
   await fsPatch("alerts", alert.id, { isRead: true });
+  // The unread count in the bell changes in every tab at once.
+  await announceChange("alerts", { id: alert.id, isRead: true });
   return { status: 200, body: { alert: cleanDoc(await fsGet("alerts", alert.id)) } };
 }
 
@@ -3679,6 +3702,9 @@ async function handleAlertAck(_req, id, user) {
     ackedAt: new Date(),
     ackedByName: user.name ?? user.username,
   });
+  // An acknowledgement is shown on the alerts page and in the bell: the other
+  // tabs have to show it too.
+  await announceChange("alerts", { id: alert.id, acked: true });
   return { status: 200, body: { alert: cleanDoc(await fsGet("alerts", alert.id)) } };
 }
 
@@ -4996,6 +5022,40 @@ async function recordRefusal({ alert, locationId, locationCode, payload }) {
 }
 
 /**
+ * Announce an owner change to every screen and every phone.
+ *
+ * The dashboard is one browser talking to one server, but the change is seen
+ * in many places: the other tab of the same browser, the owner's other
+ * browser, and the phone at the cart. Each of them used to learn about a
+ * change only by reloading (the web) or by waiting out a cache (the app).
+ *
+ * One announcement, three channels:
+ *
+ *   1. an SSE frame "<kind>:updated"    -> the web refetches the affected list
+ *   2. a data-only push "DATA_CHANGED"  -> every phone refetches, silently
+ *   3. (the web) a BroadcastChannel      -> the other tabs of the same browser
+ *                                           refetch at once
+ *
+ * Best-effort by design: a missed announcement must never fail the mutation
+ * that caused it. The next poll or reload still picks the change up.
+ *
+ * Mirrors announceChange() in api/src/services/announce.js - keep both in
+ * sync when changing policy.
+ */
+async function announceChange(kind, payload = {}) {
+  const name = String(kind ?? "").trim();
+  if (!name) return;
+  const body = { kind: name, ...payload };
+  await broadcastEvent(`${name}:updated`, body).catch(() => {});
+  const data = { type: "DATA_CHANGED", kind: name };
+  for (const [k, v] of Object.entries(body)) {
+    if (k === "kind") continue;
+    data[k] = v == null ? "" : String(v);
+  }
+  await sendDevicePush("DATA_CHANGED", data).catch(() => {});
+}
+
+/**
  * Bind a tapped tag to the user who opened a registration claim.
  * Mirrors api/src/services/rfid_bind.js.
  */
@@ -5833,6 +5893,9 @@ async function handleCreateExpense(req, user) {
   const loc = locationId !== null ? await fsGet("locations", locationId).catch(() => null) : null;
   const out = decorateExpense(expense);
   out.location = loc ? { code: loc.code, name: loc.name } : null;
+  // The expense list is open on the dashboard (and on the phone that filed
+  // the receipt): the new row has to show up at once.
+  await announceChange("expenses", { id: expense.id });
   return { status: 201, body: { expense: out } };
 }
 
@@ -5954,6 +6017,7 @@ async function handlePatchExpense(req, id) {
     : null;
   const out = decorateExpense(updated);
   out.location = loc ? { code: loc.code, name: loc.name } : null;
+  await announceChange("expenses", { id: updated.id });
   return { status: 200, body: { expense: out } };
 }
 
@@ -5961,6 +6025,7 @@ async function handleDeleteExpense(id) {
   const existing = await fsGet("expenses", id);
   if (!existing) return { status: 404, body: { error: "Expense not found" } };
   await fsDeleteByName(existing._name);
+  await announceChange("expenses", { id: existing.id, deleted: true });
   return { status: 200, body: { deleted: true } };
 }
 
@@ -8520,6 +8585,8 @@ async function handleCreateStaff(req) {
     await fsCommit(writes);
     return doc;
   }, 4);
+  // A new staff/admin account has to show up in the staff tables at once.
+  await announceChange("staff", { id: created.id, username: created.username });
   return {
     status: 201,
     body: { user: { id: created.id, username: created.username, name: created.name, role: created.role, active: created.active, email: created.email ?? null } },
@@ -8644,6 +8711,9 @@ async function handlePatchStaff(req, id, me) {
   if (data.active === false) {
     await deleteUserSessions(user.id);
   }
+  // The staff list is shown on the dashboard and in the staff tables: a new
+  // account, a disabled account or a moved account must show up at once.
+  await announceChange("staff", { id: updated.id, username: updated.username });
   return {
     status: 200,
     body: { user: { id: updated.id, username: updated.username, name: updated.name, active: updated.active, rfidUid: updated.rfidUid ?? null, email: updated.email ?? null } },

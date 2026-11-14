@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
+import { useLiveList } from "../state/liveData.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
@@ -90,7 +91,10 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [sectionErrors, setSectionErrors] = useState({});
 
-  const [locations, setLocations] = useState([]);
+  // One shared, live copy of the carts: a cart the owner added or
+  // deactivated shows up in the filter at once.
+  const { data: cartList } = useLiveList("carts");
+  const locations = Array.isArray(cartList) ? cartList : [];
   const [dateFilter, setDateFilter] = useState("");
   const [cartFilter, setCartFilter] = useState("");
 
@@ -105,10 +109,6 @@ export default function DashboardPage() {
 
   const [sseStatus, setSseStatus] = useState("connecting");
   const [livePulse, setLivePulse] = useState(0);
-
-  useEffect(() => {
-    api.get("/catalog", { cacheTtl: 120000 }).then(({ data }) => setLocations(data.locations)).catch(() => {});
-  }, []);
 
   const refresh = useCallback(async () => {
     const startedAt = performance.now();

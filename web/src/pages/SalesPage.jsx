@@ -4,6 +4,7 @@ import { ReceiptText, X, Download, Edit2, Eye, Hourglass, ChevronRight } from "l
 
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
+import { useLiveList } from "../state/liveData.js";
 import { fetchAllVoidRequests } from "../utils/voidRequests.js";
 import Badge from "../components/Badge.jsx";
 import { useLiveEvent } from "../hooks/useLiveStream.js";
@@ -24,7 +25,10 @@ export default function SalesPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const [locations, setLocations] = useState([]);
+  // One shared, live copy of the carts: a cart the owner added or
+  // deactivated shows up in the filter at once.
+  const { data: cartList } = useLiveList("carts");
+  const locations = Array.isArray(cartList) ? cartList : [];
 
   // Deep link from the notification bell: /sales?cart=CART-01. Seeded with a
   // lazy initialiser rather than an effect, so the first render is already
@@ -49,10 +53,6 @@ export default function SalesPage() {
   const [voidRequests, setVoidRequests] = useState([]);
   // GCash receipt viewer (blob fetched with the session, shown as object URL).
   const [viewingReceipt, setViewingReceipt] = useState(null);
-
-  useEffect(() => {
-      api.get("/catalog", { cacheTtl: 120000 }).then(({ data }) => setLocations(data?.locations ?? [])).catch(() => {});
-  }, []);
 
   const { rows, meta, loading, error, gotoPage, refresh } = usePagedData(
     (p) =>

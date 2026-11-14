@@ -62,6 +62,37 @@ class AuthState extends ChangeNotifier {
     push.onTimeClockChanged = () async {
       await refreshTimeClock();
     };
+    // The owner changed something in the dashboard: a cart, a reader, a staff
+    // account, an expense, an alert. The app re-reads what that kind means
+    // for it, so the change shows up without a refresh (and without a popup).
+    push.onDataChanged = (kind) async {
+      switch (kind) {
+        case DataChange.locations:
+          // The carts moved. The catalog carries them, so the POS reloads it
+          // and every cart dropdown follows.
+          dataRefresh?.bump('catalog');
+          break;
+        case DataChange.devices:
+          // The app does not show the readers; the clock and the attendance
+          // do not depend on them. Nothing to do.
+          break;
+        case DataChange.staff:
+          // An account changed - it may be this one (a disabled account, a
+          // new cart, a new card).
+          await refreshProfile();
+          break;
+        case DataChange.expenses:
+          // A receipt was filed, edited or deleted: the receipt list reloads.
+          dataRefresh?.bump('expenses');
+          break;
+        case DataChange.alerts:
+          // An alert was read, acknowledged or resolved: the list follows.
+          await refreshMyAlerts();
+          break;
+        default:
+          break;
+      }
+    };
     // A card was tapped on the reader: the shift is already recorded on the
     // server, so refresh today's attendance now - the tap must show up at
     // once, not on the next poll. A tap the server refused (outside the clock

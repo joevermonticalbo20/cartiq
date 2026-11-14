@@ -111,6 +111,9 @@ export default function NotificationBell() {
   useLiveEvent("alert:new", liveRefresh);
   useLiveEvent("shift:new", liveRefresh);
   useLiveEvent("order:new", liveRefresh);
+  // An alert was read, acknowledged or resolved somewhere (this tab, another
+  // tab, another browser): the count and the list have to follow.
+  useLiveEvent("alerts:updated", liveRefresh);
 
   // The toast and the record must land together. A hook that raises a toast
   // (a recorded shift, a card registration) asks the bell to fetch at once,

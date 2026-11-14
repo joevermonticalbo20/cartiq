@@ -10,6 +10,7 @@ import {
 import { useNavigate, useOutletContext } from "react-router-dom";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
+import { useLiveList } from "../state/liveData.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import { SkeletonCards, TableSkeleton } from "../components/Skeleton.jsx";
@@ -116,7 +117,10 @@ export default function AnalyticsPage() {
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
 
-  const [carts, setCarts] = useState([]);
+  // One shared, live copy of the carts: a cart the owner added or
+  // deactivated shows up in the filter at once.
+  const { data: cartList } = useLiveList("carts");
+  const carts = Array.isArray(cartList) ? cartList : [];
   const [cartCode, setCartCode] = useState("");
   const [range, setRange] = useState("30");
   const [startDate, setStartDate] = useState("");
@@ -145,10 +149,6 @@ export default function AnalyticsPage() {
       el.scrollIntoView({ behavior: 'smooth' });
     }
   };
-
-  useEffect(() => {
-    api.get("/catalog", { cacheTtl: 120000 }).then(({ data }) => setCarts(data.locations ?? [])).catch(() => {});
-  }, []);
 
   useEffect(() => {
     let alive = true;

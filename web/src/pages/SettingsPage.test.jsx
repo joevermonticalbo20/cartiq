@@ -13,6 +13,7 @@ vi.mock("../utils/errors.js", () => ({
 }));
 
 import api, { clearSession } from "../api.js";
+import { __resetLiveData } from "../state/liveData.js";
 import SettingsPage from "./SettingsPage.jsx";
 
 function renderPage() {
@@ -42,6 +43,9 @@ const emptyOk = (url) => {
 describe("SettingsPage profile states", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The live store is a module singleton (one fetch, shared by every
+    // screen): each test starts from a clean slate.
+    __resetLiveData();
   });
 
   it("shows profile details on success", async () => {
@@ -267,6 +271,7 @@ describe("SettingsPage cart/device confirmations", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetLiveData();
     api.get.mockImplementation((url) => {
       if (url === "/auth/me") {
         return Promise.resolve({ data: { user: { name: "Owner", role: "OWNER" } } });
@@ -351,6 +356,7 @@ describe("SettingsPage time clock", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetLiveData();
     api.get.mockImplementation((url) => {
       if (url === "/auth/me") {
         return Promise.resolve({ data: { user: { name: "Owner", role: "OWNER" } } });
@@ -569,6 +575,7 @@ describe("SettingsPage administrators", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetLiveData();
     api.get.mockImplementation((url) => {
       if (url === "/auth/me") {
         return Promise.resolve({ data: { user: { id: 1, name: "Owner", username: "owner", role: "OWNER" } } });

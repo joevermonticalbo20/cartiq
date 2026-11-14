@@ -3,6 +3,7 @@ import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { emit } from "./events.js";
 import { sendTargetedPush } from "../services/push.js";
+import { announceChange } from "../services/announce.js";
 
 const router = Router();
 
@@ -99,6 +100,9 @@ router.patch("/alerts/read", requireAuth, requireRole("OWNER"), async (req, res,
     // Staff may only mark their own targeted alerts read.
     if (req.user?.role !== "OWNER") where.userId = req.user.sub;
     const { count } = await prisma.alert.updateMany({ where, data: { isRead: true } });
+    // The bell counts unread alerts in every tab: mark-all-read has to show
+    // up everywhere, not only in the tab that pressed the button.
+    await announceChange("alerts", { markedRead: count });
     return res.json({ updated: count });
   } catch (err) {
     return next(err);
@@ -117,6 +121,8 @@ router.patch("/alerts/:id/read", requireAuth, async (req, res, next) => {
       where: { id: Number(req.params.id) },
       data: { isRead: true },
     });
+    // The unread count in the bell changes in every tab at once.
+    await announceChange("alerts", { id: updated.id, isRead: true });
     return res.json({ alert: updated });
   } catch (err) {
     if (err.code === "P2025") {
@@ -139,6 +145,9 @@ router.patch("/alerts/:id/ack", requireAuth, async (req, res, next) => {
         ackedByName: req.user.name ?? req.user.username,
       },
     });
+    // An acknowledgement is shown on the alerts page and in the bell: the
+    // other tabs have to show it too.
+    await announceChange("alerts", { id: alert.id, acked: true });
     return res.json({ alert });
   } catch (err) {
     if (err.code === "P2025") {

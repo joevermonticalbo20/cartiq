@@ -4,6 +4,7 @@ import { requireAuth, assertOwnLocation } from "../middleware/auth.js";
 import { requireRole } from "../middleware/auth.js";
 import { manilaMonthRange } from "../services/timezone.js";
 import { validateName, validateReason } from "../services/validation.js";
+import { announceChange } from "../services/announce.js";
 
 const router = Router();
 
@@ -90,6 +91,10 @@ router.post("/expenses", requireAuth, async (req, res, next) => {
       },
       include: { location: { select: { code: true, name: true } } },
     });
+
+    // The expense list is open on the dashboard (and on the phone that filed
+    // the receipt): the new row has to show up at once.
+    await announceChange("expenses", { id: expense.id });
 
     return res.status(201).json({ expense: decorate(expense) });
   } catch (err) {
@@ -221,6 +226,7 @@ router.patch("/expenses/:id", requireAuth, requireRole("OWNER"), async (req, res
       data,
       include: { location: { select: { code: true, name: true } } },
     });
+    await announceChange("expenses", { id: updated.id });
     return res.json({ expense: decorate(updated) });
   } catch (err) {
     return next(err);
@@ -231,6 +237,7 @@ router.patch("/expenses/:id", requireAuth, requireRole("OWNER"), async (req, res
 router.delete("/expenses/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
     await prisma.expense.delete({ where: { id: Number(req.params.id) } });
+    await announceChange("expenses", { id: Number(req.params.id), deleted: true });
     return res.json({ deleted: true });
   } catch (err) {
     if (err.code === "P2025") return res.status(404).json({ error: "Expense not found" });

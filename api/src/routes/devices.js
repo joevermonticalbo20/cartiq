@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { requireDevice } from "../middleware/device.js";
+import { announceChange } from "../services/announce.js";
 
 const router = Router();
 const DEVICE_ID_RE = /^[A-Za-z0-9_-]{3,40}$/;
@@ -121,6 +122,9 @@ router.post("/devices", requireAuth, requireRole("OWNER"), async (req, res, next
     const device = await prisma.device.create({
       data: { deviceId: cleanId, locationId, tokenHash, active: true },
     });
+    // The device list is shown on the dashboard: it must show the new reader
+    // without a reload.
+    await announceChange("devices", { id: device.id, deviceId: cleanId });
     return res.status(201).json({
       device: { id: device.id, deviceId: device.deviceId, active: device.active },
       deviceToken,
@@ -149,6 +153,9 @@ router.patch("/devices/:id", requireAuth, requireRole("OWNER"), async (req, res,
     }
     if (active !== undefined) data.active = Boolean(active);
     const updated = await prisma.device.update({ where: { id: device.id }, data });
+    // Reassigning or disabling a reader is shown on the dashboard and changes
+    // which cart it belongs to.
+    await announceChange("devices", { id: updated.id, deviceId: updated.deviceId });
     return res.json({ device: { id: updated.id, deviceId: updated.deviceId, active: updated.active } });
   } catch (err) {
     if (err.code === "P2025") return res.status(404).json({ error: "Device not found" });
@@ -163,6 +170,7 @@ router.delete("/devices/:id", requireAuth, requireRole("OWNER"), async (req, res
     const device = await prisma.device.findUnique({ where: { id: Number(req.params.id) } });
     if (!device) return res.status(404).json({ error: "Device not found" });
     await prisma.device.delete({ where: { id: device.id } });
+    await announceChange("devices", { id: device.id, deviceId: device.deviceId });
     return res.json({ deleted: true });
   } catch (err) {
     if (err.code === "P2025") return res.status(404).json({ error: "Device not found" });

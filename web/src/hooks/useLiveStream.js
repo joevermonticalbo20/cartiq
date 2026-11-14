@@ -91,16 +91,29 @@ export function useLiveEvent(event, handler) {
   useEffect(() => {
     if (typeof handlerRef.current !== "function") return undefined;
     const wrapped = (data) => handlerRef.current(data);
-    let set = listeners.get(event);
-    if (!set) {
-      set = new Set();
-      listeners.set(event, set);
-    }
-    set.add(wrapped);
-    return () => {
-      set.delete(wrapped);
-    };
+    return onLiveEvent(event, wrapped);
   }, [event]);
+}
+
+/**
+ * Subscribe to one event name outside React.
+ *
+ * The live store uses this: it has to hear every frame even when no screen
+ * showing the affected list is mounted, and it is not a component.
+ *
+ * Returns an unsubscribe function.
+ */
+export function onLiveEvent(event, handler) {
+  if (typeof handler !== "function") return () => {};
+  let set = listeners.get(event);
+  if (!set) {
+    set = new Set();
+    listeners.set(event, set);
+  }
+  set.add(handler);
+  return () => {
+    set.delete(handler);
+  };
 }
 
 /** Subscribe to connection status changes ("open" | "connecting" | "down"). */

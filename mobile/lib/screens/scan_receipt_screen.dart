@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:dropdown_button2/dropdown_button2.dart';
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
+import '../services/data_refresh.dart';
 import '../services/receipt_scanner.dart';
 import '../utils/money_input.dart';
 import '../utils/text_input.dart';
@@ -43,6 +44,8 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
 
   bool get _ocrSupported => Platform.isAndroid || Platform.isIOS;
 
+  DataRefresh? _bus;
+
   @override
   void initState() {
     super.initState();
@@ -50,22 +53,49 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
     // Set initial location
     _locationNotifier.value = auth.locationCode;
 
+    _loadLocations();
+  }
+
+  /// The carts this receipt can be filed against.
+  ///
+  /// The owner can add or deactivate a cart while this screen is open, so the
+  /// list is re-read when the catalog changes - without a restart.
+  Future<void> _loadLocations() async {
+    final auth = context.read<AuthState>();
     final token = auth.token;
     if (token == null) return;
-    auth.api
-        .catalog(token)
-        .then((data) {
-          if (!mounted) return;
-          setState(() {
-            _locations = (data['locations'] as List)
-                .cast<Map<String, dynamic>>();
-          });
-        })
-        .catchError((_) {});
+    try {
+      final data = await auth.api.catalog(token, forceRefresh: true);
+      if (!mounted) return;
+      setState(() {
+        _locations = (data['locations'] as List)
+            .cast<Map<String, dynamic>>();
+      });
+    } catch (_) {
+      // Offline: keep the carts we already know.
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final bus = context.read<DataRefresh?>();
+    if (bus != null && !identical(bus, _bus)) {
+      _bus?.removeListener(_onDataChanged);
+      _bus = bus..addListener(_onDataChanged);
+    }
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    if (_bus?.lastReason != 'catalog') return;
+    _loadLocations();
   }
 
   @override
   void dispose() {
+    _bus?.removeListener(_onDataChanged);
+    _bus = null;
     _scanner.dispose();
     _vendor.dispose();
     _amount.dispose();

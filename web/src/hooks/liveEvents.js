@@ -46,6 +46,13 @@ export const LIVE_EVENT_NAMES = Object.freeze([
   "shift:new",
   // The owner changed the clock windows.
   "settings:timeclock",
+  // An owner change in the dashboard. Each one invalidates the list it
+  // belongs to, so every screen shows it without a reload.
+  "locations:updated",
+  "devices:updated",
+  "staff:updated",
+  "expenses:updated",
+  "alerts:updated",
 ]);
 
 /** Named constants for the call sites, so a typo cannot silently break a feed. */
@@ -65,4 +72,9 @@ export const LIVE_EVENTS = Object.freeze({
   inventoryUpdated: "inventory:updated",
   shiftNew: "shift:new",
   settingsTimeclock: "settings:timeclock",
+  locationsUpdated: "locations:updated",
+  devicesUpdated: "devices:updated",
+  staffUpdated: "staff:updated",
+  expensesUpdated: "expenses:updated",
+  alertsUpdated: "alerts:updated",
 });

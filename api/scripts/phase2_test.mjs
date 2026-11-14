@@ -198,6 +198,45 @@ async function main() {
   if (jwtInQuery?.body) await jwtInQuery.body.cancel().catch(() => {});
   check("JWT in query string rejected", jwtInQuery?.status === 401);
 
+  // 9. an owner change is announced on the live stream
+  // Every owner change (a cart, a reader, a staff account, an expense, an
+  // alert) is announced once, so the other tabs and the other browsers show
+  // it without a reload.
+  const locs = await req("/locations", { token: ownerTok });
+  const cart = locs.data?.data?.[0];
+  const ticket2 = await req("/events/ticket", { method: "POST", token: ownerTok });
+  const ctrl2 = new AbortController();
+  const stream2 = await fetch(`${BASE}/events?ticket=${ticket2.data?.ticket}`, {
+    headers: { Accept: "text/event-stream" },
+    signal: ctrl2.signal,
+  }).catch(() => null);
+  const reader2 = stream2?.body ? stream2.body.getReader() : null;
+  if (cart && reader2) {
+    // The change: deactivate the cart for a moment, then put it back.
+    const nextStatus = cart.status === "INACTIVE" ? "ACTIVE" : "INACTIVE";
+    await req(`/locations/${cart.id}`, {
+      method: "PATCH", token: ownerTok, body: { status: nextStatus },
+    });
+    const decoder = new TextDecoder();
+    let buffered = "";
+    let announced = false;
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline && !announced) {
+      const { value, done } = await reader2.read().catch(() => ({ done: true }));
+      if (done) break;
+      buffered += decoder.decode(value ?? new Uint8Array(), { stream: true });
+      if (buffered.includes("event: locations:updated")) announced = true;
+    }
+    await req(`/locations/${cart.id}`, {
+      method: "PATCH", token: ownerTok, body: { status: cart.status ?? "ACTIVE" },
+    });
+    ctrl2.abort();
+    await reader2.cancel().catch(() => {});
+    check("an owner change is announced on the live stream", announced);
+  } else {
+    check("an owner change is announced on the live stream", false, "no cart or no stream");
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 }

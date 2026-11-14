@@ -17,6 +17,7 @@ vi.mock("../hooks/useSSE.js", () => ({
 }));
 
 import api from "../api.js";
+import { __resetLiveData } from "../state/liveData.js";
 import DashboardPage from "./DashboardPage.jsx";
 
 function renderPage() {
@@ -68,6 +69,9 @@ function mockApiAllOk() {
 describe("DashboardPage partial failure", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The live store is a module singleton (one fetch, shared by every
+    // screen): each test starts from a clean slate.
+    __resetLiveData();
   });
 
   it("shows KPIs with no banner when everything succeeds", async () => {
@@ -221,6 +225,7 @@ describe("DashboardPage partial failure", () => {
 describe("DashboardPage previous period with a date filter", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetLiveData();
   });
 
   it("asks for the previous DAY, not the same day with daysAgo", async () => {

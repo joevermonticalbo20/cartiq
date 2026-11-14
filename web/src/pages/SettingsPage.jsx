@@ -29,6 +29,8 @@ import api, { clearSession } from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import { timeClockScheduleError } from "../utils/timeClock.js";
 import { useRfidEvents } from "../hooks/useRfidEvents.js";
+import { useLiveEvent } from "../hooks/useLiveStream.js";
+import { activeCarts, invalidateLiveList, useLiveList } from "../state/liveData.js";
 import Badge from "../components/Badge.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import Skeleton, { TableSkeleton } from "../components/Skeleton.jsx";
@@ -198,7 +200,6 @@ export default function SettingsPage() {
   const [profile, setProfile] = useState(user ?? null);
   const [profileError, setProfileError] = useState("");
 
-  const [ownerError, setOwnerError] = useState([]);
   const [isLoadingOwner, setIsLoadingOwner] = useState(true);
 
   const [pw, setPw] = useState({ current: "", next: "", confirm: "", code: "" });
@@ -216,9 +217,13 @@ export default function SettingsPage() {
   const [isSavingEmail, setIsSavingEmail] = useState(false);
   const [showEmailPw, setShowEmailPw] = useState(false);
 
-  const [devices, setDevices] = useState([]);
-  const [staff, setStaff] = useState([]);
-  const [locations, setLocations] = useState([]);
+  // One shared, live copy of each list. The Carts table and the "Cart
+  // assignment" dropdown read the SAME carts, so a cart the owner just
+  // deactivated cannot keep showing up in one of them - and a change made in
+  // another tab (or on the phone) lands here without a reload.
+  const { data: devices, error: devicesError } = useLiveList("devices", { enabled: isOwner });
+  const { data: staff, error: staffListError } = useLiveList("staff", { enabled: isOwner });
+  const { data: carts, error: cartsError } = useLiveList("carts", { enabled: isOwner });
 
   // -- STAFF STATES --
   const [addOpen, setAddOpen] = useState(false);
@@ -305,7 +310,6 @@ export default function SettingsPage() {
   const [isDeviceDeleting, setIsDeviceDeleting] = useState(false);
 
   // -- CART STATES --
-  const [carts, setCarts] = useState([]);
   const [cartAddOpen, setCartAddOpen] = useState(false);
   const [cartAddClosing, setCartAddClosing] = useState(false);
   const [isCartAdding, setIsCartAdding] = useState(false);
@@ -411,45 +415,38 @@ export default function SettingsPage() {
     // A card is registered from the POS app at the cart, so this list goes
     // stale while the owner is sitting on this page. Refetch only the staff
     // list on a live event instead of reloading every owner table.
-    api
-      .get("/auth/staff")
-      .then(({ data }) => setStaff(data?.data ?? []))
-      .catch(() => {});
+    invalidateLiveList("staff");
   }
 
   function reloadDevices() {
-    api
-      .get("/devices")
-      .then(({ data }) => setDevices(data?.data ?? []))
-      .catch(() => {});
+    invalidateLiveList("devices");
   }
 
   function reloadCarts() {
-    api
-      .get("/locations")
-      .then(({ data }) => setCarts(data?.data ?? []))
-      .catch(() => {});
+    invalidateLiveList("carts");
   }
 
   // Mounted here (not only in the shell) so a registration lands straight in
   // the card column of the table below.
   useRfidEvents({ onChange: reloadStaff });
 
+  // The clock windows are set by the owner - here, on another tab or on
+  // another browser. The form has to show the current windows, not the ones
+  // it loaded with.
+  useLiveEvent("settings:timeclock", () => {
+    loadTimeClock();
+  });
+
   function loadOwnerData(initial = false) {
     if (!isOwner) return;
     if (initial) setIsLoadingOwner(true);
-    setOwnerError([]);
-    
-    const track = (key, promise, apply) => {
-      return promise.then(apply).catch(() => {
-        setOwnerError((prev) => (prev.includes(key) ? prev : [...prev, key]));
-      });
-    };
-
+    // The three owner lists (readers, staff accounts, carts) live in the
+    // shared live store: they fetch themselves, are shared with every other
+    // screen and refetch the moment the owner changes something.
     Promise.all([
-      track("devices", api.get("/devices"), ({ data }) => setDevices(data?.data ?? [])),
-      track("staff", api.get("/auth/staff"), ({ data }) => setStaff(data?.data ?? [])),
-      track("carts", api.get("/locations"), ({ data }) => setCarts(data?.data ?? []))
+      invalidateLiveList("devices"),
+      invalidateLiveList("staff"),
+      invalidateLiveList("carts"),
     ]).finally(() => {
       if (initial) setIsLoadingOwner(false);
     });
@@ -554,18 +551,16 @@ export default function SettingsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional init: profile + catalog defaults on mount/role change
     loadProfile();
     loadTimeClock();
-    api.get("/catalog", { cacheTtl: 120000 }).then(({ data }) => {
-      const locs = data?.locations ?? [];
-      setLocations(locs);
-      if (locs.length > 0) {
-        setNewStaff((prev) => ({ ...prev, locationCode: locs[0].code }));
-        setNewDevice((prev) => ({ ...prev, locationCode: locs[0].code }));
-      }
-    }).catch(() => {});
-    
     loadOwnerData(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOwner]);
+
+  // A list that could not be loaded is reported the same way as before.
+  const ownerError = [
+    devicesError ? "devices" : null,
+    staffListError ? "staff" : null,
+    cartsError ? "carts" : null,
+  ].filter(Boolean);
 
   const isPlaceholderEmail = (value) =>
     !value || String(value).toLowerCase().endsWith("@cartiq.local");
@@ -758,7 +753,7 @@ export default function SettingsPage() {
       });
       toast(`Staff account "${newStaff.username}" created`, "success");
       closeAddModal();
-      setNewStaff({ name: "", username: "", password: "", locationCode: safeLocations[0]?.code || "", rfidUid: "", email: "" });
+      setNewStaff({ name: "", username: "", password: "", locationCode: staffCartOptions[0]?.code || "", rfidUid: "", email: "" });
       setShowNewStaffPw(false);
       reloadStaff();
     } catch (err) {
@@ -1076,7 +1071,7 @@ export default function SettingsPage() {
         cart: newDevice.locationCode
       });
       closeDeviceAddModal();
-      setNewDevice({ deviceId: "", locationCode: safeLocations[0]?.code || "" });
+      setNewDevice({ deviceId: "", locationCode: deviceCartOptions[0]?.code || "" });
       
       setDeviceToken({ deviceId: newDevice.deviceId, token: res.data?.deviceToken });
       setDeviceTokenCopied(false);
@@ -1090,12 +1085,19 @@ export default function SettingsPage() {
     }
   }
 
-  const safeLocations = Array.isArray(locations) ? locations : [];
   const safeDevices = Array.isArray(devices) ? devices : [];
   const safeStaff = Array.isArray(staff) ? staff : [];
   const safeAdmins = safeStaff.filter((s) => s.role === "OWNER");
   const currentUserId = profile?.id ?? user?.id ?? null;
-  const locationOptions = safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
+  // A deactivated cart cannot be assigned to a reader or a staff member any
+  // more, so it disappears from the dropdowns. The cart that is currently
+  // chosen stays, so an open form never loses its value.
+  const staffCartOptions = activeCarts(carts, newStaff.locationCode);
+  const deviceCartOptions = activeCarts(carts, newDevice.locationCode);
+  const editingCartOptions = activeCarts(carts, staffEditing?.locationCode);
+  const locationOptions = staffCartOptions.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
+  const deviceLocationOptions = deviceCartOptions.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
+  const editingLocationOptions = editingCartOptions.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
 
   async function handleEditDevice(e) {
     e.preventDefault();
@@ -2362,8 +2364,7 @@ export default function SettingsPage() {
                     options={locationOptions}
                     placeholder="Select cart..."
                   />
-                </label>
-                <label className="field">
+                </label>                <label className="field">
                   RFID UID (optional)
                   <input
                     placeholder="e.g. 04A2B3C4"
@@ -2556,7 +2557,7 @@ export default function SettingsPage() {
                   <Select
                     value={staffEditing?.location?.code || ""}
                     onChange={(val) => setStaffEditing({ ...staffEditing, location: { code: val } })}
-                    options={locationOptions}
+                    options={editingLocationOptions}
                     placeholder="Select cart..."
                   />
                 </label>
@@ -2740,7 +2741,7 @@ export default function SettingsPage() {
                   <Select
                     value={newDevice.locationCode}
                     onChange={(val) => setNewDevice({ ...newDevice, locationCode: val })}
-                    options={locationOptions}
+                    options={deviceLocationOptions}
                     placeholder="Assign to cart..."
                   />
                 </label>
@@ -2771,7 +2772,7 @@ export default function SettingsPage() {
                   <Select
                     value={deviceEditing?.cart || ""}
                     onChange={(val) => setDeviceEditing({ ...deviceEditing, cart: val })}
-                    options={locationOptions}
+                    options={deviceLocationOptions}
                     placeholder="Assign to cart..."
                   />
                 </label>

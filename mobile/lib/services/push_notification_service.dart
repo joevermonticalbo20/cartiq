@@ -56,6 +56,40 @@ const String timeClockChangedPushType = 'TIME_CLOCK_CHANGED';
 bool isTimeClockChanged(Map<String, dynamic> data) =>
     (data['type'] ?? '').toString().toUpperCase() == timeClockChangedPushType;
 
+/// The data-only push the server sends when the owner changed something in
+/// the dashboard: a cart was added or deactivated, a reader was registered, a
+/// staff account was edited, an expense was filed, an alert was read.
+///
+/// The app re-reads what that kind means for it (the catalog, the profile, the
+/// receipt list, the alert list) so the change shows up without a refresh.
+///
+/// Silent on purpose: it is a setting, not an alert - a popup for every owner
+/// tweak would train the vendor to dismiss them.
+const String dataChangedPushType = 'DATA_CHANGED';
+
+/// True when this message is an owner change.
+bool isDataChanged(Map<String, dynamic> data) =>
+    (data['type'] ?? '').toString().toUpperCase() == dataChangedPushType;
+
+/// What changed. The kind is the contract with the server.
+class DataChange {
+  const DataChange(this.kind);
+
+  /// "locations" (carts), "devices" (readers), "staff" (accounts),
+  /// "expenses" (receipts) or "alerts" (the notification center).
+  final String kind;
+
+  static const locations = 'locations';
+  static const devices = 'devices';
+  static const staff = 'staff';
+  static const expenses = 'expenses';
+  static const alerts = 'alerts';
+
+  /// The kind carried by a push payload ("" when it carried none).
+  static String kindOf(Map<String, dynamic> data) =>
+      (data['kind'] ?? '').toString().trim().toLowerCase();
+}
+
 /// The push an OWNER gets when something happens at a cart: a staff member
 /// timed in or out, or a card was registered.
 ///
@@ -137,6 +171,11 @@ class CartIQPushService {
   /// Invoked when the owner changes the clock windows. The app re-reads them
   /// at once, so the Time in / Time out buttons follow without a refresh.
   Future<void> Function()? onTimeClockChanged;
+
+  /// Invoked when the owner changed something in the dashboard (a cart, a
+  /// reader, a staff account, an expense, an alert). The payload says which
+  /// kind, so the app re-reads only what that kind means for it.
+  Future<void> Function(String kind)? onDataChanged;
 
   /// Invoked when a card was tapped on the reader. The app reflects the tap
   /// right away - the tap is the whole point of the reader, so it must show
@@ -276,6 +315,13 @@ class CartIQPushService {
     }
     if (isTimeClockChanged(message.data)) {
       await onTimeClockChanged?.call();
+      return;
+    }
+    if (isDataChanged(message.data)) {
+      // An owner change in the dashboard. Silent: the app re-reads what
+      // changed and shows it - no popup the vendor has to dismiss.
+      final kind = DataChange.kindOf(message.data);
+      if (kind.isNotEmpty) await onDataChanged?.call(kind);
       return;
     }
     if (isOwnerNotice(message.data)) {

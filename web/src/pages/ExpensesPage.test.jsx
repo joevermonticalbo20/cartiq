@@ -9,6 +9,7 @@ vi.mock("../api.js", () => ({
 }));
 
 import api from "../api.js";
+import { __resetLiveData } from "../state/liveData.js";
 import ExpensesPage from "./ExpensesPage.jsx";
 
 function renderPage() {
@@ -59,6 +60,9 @@ function mockApi(rows = seedRows) {
 describe("ExpensesPage loading/error states", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The live store is a module singleton (one fetch, shared by every
+    // screen): each test starts from a clean slate.
+    __resetLiveData();
   });
 
   it("shows loading skeletons while fetching", () => {
@@ -90,6 +94,9 @@ describe("ExpensesPage loading/error states", () => {
 describe("ExpensesPage edit change feedback", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The live store is a module singleton (one fetch, shared by every
+    // screen): each test starts from a clean slate.
+    __resetLiveData();
     mockApi();
     api.patch.mockResolvedValue({ data: {} });
   });

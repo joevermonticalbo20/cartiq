@@ -45,6 +45,7 @@ import {
 } from "../services/login_lockout.js";
 import { cleanRfidUid, normalizeRfidUid } from "../services/rfid.js";
 import { readTimeClock, timeClockVerdict } from "../services/time_clock.js";
+import { announceChange } from "../services/announce.js";
 import { openClaim, getClaim, claimView } from "../services/rfid_claims.js";
 import { emit } from "./events.js";
 
@@ -1152,6 +1153,8 @@ router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) 
         email: cleanEmail,
       },
     });
+    // A new staff/admin account has to show up in the staff tables at once.
+    await announceChange("staff", { id: user.id, username: user.username });
     return res.status(201).json({ user: { id: user.id, username: user.username, name: user.name, role: user.role, active: user.active, email: user.email ?? null } });
   } catch (err) {
     return next(err);
@@ -1267,6 +1270,9 @@ router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, n
       // tokens must also die so no new access token can be minted.
       await prisma.refreshToken.deleteMany({ where: { userId: user.id } });
     }
+    // The staff list is shown on the dashboard and in the staff tables: a new
+    // account, a disabled account or a moved account must show up at once.
+    await announceChange("staff", { id: updated.id, username: updated.username });
     return res.json({ user: { id: updated.id, username: updated.username, name: updated.name, active: updated.active, rfidUid: updated.rfidUid, email: updated.email ?? null } });
   } catch (err) {
     return next(err);
