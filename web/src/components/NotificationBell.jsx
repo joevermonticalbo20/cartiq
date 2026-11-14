@@ -3,7 +3,8 @@ import { Bell, Check, PackageSearch, ReceiptText, AlertTriangle, Info, ChevronRi
 import { useNavigate } from "react-router-dom";
 import api from "../api.js";
 import { useLiveEvent } from "../hooks/useLiveStream.js";
-import { alertLink, alertLinkLabel, toastedAlertIds } from "../utils/alertLinks.js";
+import { alertLink, alertLinkLabel, isSelfAnnouncedAlert, toastedAlertIds } from "../utils/alertLinks.js";
+import { onBellRefresh } from "../utils/notificationBus.js";
 import { useToast } from "../components/Toast.jsx";
 
 /** Unread is `isRead` from the API (a.status only exists on restock rows). */
@@ -55,6 +56,10 @@ export default function NotificationBell() {
           toastedAlertIds.add(a.id);
           const type = String(a.type ?? "").toLowerCase();
           if (type === "sale" || type === "sales") continue; // already toasted as an order
+          // A shift, a card registration and a card removal each raise their
+          // own live toast. The alert behind them still shows in the bell -
+          // that is the point - but the bell must not say it a second time.
+          if (isSelfAnnouncedAlert(a)) continue;
           const message = a.message || "New alert";
           const link = alertLink(a);
           toast(`Alert: ${message}`, "warn", {
@@ -106,6 +111,12 @@ export default function NotificationBell() {
   useLiveEvent("alert:new", liveRefresh);
   useLiveEvent("shift:new", liveRefresh);
   useLiveEvent("order:new", liveRefresh);
+
+  // The toast and the record must land together. A hook that raises a toast
+  // (a recorded shift, a card registration) asks the bell to fetch at once,
+  // so the entry shows up in the notification center in the same moment -
+  // not a debounce later.
+  useEffect(() => onBellRefresh(() => refresh()), [refresh]);
 
   const closePanel = () => {
     setIsClosing(true);

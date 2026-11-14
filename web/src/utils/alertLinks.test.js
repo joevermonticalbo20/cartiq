@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { alertLink, alertLinkLabel } from "./alertLinks.js";
+import { alertLink, alertLinkLabel, isSelfAnnouncedAlert } from "./alertLinks.js";
 
 describe("alertLink", () => {
   it("routes sales and void requests to the Sales page", () => {
@@ -20,5 +20,24 @@ describe("alertLink", () => {
     expect(alertLink({ type: "something-new" })).toBe("/notifications");
     expect(alertLink({})).toBe("/notifications");
     expect(alertLink(null)).toBe("/notifications");
+  });
+});
+
+describe("isSelfAnnouncedAlert", () => {
+  it("knows the alerts that already raise their own toast", () => {
+    // A shift, a card registration and a card removal each have a live toast
+    // of their own. The bell must show the alert but must not say it again.
+    expect(isSelfAnnouncedAlert({ type: "SHIFT" })).toBe(true);
+    expect(isSelfAnnouncedAlert({ type: "shift" })).toBe(true);
+    expect(isSelfAnnouncedAlert({ type: "RFID_BOUND" })).toBe(true);
+    expect(isSelfAnnouncedAlert({ type: "RFID_UNBOUND" })).toBe(true);
+  });
+
+  it("leaves every other alert to the bell's own toast", () => {
+    expect(isSelfAnnouncedAlert({ type: "LOW_STOCK" })).toBe(false);
+    expect(isSelfAnnouncedAlert({ type: "SALE" })).toBe(false);
+    expect(isSelfAnnouncedAlert({ type: "TIMECLOCK_WINDOW" })).toBe(false);
+    expect(isSelfAnnouncedAlert({})).toBe(false);
+    expect(isSelfAnnouncedAlert(null)).toBe(false);
   });
 });

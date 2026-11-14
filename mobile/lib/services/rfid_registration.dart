@@ -75,6 +75,17 @@ class RfidNoShift extends RfidClaimResult {
   const RfidNoShift();
 }
 
+/// The server read the card but refused the shift: outside the clock window,
+/// already timed in today, or the card belongs to another cart.
+///
+/// [reason] is the server's own words ("You already timed in today at 8:35
+/// PM."), so the app says exactly what happened instead of guessing.
+class RfidRefused extends RfidClaimResult {
+  const RfidRefused(this.reason);
+
+  final String reason;
+}
+
 /// The account's card was removed.
 class RfidUnbound extends RfidClaimResult {
   const RfidUnbound();
@@ -174,9 +185,12 @@ class RfidRegistrationService {
             }
             final resolved = view['resolvedEvent'] as String?;
             // Asked to clock in/out but nothing was written: say so instead of
-            // showing a success the shift log does not agree with.
+            // showing a success the shift log does not agree with. The server
+            // sends its own words for the refusal ("You already timed in
+            // today at 8:35 PM."), so the toast is the truth.
             if (event != null && (resolved == null || resolved.isEmpty)) {
-              return const RfidNoShift();
+              final reason = (view['reason'] as String? ?? '').trim();
+              return reason.isEmpty ? const RfidNoShift() : RfidRefused(reason);
             }
             return RfidBound(uid, event: resolved);
           case 'conflict':
@@ -279,6 +293,14 @@ class RfidRegistrationService {
         return event == 'OUT'
             ? 'Card read, but no time-out recorded.'
             : 'Card read, but no time-in recorded.';
+      case RfidRefused(:final reason):
+        // The server's own words. Fall back to the vague line only when it
+        // sent none.
+        return reason.isEmpty
+            ? (event == 'OUT'
+                ? 'Card read, but no time-out recorded.'
+                : 'Card read, but no time-in recorded.')
+            : reason;
       case RfidUnbound():
         return 'Card removed from this account.';
       case RfidFailed(:final message):

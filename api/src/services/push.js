@@ -334,7 +334,7 @@ export async function sendCatalogPush(
  * while it is open.
  */
 export async function pushToOwners(
-  { title, body, data = {} } = {},
+  { title, body, data = {}, excludeUserId = null } = {},
   { db = prisma, messaging = undefined } = {},
 ) {
   try {
@@ -344,6 +344,12 @@ export async function pushToOwners(
         .filter((u) => u.active !== false)
         .map((u) => Number(u.id)),
     );
+    // The person who did it does not need to be told about it: they just saw
+    // it happen on their own phone. Telling them as well means the same news
+    // twice on one screen.
+    if (excludeUserId !== null && excludeUserId !== undefined) {
+      ownerIds.delete(Number(excludeUserId));
+    }
     if (!ownerIds.size) return;
     const rows = await db.pushTokens.findMany({});
     const tokens = rows

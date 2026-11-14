@@ -134,3 +134,38 @@ export function wrongCartMessage(enrolledCode) {
 export function isClaimActive(claim, now = Date.now()) {
   return Boolean(claim) && claim.exp > now && claim.status === CLAIM_PENDING;
 }
+
+// What one tapped card means for the batch that carries it.
+//
+// The reader posts every tap it sees, and most of them are nobody's business:
+// a card waved at the reader while no phone is waiting for it. Only a tap that
+// resolves an open claim is deliberate - the person pressed Time in / Time out
+// in the app, or asked for a card to be registered.
+//
+// A deliberate tap is news (a shift, a registration). A stray tap is not: it
+// must leave NO trace at all - no shift row, no alert, no toast, no push. The
+// same rules are mirrored in supabase/functions/api/index.ts (the production
+// Edge path) - keep both in sync when changing policy.
+export const TAP_IGNORED = "ignored";
+export const TAP_REGISTRATION = "registration";
+export const TAP_SHIFT = "shift";
+
+/**
+ * Classify a tap by what it resolved.
+ *
+ * [bound] is what bindClaimedTag returned: null when nobody was waiting for
+ * this tap, otherwise the outcome of the claim it resolved.
+ *
+ * - no claim at all -> ignored (a stray tap: nothing is recorded)
+ * - a refused claim (conflict, wrong cart, unregistered, already registered)
+ *   -> ignored (the app that opened the claim explains it itself)
+ * - a bound claim without an event -> registration (a card was enrolled, no
+ *   shift)
+ * - a bound claim with an event -> shift (the person clocked in or out)
+ */
+export function classifyTap(bound) {
+  if (!bound) return { kind: TAP_IGNORED };
+  if (bound.outcome !== CLAIM_BOUND) return { kind: TAP_IGNORED, outcome: bound.outcome };
+  if (!bound.desiredEvent) return { kind: TAP_REGISTRATION };
+  return { kind: TAP_SHIFT, event: bound.desiredEvent };
+}

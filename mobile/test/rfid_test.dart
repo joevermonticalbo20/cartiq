@@ -439,6 +439,30 @@ void main() {
       );
     });
 
+    test('says the server\'s own words when the shift was refused', () {
+      // The server knows why it refused ("You already timed in today at
+      // 8:35 PM."). The toast must repeat that, not a vague guess.
+      expect(
+        RfidRegistrationService.describe(
+          const RfidRefused('You already timed in today at 8:35 PM.'),
+          event: 'IN',
+        ),
+        'You already timed in today at 8:35 PM.',
+      );
+      expect(
+        RfidRegistrationService.describe(
+          const RfidRefused('Time in is only open 07:30-07:40 (Manila time).'),
+          event: 'IN',
+        ),
+        contains('only open'),
+      );
+      // No reason from the server: fall back to the vague line.
+      expect(
+        RfidRegistrationService.describe(const RfidRefused(''), event: 'OUT'),
+        contains('no time-out recorded'),
+      );
+    });
+
     test('falls back to the card message when only enrolling', () {
       expect(
         RfidRegistrationService.describe(const RfidBound('0BADF00D')),
@@ -640,6 +664,46 @@ void main() {
       expect((result as RfidBound).rfidUid, 'DEADBEEF');
       expect(api.statusCalls, 3);
       expect(ticks, isNotEmpty, reason: 'one tick when online, then bound');
+    });
+
+    test('a refused shift comes back with the server\'s reason', () async {
+      // The server read the card but wrote no shift (already timed in today,
+      // outside the clock window). It sends its own words; the app must show
+      // them instead of a vague guess.
+      final api = FakeApi();
+      api.claimViews.add({
+        'status': 'bound',
+        'rfidUid': 'DEADBEEF',
+        'resolvedEvent': null,
+        'reason': 'You already timed in today at 8:35 PM.',
+      });
+
+      final result = await RfidRegistrationService(apiClient: api).register(
+        token: 'tok',
+        event: 'IN',
+      );
+
+      expect(result, isA<RfidRefused>());
+      expect(
+        (result as RfidRefused).reason,
+        'You already timed in today at 8:35 PM.',
+      );
+    });
+
+    test('a bound claim with no shift and no reason falls back', () async {
+      final api = FakeApi();
+      api.claimViews.add({
+        'status': 'bound',
+        'rfidUid': 'DEADBEEF',
+        'resolvedEvent': null,
+      });
+
+      final result = await RfidRegistrationService(apiClient: api).register(
+        token: 'tok',
+        event: 'IN',
+      );
+
+      expect(result, isA<RfidNoShift>());
     });
 
     test('describe covers every outcome', () {

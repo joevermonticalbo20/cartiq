@@ -11,6 +11,7 @@ import {
   CLAIM_ALREADY_REGISTERED,
   CLAIM_BOUND,
   CLAIM_CONFLICT,
+  CLAIM_PENDING,
   CLAIM_UNREGISTERED,
   CLAIM_WRONG_CART,
 } from "../src/services/rfid.js";
@@ -176,7 +177,11 @@ test("clocking in with your own card logs the shift and enrols nothing", async (
   assert.equal(result.outcome, "bound");
   assert.equal(result.desiredEvent, "IN", "the tap route uses this for the shift");
   assert.equal(users[0].rfidUid, "3A20704F");
-  assert.equal(getClaim(claim.claimId).status, CLAIM_BOUND);
+  assert.equal(
+    getClaim(claim.claimId).status,
+    CLAIM_PENDING,
+    "the claim stays open until the shift is written, so the app is never told 'Time in' for a shift the server refuses",
+  );
 });
 
 test("a card belongs to the cart it was enrolled at", async () => {
@@ -242,7 +247,11 @@ test("a card with no cart of its own still works anywhere", async () => {
   const result = await bindClaimedTag({ db: prisma, messaging: mockMessaging, skipPush: true, rawUid: "3A20704F", locationId: 2 });
 
   assert.equal(result.outcome, "bound");
-  assert.equal(getClaim(claim.claimId).status, CLAIM_BOUND);
+  assert.equal(
+    getClaim(claim.claimId).status,
+    CLAIM_PENDING,
+    "a clocking claim is resolved by the tap route, after the shift is written",
+  );
 });
 
 test("a fresh card is enrolled at the cart where it was tapped", async () => {
@@ -296,7 +305,11 @@ test("clocking in with your own card still records the shift", async () => {
   // The "already registered" rule is enrolment only: clocking writes the shift.
   assert.equal(result.outcome, "bound");
   assert.equal(result.desiredEvent, "IN");
-  assert.equal(getClaim(claim.claimId).status, CLAIM_BOUND);
+  assert.equal(
+    getClaim(claim.claimId).status,
+    CLAIM_PENDING,
+    "the tap route resolves it with the shift it actually wrote",
+  );
 });
 
 test("an owner can register a card for a staff member", async () => {

@@ -79,6 +79,8 @@ export function openClaim({ userId, locationId, locationCode, event, targetUserI
     // The cart the tapped card is enrolled at, when the tap was refused
     // because the card belongs to another cart. The app names it.
     cardLocationCode: null,
+    // The server's own words when the shift was refused. The app shows it.
+    reason: null,
     createdAt: Date.now(),
     exp,
   });
@@ -98,6 +100,8 @@ export function getClaim(claimId) {
  * [event] is the shift that was actually written, which is what the app toasts.
  * [cardLocationCode] is the cart the card is enrolled at, for a refusal
  * because the card belongs to another cart.
+ * [reason] is the server's own words when the shift was refused ("You already
+ * timed in today at 8:35 PM."). The app shows that instead of guessing.
  */
 export function resolveClaim(
   claimId,
@@ -106,6 +110,7 @@ export function resolveClaim(
   holderName,
   event,
   cardLocationCode,
+  reason,
 ) {
   pruneClaims();
   const rec = _claims.get(claimId);
@@ -115,6 +120,7 @@ export function resolveClaim(
   rec.holderName = holderName ?? null;
   rec.resolvedEvent = event ?? null;
   rec.cardLocationCode = cardLocationCode ?? null;
+  rec.reason = reason ?? null;
   return rec;
 }
 
@@ -157,6 +163,9 @@ export function claimView(claim, now = Date.now()) {
     // differ if the tap was rejected, so the app toasts resolvedEvent, not this.
     event: claim.event ?? null,
     resolvedEvent: claim.resolvedEvent ?? null,
+    // The server's own words when the shift was refused (duplicate, outside
+    // the clock window). The app shows this so nobody has to guess.
+    reason: claim.reason ?? null,
     expiresAt: new Date(claim.exp).toISOString(),
   };
 }

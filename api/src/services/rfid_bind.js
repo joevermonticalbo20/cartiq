@@ -212,14 +212,19 @@ export async function bindClaimedTag({ rawUid, locationId, db = prisma, messagin
             staffName: target.name,
             locationCode: claim.locationCode,
           },
+          // Whoever opened the claim did this themselves - they know. Telling
+          // them as well would say the same news twice on one screen.
+          excludeUserId: claim.userId,
         },
         { db, messaging },
       );
     }
   } else {
-    // Card already on this account: nothing changed. Still resolve the claim
-    // (so the clocking flow gets its shift) but announce nothing.
-    resolveClaim(claim.claimId, CLAIM_BOUND, rfidUid, null, claim.event);
+    // Card already on this account: nothing changed, so nothing is announced.
+    // The claim is NOT resolved here: the tap route resolves it once the
+    // shift is written, with the shift that was actually recorded. Resolving
+    // it now would tell the app "Time in" for a shift the server then
+    // refuses (outside the clock window, already timed in today).
   }
   return {
     outcome: "bound",
@@ -230,6 +235,9 @@ export async function bindClaimedTag({ rawUid, locationId, db = prisma, messagin
     name: target.name,
     username: target.username,
     locationCode: claim.locationCode,
+    // Who opened the claim - the person at the cart who pressed the button.
+    // The owner notice skips them: they just did it, they know.
+    claimedBy: claim.userId,
     // Handed back so the tap route can override the firmware's toggle and tell
     // the app which shift was actually written.
     claimId: claim.claimId,

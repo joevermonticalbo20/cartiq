@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 
 import { toast } from "../components/Toast.jsx";
+import { requestBellRefresh } from "../utils/notificationBus.js";
 import { useLiveEvent } from "./useLiveStream.js";
 
 /**
@@ -90,6 +91,9 @@ export function useRfidEvents({ onChange } = {}) {
         seenRfidEventIds.add(id);
       }
       toast(formatRfidBound(data), "success");
+      // The same tap wrote a RFID_BOUND alert, so the notification center must
+      // show it in the same moment - not a debounce later.
+      requestBellRefresh();
       onChange?.(data);
     },
     [onChange],
@@ -103,6 +107,9 @@ export function useRfidEvents({ onChange } = {}) {
         seenRfidEventIds.add(id);
       }
       toast(`${data?.name ?? "Staff"} removed card ${data?.rfidUid ?? ""}`, "warn");
+      // The same removal wrote a RFID_UNBOUND alert: show it in the bell at
+      // the same moment as the toast.
+      requestBellRefresh();
       onChange?.(data);
     },
     [onChange],

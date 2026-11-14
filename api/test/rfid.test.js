@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  classifyTap,
   cleanRfidUid,
   isClaimActive,
   normalizeRfidUid,
@@ -10,6 +11,9 @@ import {
   CLAIM_BOUND,
   CLAIM_PENDING,
   RFID_CLAIM_TTL_MS,
+  TAP_IGNORED,
+  TAP_REGISTRATION,
+  TAP_SHIFT,
 } from "../src/services/rfid.js";
 import {
   claimView,
@@ -47,6 +51,58 @@ test("cleanRfidUid normalizes and validates in one step", () => {
   assert.equal(cleanRfidUid("04 a2 b3 c4"), "04A2B3C4");
   assert.equal(cleanRfidUid("ZZZZ"), null);
   assert.equal(cleanRfidUid(""), null);
+});
+
+test("a tap nobody asked for leaves no trace at all", () => {
+  // No claim was open: the card was waved at the reader while no phone was
+  // waiting for it. It must not become a shift, an alert, a toast or a push.
+  assert.equal(classifyTap(null).kind, TAP_IGNORED);
+});
+
+test("a refused claim is ignored too", () => {
+  // The app that opened the claim explains these itself, so the tap records
+  // nothing on the server.
+  for (const outcome of ["conflict", "wrong_cart", "unregistered", "already_registered"]) {
+    assert.equal(
+      classifyTap({ outcome }).kind,
+      TAP_IGNORED,
+      `${outcome} must not record a shift`,
+    );
+  }
+});
+
+test("a bound registration tap is a registration, not a shift", () => {
+  const intent = classifyTap({ outcome: "bound", desiredEvent: null });
+  assert.equal(intent.kind, TAP_REGISTRATION);
+  assert.equal(intent.event, undefined, "a registration writes no shift");
+});
+
+test("a bound clocking tap carries the shift the person asked for", () => {
+  const intent = classifyTap({ outcome: "bound", desiredEvent: "IN" });
+  assert.equal(intent.kind, TAP_SHIFT);
+  assert.equal(intent.event, "IN");
+});
+
+test("a refused shift carries the server's own words to the app", () => {
+  resetClaims();
+  const claim = openClaim({
+    userId: 7,
+    locationId: 1,
+    locationCode: "CART-01",
+    event: "IN",
+  });
+  resolveClaim(
+    claim.claimId,
+    CLAIM_BOUND,
+    "04A2B3C4",
+    null,
+    null,
+    null,
+    "You already timed in today at 8:35 PM.",
+  );
+  const view = claimView(getClaim(claim.claimId));
+  assert.equal(view.reason, "You already timed in today at 8:35 PM.");
+  assert.equal(view.resolvedEvent, null, "no shift was written");
 });
 
 test("claim lifecycle: open -> pending -> bound", () => {

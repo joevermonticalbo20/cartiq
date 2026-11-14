@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 
 import { toast } from "../components/Toast.jsx";
+import { requestBellRefresh } from "../utils/notificationBus.js";
 import { useLiveEvent } from "./useLiveStream.js";
 
 /**
@@ -65,6 +66,9 @@ export function useShiftNotices({ onChange } = {}) {
       const notice = formatShiftNotice(data);
       if (!notice) return;
       toast(notice.message, notice.tone);
+      // The same tap wrote a SHIFT alert, so the notification center must show
+      // it in the same moment - not a debounce later.
+      requestBellRefresh();
       onChange?.(data);
     },
     [onChange],

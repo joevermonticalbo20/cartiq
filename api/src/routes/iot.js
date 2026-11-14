@@ -13,9 +13,12 @@ import { notifyAssignedStaffOfLowStock } from "../services/staff_low_stock_notif
 import {
   cardBelongsToAnotherCart,
   cardLocationCode,
+  classifyTap,
   lookupUid,
   normalizeRfidUid,
   wrongCartMessage,
+  TAP_IGNORED,
+  TAP_REGISTRATION,
 } from "../services/rfid.js";
 import { readTimeClock, timeClockVerdict } from "../services/time_clock.js";
 import { CLAIM_BOUND, resolveClaim } from "../services/rfid_claims.js";
@@ -226,37 +229,32 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
     // the user lookup below already sees the freshly bound tag - the tap then
     // records a real shift for the person who just registered.
     const registrations = [];
-    const registrationAlerts = [];
     for (const e of rows) {
       const uid = String(e?.staff_uid ?? "").trim();
       if (!uid) continue;
       const bound = await bindClaimedTag({ rawUid: uid, locationId: location.id });
-      if (!bound) continue;
+      const intent = classifyTap(bound);
+      if (intent.kind === TAP_IGNORED) {
+        // Either nobody was waiting for this tap (no phone asked to clock in,
+        // clock out or register a card) or the claim was refused (the card
+        // belongs to somebody else, to another cart, or to nobody at all).
+        // Either way the tap records NOTHING: no shift row, no alert, no toast
+        // and no push. The app that opened the claim explains a refusal
+        // itself, and a stray tap is not news.
+        e._ignore = true;
+        if (bound) registrations.push(bound);
+        continue;
+      }
       registrations.push(bound);
-      // A brand-new card just landed on an account - the owner wants that
-      // on the notification center, not just on the dashboard toast.
-      if (bound.outcome === "bound" && !bound.desiredEvent) {
-        registrationAlerts.push({
-          type: "RFID_BOUND",
-          message: `${bound.name} registered card ${bound.rfidUid} at ${bound.locationCode}`,
-          payload: JSON.stringify({
-            staffId: bound.userId,
-            rfidUid: bound.rfidUid,
-            locationCode: bound.locationCode,
-          }),
-          locationId: location.id,
-          locationCode: location.code,
-        });
+      if (intent.kind === TAP_REGISTRATION) {
+        // A registration-only tap: the card was enrolled, no shift.
+        e._registrationOnly = true;
+        continue;
       }
       // The person pressed Time In or Time Out in the app. The firmware only
       // knows how to toggle, and toggling would silently log someone OUT when
-      // they meant to clock IN. A registration-only tap has no event, so it
-      // must never run through the clock window, shift, unknown-card path.
-      if (!bound.desiredEvent) {
-        e._registrationOnly = true;
-      } else if (bound.outcome === "bound") {
-        e.event = bound.desiredEvent;
-      }
+      // they meant to clock IN. The app's choice wins.
+      e.event = intent.event;
     }
 
     // Same reads-first restructure as /iot/readings: users and unread
@@ -287,7 +285,7 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
       // ---- COMPUTE PHASE (same validation/messages as before) ----
       const plans = [];
       const createdNeedles = new Set();
-      const newAlerts = [...registrationAlerts];
+      const newAlerts = [];
       // One IN and one OUT per person per Manila day. A tap on the reader
       // never goes through the app, so the app's own guard (the greyed button)
       // cannot be the only thing standing between a person and a duplicate
@@ -299,7 +297,10 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
       });
       for (const e of rows) {
         const uid = String(e.staff_uid ?? "").trim();
-        if (e._registrationOnly) continue;
+        // A tap nobody asked for, or one whose claim was refused: it records
+        // nothing. Only a deliberate tap (a claim the person opened in the app)
+        // can become a shift.
+        if (e._ignore || e._registrationOnly) continue;
         const event = String(e.event ?? "").toUpperCase();
         if (!uid || uid.length > 64 || !EVENTS.includes(event)) {
           rejected.push({ staff_uid: uid || null, event, reason: "invalid uid or event" });
@@ -459,13 +460,38 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
       const written = outcome.accepted.find(
         (a) => normalizeRfidUid(a.staff_uid) === reg.rfidUid && a.matched,
       );
-      resolveClaim(reg.claimId, CLAIM_BOUND, reg.rfidUid, null, written?.event ?? null);
+      // When the shift was refused, hand the server's own words to the app
+      // ("You already timed in today at 8:35 PM."). The app then says exactly
+      // that, instead of a vague "card read, but no time-in recorded".
+      const refused = written
+        ? null
+        : outcome.rejected.find(
+            (r) => normalizeRfidUid(r.staff_uid ?? "") === reg.rfidUid,
+          );
+      resolveClaim(
+        reg.claimId,
+        CLAIM_BOUND,
+        reg.rfidUid,
+        null,
+        written?.event ?? null,
+        null,
+        refused?.reason ?? null,
+      );
     }
 
-    // A tap must show up on the screens right away: publish it for the SSE
-    // stream (the web dashboard) and push it to the devices (the POS app).
-    // Every outcome travels - a refused tap or an unregistered card must say
-    // so on the phone, otherwise the tap looks like nothing happened.
+    // A deliberate tap must show up on the screens right away: publish it for
+    // the SSE stream (the web dashboard) and push it to the devices (the POS
+    // app). The app that asked for the shift hears about it through its claim,
+    // the dashboard hears about it through the stream, and the owner hears
+    // about it on their own phone.
+    //
+    // Who pressed the button for each tapped card: the claim opener. The owner
+    // notice skips them - they just did it, they know.
+    const actorByUid = new Map(
+      registrations
+        .filter((r) => r.outcome === "bound")
+        .map((r) => [normalizeRfidUid(r.rfidUid), r.claimedBy ?? null]),
+    );
     for (const acc of outcome.accepted) {
       const status = acc.matched ? "recorded" : "unregistered";
       emit("shift:new", {
@@ -492,6 +518,7 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
             staffName: acc.matched,
             locationCode: location.code,
           },
+          excludeUserId: actorByUid.get(normalizeRfidUid(acc.staff_uid)) ?? null,
         });
       }
     }
@@ -504,14 +531,11 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
         status: "refused",
         reason: rej.reason,
       });
-      await sendShiftPush({
-        event: rej.event ?? "",
-        staffUid: rej.staff_uid ?? "",
-        staffName: null,
-        locationCode: location.code,
-        status: "refused",
-        reason: rej.reason,
-      });
+      // No push for a refusal: the phone that asked for the shift gets the
+      // server's reason through its claim (resolved above), and that is the
+      // only phone that needs it. Pushing it as well would say the same words
+      // twice on that phone - and once on every other phone, where nobody
+      // asked for anything.
     }
 
     return res.status(201).json({

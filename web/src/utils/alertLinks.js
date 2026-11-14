@@ -15,6 +15,28 @@ export function alertLink(alert) {
 
 export const toastedAlertIds = new Set();
 
+/**
+ * Alert types that already raise their own live toast.
+ *
+ * A recorded shift is announced by `shift:new` (useShiftNotices), a card
+ * registration by `rfid:bound` and a card removal by `rfid:unbound`
+ * (useRfidEvents). The alert behind each of them still lands in the bell -
+ * that is the whole point: every toast has a matching record - but the bell
+ * must not say it AGAIN, or one event would raise two toasts on one screen.
+ */
+export const SELF_ANNOUNCED_ALERT_TYPES = Object.freeze([
+  "SHIFT",
+  "RFID_BOUND",
+  "RFID_UNBOUND",
+]);
+
+/** True when this alert is already announced by its own live toast. */
+export function isSelfAnnouncedAlert(alert) {
+  return SELF_ANNOUNCED_ALERT_TYPES.includes(
+    String(alert?.type ?? "").toUpperCase(),
+  );
+}
+
 /** Short affordance for the same target, used as the toast's tooltip. */
 export function alertLinkLabel(alert) {
   const t = String(alert?.type ?? "").toLowerCase();
