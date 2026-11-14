@@ -63,7 +63,7 @@ function corsHeaders(origin) {
   return {
     "access-control-allow-origin": allow,
     "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-    "access-control-allow-headers": "Content-Type,Authorization",
+    "access-control-allow-headers": "Content-Type,Authorization,X-Client,X-Firebase-AppCheck,X-Recaptcha-Token",
     "access-control-max-age": "86400",
     "vary": "Origin",
   };
