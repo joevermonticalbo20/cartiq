@@ -121,7 +121,7 @@ async function main() {
     },
   });
   const cardUid = `9${Date.now().toString(16).toUpperCase().slice(-7)}`;
-  const ackStaff = await req("/staff", {
+  const ackStaff = await req("/auth/staff", {
     method: "POST",
     token: tok,
     body: {
@@ -132,7 +132,9 @@ async function main() {
       rfidUid: cardUid,
     },
   });
-  check("setup staff account created", ackStaff.status === 201 && Boolean(ackStaff.data?.user?.id));
+  check("setup staff account created",
+        ackStaff.status === 201 && Boolean(ackStaff.data?.user?.id),
+        `status=${ackStaff.status} body=${JSON.stringify(ackStaff.data)}`);
   const ackLogin = await req("/auth/login", {
     method: "POST",
     body: { username: `ack${run}`, password: "ack123456" },
