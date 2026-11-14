@@ -7704,7 +7704,7 @@ function otpPurpose(rec) {
  * Reasons: "no_code" (nothing was requested), "expired", "wrong".
  * Mirrors evaluateCode() in api/src/services/password_reset.js.
  */
-function evaluateCodeEdge(rec, code, codeHash) {
+function evaluateCodeEdge(rec, codeHash) {
   if (!rec) return { valid: false, reason: "no_code" };
   const expiresAt = new Date(rec.expiresAt ?? 0).getTime();
   if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
@@ -8386,7 +8386,7 @@ async function handleMeEmailOtpVerify(req, user) {
     )
     .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0];
   if (!rec) return { status: 200, body: { valid: false, reason: "no_code" } };
-  const verdict = evaluateCodeEdge(rec, cleanCode, await sha256Hex(cleanCode));
+  const verdict = evaluateCodeEdge(rec, await sha256Hex(cleanCode));
   if (!verdict.valid) {
     if (verdict.reason === "expired" && rec._name) {
       await fsDeleteByName(rec._name).catch(() => {});
