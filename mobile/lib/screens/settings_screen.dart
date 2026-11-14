@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'dart:async';
 
 import '../app_version.dart';
 import '../services/api_client.dart';
@@ -334,6 +335,10 @@ class SettingsScreenState extends State<SettingsScreen> {
     var pending = false;
     var sendingCode = false;
     var codeSent = false;
+    // The server allows one code per minute: count it down so the button
+    // cannot be spammed and the person knows when they can ask again.
+    var cooldown = 0;
+    Timer? cooldownTimer;
     var closed = false;
     final saved = await showDialog<bool>(
       context: context,
@@ -369,7 +374,7 @@ class SettingsScreenState extends State<SettingsScreen> {
                       ? 'A 6-digit code was sent to that email.'
                       : 'Send a code to that email first.',
                   suffixIcon: TextButton(
-                    onPressed: sendingCode
+                    onPressed: sendingCode || cooldown > 0
                         ? null
                         : () async {
                             final cleanEmail = email.text.trim().toLowerCase();
@@ -385,12 +390,30 @@ class SettingsScreenState extends State<SettingsScreen> {
                               error = null;
                             });
                             try {
-                              await auth.sendEmailCode(cleanEmail);
+                              final res = await auth.sendEmailCode(cleanEmail);
                               if (closed || !dialogContext.mounted) return;
+                              final seconds = res['cooldown'] == true
+                                  ? (((res['retryAfterMs'] ?? 60000) as num) / 1000).ceil()
+                                  : 60;
                               setDialogState(() {
                                 sendingCode = false;
                                 codeSent = true;
+                                cooldown = seconds;
                               });
+                              cooldownTimer?.cancel();
+                              cooldownTimer = Timer.periodic(
+                                const Duration(seconds: 1),
+                                (t) {
+                                  if (closed || !dialogContext.mounted) {
+                                    t.cancel();
+                                    return;
+                                  }
+                                  setDialogState(() {
+                                    cooldown = cooldown > 0 ? cooldown - 1 : 0;
+                                  });
+                                  if (cooldown <= 0) t.cancel();
+                                },
+                              );
                             } on ApiException catch (e) {
                               if (closed || !dialogContext.mounted) return;
                               setDialogState(() {
@@ -399,7 +422,11 @@ class SettingsScreenState extends State<SettingsScreen> {
                               });
                             }
                           },
-                    child: Text(sendingCode ? 'Sending...' : (codeSent ? 'Resend' : 'Send code')),
+                    child: Text(sendingCode
+                        ? 'Sending...'
+                        : cooldown > 0
+                            ? 'Resend in ${cooldown}s'
+                            : (codeSent ? 'Resend' : 'Send code')),
                   ),
                 ),
               ),
@@ -489,6 +516,7 @@ class SettingsScreenState extends State<SettingsScreen> {
       ),
     );
     closed = true;
+    cooldownTimer?.cancel();
     email.dispose();
     password.dispose();
     code.dispose();

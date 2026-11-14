@@ -213,6 +213,10 @@ export default function SettingsPage() {
   const [emailForm, setEmailForm] = useState({ email: "", currentPassword: "", code: "" });
   const [emailError, setEmailError] = useState("");
   const [emailCodeSent, setEmailCodeSent] = useState(false);
+  // The server enforces a 60-second cooldown between code requests. The button
+  // counts it down so nobody can spam it (and so the person knows when they can
+  // try again).
+  const [emailCodeCooldown, setEmailCodeCooldown] = useState(0);
   const [isSendingEmailCode, setIsSendingEmailCode] = useState(false);
   const [isSavingEmail, setIsSavingEmail] = useState(false);
   const [showEmailPw, setShowEmailPw] = useState(false);
@@ -411,6 +415,15 @@ export default function SettingsPage() {
     return () => clearTimeout(timer);
   }, [pwCodeCooldown]);
 
+  useEffect(() => {
+    if (emailCodeCooldown <= 0) return undefined;
+    const timer = setTimeout(
+      () => setEmailCodeCooldown((seconds) => Math.max(0, seconds - 1)),
+      1000,
+    );
+    return () => clearTimeout(timer);
+  }, [emailCodeCooldown]);
+
   function reloadStaff() {
     // A card is registered from the POS app at the cart, so this list goes
     // stale while the owner is sitting on this page. Refetch only the staff
@@ -565,6 +578,9 @@ export default function SettingsPage() {
   const isPlaceholderEmail = (value) =>
     !value || String(value).toLowerCase().endsWith("@cartiq.local");
   const hasRealEmail = Boolean(profile?.email && !isPlaceholderEmail(profile.email));
+  // The recovery email the account has right now. Used to tell "you did not
+  // change anything" apart from "you are changing it".
+  const currentRecoveryEmail = String(profile?.email ?? "").trim().toLowerCase();
   const displayEmail = hasRealEmail
     ? profile.email
     : `${profile?.username ?? "staff"}@cartiq.local`;
@@ -595,11 +611,27 @@ export default function SettingsPage() {
       setEmailError("Enter a real email address first (not a placeholder).");
       return;
     }
+    if (isSendingEmailCode || emailCodeCooldown > 0) return;
+    // The address that is already the recovery email is not worth a code: the
+    // server refuses to send one, and asking for it would only look broken.
+    if (cleanEmail === currentRecoveryEmail) {
+      setEmailCodeSent(false);
+      setEmailError(
+        "That is already your current recovery email. Type the new address first.",
+      );
+      return;
+    }
     setEmailError("");
     setIsSendingEmailCode(true);
     try {
       const { data } = await api.post("/auth/me/email-otp", { email: cleanEmail });
       setEmailCodeSent(true);
+      // The server allows one code per minute. Count it down so the button
+      // cannot be spammed and the person knows when they can ask again.
+      const seconds = data?.cooldown
+        ? Math.ceil((data.retryAfterMs ?? 60000) / 1000)
+        : 60;
+      setEmailCodeCooldown(Math.max(0, seconds));
       toast(data?.message || "A code was sent to that email.", "success");
     } catch (err) {
       setEmailError(getFriendlyError(err, "Could not send the verification code."));
@@ -619,7 +651,13 @@ export default function SettingsPage() {
       setEmailError("Enter your current password to confirm this change.");
       return;
     }
-    if (!/^\d{6}$/.test(String(emailForm.code || "").trim())) {
+    // The code proves you own the NEW inbox. When the address does not change
+    // there is nothing to prove (the server agrees and returns the account
+    // unchanged), so it is not asked for.
+    if (
+      cleanEmail !== currentRecoveryEmail &&
+      !/^\d{6}$/.test(String(emailForm.code || "").trim())
+    ) {
       setEmailError("Enter the 6-digit code sent to that email.");
       return;
     }
@@ -2262,16 +2300,24 @@ export default function SettingsPage() {
                       type="button"
                       className="ghost small-btn"
                       onClick={sendEmailCode}
-                      disabled={isSendingEmailCode || isSavingEmail}
+                      disabled={isSendingEmailCode || isSavingEmail || emailCodeCooldown > 0}
                       style={{ height: "36px" }}
                     >
-                      {isSendingEmailCode ? "Sending..." : emailCodeSent ? "Resend code" : "Send code"}
+                      {isSendingEmailCode
+                        ? "Sending..."
+                        : emailCodeCooldown > 0
+                          ? `Resend in ${emailCodeCooldown}s`
+                          : emailCodeSent
+                            ? "Resend code"
+                            : "Send code"}
                     </button>
                   </div>
                   <span className="muted small">
-                    {emailCodeSent
-                      ? "Code sent. It expires in 10 minutes and can only be used once."
-                      : "Click Send code to get a code for this new email."}
+                    {emailCodeCooldown > 0
+                      ? `A code was sent to ${emailForm.email}. You can ask for another one in ${emailCodeCooldown}s. It expires in 10 minutes and can only be used once.`
+                      : emailCodeSent
+                        ? "Code sent. It expires in 10 minutes and can only be used once."
+                        : "Click Send code to get a code for this new email."}
                   </span>
                 </label>
                 <label className="field">

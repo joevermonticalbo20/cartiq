@@ -138,6 +138,67 @@ describe("SettingsPage profile states", () => {
   });
 });
 
+describe("SettingsPage recovery email", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetLiveData();
+  });
+
+  const ownerWithEmail = (email) => {
+    api.get.mockImplementation((url) => {
+      if (url === "/auth/me") {
+        return Promise.resolve({
+          data: { user: { name: "Owner", username: "owner", role: "OWNER", email } },
+        });
+      }
+      return emptyOk(url);
+    });
+  };
+
+  it("counts down 60 seconds after a code is sent", async () => {
+    ownerWithEmail("owner@cartiq.local");
+    api.post.mockResolvedValue({
+      data: {
+        sent: true,
+        email: "o***@example.com",
+        expiresInMinutes: 10,
+        message: "A 6-digit verification code was sent to that email.",
+      },
+    });
+
+    renderPage();
+    await screen.findByText("owner@cartiq.local");
+    fireEvent.click(screen.getByTitle("Edit recovery email"));
+    const dialog = await screen.findByRole("dialog", { name: "Recovery email" });
+    fireEvent.change(within(dialog).getByLabelText("Email address"), {
+      target: { value: "owner@example.com" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Send code/ }));
+
+    // The server allows one code per minute: the button counts it down.
+    const resend = await within(dialog).findByRole("button", { name: /Resend in 60s/ });
+    expect(resend).toBeDisabled();
+  });
+
+  it("will not send a code to the address that is already the recovery email", async () => {
+    ownerWithEmail("owner@example.com");
+
+    renderPage();
+    await screen.findByText("owner@example.com");
+    fireEvent.click(screen.getByTitle("Edit recovery email"));
+    const dialog = await screen.findByRole("dialog", { name: "Recovery email" });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Send code/ }));
+
+    expect(
+      await within(dialog).findByText(/already your current recovery email/),
+    ).toBeInTheDocument();
+    expect(
+      api.post,
+      "no code is requested for an address that is already the recovery email",
+    ).not.toHaveBeenCalledWith("/auth/me/email-otp", expect.anything());
+  });
+});
+
 describe("SettingsPage password change", () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -621,12 +621,15 @@ class AuthState extends ChangeNotifier {
   /// Update the recovery email. The current password plus a 6-digit code sent
   /// to the new inbox are both required; the caller surfaces the ApiException
   /// text when it fails.
-  Future<void> sendEmailCode(String email) async {
+  ///
+  /// Returns the server's answer, so the caller can honour the resend cooldown
+  /// (the server allows one code per minute).
+  Future<Map<String, dynamic>> sendEmailCode(String email) async {
     final activeToken = token;
     if (activeToken == null) {
       throw const ApiException('Sign in again to update your email.');
     }
-    await api.sendEmailVerificationCode(activeToken, email: email);
+    return api.sendEmailVerificationCode(activeToken, email: email);
   }
 
   Future<void> updateEmail({
