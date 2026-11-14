@@ -169,3 +169,59 @@ export function classifyTap(bound) {
   if (!bound.desiredEvent) return { kind: TAP_REGISTRATION };
   return { kind: TAP_SHIFT, event: bound.desiredEvent };
 }
+
+/**
+ * The notification-center record for a refused tap.
+ *
+ * The dashboard toasts every refusal ("that card is not registered here"),
+ * and every toast needs a matching record in the bell - otherwise the owner
+ * sees it once and never again.
+ *
+ * The wording is the same sentence the dashboard toasts, so the two read as
+ * one message. Returns null for an outcome that is not a refusal.
+ */
+export function refusalAlert({
+  outcome,
+  rfidUid,
+  locationCode,
+  cardLocationCode,
+  holderName,
+  event,
+} = {}) {
+  const uid = rfidUid || "unknown";
+  const cart = locationCode || "this cart";
+  switch (outcome) {
+    case "unregistered": {
+      const when = event === "OUT" ? "clock out" : "clock in";
+      return {
+        type: "RFID_UNREGISTERED",
+        title: "Card not registered",
+        message: `Card ${uid} on ${cart} is not registered - it was not enrolled when someone tried to ${when}`,
+      };
+    }
+    case "conflict":
+      return {
+        type: "RFID_CONFLICT",
+        title: "Card belongs to someone else",
+        message: `Card ${uid} on ${cart} is already registered to ${holderName || "another account"}`,
+      };
+    case "wrong_cart": {
+      const holder = holderName ? ` (${holderName})` : "";
+      return {
+        type: "RFID_WRONG_CART",
+        title: "Card from another cart",
+        message: `Card ${uid}${holder} belongs to ${cardLocationCode || "another cart"} - it does not work at ${cart}`,
+      };
+    }
+    case "already_registered": {
+      const holder = holderName ? ` (${holderName})` : "";
+      return {
+        type: "RFID_ALREADY_REGISTERED",
+        title: "Card already registered",
+        message: `Card ${uid}${holder} is already registered - nothing changed`,
+      };
+    }
+    default:
+      return null;
+  }
+}

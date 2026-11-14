@@ -76,14 +76,19 @@ prisma.pushTokens = {
     return { count: 0 };
   },
 };
+// Alerts written while a test runs, so a test can check what reached the
+// notification center.
+const writtenAlerts = [];
 prisma.alert = {
   async create({ data }) {
+    writtenAlerts.push({ id: 999, ...data });
     return { id: 999, ...data };
   },
 };
 
 function reset() {
   resetClaims();
+  writtenAlerts.length = 0;
   users[0].rfidUid = "3A20704F";
   users[0].rfidLocationCode = "CART-01";
   users[1].rfidUid = "06C4D5E6";
@@ -366,6 +371,54 @@ test("an owner's claim for a card already on that account changes nothing", asyn
   assert.equal(result.outcome, "already_registered");
   assert.equal(users[1].rfidUid, "06C4D5E6");
   assert.equal(getClaim(claim.claimId).status, CLAIM_ALREADY_REGISTERED);
+});
+
+test("a refused tap is recorded in the notification center too", async () => {
+  // The dashboard toasts every refusal, so the bell must show the same thing:
+  // one toast, one record.
+  reset();
+
+  // 1. clocking in with a card on nobody's account
+  const unregistered = openClaim({
+    userId: 2,
+    locationId: 1,
+    locationCode: "CART-01",
+    event: "IN",
+  });
+  await bindClaimedTag({ db: prisma, messaging: mockMessaging, skipPush: true, rawUid: "DEADBEEF", locationId: 1 });
+  const unknown = writtenAlerts.find((a) => a.type === "RFID_UNREGISTERED");
+  assert.ok(unknown, "the unregistered card is recorded for the owner");
+  assert.equal(
+    unknown.message,
+    "Card DEADBEEF on CART-01 is not registered - it was not enrolled when someone tried to clock in",
+  );
+  assert.equal(unknown.locationCode, "CART-01");
+  assert.equal(getClaim(unregistered.claimId).status, CLAIM_UNREGISTERED);
+
+  // 2. clocking in with somebody else's card
+  reset();
+  openClaim({ userId: 2, locationId: 1, locationCode: "CART-01", event: "IN" });
+  await bindClaimedTag({ db: prisma, messaging: mockMessaging, skipPush: true, rawUid: "06C4D5E6", locationId: 1 });
+  const conflict = writtenAlerts.find((a) => a.type === "RFID_CONFLICT");
+  assert.ok(conflict, "the card that belongs to somebody else is recorded");
+  assert.equal(
+    conflict.message,
+    "Card 06C4D5E6 on CART-01 is already registered to Stall Staff 3",
+  );
+
+  // 3. a card from another cart
+  reset();
+  openClaim({ userId: 2, locationId: 1, locationCode: "CART-01", event: "IN" });
+  await bindClaimedTag({ db: prisma, messaging: mockMessaging, skipPush: true, rawUid: "06C4D5E6", locationId: 1 });
+  reset();
+  openClaim({ userId: 2, locationId: 2, locationCode: "CART-02", event: "IN" });
+  await bindClaimedTag({ db: prisma, messaging: mockMessaging, skipPush: true, rawUid: "3A20704F", locationId: 2 });
+  const wrongCart = writtenAlerts.find((a) => a.type === "RFID_WRONG_CART");
+  assert.ok(wrongCart, "the card from another cart is recorded");
+  assert.equal(
+    wrongCart.message,
+    "Card 3A20704F (Stall Staff 1) belongs to CART-01 - it does not work at CART-02",
+  );
 });
 
 test.after(() => {

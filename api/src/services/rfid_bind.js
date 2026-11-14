@@ -21,7 +21,43 @@ import {
 import {
   cardBelongsToAnotherCart,
   cardLocationCode,
+  refusalAlert,
 } from "./rfid.js";
+
+/**
+ * Write the notification-center record for a refused tap.
+ *
+ * The dashboard toasts every refusal ("that card is not registered here"), so
+ * the bell has to show it too - one toast, one record, at the same moment.
+ *
+ * Best-effort: a missed record must never fail the tap that caused it (the
+ * person at the cart still needs their answer).
+ */
+async function recordRefusal({ db, alert, locationId, locationCode, payload }) {
+  if (!alert) return;
+  try {
+    const created = await db.alert.create({
+      data: {
+        type: alert.type,
+        title: alert.title,
+        message: alert.message,
+        payload: JSON.stringify(payload ?? {}),
+        locationId: locationId ?? null,
+        locationCode: locationCode ?? null,
+      },
+    });
+    emit("alert:new", {
+      id: created.id,
+      type: alert.type,
+      title: alert.title,
+      message: alert.message,
+      locationId: locationId ?? null,
+      createdAt: new Date().toISOString(),
+    });
+  } catch {
+    // A missed record must never fail the tap that caused it.
+  }
+}
 
 /**
  * Try to satisfy the live claim on [locationId] using the tapped tag [rawUid].
@@ -70,6 +106,18 @@ export async function bindClaimedTag({ rawUid, locationId, db = prisma, messagin
       holderName: holder.name,
       claimedBy: claim.userId,
     });
+    await recordRefusal({
+      db,
+      alert: refusalAlert({
+        outcome: "conflict",
+        rfidUid,
+        locationCode: claim.locationCode,
+        holderName: holder.name,
+      }),
+      locationId: claim.locationId,
+      locationCode: claim.locationCode,
+      payload: { rfidUid, holderName: holder.name, locationCode: claim.locationCode },
+    });
     return { outcome: "conflict", rfidUid, holderName: holder.name };
   }
 
@@ -95,6 +143,24 @@ export async function bindClaimedTag({ rawUid, locationId, db = prisma, messagin
       claimedBy: claim.userId,
       event: claim.event ?? null,
     });
+    await recordRefusal({
+      db,
+      alert: refusalAlert({
+        outcome: "wrong_cart",
+        rfidUid,
+        locationCode: claim.locationCode,
+        cardLocationCode: enrolledAt,
+        holderName: holder.name,
+      }),
+      locationId: claim.locationId,
+      locationCode: claim.locationCode,
+      payload: {
+        rfidUid,
+        holderName: holder.name,
+        cardLocationCode: enrolledAt,
+        locationCode: claim.locationCode,
+      },
+    });
     return {
       outcome: "wrong_cart",
       rfidUid,
@@ -116,6 +182,20 @@ export async function bindClaimedTag({ rawUid, locationId, db = prisma, messagin
       locationCode: claim.locationCode,
       claimedBy: claim.userId,
       event: claim.event,
+    });
+    // The dashboard toasts this ("that card is not registered here"), so the
+    // notification center has to show it too - one toast, one record.
+    await recordRefusal({
+      db,
+      alert: refusalAlert({
+        outcome: "unregistered",
+        rfidUid,
+        locationCode: claim.locationCode,
+        event: claim.event,
+      }),
+      locationId: claim.locationId,
+      locationCode: claim.locationCode,
+      payload: { rfidUid, event: claim.event ?? null, locationCode: claim.locationCode },
     });
     return { outcome: "unregistered", rfidUid };
   }
@@ -141,6 +221,18 @@ export async function bindClaimedTag({ rawUid, locationId, db = prisma, messagin
       holderName: holder.name,
       claimedBy: claim.userId,
       targetUserId,
+    });
+    await recordRefusal({
+      db,
+      alert: refusalAlert({
+        outcome: "already_registered",
+        rfidUid,
+        locationCode: claim.locationCode,
+        holderName: holder.name,
+      }),
+      locationId: claim.locationId,
+      locationCode: claim.locationCode,
+      payload: { rfidUid, holderName: holder.name, locationCode: claim.locationCode },
     });
     return { outcome: "already_registered", rfidUid, holderName: holder.name };
   }

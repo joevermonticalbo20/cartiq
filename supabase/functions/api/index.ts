@@ -1142,6 +1142,54 @@ function classifyTap(bound) {
   return { kind: TAP_SHIFT, event: bound.desiredEvent };
 }
 
+/**
+ * The notification-center record for a refused tap.
+ *
+ * The dashboard toasts every refusal ("that card is not registered here"),
+ * and every toast needs a matching record in the bell - otherwise the owner
+ * sees it once and never again.
+ *
+ * The wording is the same sentence the dashboard toasts, so the two read as
+ * one message. Returns null for an outcome that is not a refusal.
+ * Mirrors refusalAlert() in api/src/services/rfid.js - keep both in sync.
+ */
+function refusalAlert({ outcome, rfidUid, locationCode, cardLocationCode, holderName, event } = {}) {
+  const uid = rfidUid || "unknown";
+  const cart = locationCode || "this cart";
+  if (outcome === "unregistered") {
+    const when = event === "OUT" ? "clock out" : "clock in";
+    return {
+      type: "RFID_UNREGISTERED",
+      title: "Card not registered",
+      message: `Card ${uid} on ${cart} is not registered - it was not enrolled when someone tried to ${when}`,
+    };
+  }
+  if (outcome === "conflict") {
+    return {
+      type: "RFID_CONFLICT",
+      title: "Card belongs to someone else",
+      message: `Card ${uid} on ${cart} is already registered to ${holderName || "another account"}`,
+    };
+  }
+  if (outcome === "wrong_cart") {
+    const holder = holderName ? ` (${holderName})` : "";
+    return {
+      type: "RFID_WRONG_CART",
+      title: "Card from another cart",
+      message: `Card ${uid}${holder} belongs to ${cardLocationCode || "another cart"} - it does not work at ${cart}`,
+    };
+  }
+  if (outcome === "already_registered") {
+    const holder = holderName ? ` (${holderName})` : "";
+    return {
+      type: "RFID_ALREADY_REGISTERED",
+      title: "Card already registered",
+      message: `Card ${uid}${holder} is already registered - nothing changed`,
+    };
+  }
+  return null;
+}
+
 const RFID_CLAIM_TTL_MS = 90 * 1000;
 const RFID_CLAIM_MAX = 200;
 
@@ -4906,6 +4954,48 @@ async function handleIotReadings(req, _origin, device) {
 }
 
 /**
+ * Write the notification-center record for a refused tap.
+ *
+ * The dashboard toasts every refusal ("that card is not registered here"), so
+ * the bell has to show it too - one toast, one record, at the same moment.
+ *
+ * Best-effort: a missed record must never fail the tap that caused it (the
+ * person at the cart still needs their answer).
+ */
+async function recordRefusal({ alert, locationId, locationCode, payload }) {
+  if (!alert) return;
+  try {
+    const counters = await readCounters(["alerts"]);
+    const { ids, writes } = counterWritesFor(counters, { alerts: 1 });
+    writes.push(createWrite("alerts", ids.alerts[0], {
+      id: ids.alerts[0],
+      type: alert.type,
+      title: alert.title,
+      message: alert.message,
+      payload: JSON.stringify(payload ?? {}),
+      locationId: locationId ?? null,
+      locationCode: locationCode ?? null,
+      isRead: false,
+      ackedBy: null,
+      ackedAt: null,
+      ackedByName: null,
+      createdAt: new Date(),
+    }));
+    await fsCommit(writes);
+    await broadcastEvent("alert:new", {
+      id: ids.alerts[0],
+      type: alert.type,
+      title: alert.title,
+      message: alert.message,
+      locationId: locationId ?? null,
+      createdAt: new Date().toISOString(),
+    }).catch(() => {});
+  } catch {
+    // A missed record must never fail the tap that caused it.
+  }
+}
+
+/**
  * Bind a tapped tag to the user who opened a registration claim.
  * Mirrors api/src/services/rfid_bind.js.
  */
@@ -4933,6 +5023,17 @@ async function bindClaimedTag({ rawUid, locationId }) {
       holderName: holder.name,
       claimedBy: claim.userId,
     }).catch(() => {});
+    await recordRefusal({
+      alert: refusalAlert({
+        outcome: "conflict",
+        rfidUid,
+        locationCode: claim.locationCode,
+        holderName: holder.name,
+      }),
+      locationId: claim.locationId,
+      locationCode: claim.locationCode,
+      payload: { rfidUid, holderName: holder.name, locationCode: claim.locationCode },
+    });
     return { outcome: "conflict", rfidUid, holderName: holder.name };
   }
 
@@ -4958,6 +5059,23 @@ async function bindClaimedTag({ rawUid, locationId }) {
       claimedBy: claim.userId,
       event: claim.event ?? null,
     }).catch(() => {});
+    await recordRefusal({
+      alert: refusalAlert({
+        outcome: "wrong_cart",
+        rfidUid,
+        locationCode: claim.locationCode,
+        cardLocationCode: enrolledAt,
+        holderName: holder.name,
+      }),
+      locationId: claim.locationId,
+      locationCode: claim.locationCode,
+      payload: {
+        rfidUid,
+        holderName: holder.name,
+        cardLocationCode: enrolledAt,
+        locationCode: claim.locationCode,
+      },
+    });
     return {
       outcome: "wrong_cart",
       rfidUid,
@@ -4980,6 +5098,19 @@ async function bindClaimedTag({ rawUid, locationId }) {
       claimedBy: claim.userId,
       event: claim.event,
     }).catch(() => {});
+    // The dashboard toasts this ("that card is not registered here"), so the
+    // notification center has to show it too - one toast, one record.
+    await recordRefusal({
+      alert: refusalAlert({
+        outcome: "unregistered",
+        rfidUid,
+        locationCode: claim.locationCode,
+        event: claim.event,
+      }),
+      locationId: claim.locationId,
+      locationCode: claim.locationCode,
+      payload: { rfidUid, event: claim.event ?? null, locationCode: claim.locationCode },
+    });
     return { outcome: "unregistered", rfidUid };
   }
 
@@ -5005,6 +5136,17 @@ async function bindClaimedTag({ rawUid, locationId }) {
       claimedBy: claim.userId,
       targetUserId,
     }).catch(() => {});
+    await recordRefusal({
+      alert: refusalAlert({
+        outcome: "already_registered",
+        rfidUid,
+        locationCode: claim.locationCode,
+        holderName: holder.name,
+      }),
+      locationId: claim.locationId,
+      locationCode: claim.locationCode,
+      payload: { rfidUid, holderName: holder.name, locationCode: claim.locationCode },
+    });
     return { outcome: "already_registered", rfidUid, holderName: holder.name };
   }
 

@@ -25,12 +25,17 @@ describe("alertLink", () => {
 
 describe("isSelfAnnouncedAlert", () => {
   it("knows the alerts that already raise their own toast", () => {
-    // A shift, a card registration and a card removal each have a live toast
-    // of their own. The bell must show the alert but must not say it again.
+    // A shift, a card registration, a card removal and every refused tap each
+    // have a live toast of their own. The bell must show the alert but must
+    // not say it again.
     expect(isSelfAnnouncedAlert({ type: "SHIFT" })).toBe(true);
     expect(isSelfAnnouncedAlert({ type: "shift" })).toBe(true);
     expect(isSelfAnnouncedAlert({ type: "RFID_BOUND" })).toBe(true);
     expect(isSelfAnnouncedAlert({ type: "RFID_UNBOUND" })).toBe(true);
+    expect(isSelfAnnouncedAlert({ type: "RFID_UNREGISTERED" })).toBe(true);
+    expect(isSelfAnnouncedAlert({ type: "RFID_CONFLICT" })).toBe(true);
+    expect(isSelfAnnouncedAlert({ type: "RFID_WRONG_CART" })).toBe(true);
+    expect(isSelfAnnouncedAlert({ type: "RFID_ALREADY_REGISTERED" })).toBe(true);
   });
 
   it("leaves every other alert to the bell's own toast", () => {
