@@ -9,6 +9,15 @@ import {
 } from "../services/low_stock_alert.js";
 import { notifyAssignedStaffOfLowStock } from "../services/staff_low_stock_notify.js";
 import { validateName } from "../services/validation.js";
+import {
+  isSupportedUnit,
+  normalizeUnit,
+  parseQtyForUnit,
+  validateInventoryItemName,
+  siblingNameClash,
+  stockStatusOf,
+  INVENTORY_CATEGORIES,
+} from "../services/inventory_validation.js";
 
 const router = Router();
 
@@ -22,16 +31,19 @@ export function maxStockForUnit(unit) {
   return 100000;
 }
 
+// Status classification (Add Item modal spec):
+//   OK: stock > threshold
+//   Low Stock: stock > 0 and stock <= threshold
+//   Out of Stock: stock == 0 (takes priority over Low Stock)
+// The Stock history/aisle keeps these strings so the dashboard chip works.
 export function stockStatus(stock, threshold) {
-  if (stock <= threshold / 2) return "critical";
-  if (stock <= threshold) return "low";
-  return "ok";
+  return stockStatusOf(stock, threshold);
 }
 
 function decorate(items) {
   return items.map((it) => ({
     ...it,
-    status: stockStatus(it.stock, it.threshold),
+    status: stockStatusOf(it.stock, it.threshold),
     isOutOfStock: Number(it.stock) <= 0,
   }));
 }
@@ -287,31 +299,59 @@ router.get("/inventory/names", requireAuth, async (_req, res, next) => {
 
 // POST /api/inventory/items - add a new stock row to a cart (any
 // authenticated staff; the dashboard Add Item form is not role-gated, same
-// as adjustments). The dashboard also sends `category`, which has no backing
-// field and is intentionally ignored.
+// as adjustments).
+//
+//   name:     letters/marks/numbers/spaces/hyphen/parentheses/period/comma/percent
+//             only, 2-100 characters, duplicates per cart refused (case-insensitive)
+//   unit:     one of pcs | kg | g | packs | liters (the predefined dropdown)
+//   stock:    unit-based: pcs/packs whole numbers, kg/g/liters up to 2 decimals; 0 allowed
+//   threshold: same unit-based rules; may be >, < or == stock (never rejected)
+//   category: must be one of the predefined Add Item dropdown values
 router.post("/inventory/items", requireAuth, async (req, res, next) => {
   try {
-    const { locationCode, locationId, name, unit, stock, threshold, source } = req.body ?? {};
+    const { locationCode, locationId, name, unit, stock, threshold, source, category } = req.body ?? {};
     if (locationId === undefined && (locationCode === undefined || locationCode === "")) {
       return res.status(400).json({ error: "locationCode or locationId is required" });
     }
     if (locationId !== undefined && !Number.isInteger(+locationId)) {
       return res.status(400).json({ error: "locationId must be an integer" });
     }
-    const nameCheck = validateName(name, "Item name", 120);
+    // Category: required by the form; only the predefined dropdown values pass.
+    // An absent category (API callers who do not use the Add Item form) is tolerated.
+    if (category !== undefined && !INVENTORY_CATEGORIES.includes(String(category))) {
+      return res.status(400).json({ error: `category must be one of: ${INVENTORY_CATEGORIES.join(", ")}` });
+    }
+    const nameCheck = validateInventoryItemName(name);
     if (!nameCheck.ok) {
       return res.status(400).json({ error: nameCheck.error });
     }
     const itemName = nameCheck.value;
-    const unitStr = String(unit ?? "pcs").trim().slice(0, 20) || "pcs";
-    const stockNum = stock === undefined || stock === "" ? 0 : +stock;
-    const thresholdNum = threshold === undefined || threshold === "" ? 0 : +threshold;
-    if (!Number.isFinite(stockNum) || stockNum < 0 || stockNum > 100000 || !Number.isFinite(thresholdNum) || thresholdNum < 0 || thresholdNum > 100000) {
-      return res.status(400).json({ error: "stock and threshold must be 0-100000" });
+
+    const unitStr = normalizeUnit(unit);
+    if (!unitStr) {
+      return res.status(400).json({ error: "unit must be one of: pcs, kg, g, packs, liters" });
     }
-    if (thresholdNum > stockNum) {
-      return res.status(400).json({ error: `threshold (${thresholdNum}) cannot be higher than current stock (${stockNum})` });
+
+    // Unit-based strict parse: whole numbers for pcs/packs, up to 2 decimals
+    // for kg/g/liters; NaN/Infinity/scientific notation refused.
+    const stockParsed = (stock === undefined || stock === "") ? { ok: false, value: 0 } : parseQtyForUnit(stock, unitStr);
+    if (!stockParsed.ok) {
+      if (stockParsed.error === "whole number") {
+        return res.status(400).json({ error: `Initial Stock for ${unitStr} must be a whole number` });
+      }
+      return res.status(400).json({ error: "Initial Stock must be a number (0 allowed, negative refused)" });
     }
+    const thresholdParsed = (threshold === undefined || threshold === "")
+      ? { ok: false, value: 0 }
+      : parseQtyForUnit(threshold, unitStr);
+    if (!thresholdParsed.ok) {
+      if (thresholdParsed.error === "whole number") {
+        return res.status(400).json({ error: `Low Threshold for ${unitStr} must be a whole number` });
+      }
+      return res.status(400).json({ error: "Low Threshold must be a number (0 allowed, negative refused)" });
+    }
+    const stockNum = Number(stockParsed.value);
+    const thresholdNum = Number(thresholdParsed.value);
     const cap = maxStockForUnit(unitStr);
     if (stockNum > cap) {
       return res.status(400).json({ error: `stock (${stockNum} ${unitStr}) exceeds the per-cart maximum of ${cap} ${unitStr}` });
@@ -323,11 +363,12 @@ router.post("/inventory/items", requireAuth, async (req, res, next) => {
     });
     if (!location) return res.status(404).json({ error: "Location not found" });
 
-    const existing = await prisma.inventoryItem.findMany({
-      where: { locationId: location.id, name: itemName },
+    // Case-insensitive duplicate check per cart.
+    const siblings = await prisma.inventoryItem.findMany({
+      where: { locationId: location.id },
     });
-    if (existing.length > 0) {
-      return res.status(409).json({ error: `Item "${itemName}" already exists at ${location.code}` });
+    if (siblingNameClash(siblings, itemName)) {
+      return res.status(409).json({ error: "This item already exists in this inventory." });
     }
 
     const created = await prisma.inventoryItem.create({
@@ -358,16 +399,14 @@ router.patch("/inventory/items/:id", requireAuth, requireRole("OWNER"), async (r
       return res.status(400).json({ error: "provide threshold or source" });
     }
     if (threshold !== undefined && (!Number.isFinite(+threshold) || +threshold < 0 || +threshold > 100000)) {
-      return res.status(400).json({ error: "threshold must be 0-100000" });
+      return res.status(400).json({ error: "threshold must be a number 0-100000" });
     }
     if (source !== undefined && !["MANUAL", "SENSOR"].includes(source)) {
       return res.status(400).json({ error: 'source must be "MANUAL" or "SENSOR"' });
     }
     const item = await prisma.inventoryItem.findUnique({ where: { id: +req.params.id } });
     if (!item) return res.status(404).json({ error: "Inventory item not found" });
-    if (threshold !== undefined && +threshold > item.stock) {
-      return res.status(400).json({ error: `threshold (${+threshold}) cannot be higher than current stock (${item.stock})` });
-    }
+    // Threshold may now be greater, equal to or less than stock.
     const data = {};
     if (threshold !== undefined) data.threshold = +threshold;
     if (source !== undefined) data.source = source;
@@ -417,20 +456,26 @@ router.delete("/inventory/items/:id", requireAuth, requireRole("OWNER"), async (
 router.post("/inventory/adjustments", requireAuth, async (req, res, next) => {
   try {
     const { inventoryItemId, newStock, reason } = req.body ?? {};
-    if (!Number.isInteger(+inventoryItemId) || !Number.isFinite(+newStock) || +newStock < 0 || +newStock > 100000) {
-      return res.status(400).json({ error: "inventoryItemId and newStock 0-100000 are required" });
+    if (!Number.isInteger(+inventoryItemId)) {
+      return res.status(400).json({ error: "inventoryItemId must be an integer" });
+    }
+    const target = await prisma.inventoryItem.findUnique({ where: { id: +inventoryItemId } });
+    if (!target) return res.status(404).json({ error: "Inventory item not found" });
+    // Unit-based strict parse of the new stock (pcs/packs whole, kg/g/liters decimals).
+    const stockParsed = parseQtyForUnit(newStock, target.unit);
+    if (!stockParsed.ok) {
+      return res.status(400).json({ error: "newStock must be a non-negative number (whole for pcs/packs, up to 2 decimals for kg/g/liters)" });
     }
     // Staff corrections need a reason (owner rows record it when given).
     // Every adjustment is audit-trailed with actor + before/after.
     if (req.user.role !== "OWNER" && !String(reason ?? "").trim()) {
       return res.status(400).json({ error: "reason is required for staff adjustments" });
     }
-    const item = await prisma.inventoryItem.findUnique({ where: { id: +inventoryItemId } });
-    if (!item) return res.status(404).json({ error: "Inventory item not found" });
-    const adjCap = maxStockForUnit(item.unit);
+    const adjCap = maxStockForUnit(target.unit);
     if (+newStock > adjCap) {
-      return res.status(400).json({ error: `stock (${+newStock} ${item.unit}) exceeds the per-cart maximum of ${adjCap} ${item.unit}` });
+      return res.status(400).json({ error: `stock (${+newStock} ${target.unit}) exceeds the per-cart maximum of ${adjCap} ${target.unit}` });
     }
+    const item = target;
 
     const result = await prisma.$transaction(async (tx) => {
       // Re-read INSIDE the txn: the outside read can be stale when a POS

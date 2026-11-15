@@ -100,10 +100,14 @@ describe("Add Item modal - numeric fields", () => {
     expect(fireEvent.paste(stock, { clipboardData: { getData: () => "1e5" } })).toBe(false);
     expect(fireEvent.paste(stock, { clipboardData: { getData: () => "abc" } })).toBe(false);
     expect(fireEvent.paste(stock, { clipboardData: { getData: () => "-5" } })).toBe(false);
-    const threshold = dialog.querySelector('input[placeholder="e.g. 2"]');
-    expect(fireEvent.paste(threshold, { clipboardData: { getData: () => "2E3" } })).toBe(false);
-    // A plain number paste is allowed
+    expect(fireEvent.paste(stock, { clipboardData: { getData: () => "25.5" } })).toBe(false); // pcs = whole numbers
+    expect(fireEvent.paste(stock, { clipboardData: { getData: () => "25" } })).toBe(true);
+    // Switch to kilograms, then decimals are allowed
+    const unitField = within(dialog).getByText("Unit").closest("label");
+    fireEvent.click(within(unitField).getByRole("button"));
+    fireEvent.click(within(unitField).getByRole("option", { name: /Kilograms/ }));
     expect(fireEvent.paste(stock, { clipboardData: { getData: () => "25.5" } })).toBe(true);
+    expect(fireEvent.paste(stock, { clipboardData: { getData: () => "1e5" } })).toBe(false);
   });
 });
 

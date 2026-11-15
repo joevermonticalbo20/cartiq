@@ -8,6 +8,7 @@
 const ALIAS = {
   low: "warn",
   critical: "danger",
+  out: "danger",
   read: "neutral",
   loc: "info",
 };

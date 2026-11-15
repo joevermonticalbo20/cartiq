@@ -236,7 +236,7 @@ class _LiveStockScreenState extends State<LiveStockScreen> {
     final stock = item['stock'] is num ? item['stock'] as num : 0;
     final threshold = item['threshold'] is num ? item['threshold'] as num : 0;
 
-    if (item['isOutOfStock'] == true || stock <= 0) {
+    if (item['isOutOfStock'] == true || stock <= 0 || item['status'] == 'out') {
       return (label: 'Out of Stock', variant: AppBadgeVariant.danger);
     }
     if (item['status'] == 'low' ||

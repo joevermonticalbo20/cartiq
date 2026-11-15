@@ -28,8 +28,8 @@ import Select from "../components/Select.jsx";
 import { useLiveEvent, useLiveStatus } from "../hooks/useLiveStream.js";
 
 function statusClass(s) {
-  if (s === "critical") return "critical";
-  if (s === "low") return "low";
+  if (s === "out") return "danger";
+  if (s === "low") return "warn";
   return "ok";
 }
 function formatTime(d) {
@@ -205,7 +205,7 @@ export default function DashboardPage() {
     : safeOnShift.filter((s) => isActiveCart(s.location_code));
 
   const lowCount = activeInventory.reduce((sum, loc) => sum + (loc.items ?? []).filter((i) => i.status !== "ok").length, 0);
-  const criticalCount = activeInventory.reduce((sum, loc) => sum + (loc.items ?? []).filter((i) => i.status === "critical").length, 0);
+  const criticalCount = activeInventory.reduce((sum, loc) => sum + (loc.items ?? []).filter((i) => i.status === "out").length, 0);
 
   const todaySales = report?.total_sales ?? 0;
   const todayOrders = report?.orders ?? 0;
@@ -516,11 +516,11 @@ export default function DashboardPage() {
                         .flatMap((loc) => (loc.items ?? []).filter((i) => i.status !== "ok").map((i) => ({ ...i, locationCode: loc.code })))
                         .slice(0, 5)
                         .map((it) => {
-                          const Icon = it.status === "critical" ? AlertTriangle : Info;
+                          const Icon = it.status === "out" ? AlertTriangle : Info;
                           return (
                             <div className="alert-item" key={`${it.id}`}>
                               <span className="alert-item-icon">
-                                <Icon size={16} style={{ color: it.status === "critical" ? "var(--danger)" : "var(--warn)" }} />
+                                <Icon size={16} style={{ color: it.status === "out" ? "var(--danger)" : "var(--warn)" }} />
                               </span>
                               <span className="alert-item-text">
                                 <div className="alert-item-name">{it.name} <span className="text-xs muted">@ {it.locationCode}</span></div>
@@ -557,7 +557,7 @@ export default function DashboardPage() {
                     {activeInventory.slice(0, 5).map((loc) => {
                       const locItems = loc.items ?? [];
                       const low = locItems.filter((i) => i.status !== "ok").length;
-                      const critical = locItems.filter((i) => i.status === "critical").length;
+                      const critical = locItems.filter((i) => i.status === "out").length;
                       const dotClass = critical > 0 ? "critical" : low > 0 ? "warn" : "ok";
                       return (
                         <div key={loc.id} className="cart-status-item" onClick={() => navigate("/inventory", { state: { cartCode: loc.code } })} role="button" tabIndex={0}>

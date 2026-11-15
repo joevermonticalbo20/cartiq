@@ -686,7 +686,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   )
                 else
                   ..._lowItems.map((item) {
-                    final critical = item['status'] == 'critical';
+                    final status = item['status'];
+                    final critical = status == 'out' || status == 'critical';
                     final c = critical ? AppColors.danger : AppColors.warn;
                     return ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -714,7 +715,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         '${item['stock']} ${item['unit']} left   threshold ${item['threshold']}',
                       ),
                       trailing: Text(
-                        critical ? 'CRITICAL' : 'LOW',
+                        critical ? 'OUT OF STOCK' : (status == 'low' ? 'LOW STOCK' : 'LOW'),
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w800,

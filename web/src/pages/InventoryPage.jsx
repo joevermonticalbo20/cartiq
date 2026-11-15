@@ -12,12 +12,22 @@ import PageHeader from "../components/PageHeader.jsx";
 import Select from "../components/Select.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { SkeletonList, TableSkeleton } from "../components/Skeleton.jsx";
-import { sanitizeQtyInput, parseQty, maxStockForUnit } from "../utils/format.js";
-import { sanitizeTextInput, validateItemName } from "../utils/text.js";
+import { sanitizeQtyInput, maxStockForUnit } from "../utils/format.js";
+import {
+  UNIT_OPTIONS,
+  INVENTORY_CATEGORIES,
+  isWholeUnit,
+  sanitizeQtyForUnit,
+  sanitizeInventoryNameTyping,
+  parseQtyForUnit,
+  validateInventoryItemName,
+  stockStatusOf,
+  STOCK_STATUS_LABEL,
+} from "../utils/inventory.js";
 import { LIVE_EVENTS, useLiveEvent } from "../hooks/useLiveStream.js";
 import { useCatalogVersion } from "../hooks/useCatalogVersion.js";
 
-const STATUS_LABEL = { ok: "OK", low: "LOW", critical: "CRITICAL" };
+const STATUS_LABEL = STOCK_STATUS_LABEL;
 
 // Reverse map: stock item name -> ["Product (Flavor)", ...].
 //
@@ -94,6 +104,14 @@ export default function InventoryPage() {
   const [addClosing, setAddClosing] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState("");
+  // Per-field messages for the Add Item form. Empty on open, shown after a
+  // failed submit or onBlur, cleared the moment the field is corrected.
+  const [addNameError, setAddNameError] = useState("");
+  const [addStockError, setAddStockError] = useState("");
+  const [addThresholdError, setAddThresholdError] = useState("");
+  const nameInputRef = useRef(null);
+  const stockInputRef = useRef(null);
+  const thresholdInputRef = useRef(null);
   const [newItem, setNewItem] = useState({
     name: "",
     category: "Ingredients",
@@ -281,11 +299,17 @@ export default function InventoryPage() {
 
   async function saveAdjustment() {
     if (!adjusting) return;
-    const value = parseQty(newStock);
-    if (value === null) {
-      setAdjustError("Enter a stock count from 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).");
+    // Unit-based strict parse: whole numbers for pcs/packs, up to 2 decimals for kg/g/liters.
+    const parsed = parseQtyForUnit(newStock, adjusting.unit);
+    if (!parsed.ok) {
+      setAdjustError(
+        isWholeUnit(adjusting.unit)
+          ? `Enter a whole number of ${adjusting.unit} (0 allowed, negative refused).`
+          : "Enter a number 0 to 99,999.99 (whole digits, up to 2 decimals). Negative values, NaN and scientific notation are refused."
+      );
       return;
     }
+    const value = parsed.value;
     const cap = maxStockForUnit(adjusting.unit);
     if (value > cap) {
       setAdjustError(`Stock (${value} ${adjusting.unit}) exceeds the per-cart maximum of ${cap} ${adjusting.unit}.`);
@@ -346,51 +370,93 @@ export default function InventoryPage() {
     }
   }
 
+    const liveStatus = (() => {
+    const s = parseQtyForUnit(newItem.stock, newItem.unit);
+    const t = parseQtyForUnit(newItem.threshold, newItem.unit);
+    if (!s.ok || !t.ok) return null;
+    return stockStatusOf(s.value, t.value);
+  })();
+
   async function handleAddItem(e) {
     e.preventDefault();
+    if (isAdding) return;
     setAddError("");
+    setAddNameError("");
+    setAddStockError("");
+    setAddThresholdError("");
 
-    const name = validateItemName(newItem.name);
-    if (!name.ok) {
-      setAddError(name.error);
+    // Validated as a unit, in field order: name -> category -> unit -> stock -> threshold.
+    const nameCheck = validateInventoryItemName(newItem.name);
+    setAddNameError(nameCheck.ok ? "" : nameCheck.error);
+
+    // Category: only the predefined dropdown values may pass, client and server.
+    if (!INVENTORY_CATEGORIES.includes(newItem.category)) {
+      setAddError(`Category must be one of: ${INVENTORY_CATEGORIES.join(", ")}.`);
       return;
     }
 
-    const stock = parseQty(newItem.stock);
-    const threshold = parseQty(newItem.threshold);
-    if (stock === null || threshold === null) {
-      setAddError("Stock and threshold must be 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).");
+    const stock = parseQtyForUnit(newItem.stock, newItem.unit);
+    const threshold = parseQtyForUnit(newItem.threshold, newItem.unit);
+    if (!stock.ok || !threshold.ok) {
+      if (!stock.ok) {
+        setAddStockError(
+          isWholeUnit(newItem.unit)
+            ? `Initial Stock for ${newItem.unit} must be a whole number (0 allowed, negative refused).`
+            : "Initial Stock must be a number 0 to 99,999.99. Negative values, NaN and scientific notation are refused."
+        );
+      }
+      if (!threshold.ok) {
+        setAddThresholdError(
+          isWholeUnit(newItem.unit)
+            ? `Low Threshold for ${newItem.unit} must be a whole number (0 allowed, negative refused).`
+            : "Low Threshold must be a number 0 to 99,999.99. Negative values, NaN and scientific notation are refused."
+        );
+      }
+      // Focus the first invalid field, like the other account-modals do.
+      if (!stock.ok) stockInputRef.current?.focus();
+      else thresholdInputRef.current?.focus();
       return;
     }
-    if (threshold > stock) {
-      setAddError(`Threshold (${threshold}) cannot be higher than current stock (${stock}). Lower the threshold or raise the stock.`);
+    if (!nameCheck.ok) {
+      nameInputRef.current?.focus();
       return;
     }
+
     const cap = maxStockForUnit(newItem.unit);
-    if (stock > cap) {
-      setAddError(`Initial stock (${stock} ${newItem.unit}) exceeds the per-cart maximum of ${cap} ${newItem.unit}.`);
+    if (stock.value > cap) {
+      setAddStockError(`Initial stock (${stock.value} ${newItem.unit}) exceeds the per-cart maximum of ${cap} ${newItem.unit}.`);
+      stockInputRef.current?.focus();
       return;
     }
 
     setIsAdding(true);
-    
+
     try {
       await api.post("/inventory/items", {
         locationCode: selected,
-        name: name.value,
+        name: nameCheck.value,
         category: newItem.category,
         unit: newItem.unit,
-        threshold,
-        stock,
+        threshold: threshold.value,
+        stock: stock.value,
         source: "MANUAL"
       });
-      
-      toast(`${name.value} added successfully to ${selected}`, "success");
+
+      toast(`${nameCheck.value} added successfully to ${selected}`, "success");
       closeAddModal();
       setNewItem({ name: "", category: "Ingredients", unit: "pcs", threshold: "", stock: "" });
+      setAddNameError("");
+      setAddStockError("");
+      setAddThresholdError("");
       refresh();
     } catch (err) {
-      setAddError(getFriendlyError(err, "Failed to add item. Backend endpoint may be missing."));
+      const msg = getFriendlyError(err, "Failed to add item.");
+      // A duplicate name comes back as a 409 with the item-name message - show it under the field.
+      if (String(msg).includes("already exists")) {
+        setAddNameError("This item already exists in this inventory.");
+      } else {
+        setAddError(msg);
+      }
     } finally {
       setIsAdding(false);
     }
@@ -400,17 +466,18 @@ export default function InventoryPage() {
     e.preventDefault();
     setEditError("");
 
-    const nextThreshold = parseQty(editing.threshold);
-    if (nextThreshold === null) {
-      setEditError("Enter a threshold from 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).");
+    const nextParsed = parseQtyForUnit(editing.threshold, editing.unit);
+    if (!nextParsed.ok) {
+      setEditError(
+        isWholeUnit(editing.unit)
+          ? `Threshold for ${editing.unit} must be a whole number (0 allowed).`
+          : "Enter a threshold from 0 to 99,999.99 (whole digits, up to 2 decimals)."
+      );
       return;
     }
+    const nextThreshold = nextParsed.value;
 
     const original = currentItems.find((it) => it.id === editing.id);
-    if (original && nextThreshold > original.stock) {
-      setEditError(`Threshold (${nextThreshold}) cannot be higher than current stock (${original.stock}). Lower the threshold instead.`);
-      return;
-    }
     if (original && nextThreshold === original.threshold) {
       toast(`No changes - threshold is already ${original.threshold}.`, "info");
       closeEditModal();
@@ -468,11 +535,6 @@ export default function InventoryPage() {
 
   async function commitBulk() {
     if (saving) return;
-    const value = parseQty(bulkValue);
-    if (value === null) {
-      toast("Enter a stock count from 0 to 99,999.99 (whole units max 5 digits, up to 2 decimals).", "error");
-      return;
-    }
     if (selectedIds.size === 0) return;
 
     setSaving(true);
@@ -480,13 +542,27 @@ export default function InventoryPage() {
     for (const id of selectedIds) {
       const it = byId.get(id);
       if (!it) continue;
-      const cap = maxStockForUnit(it.unit);
-      if (value > cap) {
+      // Unit-based strict parse per item.
+      const parsed = parseQtyForUnit(bulkValue, it.unit);
+      if (!parsed.ok) {
         setSaving(false);
-        toast(`${it.name}: ${value} ${it.unit} exceeds the per-cart maximum of ${cap} ${it.unit}. Bulk skipped.`, "error");
+        toast(
+          isWholeUnit(it.unit)
+            ? `${it.name}: enter a whole number of ${it.unit}.`
+            : "Enter a number 0 to 99,999.99 (whole digits, up to 2 decimals).",
+          "error"
+        );
+        return;
+      }
+      const cap = maxStockForUnit(it.unit);
+      if (parsed.value > cap) {
+        setSaving(false);
+        toast(`${it.name}: ${parsed.value} ${it.unit} exceeds the per-cart maximum of ${cap} ${it.unit}. Bulk skipped.`, "error");
         return;
       }
     }
+    // Whole numbers for pcs/packs; up to 2 decimals elsewhere. Same number for all.
+    const value = Number(String(bulkValue ?? "").trim());
     let skipped = 0;
     let success = 0;
     let failed = 0;
@@ -532,20 +608,9 @@ export default function InventoryPage() {
   const allSelected = current && selectedIds.size === currentItems.length && currentItems.length > 0;
 
   const locationOptions = safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
-  const categoryOptions = [
-    { value: "Ingredients", label: "Ingredients" },
-    { value: "Packaging", label: "Packaging" },
-    { value: "Cleaning", label: "Cleaning" },
-    { value: "Others", label: "Others" },
-  ];
-  const unitOptions = [
-    { value: "pcs", label: "Pieces (pcs)" },
-    { value: "kg", label: "Kilograms (kg)" },
-    { value: "g", label: "Grams (g)" },
-    { value: "packs", label: "Packs" },
-    { value: "liters", label: "Liters" },
-    { value: "boxes", label: "Boxes" },
-  ];
+  const categoryOptions = INVENTORY_CATEGORIES.map((c) => ({ value: c, label: c }));
+  // Exactly the five spec units - no Boxes.
+  const unitOptions = UNIT_OPTIONS;
 
   return (
     <PageErrorBoundary>
@@ -976,22 +1041,37 @@ export default function InventoryPage() {
               </p>
               
               <form onSubmit={handleAddItem} className="flex flex-col gap-4">
-                <label className="field">
-                  Item Name
-                  <input
-                    type="text"
-                    required
-                    minLength={2}
-                    maxLength={30}
-                    placeholder="e.g. Cheese Powder"
-                    title="Min 2 letters, max 30 characters, single spaces only"
-                    value={newItem.name}
-                    onChange={(e) => setNewItem({ ...newItem, name: sanitizeTextInput(e.target.value, 30) })}
-                    autoFocus
-                  />
-                </label>
-                
+
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+                  <label className="field">
+                    Item Name
+                    <input
+                      type="text"
+                      required
+                      minLength={2}
+                      maxLength={100}
+                      placeholder="e.g. Cheese Powder"
+                      title="2-100 characters, letters, numbers, spaces, hyphens, parentheses, periods, commas, percent"
+                      ref={nameInputRef}
+                      value={newItem.name}
+                      onChange={(e) => {
+                        setNewItem({ ...newItem, name: sanitizeInventoryNameTyping(e.target.value) });
+                        if (addNameError) setAddNameError("");
+                      }}
+                      className={addNameError ? "input-invalid" : undefined}
+                      aria-invalid={addNameError ? "true" : undefined}
+                      aria-describedby={addNameError ? "add-item-name-error" : undefined}
+                      autoFocus
+                    />
+                    {addNameError && (
+                      <span className="field-error" id="add-item-name-error" role="alert">
+                        {addNameError}
+                      </span>
+                    )}
+                  </label>
+
+                  {/* Category stays exactly the predefined dropdown values -
+                      the backend validates the same list. */}
                   <label className="field">
                     Category
                     <Select
@@ -1000,12 +1080,21 @@ export default function InventoryPage() {
                       options={categoryOptions}
                     />
                   </label>
-                  
+
                   <label className="field">
                     Unit
                     <Select
                       value={newItem.unit}
-                      onChange={(val) => setNewItem({ ...newItem, unit: val })}
+                      onChange={(val) => {
+                        // Switching units re-sanitises the quantities with the new
+                        // unit's rules (whole numbers for pcs/packs).
+                        const next = { ...newItem, unit: val };
+                        next.stock = sanitizeQtyForUnit(next.stock, val);
+                        next.threshold = sanitizeQtyForUnit(next.threshold, val);
+                        setNewItem(next);
+                        setAddStockError("");
+                        setAddThresholdError("");
+                      }}
                       options={unitOptions}
                     />
                   </label>
@@ -1020,16 +1109,28 @@ export default function InventoryPage() {
                       maxLength={8}
                       required
                       placeholder="e.g. 10"
-                      title="Numbers only: up to 5 whole digits and 2 decimals (e.g. 25.5)"
+                      title={isWholeUnit(newItem.unit) ? "Whole numbers only (0 allowed, e.g. 25)" : "Numbers only: up to 5 whole digits and 2 decimals (e.g. 25.5)"}
+                      ref={stockInputRef}
                       value={newItem.stock}
-                      onChange={(e) => setNewItem({ ...newItem, stock: sanitizeQtyInput(e.target.value) })}
-                      onPaste={(e) => {
-                        const pasted = e.clipboardData?.getData("text") ?? "";
-                        if (!/^\d*\.?\d{0,2}$/.test(pasted.trim())) e.preventDefault();
+                      onChange={(e) => {
+                        setNewItem({ ...newItem, stock: sanitizeQtyForUnit(e.target.value, newItem.unit) });
+                        if (addStockError) setAddStockError("");
                       }}
+                      onPaste={(e) => {
+                        const pasted = (e.clipboardData?.getData("text") ?? "").trim();
+                        if (!new RegExp(`^\\d*${isWholeUnit(newItem.unit) ? "" : "\\.?\\d{0,2}"}$`).test(pasted)) e.preventDefault();
+                      }}
+                      className={addStockError ? "input-invalid" : undefined}
+                      aria-invalid={addStockError ? "true" : undefined}
+                      aria-describedby={addStockError ? "add-stock-error" : undefined}
                     />
+                    {addStockError && (
+                      <span className="field-error" id="add-stock-error" role="alert">
+                        {addStockError}
+                      </span>
+                    )}
                   </label>
-                   
+
                   <label className="field">
                     Low Threshold
                     <input
@@ -1038,16 +1139,38 @@ export default function InventoryPage() {
                       maxLength={8}
                       required
                       placeholder="e.g. 2"
-                      title="Numbers only: up to 5 whole digits and 2 decimals (e.g. 25.5)"
+                      title={isWholeUnit(newItem.unit) ? "Whole numbers only (0 allowed, e.g. 25)" : "Numbers only: up to 5 whole digits and 2 decimals (e.g. 25.5)"}
+                      ref={thresholdInputRef}
                       value={newItem.threshold}
-                      onChange={(e) => setNewItem({ ...newItem, threshold: sanitizeQtyInput(e.target.value) })}
-                      onPaste={(e) => {
-                        const pasted = e.clipboardData?.getData("text") ?? "";
-                        if (!/^\d*\.?\d{0,2}$/.test(pasted.trim())) e.preventDefault();
+                      onChange={(e) => {
+                        setNewItem({ ...newItem, threshold: sanitizeQtyForUnit(e.target.value, newItem.unit) });
+                        if (addThresholdError) setAddThresholdError("");
                       }}
+                      onPaste={(e) => {
+                        const pasted = (e.clipboardData?.getData("text") ?? "").trim();
+                        if (!new RegExp(`^\\d*${isWholeUnit(newItem.unit) ? "" : "\\.?\\d{0,2}"}$`).test(pasted)) e.preventDefault();
+                      }}
+                      className={addThresholdError ? "input-invalid" : undefined}
+                      aria-invalid={addThresholdError ? "true" : undefined}
+                      aria-describedby={addThresholdError ? "add-threshold-error" : undefined}
                     />
+                    {addThresholdError && (
+                      <span className="field-error" id="add-threshold-error" role="alert">
+                        {addThresholdError}
+                      </span>
+                    )}
                   </label>
                 </div>
+
+                {liveStatus && (
+                  <p className="muted small" aria-live="polite" style={{ margin: "-8px 0 0" }}>
+                    Status after adding:{" "}
+                    <Badge variant={liveStatus === "out" ? "danger" : liveStatus === "low" ? "warn" : "ok"}>
+                      {STOCK_STATUS_LABEL[liveStatus]}
+                    </Badge>
+                  </p>
+                )}
+
                 
                 <div className="modal-actions">
                   <button type="button" className="ghost" onClick={closeAddModal} disabled={isAdding || addClosing}>Cancel</button>
@@ -1075,15 +1198,14 @@ export default function InventoryPage() {
                 <label className="field">
                   Low Threshold
                   <input
-                    type="number"
-                    min="0"
-                    max="99999.99"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
+                    maxLength={8}
                     required
                     autoFocus
-                    title="Max 5 whole digits, up to 2 decimals"
+                    title="Unit-based: whole number for pcs/packs, up to 2 decimals for kg/g/liters"
                     value={editing?.threshold ?? ""}
-                    onChange={(e) => setEditing({ ...editing, threshold: sanitizeQtyInput(e.target.value) })}
+                    onChange={(e) => setEditing({ ...editing, threshold: sanitizeQtyForUnit(e.target.value, editing?.unit) })}
                   />
                 </label>
                 
@@ -1113,13 +1235,12 @@ export default function InventoryPage() {
               <label className="field">
                 New stock count ({adjusting?.unit})
                 <input
-                  type="number"
-                  min="0"
-                  max="99999.99"
-                  step="0.01"
-                  title="Max 5 whole digits, up to 2 decimals"
+                  type="text"
+                  inputMode="decimal"
+                  maxLength={8}
+                  title="Unit-based: whole number for pcs/packs, up to 2 decimals for kg/g/liters"
                   value={newStock}
-                  onChange={(e) => setNewStock(sanitizeQtyInput(e.target.value))}
+                  onChange={(e) => setNewStock(sanitizeQtyForUnit(e.target.value, adjusting?.unit))}
                   autoFocus
                 />
               </label>

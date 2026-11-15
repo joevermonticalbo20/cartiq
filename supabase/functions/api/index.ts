@@ -3117,9 +3117,14 @@ async function handleUnregisterPushToken(req, user, url) {
 
 // ---------- inventory (mirror api/src/routes/inventory.js) ----------
 function stockStatus(stock, threshold) {
-  if (stock <= threshold / 2) return "critical";
-  if (stock <= threshold) return "low";
-  return "ok";
+  // OK: stock > threshold
+  // Low Stock: stock > 0 and stock <= threshold
+  // Out of Stock: stock == 0 (takes priority over Low Stock)
+  const s = Number(stock) || 0;
+  const t = Number(threshold) || 0;
+  if (s <= 0) return "out";
+  if (s > t) return "ok";
+  return "low";
 }
 
 function decorateItems(items) {
@@ -3197,28 +3202,46 @@ function maxStockForUnit(unit) {
 
 async function handleCreateInventoryItem(req) {
   const body = await req.json().catch(() => null);
-  const { locationCode, locationId, name, unit, stock, threshold, source } = body || {};
+  const { locationCode, locationId, name, unit, stock, threshold, source, category } = body || {};
   if (locationId === undefined && (locationCode === undefined || locationCode === "")) {
     return { status: 400, body: { error: "locationCode or locationId is required" } };
   }
   if (locationId !== undefined && !Number.isInteger(+locationId)) {
     return { status: 400, body: { error: "locationId must be an integer" } };
   }
-  const nameCheck = validateNameEdge(name, "Item name", 120);
+  // Category: required by the form; only the predefined dropdown values pass.
+  if (category !== undefined && !INVENTORY_CATEGORIES.includes(String(category))) {
+    return { status: 400, body: { error: `category must be one of: ${INVENTORY_CATEGORIES.join(", ")}` } };
+  }
+  const nameCheck = validateInventoryItemNameEdge(name);
   if (!nameCheck.ok) {
     return { status: 400, body: { error: nameCheck.error } };
   }
   const itemName = nameCheck.value;
-  const unitStr = String(unit ?? "pcs").trim().slice(0, 20) || "pcs";
-  const stockNum = stock === undefined || stock === "" ? 0 : +stock;
-  const thresholdNum = threshold === undefined || threshold === "" ? 0 : +threshold;
-  if (!Number.isFinite(stockNum) || stockNum < 0 || stockNum > 100000 ||
-      !Number.isFinite(thresholdNum) || thresholdNum < 0 || thresholdNum > 100000) {
-    return { status: 400, body: { error: "stock and threshold must be 0-100000" } };
+  const unitStr = normalizeInventoryUnit(unit);
+  if (!unitStr) {
+    return { status: 400, body: { error: "unit must be one of: pcs, kg, g, packs, liters" } };
   }
-  if (thresholdNum > stockNum) {
-    return { status: 400, body: { error: `threshold (${thresholdNum}) cannot be higher than current stock (${stockNum})` } };
+  // Unit-based strict parse: whole numbers for pcs/packs, up to 2 decimals
+  // for kg/g/liters; NaN/Infinity/scientific notation refused.
+  const stockParsed = (stock === undefined || stock === "") ? { ok: false, value: 0 } : parseQtyForUnitEdge(stock, unitStr);
+  if (!stockParsed.ok) {
+    if (stockParsed.error === "whole number") {
+      return { status: 400, body: { error: `Initial Stock for ${unitStr} must be a whole number` } };
+    }
+    return { status: 400, body: { error: "Initial Stock must be a number (0 allowed, negative refused)" } };
   }
+  const thresholdParsed = (threshold === undefined || threshold === "")
+    ? { ok: false, value: 0 }
+    : parseQtyForUnitEdge(threshold, unitStr);
+  if (!thresholdParsed.ok) {
+    if (thresholdParsed.error === "whole number") {
+      return { status: 400, body: { error: `Low Threshold for ${unitStr} must be a whole number` } };
+    }
+    return { status: 400, body: { error: "Low Threshold must be a number (0 allowed, negative refused)" } };
+  }
+  const stockNum = Number(stockParsed.value);
+  const thresholdNum = Number(thresholdParsed.value);
   const src = source === "SENSOR" ? "SENSOR" : "MANUAL";
   const cap = maxStockForUnit(unitStr);
   if (stockNum > cap) {
@@ -3226,9 +3249,11 @@ async function handleCreateInventoryItem(req) {
   }
   const location = await resolveLocation(locationId, locationCode);
   if (!location) return { status: 404, body: { error: "Location not found" } };
+  // Case-insensitive duplicate check per cart.
   const siblings = await fsQueryEqual("inventoryItems", "locationId", location.id, 10000);
-  if (siblings.some((s) => s.name === itemName)) {
-    return { status: 409, body: { error: `Item "${itemName}" already exists at ${location.code}` } };
+  const clash = siblings.find((s) => String(s.name ?? "").trim().toLowerCase() === itemName.toLowerCase());
+  if (clash) {
+    return { status: 409, body: { error: "This item already exists in this inventory." } };
   }
   const created = await withRetry(async () => {
     const counters = await readCounters(["inventoryItems"]);
@@ -3264,9 +3289,7 @@ async function handlePatchInventoryItem(req, id) {
   }
   const item = await fsGet("inventoryItems", id);
   if (!item) return { status: 404, body: { error: "Inventory item not found" } };
-  if (threshold !== undefined && +threshold > item.stock) {
-    return { status: 400, body: { error: `threshold (${+threshold}) cannot be higher than current stock (${item.stock})` } };
-  }
+  // Threshold may now be greater, equal to or less than stock.
   const data = {};
   if (threshold !== undefined) data.threshold = +threshold;
   if (source !== undefined) data.source = source;
@@ -3316,6 +3339,11 @@ async function handleInventoryAdjustment(req, user) {
   const adjCap = maxStockForUnit(item.unit);
   if (+newStock > adjCap) {
     return { status: 400, body: { error: `stock (${+newStock} ${item.unit}) exceeds the per-cart maximum of ${adjCap} ${item.unit}` } };
+  }
+  // Unit-based strict parse of the new stock (pcs/packs whole, kg/g/liters decimals).
+  const newStockParsed = parseQtyForUnitEdge(newStock, item.unit);
+  if (!newStockParsed.ok) {
+    return { status: 400, body: { error: "newStock must be a non-negative number (whole for pcs/packs, up to 2 decimals for kg/g/liters)" } };
   }
 
   let outcome;
@@ -7766,7 +7794,29 @@ function normalizeEmailAddr(v) {
 function validEmailAddr(v) {
   const s = String(v ?? "").trim();
   if (!s || s.length > 254) return false;
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+  // Uppercase anywhere is refused - input must already be lowercase.
+  if (s !== s.toLowerCase()) return false;
+  const at = s.indexOf("@");
+  if (at === -1 || at !== s.lastIndexOf("@")) return false;
+  const local = s.slice(0, at);
+  const domain = s.slice(at + 1);
+  if (
+    !local ||
+    local.startsWith(".") ||
+    local.endsWith(".") ||
+    local.includes("..") ||
+    !/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(local)
+  ) {
+    return false;
+  }
+  if (
+    !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/.test(domain) ||
+    domain.includes("..")
+  ) {
+    return false;
+  }
+  const labels = domain.split(".");
+  return labels.length >= 2 && /^[a-z]{2,}$/.test(labels[labels.length - 1]);
 }
 
 function generateOtpCode() {
@@ -7887,8 +7937,15 @@ async function hasMailExchangeEdge(domain) {
   return ok;
 }
 async function validateRecoveryEmailEdge(raw) {
-  const email = normalizeEmailAddr(raw);
-  if (!email || !validEmailAddr(email)) return { ok: false, email, error: "email must be a valid email address" };
+  // The owner's rule: uppercase anywhere in the address is refused outright
+  // (Gmail.com with a capital G is not accepted). Leading/trailing spaces are
+  // trimmed automatically. The value is stored lowercased.
+  const trimmed = String(raw ?? "").trim();
+  if (trimmed !== trimmed.toLowerCase()) {
+    return { ok: false, email: trimmed.toLowerCase(), error: "Please enter a valid email address." };
+  }
+  const email = normalizeEmailAddr(trimmed);
+  if (!email || !validEmailAddr(email)) return { ok: false, email, error: "Please enter a valid email address." };
   if (isPlaceholderEmail(email)) return { ok: false, email, error: "Enter a real email address, not a placeholder" };
   if (isDisposableEmail(email)) return { ok: false, email, error: "Disposable email domains are not allowed for recovery" };
   const domain = emailDomain(email);
@@ -7909,6 +7966,71 @@ const _LETTER_RE = /\p{L}/gu;
 // recipe items, Vendor). One rule fits them all: required; whitespace
 // collapsed to single spaces; trimmed; min..max characters; whitespace-only
 // input refused. Mirrors api/src/services/validation.js — keep both in sync.
+// ---------- inventory rules (mirror api/src/services/inventory_validation.js) ----------
+const INVENTORY_UNITS = ["pcs", "kg", "g", "packs", "liters"];
+const INVENTORY_CATEGORIES = ["Ingredients", "Packaging", "Cleaning", "Others"];
+const _INVENTORY_DECIMAL_RE = /^\d+(\.\d{0,2})?$/;
+
+function isWholeInventoryUnit(unit) {
+  const u = String(unit ?? "").trim().toLowerCase();
+  return u === "pcs" || u === "packs";
+}
+
+function isInventoryUnit(unit) {
+  const u = String(unit ?? "").trim().toLowerCase();
+  return INVENTORY_UNITS.includes(u);
+}
+
+function normalizeInventoryUnit(unit) {
+  const u = String(unit ?? "").trim().toLowerCase();
+  return isInventoryUnit(u) ? u : null;
+}
+
+/** Strict parse for submit. Returns { ok, value, error }. */
+function parseQtyForUnitEdge(raw, unit) {
+  const s = String(raw ?? "").trim();
+  if (!s) return { ok: false, value: null, error: "required" };
+  if (!_INVENTORY_DECIMAL_RE.test(s)) {
+    return { ok: false, value: null, error: "not a number" };
+  }
+  const n = Number(s);
+  if (!Number.isFinite(n) || n < 0) {
+    return { ok: false, value: null, error: "not a number" };
+  }
+  if (isWholeInventoryUnit(unit)) {
+    if (!Number.isInteger(n)) return { ok: false, value: null, error: "whole number" };
+    if (n > 99999) return { ok: false, value: null, error: "too big" };
+    return { ok: true, value: n };
+  }
+  if (n > 99999.99) return { ok: false, value: null, error: "too big" };
+  return { ok: true, value: Math.round(n * 100) / 100 };
+}
+
+/** Inventory item name rules (Add Item modal). Returns { ok, value, error }. */
+function validateInventoryItemNameEdge(raw) {
+  const value = String(raw ?? "").replace(/\s+/g, " ").trim();
+  if (!value) return { ok: false, value, error: "Item name is required." };
+  if (value.length < 2) {
+    return { ok: false, value, error: "Item name must contain at least 2 characters." };
+  }
+  if (value.length > 100) {
+    return { ok: false, value, error: "Item name must not exceed 100 characters." };
+  }
+  // Letters (any script), marks, numbers, spaces, hyphens, parentheses,
+  // periods, commas and percentage only. No HTML, JS or other punctuation.
+  if (!/^[\p{L}\p{N}\p{M} %(),.\-]+$/u.test(value)) {
+    return { ok: false, value, error: "Please enter a valid item name." };
+  }
+  return { ok: true, value };
+}
+
+/** Case-insensitive duplicate check against same-cart siblings. */
+function siblingNameClashEdge(siblings, candidate) {
+  const target = String(candidate ?? "").trim().toLowerCase();
+  if (!target) return null;
+  return siblings.find((s) => String(s.name ?? "").trim().toLowerCase() === target) ?? null;
+}
+
 function validateTextLineEdge(raw, { label, min, max }) {
   const value = String(raw ?? "").replace(/\s+/g, " ").trim();
   if (!value) return { ok: false, value, error: `${label} is required.` };
@@ -7939,30 +8061,58 @@ function validateNameEdge(raw, label = "Name", max = 100) {
 // ---------- account holders: staff/admin names + usernames (mirror api/src/services/validation.js) ----------
 // The owner's exact rules (Add Staff / Add Admin Account):
 //
-//   Full name - 2..50 chars; Unicode letters (incl. Filipino and accented),
-//   spaces, hyphens and apostrophes ONLY. Numbers and every other special
-//   character are refused. At least one letter, so a run of "@@@@@" is not a name.
+//   Full name - required, 2..30 chars; Unicode letters (incl. Filipino and
+//   accented), spaces, hyphens and apostrophes ONLY. Numbers and every other
+//   special character are refused. At least TWO LETTERS. No run of 3+ of the
+//   SAME letter anywhere in the name (so "Aaron" and "Yyan" pass, "AAa",
+//   "aaaa" and "AAaaAAaa aaaAA" do not). HTML cannot be built from this charset.
 //
-//   Username - 4..30 chars; lowercase letters, digits and underscore ONLY.
-//   Must START with a letter. Lowercased before storing.
-const _ACCOUNT_NAME_ALLOWED = /^[\p{L}\p{M} '-]+$/u;
-const _ACCOUNT_LETTER_RE = /\p{L}/u;
-const _ACCOUNT_USERNAME_ALLOWED = /^[a-z0-9_]{4,30}$/;
-const _ACCOUNT_USERNAME_STARTS_LETTER = /^[a-z]/u;
+//   Username - min 4, max 20 chars; must START with an English letter;
+//   only a-z, 0-9, underscore (_) and period (.). Spaces and every other
+//   special character are strictly prohibited. No consecutive underscores or
+//   periods (same or mixed: "..", "__", "._", "_."). Must end with a letter or
+//   a digit. Checked case-insensitively (Admin123 == admin123). Reserved
+//   system words and offensive terms (substrings) are refused. Leading and
+//   trailing spaces trimmed; stored lowercased.
+const _ACCOUNT_SAME_LETTER_RUN = /(\p{L})\1\1/iu;
+
+// Reserved for the system's own use - exact matches only.
+const _ACCOUNT_RESERVED_USERNAMES = new Set([
+  "admin", "administrator", "superadmin", "root", "system", "owner", "support",
+  "help", "security", "staff", "service", "manager", "cashier", "pos", "cartiq",
+  "api", "auth", "login", "password", "reset", "account",
+  "null", "undefined", "anonymous", "nobody", "unknown", "user", "test",
+  "none", "guest", "demo", "default", "everyone", "postmaster",
+  "abuse", "noreply", "no-reply", "webmaster", "www", "mail", "ftp", "info",
+  "dev", "developer", "debug", "localhost", "backup", "sysadmin",
+]);
+// Offensive terms refused as SUBSTRINGS.
+const _ACCOUNT_OFFENSIVE_USERNAMES = [
+  "fuck", "fucking", "fucker", "shit", "bitch", "asshole", "cunt", "bastard",
+  "whore", "slut", "nigger", "faggot", "retard", "puta", "punyeta", "punyetr",
+  "putangina", "gago", "bobo", "tanga", "ulol", "pakyu",
+];
 
 function validateFullNameEdge(raw) {
+  // Unicode letters + combining marks, single spaces, hyphens and apostrophes ONLY.
+  const _ACCOUNT_NAME_ALLOWED = /^[\p{L}\p{M} '-]+$/u;
   const value = String(raw ?? "").replace(/\s+/g, " ").trim();
   if (!value) return { ok: false, value, error: "Full name is required." };
   if (value.length < 2) {
     return { ok: false, value, error: "Full name must be at least 2 characters." };
   }
-  if (value.length > 50) {
-    return { ok: false, value, error: "Full name must not exceed 50 characters." };
+  if (value.length > 30) {
+    return { ok: false, value, error: "Full name must not exceed 30 characters." };
   }
   if (!_ACCOUNT_NAME_ALLOWED.test(value)) {
     return { ok: false, value, error: "Full name cannot contain numbers or special characters." };
   }
-  if (!_ACCOUNT_LETTER_RE.test(value)) {
+  // At least TWO letters.
+  const letters = (value.match(/\p{L}/gu) ?? []).length;
+  if (letters < 2) {
+    return { ok: false, value, error: "Please enter a valid full name." };
+  }
+  if (_ACCOUNT_SAME_LETTER_RUN.test(value)) {
     return { ok: false, value, error: "Please enter a valid full name." };
   }
   return { ok: true, value };
@@ -7971,17 +8121,27 @@ function validateFullNameEdge(raw) {
 function validateAccountUsernameEdge(raw) {
   const value = String(raw ?? "").trim().toLowerCase();
   if (!value) return { ok: false, value, error: "Username is required." };
-  if (/\s/.test(value) || /[^a-z0-9_]/.test(value)) {
+  if (/\s/.test(value) || /[^a-z0-9_.]/.test(value)) {
     return { ok: false, value, error: "Username cannot contain spaces or special characters." };
   }
-  if (value.length < 4 || value.length > 30) {
-    return { ok: false, value, error: "Username must be between 4 and 30 characters." };
+  if (value.length < 4 || value.length > 20) {
+    return { ok: false, value, error: "Username must be between 4 and 20 characters." };
   }
-  if (!_ACCOUNT_USERNAME_STARTS_LETTER.test(value)) {
+  if (!/^[a-z]/u.test(value)) {
     return { ok: false, value, error: "Username must start with a letter." };
   }
-  if (!_ACCOUNT_USERNAME_ALLOWED.test(value)) {
-    return { ok: false, value, error: "Please enter a valid username." };
+  // No two consecutive periods or underscores (same or mixed).
+  if (/[._]{2}/.test(value)) {
+    return { ok: false, value, error: "Username cannot contain consecutive underscores or periods." };
+  }
+  if (!/[a-z0-9]$/.test(value)) {
+    return { ok: false, value, error: "Username must end with a letter or number." };
+  }
+  if (_ACCOUNT_RESERVED_USERNAMES.has(value)) {
+    return { ok: false, value, error: "This username is reserved for the system." };
+  }
+  if (_ACCOUNT_OFFENSIVE_USERNAMES.some((term) => value.includes(term))) {
+    return { ok: false, value, error: "This username contains inappropriate language." };
   }
   return { ok: true, value };
 }
