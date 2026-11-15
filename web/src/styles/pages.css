@@ -1259,3 +1259,67 @@ button.custom-select-trigger.active {
   from { opacity: 1; transform: translateY(0) scaleY(1); }
   to { opacity: 0; transform: translateY(-8px) scaleY(0.95); }
 }
+/* ============================================================
+ * SALES TABLE - Actions column
+ * Unified: one 30px icon button size, one matching status pill.
+ * ============================================================ */
+.sales-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-height: 30px;
+}
+.sales-icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: none;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.sales-icon-btn:hover:not(:disabled) {
+  background: var(--surface-alt);
+  border-color: var(--border-strong);
+  color: var(--text);
+  transform: none;
+  box-shadow: none;
+}
+.sales-icon-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.sales-icon-btn.danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+}
+.sales-icon-btn.danger:hover:not(:disabled) {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.sales-void-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 99px;
+  font-size: var(--fs-xs, 10px);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+}
+.sales-void-pill.refunded {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+}

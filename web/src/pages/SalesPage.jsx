@@ -430,70 +430,45 @@ export default function SalesPage() {
                         width: 120,
                         align: "center",
                         render: (o) => (
-                          <div className="flex items-center justify-end gap-2">
+                          <div className="sales-actions">
                             {o.receipt || String(o.paymentMethod ?? "").toUpperCase() === "GCASH" ? (
                               <button
-                                className="ghost small-btn"
+                                type="button"
+                                className="sales-icon-btn"
                                 onClick={() => openReceipt(o)}
                                 title="View GCash receipt"
+                                aria-label="View GCash receipt"
                               >
-                                <Eye size={13} />
+                                <Eye size={14} aria-hidden="true" />
                               </button>
                             ) : null}
                             {o.status === "PAID" ? (
                               <>
                                 <button
-                                  className="ghost small-btn"
+                                  type="button"
+                                  className="sales-icon-btn"
                                   onClick={() => {
                                     setEditing({ ...o, paymentMethod: o.paymentMethod || "CASH" });
                                     setEditError("");
                                   }}
                                   title="Edit order"
+                                  aria-label="Edit order"
                                 >
-                                  <Edit2 size={13} />
+                                  <Edit2 size={14} aria-hidden="true" />
                                 </button>
                                 <button
-                                  className="danger-ghost small-btn"
+                                  type="button"
+                                  className="sales-icon-btn danger"
                                   onClick={() => setConfirming(o)}
                                   title="Void order"
+                                  aria-label="Void order"
                                 >
-                                  <X size={13} />
+                                  <X size={14} aria-hidden="true" />
                                 </button>
                               </>
                             ) : (
-                              <span style={{ position: "relative", display: "inline-flex" }}>
-                                <span
-                                  aria-hidden="true"
-                                  style={{
-                                    visibility: "hidden",
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    gap: "8px",
-                                  }}
-                                >
-                                  {/* Layout spacers only: real buttons would be
-                                      focusable and announced to a screen
-                                      reader for a row that has no actions. */}
-                                  <span className="ghost small-btn">
-                                    <Edit2 size={13} />
-                                  </span>
-                                  <span className="danger-ghost small-btn">
-                                    <X size={13} />
-                                  </span>
-                                </span>
-                                <span
-                                  style={{
-                                    position: "absolute",
-                                    inset: 0,
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                  }}
-                                >
-                                  <Badge variant={o.status === "REFUNDED" ? "warn" : "danger"}>
-                                    {o.status}
-                                  </Badge>
-                                </span>
+                              <span className={`sales-void-pill ${o.status === "REFUNDED" ? "refunded" : ""}`} aria-label={`Order is ${o.status}`}>
+                                {o.status}
                               </span>
                             )}
                           </div>
