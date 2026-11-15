@@ -68,6 +68,19 @@ export function sanitizeDecimalInput(raw, maxInt, maxDec) {
 }
 
 // Strict decimal parse: null when empty/invalid/negative/over the cap.
+// Format a currency text field on blur:
+//  - empty stays empty (optional fields)
+//  - whole numbers show exactly two decimals (50 -> "50.00")
+//  - one decimal keeps precision, padded (75.5 -> "75.50")
+//  - already valid two-decimal values are untouched (100.25 -> "100.25")
+export function padMoney(raw) {
+  const s = String(raw ?? "").trim().replace(/,/g, "");
+  if (s === "") return "";
+  const n = Number(s);
+  if (!Number.isFinite(n) || n < 0) return String(raw);
+  return n.toFixed(2);
+}
+
 export function parseDecimal(raw, max) {
   if (String(raw ?? "").trim() === "") return null;
   const n = Number(raw);

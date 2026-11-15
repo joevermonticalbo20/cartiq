@@ -11,6 +11,7 @@ vi.mock("../api.js", () => ({
 }));
 
 import api from "../api.js";
+import { __resetLiveData } from "../state/liveData.js";
 import InventoryPage from "./InventoryPage.jsx";
 
 function renderPage() {
@@ -28,6 +29,83 @@ function renderPage() {
     </MemoryRouter>
   );
 }
+
+describe("Add Item modal - numeric fields", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetLiveData();
+    api.get.mockImplementation((url) => {
+      if (url === "/inventory") {
+        return Promise.resolve({
+          data: {
+            locations: [
+              { id: 1, code: "CART-01", name: "Main Cart", items: [] },
+            ],
+          },
+        });
+      }
+      if (url === "/catalog") {
+        return Promise.resolve({ data: { locations: [{ code: "CART-01", name: "Main Cart" }] } });
+      }
+      if (url.startsWith("/analytics/forecast")) {
+        return Promise.resolve({ data: { items: [] } });
+      }
+      if (url.startsWith("/reorders/prep")) {
+        return Promise.resolve({ data: null });
+      }
+      if (url === "/products") {
+        return Promise.resolve({ data: { data: [] } });
+      }
+      if (url.includes("/inventory/restock-requests")) {
+        return Promise.resolve({ data: { data: [] } });
+      }
+      return Promise.resolve({ data: null });
+    });
+  });
+
+  async function openAddItemModal() {
+    renderPage();
+    const btn = await vi.waitFor(() => screen.getByRole("button", { name: /Add Item/ }), {
+      timeout: 4000,
+    });
+    fireEvent.click(btn);
+    const dialog = document.body.querySelector(".modal");
+    expect(dialog?.textContent).toContain("Add Item");
+    return dialog;
+  }
+
+  it("refuses letters, including e and E, in Initial Stock", async () => {
+    const dialog = await openAddItemModal();
+    const stock = dialog.querySelector('input[placeholder="e.g. 10"]');
+    fireEvent.change(stock, { target: { value: "1e5" } });
+    expect(stock.value).toBe("15");
+    fireEvent.change(stock, { target: { value: "abc" } });
+    expect(stock.value).toBe("");
+    fireEvent.change(stock, { target: { value: "-5" } });
+    expect(stock.value).toBe("5");
+  });
+
+  it("refuses letters, including e and E, in Low Threshold", async () => {
+    const dialog = await openAddItemModal();
+    const threshold = dialog.querySelector('input[placeholder="e.g. 2"]');
+    fireEvent.change(threshold, { target: { value: "2E4" } });
+    expect(threshold.value).toBe("24");
+    fireEvent.change(threshold, { target: { value: "-2" } });
+    expect(threshold.value).toBe("2");
+  });
+
+  it("blocks pasting values that are not numbers", async () => {
+    const dialog = await openAddItemModal();
+    const stock = dialog.querySelector('input[placeholder="e.g. 10"]');
+    expect(fireEvent.paste(stock, { clipboardData: { getData: () => "1e5" } })).toBe(false);
+    expect(fireEvent.paste(stock, { clipboardData: { getData: () => "abc" } })).toBe(false);
+    expect(fireEvent.paste(stock, { clipboardData: { getData: () => "-5" } })).toBe(false);
+    const threshold = dialog.querySelector('input[placeholder="e.g. 2"]');
+    expect(fireEvent.paste(threshold, { clipboardData: { getData: () => "2E3" } })).toBe(false);
+    // A plain number paste is allowed
+    expect(fireEvent.paste(stock, { clipboardData: { getData: () => "25.5" } })).toBe(true);
+  });
+});
 
 describe("InventoryPage loading/error states", () => {
   beforeEach(() => {

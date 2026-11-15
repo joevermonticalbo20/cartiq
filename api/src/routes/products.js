@@ -4,7 +4,7 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import { emit } from "./events.js";
 import { sendCatalogPush } from "../services/push.js";
 import { sortFlavorRows } from "../services/flavor_order.js";
-import { validateName } from "../services/validation.js";
+import { validateName, validateTextLine } from "../services/validation.js";
 import {
   IMAGE_MAX_BYTES,
   IMAGE_PREFIX,
@@ -91,7 +91,7 @@ async function resolveFlavorEntries(entries) {
       id = Number(rawId);
       if (!byId.has(id)) return { error: "One or more flavors not found" };
     } else {
-      const nameCheck = validateName(asObj ? (asObj.name ?? "") : (e ?? ""), "Flavor name", 60);
+      const nameCheck = validateTextLine(asObj ? (asObj.name ?? "") : (e ?? ""), { label: "Flavor name", min: 3, max: 20 });
       if (!nameCheck.ok) {
         return { error: nameCheck.error };
       }
@@ -163,7 +163,7 @@ async function applyFullFlavorList({ existing, flavors, removeRecipes }) {
 // Validate one recipe row { itemName, amountPerUnit }. Returns the cleaned
 // row or null.
 function validRecipeRow(r) {
-  const checked = validateName(r?.itemName, "Recipe item", 120);
+  const checked = validateTextLine(r?.itemName, { label: "Recipe item", min: 3, max: 30 });
   if (!checked.ok) return null;
   const amount = Number(r?.amountPerUnit);
   if (!Number.isFinite(amount) || amount <= 0) return null;
@@ -285,6 +285,16 @@ router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, nex
     if (!validProductName(name)) {
       return res.status(400).json({ error: "name needs at least 2 letters (max 120 characters)" });
     }
+    // Category: min 3, max 30 chars, single spaces. Omitted/empty keeps the
+    // default "Fries" - but a provided value has to follow the Product rules.
+    let categoryValue;
+    if (category !== undefined && String(category).trim() !== "") {
+      const categoryCheck = validateTextLine(category, { label: "Category", min: 3, max: 30 });
+      if (!categoryCheck.ok) {
+        return res.status(400).json({ error: categoryCheck.error });
+      }
+      categoryValue = categoryCheck.value;
+    }
     const price = validPrice(basePrice);
     if (price === null) {
       return res.status(400).json({ error: "basePrice must be a positive number" });
@@ -358,7 +368,7 @@ router.post("/products", requireAuth, requireRole("OWNER"), async (req, res, nex
     const product = await prisma.product.create({
       data: {
         name: productName,
-        category: category ? String(category).slice(0, 60) : undefined,
+        category: categoryValue ?? undefined,
         basePrice: price,
         ...(costValue !== null ? { cost: costValue } : {}),
         ...(ids.length ? { flavorIds: ids } : {}),
@@ -441,7 +451,19 @@ router.patch("/products/:id", requireAuth, requireRole("OWNER"), async (req, res
     });
     if (!existing) return res.status(404).json({ error: "Product not found" });
     const data = {};
-    if (category !== undefined) data.category = String(category).slice(0, 60) || "Fries";
+    if (category !== undefined) {
+      // Empty category clears back to the default; a provided value has to
+      // follow the same rules as Add Product (min 3, max 30, single spaces).
+      if (String(category).trim() === "") {
+        data.category = "Fries";
+      } else {
+        const categoryCheck = validateTextLine(category, { label: "Category", min: 3, max: 30 });
+        if (!categoryCheck.ok) {
+          return res.status(400).json({ error: categoryCheck.error });
+        }
+        data.category = categoryCheck.value;
+      }
+    }
     // Archive switch: active=false hides the product from the POS catalog
     // but keeps history/reports intact. Restore with active=true.
     if (active !== undefined) {
@@ -817,7 +839,7 @@ router.get("/flavors", requireAuth, async (_req, res, next) => {
 // Body: { name* }
 router.post("/flavors", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const nameCheck = validateName(req.body?.name, "Flavor name", 60);
+    const nameCheck = validateTextLine(req.body?.name, { label: "Flavor name", min: 3, max: 20 });
     if (!nameCheck.ok) {
       return res.status(400).json({ error: nameCheck.error });
     }
@@ -841,7 +863,7 @@ router.post("/flavors", requireAuth, requireRole("OWNER"), async (req, res, next
 // Body: { name* }
 router.patch("/flavors/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const nameCheck = validateName(req.body?.name, "Flavor name", 60);
+    const nameCheck = validateTextLine(req.body?.name, { label: "Flavor name", min: 3, max: 20 });
     if (!nameCheck.ok) {
       return res.status(400).json({ error: nameCheck.error });
     }

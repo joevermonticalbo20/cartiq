@@ -3,7 +3,7 @@ import { db as prisma } from "../firestore.js";
 import { requireAuth, assertOwnLocation } from "../middleware/auth.js";
 import { requireRole } from "../middleware/auth.js";
 import { manilaMonthRange } from "../services/timezone.js";
-import { validateName, validateReason } from "../services/validation.js";
+import { validateReason, validateVendorName } from "../services/validation.js";
 import { announceChange } from "../services/announce.js";
 
 const router = Router();
@@ -41,7 +41,7 @@ router.post("/expenses", requireAuth, async (req, res, next) => {
   try {
     const { vendor, locationCode, amount, date, source, note, lines, category } =
       req.body ?? {};
-    const vendorCheck = validateName(vendor, "Vendor", 40);
+    const vendorCheck = validateVendorName(vendor);
     if (!vendorCheck.ok) {
       return res.status(400).json({ error: vendorCheck.error });
     }
@@ -73,6 +73,10 @@ router.post("/expenses", requireAuth, async (req, res, next) => {
     if (locationCode) {
       const loc = await prisma.location.findUnique({ where: { code: String(locationCode) } });
       if (!loc) return res.status(404).json({ error: "Location not found" });
+      // Owner Settings → Carts: only an ACTIVE cart can take values.
+      if (loc.status === "INACTIVE") {
+        return res.status(400).json({ error: "Cart is deactivated and cannot be assigned expenses." });
+      }
       // STAFF may only file expenses at their assigned cart (OWNERs bypass).
       assertOwnLocation(req, loc.id);
       locationId = loc.id;
@@ -181,7 +185,7 @@ router.patch("/expenses/:id", requireAuth, requireRole("OWNER"), async (req, res
     const { vendor, amount, date, note, category } = req.body ?? {};
     const data = {};
     if (vendor !== undefined) {
-      const vendorCheck = validateName(vendor, "Vendor", 40);
+      const vendorCheck = validateVendorName(vendor);
       if (!vendorCheck.ok) {
         return res.status(400).json({ error: vendorCheck.error });
       }

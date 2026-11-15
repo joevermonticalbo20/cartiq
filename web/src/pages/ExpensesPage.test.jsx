@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, Outlet } from "react-router-dom";
 import { ToastProvider } from "../components/Toast.jsx";
 
@@ -45,6 +45,16 @@ const seedRows = [
 
 function mockApi(rows = seedRows) {
   api.get.mockImplementation((url) => {
+    if (url === "/locations") {
+      return Promise.resolve({
+        data: {
+          data: [
+            { id: 1, code: "CART-01", name: "Cart 1", status: "ACTIVE" },
+            { id: 2, code: "CART-09", name: "Old Cart", status: "INACTIVE" },
+          ],
+        },
+      });
+    }
     if (url === "/catalog") {
       return Promise.resolve({ data: { locations: [{ code: "CART-01", name: "Cart 1" }] } });
     }
@@ -88,6 +98,55 @@ describe("ExpensesPage loading/error states", () => {
     renderPage();
     expect(await screen.findByText("expenses-down")).toBeInTheDocument();
     expect(screen.queryByText("No expenses in this period")).toBeNull();
+  });
+});
+
+describe("ExpensesPage add vendor and cart validation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetLiveData();
+    mockApi();
+    api.post.mockResolvedValue({ data: { expense: { id: 8 } } });
+  });
+
+  async function openAdd() {
+    renderPage();
+    await screen.findByText("SM Supermarket");
+    fireEvent.click(screen.getByRole("button", { name: /Add Expense/i }));
+    const dialog = document.body.querySelector(".modal");
+    expect(dialog?.textContent).toContain("Vendor / Supplier");
+    return dialog;
+  }
+
+  it("refuses a vendor shorter than 3 characters", async () => {
+    const dialog = await openAdd();
+    const vendorInput = within(dialog).getByPlaceholderText("e.g. SM Supermarket");
+    fireEvent.change(vendorInput, { target: { value: "AB" } });
+    fireEvent.change(within(dialog).getByPlaceholderText("0.00"), { target: { value: "75" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Save Expense/ }));
+    expect(await within(dialog).findByText("Vendor must be at least 3 characters.")).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("normalizes runs of spaces to a single space on save", async () => {
+    const dialog = await openAdd();
+    fireEvent.change(within(dialog).getByPlaceholderText("e.g. SM Supermarket"), { target: { value: "ABC  Supplier" } });
+    fireEvent.change(within(dialog).getByPlaceholderText("0.00"), { target: { value: "75" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Save Expense/ }));
+    await vi.waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        "/expenses",
+        expect.objectContaining({ vendor: "ABC Supplier" }),
+      ),
+    );
+  });
+
+  it("shows only ACTIVE carts in the Cart Assignment dropdown", async () => {
+    const dialog = await openAdd();
+    const field = within(dialog).getByText("Cart Assignment").closest("label");
+    fireEvent.click(within(field).getByRole("button"));
+    expect(within(field).getAllByRole("option", { name: /CART-01/ }).length).toBeGreaterThan(0);
+    expect(within(field).queryByRole("option", { name: /CART-09/ })).toBeNull();
   });
 });
 

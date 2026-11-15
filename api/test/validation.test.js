@@ -10,6 +10,8 @@ import {
   validateReason,
   validateRecoveryEmail,
   isDisposableEmail,
+  validateTextLine,
+  validateVendorName,
 } from "../src/services/validation.js";
 
 test("cleanName collapses whitespace and strips control characters", () => {
@@ -39,6 +41,27 @@ test("validateReason requires 3..500 characters", () => {
   assert.equal(validateReason("ok reason").ok, true);
   assert.equal(validateReason("ab").ok, false);
   assert.equal(validateReason("x".repeat(501)).ok, false);
+});
+
+test("validateTextLine enforces min and max with label-specific messages", () => {
+  assert.equal(validateTextLine("", { label: "Category", min: 3, max: 30 }).error, "Category is required.");
+  assert.equal(validateTextLine("AB", { label: "Category", min: 3, max: 30 }).error, "Category must be at least 3 characters.");
+  assert.equal(
+    validateTextLine("ABCDEFGHIJKLMNOPQRSTUVWXYZ1234", { label: "Flavor name", min: 3, max: 20 }).error,
+    "Flavor name must not exceed 20 characters."
+  );
+  assert.equal(validateTextLine("AB".repeat(16), { label: "Recipe item", min: 3, max: 30 }).ok, false);
+  assert.equal(validateTextLine("Cheese Powder", { label: "Recipe item", min: 3, max: 30 }).ok, true);
+  assert.equal(validateTextLine("  Cheese   Powder  ", { label: "Recipe item", min: 3, max: 30 }).value, "Cheese Powder");
+  assert.equal(validateTextLine("   ", { label: "Category", min: 3, max: 30 }).error, "Category is required.");
+});
+
+test("validateVendorName enforces 3..30 chars and single spacing", () => {
+  assert.equal(validateVendorName("").error, "Vendor is required.");
+  assert.equal(validateVendorName("AB").error, "Vendor must be at least 3 characters.");
+  assert.equal(validateVendorName("A".repeat(31)).error, "Vendor must not exceed 30 characters.");
+  assert.deepEqual(validateVendorName("ABC  Supplier"), { ok: true, value: "ABC Supplier" });
+  assert.equal(validateVendorName("Juan Store").ok, true);
 });
 
 test("isDisposableEmail blocks known throwaway domains", () => {

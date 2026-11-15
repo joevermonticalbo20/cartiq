@@ -14,8 +14,8 @@ import Select from "../components/Select.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { LIVE_EVENTS, useLiveEvent } from "../hooks/useLiveStream.js";
 import { useCatalogVersion } from "../hooks/useCatalogVersion.js";
-import { sanitizeMoneyInput, sanitizeQtyInput, parseMoney, parseQty } from "../utils/format.js";
-import { sanitizeTextInput, validateItemName, countLetters } from "../utils/text.js";
+import { sanitizeMoneyInput, sanitizeQtyInput, parseMoney, parseQty, padMoney } from "../utils/format.js";
+import { sanitizeTextInput, validateItemName, validateTextLine } from "../utils/text.js";
 
 let recipeRowSeq = 1;
 let flavorRowSeq = 1;
@@ -251,6 +251,15 @@ export default function ProductsPage() {
   //   sellingPrice - what the POS charges (stored as `basePrice` on the server)
   // Changing the COST never changes the selling price; changing the markup or
   // the selling price does.
+  // Formatting on blur: the field displays a complete two-decimal currency
+  // value (50 -> "50.00"). Applied to Cost, Markup and Selling Price so every
+  // currency input in the Add/Edit modals behaves identically.
+  const padBlur = (setFn, field) => (e) => {
+    const raw = e.target.value;
+    const padded = padMoney(raw);
+    if (padded !== String(raw)) setFn(field, padded);
+  };
+
   const handleAddPriceChange = (field, val) => {
     setNewProduct(prev => {
       const next = { ...prev, [field]: val };
@@ -369,13 +378,13 @@ export default function ProductsPage() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 84px 78px 32px", gap: "8px" }}>
                 <input
                   type="text"
-                  maxLength={120}
+                  maxLength={30}
                   placeholder="Ingredient item (e.g. Cheese Powder)"
                   list={listId}
-                  title="Must match a stock item name exactly - pick from the list"
+                  title="3-30 characters - must match a stock item name exactly, pick from the list"
                   value={line.itemName}
                   onChange={(e) =>
-                    updateRecipeLineFlat(setLines, line.key, { itemName: sanitizeTextInput(e.target.value, 120) })
+                    updateRecipeLineFlat(setLines, line.key, { itemName: sanitizeTextInput(e.target.value, 30) })
                   }
                 />
                 <input
@@ -435,17 +444,16 @@ export default function ProductsPage() {
       itemNames.find((n) => n.name.toLowerCase() === String(name ?? "").trim().toLowerCase())?.unit ?? "";
 
     for (const r of lines) {
-      const itemName = String(r.itemName ?? "").trim();
+      const itemNameRaw = String(r.itemName ?? "").trim();
       const rawAmount = parseQty(String(r.amount ?? ""));
 
-      if (!itemName && rawAmount === null) continue;
+      if (!itemNameRaw && rawAmount === null) continue;
 
-      if (!itemName || itemName.length > 120) {
-        return { ok: false, error: "Recipe lines need an item name (max 120 characters)." };
+      const itemCheck = validateTextLine(itemNameRaw, { label: "Recipe item", min: 3, max: 30 });
+      if (!itemCheck.ok) {
+        return { ok: false, error: itemCheck.error };
       }
-      if (countLetters(itemName) < 2) {
-        return { ok: false, error: `Recipe ingredient "${itemName}" needs at least 2 letters.` };
-      }
+      const itemName = itemCheck.value;
       if (rawAmount === null || rawAmount <= 0) {
         return { ok: false, error: `Recipe line for "${itemName}" needs an amount above 0.` };
       }
@@ -481,12 +489,13 @@ export default function ProductsPage() {
       return;
     }
 
-    const cat = newProduct.category.trim();
-    if (cat && countLetters(cat) < 2) {
-      setAddError("Category needs at least 2 letters.");
+    const cat = String(newProduct.category ?? "").trim();
+    const catCheck = cat ? validateTextLine(cat, { label: "Category", min: 3, max: 30 }) : null;
+    if (catCheck && !catCheck.ok) {
+      setAddError(catCheck.error);
       return;
     }
-    const finalCategory = cat || "Fries";
+    const finalCategory = catCheck?.value || "Fries";
 
     if (newProduct.cost !== "" && parseMoney(newProduct.cost) === null) {
       setAddError("Cost must be a valid number.");
@@ -521,12 +530,9 @@ export default function ProductsPage() {
       const hasAnyValue = flavorName || (row.recipeRows ?? []).length > 0;
       if (!hasAnyValue) continue;
 
-      if (flavorName.length > 60) {
-        setAddError("Each flavor needs a name (max 60 characters).");
-        return;
-      }
-      if (countLetters(flavorName) < 2) {
-        setAddError(`Flavor "${flavorName}" needs at least 2 letters.`);
+      const flavorCheck = validateTextLine(flavorName, { label: "Flavor name", min: 3, max: 20 });
+      if (!flavorCheck.ok) {
+        setAddError(flavorCheck.error);
         return;
       }
       
@@ -542,7 +548,7 @@ export default function ProductsPage() {
         setAddError(`${flavorName}: ${flavorRecipes.error}`);
         return;
       }
-      checkedFlavors.push({ name: flavorName, recipes: flavorRecipes.recipes });
+      checkedFlavors.push({ name: flavorCheck.value, recipes: flavorRecipes.recipes });
     }
 
     if (checkedFlavors.length > 20) {
@@ -605,12 +611,13 @@ export default function ProductsPage() {
     e.preventDefault();
     setEditError("");
 
-    const cat = editing.category.trim();
-    if (cat && countLetters(cat) < 2) {
-      setEditError("Category needs at least 2 letters.");
+    const cat = String(editing.category ?? "").trim();
+    const catCheck = cat ? validateTextLine(cat, { label: "Category", min: 3, max: 30 }) : null;
+    if (catCheck && !catCheck.ok) {
+      setEditError(catCheck.error);
       return;
     }
-    const finalCategory = cat || "Fries";
+    const finalCategory = catCheck?.value || "Fries";
 
     if (editing.cost !== "" && editing.cost !== undefined && parseMoney(editing.cost) === null) {
       setEditError("Cost must be a valid number.");
@@ -665,28 +672,26 @@ export default function ProductsPage() {
       const hasAnyValue = flavorName || (row.recipeRows ?? []).length > 0;
       if (!hasAnyValue) continue;
 
-      if (flavorName.length > 60) {
-        setEditError("Each flavor needs a name (max 60 characters).");
+      const flavorCheck = validateTextLine(flavorName, { label: "Flavor name", min: 3, max: 20 });
+      if (!flavorCheck.ok) {
+        setEditError(flavorCheck.error);
         return;
       }
-      if (countLetters(flavorName) < 2) {
-        setEditError(`Flavor "${flavorName}" needs at least 2 letters.`);
-        return;
-      }
-      
-      const flavorKey = flavorName.toLowerCase();
+      const cleanFlavorName = flavorCheck.value;
+
+      const flavorKey = cleanFlavorName.toLowerCase();
       if (seenFlavors.has(flavorKey)) {
-        setEditError(`Flavor "${flavorName}" is listed more than once.`);
+        setEditError(`Flavor "${cleanFlavorName}" is listed more than once.`);
         return;
       }
       seenFlavors.add(flavorKey);
       
       const flavorRecipes = checkFlatRecipes(row.recipeRows ?? []);
       if (!flavorRecipes.ok) {
-        setEditError(`${flavorName}: ${flavorRecipes.error}`);
+        setEditError(`${cleanFlavorName}: ${flavorRecipes.error}`);
         return;
       }
-      checkedFlavors.push({ name: flavorName, recipes: flavorRecipes.recipes, _baseline: row._baseline ?? [] });
+      checkedFlavors.push({ name: cleanFlavorName, recipes: flavorRecipes.recipes, _baseline: row._baseline ?? [] });
     }
 
     if (checkedFlavors.length > 20) {
@@ -1305,9 +1310,11 @@ export default function ProductsPage() {
                     Category
                     <input
                       type="text"
-                      maxLength={60}
+                      maxLength={30}
+                      placeholder="e.g. Fries"
+                      title="3-30 characters, single spaces only"
                       value={newProduct.category}
-                      onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })}
+                      onChange={(e) => setNewProduct({ ...newProduct, category: sanitizeTextInput(e.target.value, 30) })}
                     />
                   </label>
                 </div>
@@ -1339,6 +1346,7 @@ export default function ProductsPage() {
                       title="What the item costs the stall. Leave empty if unknown."
                       value={newProduct.cost ?? ""}
                       onChange={(e) => handleAddPriceChange("cost", sanitizeMoneyInput(e.target.value))}
+                      onBlur={padBlur(handleAddPriceChange, "cost")}
                     />
                   </label>
                   <label className="field">
@@ -1351,6 +1359,7 @@ export default function ProductsPage() {
                       placeholder="0.00"
                       value={newProduct.markupPrice}
                       onChange={(e) => handleAddPriceChange("markupPrice", sanitizeMoneyInput(e.target.value))}
+                      onBlur={padBlur(handleAddPriceChange, "markupPrice")}
                     />
                   </label>
                   <label className="field product-modal-selling-price">
@@ -1364,6 +1373,7 @@ export default function ProductsPage() {
                       placeholder="0.00"
                       value={newProduct.sellingPrice}
                       onChange={(e) => handleAddPriceChange("sellingPrice", sanitizeMoneyInput(e.target.value))}
+                      onBlur={padBlur(handleAddPriceChange, "sellingPrice")}
                     />
                   </label>
                 </div>
@@ -1402,12 +1412,13 @@ export default function ProductsPage() {
                             Flavor name
                             <input
                               type="text"
-                              maxLength={60}
+                              maxLength={20}
                               placeholder="e.g. Cheese"
+                              title="3-20 characters, single spaces only"
                               value={row.name}
                               onChange={(e) => setAddFlavorRows((prev) => prev.map((item) =>
                                 item.key === row.key
-                                  ? { ...item, name: sanitizeTextInput(e.target.value, 60) }
+                                  ? { ...item, name: sanitizeTextInput(e.target.value, 20) }
                                   : item
                               ))}
                             />
@@ -1524,9 +1535,11 @@ export default function ProductsPage() {
                       Category
                       <input
                         type="text"
-                        maxLength={60}
+                        maxLength={30}
+                        placeholder="e.g. Fries"
+                        title="3-30 characters, single spaces only"
                         value={editing?.category || ""}
-                        onChange={(e) => setEditing({ ...editing, category: e.target.value })}
+                        onChange={(e) => setEditing({ ...editing, category: sanitizeTextInput(e.target.value, 30) })}
                       />
                     </label>
                   </div>
@@ -1558,6 +1571,7 @@ export default function ProductsPage() {
                       title="What the item costs the stall. Leave empty if unknown."
                       value={editing?.cost ?? ""}
                       onChange={(e) => handleEditPriceChange("cost", sanitizeMoneyInput(e.target.value))}
+                      onBlur={padBlur(handleEditPriceChange, "cost")}
                       autoFocus
                     />
                   </label>
@@ -1570,6 +1584,7 @@ export default function ProductsPage() {
                       step="0.01"
                       value={editing?.markupPrice ?? ""}
                       onChange={(e) => handleEditPriceChange("markupPrice", sanitizeMoneyInput(e.target.value))}
+                      onBlur={padBlur(handleEditPriceChange, "markupPrice")}
                     />
                   </label>
                   <label className="field product-modal-selling-price">
@@ -1582,6 +1597,7 @@ export default function ProductsPage() {
                       required
                       value={editing?.sellingPrice ?? ""}
                       onChange={(e) => handleEditPriceChange("sellingPrice", sanitizeMoneyInput(e.target.value))}
+                      onBlur={padBlur(handleEditPriceChange, "sellingPrice")}
                     />
                   </label>
                 </div>
@@ -1613,14 +1629,15 @@ export default function ProductsPage() {
                             Flavor name
                             <input
                               type="text"
-                              maxLength={60}
+                              maxLength={20}
                               placeholder="e.g. Cheese"
+                              title="3-20 characters, single spaces only"
                               value={row.name}
                               onChange={(e) =>
                                 setEditing((prev) => ({
                                   ...prev,
                                   flavorRows: prev.flavorRows.map((item) =>
-                                    item.key === row.key ? { ...item, name: sanitizeTextInput(e.target.value, 60) } : item
+                                    item.key === row.key ? { ...item, name: sanitizeTextInput(e.target.value, 20) } : item
                                   ),
                                 }))
                               }

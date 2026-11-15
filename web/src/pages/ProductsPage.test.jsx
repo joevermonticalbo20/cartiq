@@ -10,6 +10,7 @@ vi.mock("../api.js", () => ({
 }));
 
 import api from "../api.js";
+import { __resetLiveData } from "../state/liveData.js";
 import ProductsPage from "./ProductsPage.jsx";
 
 function renderPage() {
@@ -664,5 +665,130 @@ describe("ProductsPage best sellers + flat catalog", () => {
     await vi.waitFor(() =>
       expect(api.patch).toHaveBeenCalledWith("/products/11", { isBestSeller: false })
     );
+  });
+});
+
+describe("Add/Edit Product field validation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetLiveData();
+    api.get.mockImplementation(emptyGet);
+    api.post.mockResolvedValue({ data: { product: { id: 21 } } });
+    api.patch.mockResolvedValue({ data: { product: { id: 11 } } });
+  });
+
+  async function openAdd() {
+    renderPage();
+    await screen.findByText("No products yet");
+    fireEvent.click(screen.getByText("Add product"));
+    expect(await screen.findByText(/ingredients deducted per unit/i)).toBeInTheDocument();
+    return screen.getByText("Add Product").closest(".modal");
+  }
+
+  function inputByLabel(modal, label) {
+    return within(modal).getByText(label).closest("label").querySelector("input");
+  }
+
+  it("rejects a category shorter than 3 characters", async () => {
+    const modal = await openAdd();
+    fireEvent.change(inputByLabel(modal, "Category"), { target: { value: "AB" } });
+    fireEvent.change(screen.getByPlaceholderText("e.g. Nachos"), { target: { value: "Test Fries" } });
+    const prices = within(modal).getAllByPlaceholderText("0.00");
+    fireEvent.change(prices[prices.length - 1], { target: { value: "60" } });
+    fireEvent.click(within(modal).getByRole("button", { name: /Create Product/i }));
+    expect(
+      await within(modal).findByText("Category must be at least 3 characters.")
+    ).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("keeps the cost field showing exactly two decimals after blur", async () => {
+    const modal = await openAdd();
+    const cost = inputByLabel(modal, "Cost");
+    fireEvent.change(cost, { target: { value: "50" } });
+    fireEvent.blur(cost);
+    expect(cost.value).toBe("50.00");
+  });
+
+  it("keeps a one-decimal markup padded to two decimals after blur", async () => {
+    const modal = await openAdd();
+    const markup = inputByLabel(modal, "Markup (Tubo)");
+    fireEvent.change(markup, { target: { value: "75.5" } });
+    fireEvent.blur(markup);
+    expect(markup.value).toBe("75.50");
+  });
+
+  it("does not append decimals to a value that already has two decimals", async () => {
+    const modal = await openAdd();
+    const cost = inputByLabel(modal, "Cost");
+    fireEvent.change(cost, { target: { value: "100.25" } });
+    fireEvent.blur(cost);
+    expect(cost.value).toBe("100.25");
+  });
+
+  it("rejects a flavor name shorter than 3 characters on submit", async () => {
+    const modal = await openAdd();
+    fireEvent.change(screen.getByPlaceholderText("e.g. Nachos"), { target: { value: "Test Fries" } });
+    const prices = within(modal).getAllByPlaceholderText("0.00");
+    fireEvent.change(prices[prices.length - 1], { target: { value: "60" } });
+    fireEvent.click(within(modal).getByRole("button", { name: /Add flavor\/variant/i }));
+    const flavorInput = within(modal).getByPlaceholderText("e.g. Cheese");
+    fireEvent.change(flavorInput, { target: { value: "AB" } });
+    fireEvent.click(within(modal).getByRole("button", { name: /Create Product/i }));
+    expect(
+      await within(modal).findByText("Flavor name must be at least 3 characters.")
+    ).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("rejects a flavor recipe ingredient shorter than 3 characters", async () => {
+    const modal = await openAdd();
+    fireEvent.change(screen.getByPlaceholderText("e.g. Nachos"), { target: { value: "Test Fries" } });
+    const prices = within(modal).getAllByPlaceholderText("0.00");
+    fireEvent.change(prices[prices.length - 1], { target: { value: "60" } });
+    fireEvent.click(within(modal).getByText("+ Recipe line"));
+    const ingredient = within(modal).getByPlaceholderText("Ingredient item (e.g. Cheese Powder)");
+    fireEvent.change(ingredient, { target: { value: "AB" } });
+    fireEvent.change(within(modal).getByPlaceholderText("Qty"), { target: { value: "1" } });
+    fireEvent.click(within(modal).getByRole("button", { name: /Create Product/i }));
+    expect(
+      await within(modal).findByText("Recipe item must be at least 3 characters.")
+    ).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("applies the same Category rules to the Edit Product modal", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/products") {
+        return Promise.resolve({
+          data: {
+            data: [
+              {
+                id: 11,
+                name: "Cheese Fries - Medium",
+                category: "Fries",
+                basePrice: 50,
+                cost: null,
+                isBestSeller: false,
+                flavors: [],
+                recipes: [],
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: { data: [] } });
+    });
+    renderPage();
+    await screen.findByText("Cheese Fries - Medium");
+    fireEvent.click(screen.getByTitle("Edit price and recipe"));
+    const dialog = await screen.findByRole("dialog", { name: /Edit/i });
+    const category = within(dialog).getByText("Category").closest("label").querySelector("input");
+    fireEvent.change(category, { target: { value: "AB" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Save Changes/i }));
+    expect(
+      await within(dialog).findByText("Category must be at least 3 characters.")
+    ).toBeInTheDocument();
+    expect(api.patch).not.toHaveBeenCalled();
   });
 });

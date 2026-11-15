@@ -573,7 +573,15 @@ router.post("/shifts/manual", requireAuth, requireRole("OWNER"), async (req, res
       prisma.location.findUnique({ where: { code: String(locationCode) } }),
     ]);
     if (!user) return res.status(404).json({ error: "Staff not found" });
+    // Owner Settings → Staff Accounts: a deactivated account is not bookable.
+    if (user.active === false) {
+      return res.status(400).json({ error: "Staff account is deactivated." });
+    }
     if (!location) return res.status(404).json({ error: "Location not found" });
+    // Owner Settings → Carts: only an ACTIVE cart can take the shift.
+    if (location.status === "INACTIVE") {
+      return res.status(400).json({ error: "Cart is deactivated. Pick an active cart." });
+    }
     const at = ts ? new Date(ts) : new Date();
     if (!Number.isFinite(at.getTime())) {
       return res.status(400).json({ error: "ts must be a valid date" });
@@ -620,6 +628,10 @@ router.patch("/shifts/:id", requireAuth, requireRole("OWNER"), async (req, res, 
     if (locationCode !== undefined) {
       const location = await prisma.location.findUnique({ where: { code: String(locationCode) } });
       if (!location) return res.status(404).json({ error: "Location not found" });
+      // Owner Settings → Carts: only an ACTIVE cart can take the shift.
+      if (location.status === "INACTIVE") {
+        return res.status(400).json({ error: "Cart is deactivated. Pick an active cart." });
+      }
       data.locationId = location.id;
     }
     if (ts !== undefined) {

@@ -11,6 +11,7 @@ import {
   FULL_NAME_MAX,
   validateFullName,
   validateAccountUsername,
+  validateTextLine,
 } from "./text.js";
 
 describe("sanitizeTextInput", () => {
@@ -41,20 +42,71 @@ describe("countLetters", () => {
 describe("validateVendor", () => {
   it("accepts normal vendors", () => {
     expect(validateVendor("SM Supermarket").ok).toBe(true);
-    expect(validateVendor("7-Eleven #12").ok).toBe(true);
+    expect(validateVendor("Juan Store").ok).toBe(true);
+    expect(validateVendor("ABC Supplier").ok).toBe(true);
   });
 
-  it("rejects empty and letter-less values", () => {
+  it("rejects values shorter than 3 characters", () => {
+    expect(validateVendor("AB").ok).toBe(false);
+    expect(validateVendor("AB").error).toBe("Vendor must be at least 3 characters.");
+    expect(validateVendor("AL").ok).toBe(false);
+    expect(validateVendor("ABC").ok).toBe(true);
+  });
+
+  it("rejects values longer than 30 characters", () => {
+    const over = "ABC" + "Def".repeat(9); // 30 chars
+    expect(validateVendor(over).ok).toBe(true);
+    expect(validateVendor(over + "G").ok).toBe(false);
+    expect(validateVendor(over + "G").error).toBe("Vendor must not exceed 30 characters.");
+  });
+
+  it("rejects empty and whitespace-only values", () => {
     expect(validateVendor("").ok).toBe(false);
     expect(validateVendor("   ").ok).toBe(false);
-    expect(validateVendor("12").ok).toBe(false);
-    expect(validateVendor("A1").ok).toBe(false);
+    expect(validateVendor("").error).toBe("Vendor is required.");
   });
 
-  it("truncates over-40 values to 40 (live cap, still valid)", () => {
-    const r = validateVendor("a".repeat(41));
-    expect(r.ok).toBe(true);
-    expect(r.value).toBe("a".repeat(40));
+  it("collapses runs of spaces to a single space", () => {
+    expect(validateVendor("ABC  Supplier")).toEqual({ ok: true, value: "ABC Supplier" });
+    expect(validateVendor("  Juan   Store  ")).toEqual({ ok: true, value: "Juan Store" });
+  });
+
+  it("accepts single spaces and hyphenated/apostrophe names", () => {
+    expect(validateVendor("Maria's Store").ok).toBe(true);
+    expect(validateVendor("Supplies-R-Us").ok).toBe(true);
+  });
+});
+
+describe("validateTextLine", () => {
+  it("enforces min length with its own message", () => {
+    expect(validateTextLine("AB", { label: "Category", min: 3, max: 30 })).toEqual({
+      ok: false,
+      value: "AB",
+      error: "Category must be at least 3 characters.",
+    });
+  });
+
+  it("enforces max length with its own message", () => {
+    expect(validateTextLine("x".repeat(31), { label: "Flavor name", min: 3, max: 20 })).toEqual({
+      ok: false,
+      value: "x".repeat(31),
+      error: "Flavor name must not exceed 20 characters.",
+    });
+  });
+
+  it("rejects whitespace-only input", () => {
+    expect(validateTextLine("     ", { label: "Recipe item", min: 3, max: 30 })).toEqual({
+      ok: false,
+      value: "",
+      error: "Recipe item is required.",
+    });
+  });
+
+  it("trims and collapses single spaces", () => {
+    expect(validateTextLine("  Cheese   Fries  ", { label: "Category", min: 3, max: 30 })).toEqual({
+      ok: true,
+      value: "Cheese Fries",
+    });
   });
 });
 

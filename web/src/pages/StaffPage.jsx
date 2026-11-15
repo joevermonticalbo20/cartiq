@@ -45,8 +45,11 @@ export default function StaffPage() {
   const { data: cartList } = useLiveList("carts");
   const { data: staffAll } = useLiveList("staff", { enabled: isOwner });
   const locations = Array.isArray(cartList) ? cartList : [];
+  // Deactivated carts disappear from dropdowns. Only ACTIVE carts may be picked here.
+  const activeLocations = locations.filter((l) => l.status !== "INACTIVE");
+  // Only active staff members may be picked in the Manual Log dropdown.
   const staffList = Array.isArray(staffAll)
-    ? staffAll.filter((s) => s.role !== "OWNER")
+    ? staffAll.filter((s) => s.role !== "OWNER" && s.active)
     : [];
 
   // --- NEW STATES FOR MANUAL ENTRY & EDIT ---
@@ -63,6 +66,11 @@ export default function StaffPage() {
   const [tsTouched, setTsTouched] = useState(false);
 
   const [editing, setEditing] = useState(null);
+  // The edit form keeps the INACTIVE cart it was opened with - an in-progress
+  // edit is never stranded. The manual log dropdown itself offers ACTIVE only.
+  const editingLocations = locations.filter(
+    (l) => l.status !== "INACTIVE" || l.code === editing?.locationCode
+  );
   const [editClosing, setEditClosing] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editError, setEditError] = useState("");
@@ -154,6 +162,13 @@ export default function StaffPage() {
       setAddError("Select a cart.");
       return;
     }
+    // The cart may have been deactivated after the modal opened - the list
+    // of active carts is live, so a deactivated cart refuses to submit.
+    const stillActive = activeLocations.some((l) => l.code === newShift.locationCode);
+    if (!stillActive) {
+      setAddError("Cart is deactivated. Pick an active cart.");
+      return;
+    }
     const at = newShift.ts ? new Date(newShift.ts) : null;
     if (!at || !Number.isFinite(at.getTime())) {
       setAddError("Enter a valid date and time.");
@@ -172,7 +187,7 @@ export default function StaffPage() {
       closeAddModal();
       setNewShift({
         staffId: "",
-        locationCode: locations[0]?.code || "",
+        locationCode: activeLocations[0]?.code || "",
         event: "IN",
         ts: toLocalISOString(new Date())
       });
@@ -204,6 +219,20 @@ export default function StaffPage() {
     const at = editing?.ts ? new Date(editing.ts) : null;
     if (!at || !Number.isFinite(at.getTime())) {
       setEditError("Enter a valid date and time.");
+      return;
+    }
+
+    // Compare at minute precision: a datetime-local value has no seconds, so
+    // rounding both sides down keeps a quick open-and-save from looking like
+    // a change just because the original timestamp had seconds.
+    const original = (editing.originalTs ?? "");
+    const sameAt = original &&
+      Math.floor(at.getTime() / 60000) === Math.floor(new Date(original).getTime() / 60000);
+    const originalCode = editing.originalLocationCode ?? "";
+    const originalEvent = editing.originalEvent ?? "";
+    if (sameAt && editing.locationCode === originalCode && editing.event === originalEvent) {
+      toast("No changes made", "info");
+      closeEditModal();
       return;
     }
 
@@ -256,7 +285,7 @@ export default function StaffPage() {
                     setAddError("");
                     setNewShift({
                       staffId: "",
-                      locationCode: locations[0]?.code || "",
+                      locationCode: activeLocations[0]?.code || "",
                       event: "IN",
                       ts: toLocalISOString(new Date())
                     });
@@ -397,7 +426,9 @@ export default function StaffPage() {
               onChange={(val) => setLoc(val)}
               options={[
                 { value: "", label: "All carts" },
-                ...locations.map((l) => ({ value: l.code, label: l.code }))
+                ...activeLocations.map((l) => ({ value: l.code, label: l.code })),
+                // A cart the shift history was recorded for keeps its filter value visible.
+                ...(loc && !activeLocations.some((l) => l.code === loc) ? [{ value: loc, label: loc }] : []),
               ]}
               placeholder="All carts"
             />
@@ -493,7 +524,17 @@ export default function StaffPage() {
                             <button
                               className="ghost small-btn"
                               onClick={() => {
-                                setEditing({ ...s, ts: toLocalISOString(new Date(s.ts)), locationCode: s.location?.code ?? "" });
+                                const at = new Date(s.ts);
+                                setEditing({
+                                  ...s,
+                                  ts: toLocalISOString(at),
+                                  locationCode: s.location?.code ?? "",
+                                  // Snapshot of what the row was when the modal opened -
+                                  // the save path uses it to detect "nothing changed".
+                                  originalTs: at.toISOString(),
+                                  originalLocationCode: s.location?.code ?? "",
+                                  originalEvent: s.event,
+                                });
                                 setEditError("");
                               }}
                               title="Edit Log"
@@ -542,7 +583,7 @@ export default function StaffPage() {
                     <Select
                       value={newShift.locationCode}
                       onChange={(val) => setNewShift({ ...newShift, locationCode: val })}
-                      options={locations.map((l) => ({ value: l.code, label: l.code }))}
+                      options={editingLocations.map((l) => ({ value: l.code, label: l.code }))}
                     />
                   </label>
                   <label className="field">
@@ -595,7 +636,7 @@ export default function StaffPage() {
                     <Select
                       value={editing?.locationCode}
                       onChange={(val) => setEditing({ ...editing, locationCode: val })}
-                      options={locations.map((l) => ({ value: l.code, label: l.code }))}
+                      options={editingLocations.map((l) => ({ value: l.code, label: l.code }))}
                     />
                   </label>
                   <label className="field">

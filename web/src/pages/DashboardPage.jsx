@@ -190,8 +190,19 @@ export default function DashboardPage() {
   const safeOnShift = Array.isArray(onShift) ? onShift : [];
   const safeLatestSales = Array.isArray(latestSales) ? latestSales : [];
 
-  const activeInventory = cartFilter ? safeInventory.filter((l) => l.code === cartFilter) : safeInventory;
-  const activeOnShift = cartFilter ? safeOnShift.filter((s) => s.location_code === cartFilter) : safeOnShift;
+  // Deactivated carts disappear from the dashboard. Carts marked INACTIVE
+  // arrive in the shared list too, so drop them here. If the cart list
+  // hasn't loaded yet, show everything (it refreshes live).
+  const inactiveCartsKnown = locations.length > 0;
+  const isActiveCart = (code) =>
+    !inactiveCartsKnown || locations.some((l) => l.code === code && l.status !== "INACTIVE");
+  const activeInventoryBase = safeInventory.filter((l) => isActiveCart(l.code));
+  const activeInventory = cartFilter && activeInventoryBase.some((l) => l.code === cartFilter)
+    ? activeInventoryBase.filter((l) => l.code === cartFilter)
+    : activeInventoryBase;
+  const activeOnShift = cartFilter
+    ? safeOnShift.filter((s) => s.location_code === cartFilter)
+    : safeOnShift.filter((s) => isActiveCart(s.location_code));
 
   const lowCount = activeInventory.reduce((sum, loc) => sum + (loc.items ?? []).filter((i) => i.status !== "ok").length, 0);
   const criticalCount = activeInventory.reduce((sum, loc) => sum + (loc.items ?? []).filter((i) => i.status === "critical").length, 0);
@@ -220,7 +231,10 @@ export default function DashboardPage() {
 
   const locationOptions = [
     { value: "", label: "All carts" },
-    ...locations.map((l) => ({ value: l.code, label: l.code }))
+    // Keep the currently selected cart in the list even if it was just
+    // deactivated - removing it while selected would silently reset the view.
+    ...locations.filter((l) => l.status !== "INACTIVE" || l.code === cartFilter)
+      .map((l) => ({ value: l.code, label: l.code }))
   ];
 
   return (

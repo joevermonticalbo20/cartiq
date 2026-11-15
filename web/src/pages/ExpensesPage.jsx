@@ -3,7 +3,6 @@ import { useOutletContext } from "react-router-dom";
 import { Trash2, ReceiptText, X, Plus, Edit2, Wallet } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
-import { useLiveList } from "../state/liveData.js";
 import Badge from "../components/Badge.jsx";
 import { usePagedData } from "../hooks/usePagedData.js";
 import { useLiveEvent } from "../hooks/useLiveStream.js";
@@ -13,6 +12,7 @@ import ErrorBox from "../components/ErrorBox.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
+import { useLiveList, activeCarts } from "../state/liveData.js";
 import { useToast } from "../components/Toast.jsx";
 import Select from "../components/Select.jsx";
 import { sanitizeMoneyInput, parseMoney } from "../utils/format.js";
@@ -169,6 +169,15 @@ export default function ExpensesPage() {
       return;
     }
 
+    // Only an ACTIVE cart may take the expense - Owner Settings → Carts.
+    if (newExpense.locationCode) {
+      const picked = locations.find((l) => l.code === newExpense.locationCode);
+      if (!picked || picked.status === "INACTIVE") {
+        setAddError("Cart is deactivated and cannot be assigned expenses.");
+        return;
+      }
+    }
+
     const note = validateNote(newExpense.note);
     if (!note.ok) {
       setAddError(note.error);
@@ -282,12 +291,18 @@ export default function ExpensesPage() {
   const safeLocations = Array.isArray(locations) ? locations : [];
   const locationOptions = [
     { value: "", label: "All carts" },
-    ...safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }))
+    // Deactivated carts disappear from the filter. The cart a filter is
+    // already set to stays visible until the filter is cleared.
+    ...activeCarts(safeLocations, code).map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }))
   ];
 
+  // Add/Edit form dropdowns offer ACTIVE carts only - a deactivated cart is
+  // never assignable. If the form currently holds one, the save-side check
+  // below refuses with a message instead of silently posting it.
+  const formActiveLocations = locations.filter((l) => l.status !== "INACTIVE");
   const formLocationOptions = [
     { value: "", label: "General / No Cart Assigned" },
-    ...locations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }))
+    ...formActiveLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }))
   ];
 
   const categoryOptions = [
@@ -539,7 +554,7 @@ export default function ExpensesPage() {
                 Record an expense directly if the receipt scanner isn&apos;t available.
               </p>
               
-              <form onSubmit={handleAddExpense} className="flex flex-col gap-4">
+              <form onSubmit={handleAddExpense} noValidate className="flex flex-col gap-4">
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
                   <label className="field">
                     Date
@@ -572,10 +587,10 @@ export default function ExpensesPage() {
                   <input
                     type="text"
                     required
-                    minLength={2}
-                    maxLength={40}
+                    minLength={3}
+                    maxLength={30}
                     placeholder="e.g. SM Supermarket"
-                    title="Min 2 letters, max 40 characters, single spaces only"
+                    title="3-30 characters, single spaces only, leading and trailing spaces are trimmed"
                     value={newExpense.vendor}
                     onChange={(e) => setNewExpense({ ...newExpense, vendor: sanitizeTextInput(e.target.value) })}
                   />
@@ -666,9 +681,9 @@ export default function ExpensesPage() {
                   <input
                     type="text"
                     required
-                    minLength={2}
-                    maxLength={40}
-                    title="Min 2 letters, max 40 characters, single spaces only"
+                    minLength={3}
+                    maxLength={30}
+                    title="3-30 characters, single spaces only, leading and trailing spaces are trimmed"
                     value={editing?.vendor || ""}
                     onChange={(e) => setEditing({ ...editing, vendor: sanitizeTextInput(e.target.value) })}
                   />

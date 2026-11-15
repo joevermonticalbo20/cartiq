@@ -1015,30 +1015,36 @@ export default function InventoryPage() {
                   <label className="field">
                     Initial Stock
                     <input
-                      type="number"
-                      min="0"
-                      max="99999.99"
-                      step="0.01"
+                      type="text"
+                      inputMode="decimal"
+                      maxLength={8}
                       required
                       placeholder="e.g. 10"
-                      title="Max 5 whole digits, up to 2 decimals"
+                      title="Numbers only: up to 5 whole digits and 2 decimals (e.g. 25.5)"
                       value={newItem.stock}
                       onChange={(e) => setNewItem({ ...newItem, stock: sanitizeQtyInput(e.target.value) })}
+                      onPaste={(e) => {
+                        const pasted = e.clipboardData?.getData("text") ?? "";
+                        if (!/^\d*\.?\d{0,2}$/.test(pasted.trim())) e.preventDefault();
+                      }}
                     />
                   </label>
-                  
+                   
                   <label className="field">
                     Low Threshold
                     <input
-                      type="number"
-                      min="0"
-                      max="99999.99"
-                      step="0.01"
+                      type="text"
+                      inputMode="decimal"
+                      maxLength={8}
                       required
                       placeholder="e.g. 2"
-                      title="Max 5 whole digits, up to 2 decimals"
+                      title="Numbers only: up to 5 whole digits and 2 decimals (e.g. 25.5)"
                       value={newItem.threshold}
                       onChange={(e) => setNewItem({ ...newItem, threshold: sanitizeQtyInput(e.target.value) })}
+                      onPaste={(e) => {
+                        const pasted = e.clipboardData?.getData("text") ?? "";
+                        if (!/^\d*\.?\d{0,2}$/.test(pasted.trim())) e.preventDefault();
+                      }}
                     />
                   </label>
                 </div>

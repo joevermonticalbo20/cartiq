@@ -3985,7 +3985,7 @@ function validPrice(v) {
 }
 
 function validRecipeRow(r) {
-  const checked = validateNameEdge(r?.itemName, "Recipe item", 120);
+  const checked = validateTextLineEdge(r?.itemName, { label: "Recipe item", min: 3, max: 30 });
   if (!checked.ok) return null;
   const amount = Number(r?.amountPerUnit);
   if (!Number.isFinite(amount) || amount <= 0) return null;
@@ -4010,7 +4010,7 @@ async function resolveFlavorEntries(entries) {
       id = Number(rawId);
       if (!byId.has(id)) return { error: "One or more flavors not found" };
     } else {
-      const nameCheck = validateNameEdge(asObj ? (asObj.name ?? "") : (e ?? ""), "Flavor name", 60);
+      const nameCheck = validateTextLineEdge(asObj ? (asObj.name ?? "") : (e ?? ""), { label: "Flavor name", min: 3, max: 20 });
       if (!nameCheck.ok) return { error: nameCheck.error };
       const name = nameCheck.value;
       const hit = byName.get(name.toLowerCase());
@@ -4243,6 +4243,16 @@ async function handleCreateProduct(req) {
   if (!validProductName(name)) {
     return { status: 400, body: { error: "name needs at least 2 letters (max 120 characters)" } };
   }
+  // Category: min 3, max 30 chars, single spaces. Omitted/empty keeps the
+  // default "Fries" - but a provided value has to follow the Product rules.
+  let categoryValue;
+  if (category !== undefined && String(category).trim() !== "") {
+    const categoryCheck = validateTextLineEdge(category, { label: "Category", min: 3, max: 30 });
+    if (!categoryCheck.ok) {
+      return { status: 400, body: { error: categoryCheck.error } };
+    }
+    categoryValue = categoryCheck.value;
+  }
   const price = validPrice(basePrice);
   if (price === null) {
     return { status: 400, body: { error: "basePrice must be a positive number" } };
@@ -4317,7 +4327,7 @@ async function handleCreateProduct(req) {
   const doc = {
     id: newIds.products[0],
     name: productName,
-    category: category ? String(category).slice(0, 60) : "Fries",
+    category: categoryValue ?? "Fries",
     basePrice: price,
     ...(costValue !== null ? { cost: costValue } : {}),
     ...(ids.length ? { flavorIds: ids } : {}),
@@ -4383,7 +4393,19 @@ async function handlePatchProduct(req, id) {
   const existing = await fsGet("products", id);
   if (!existing) return { status: 404, body: { error: "Product not found" } };
   const data = {};
-  if (category !== undefined) data.category = String(category).slice(0, 60) || "Fries";
+  if (category !== undefined) {
+    // Empty category clears back to the default; a provided value has to
+    // follow the same rules as Add Product (min 3, max 30, single spaces).
+    if (String(category).trim() === "") {
+      data.category = "Fries";
+    } else {
+      const categoryCheck = validateTextLineEdge(category, { label: "Category", min: 3, max: 30 });
+      if (!categoryCheck.ok) {
+        return { status: 400, body: { error: categoryCheck.error } };
+      }
+      data.category = categoryCheck.value;
+    }
+  }
   // Archive switch: active=false hides the product from the POS catalog
   // but keeps history/reports intact. Restore with active=true.
   if (active !== undefined) {
@@ -4743,7 +4765,7 @@ async function handleListFlavors() {
 
 async function handleCreateFlavor(req) {
   const body = await req.json().catch(() => null);
-  const nameCheck = validateNameEdge(body?.name, "Flavor name", 60);
+  const nameCheck = validateTextLineEdge(body?.name, { label: "Flavor name", min: 3, max: 20 });
   if (!nameCheck.ok) {
     return { status: 400, body: { error: nameCheck.error } };
   }
@@ -4774,7 +4796,7 @@ async function handleCreateFlavor(req) {
 
 async function handleRenameFlavor(req, id) {
   const body = await req.json().catch(() => null);
-  const nameCheck = validateNameEdge(body?.name, "Flavor name", 60);
+  const nameCheck = validateTextLineEdge(body?.name, { label: "Flavor name", min: 3, max: 20 });
   if (!nameCheck.ok) {
     return { status: 400, body: { error: nameCheck.error } };
   }
@@ -5698,7 +5720,15 @@ async function handleManualShift(req) {
     fsQueryEqual("locations", "code", String(locationCode), 1).then((r) => r[0] || null),
   ]);
   if (!user) return { status: 404, body: { error: "Staff not found" } };
+  // Owner Settings → Staff Accounts: a deactivated account is not bookable.
+  if (user.active === false) {
+    return { status: 400, body: { error: "Staff account is deactivated." } };
+  }
   if (!location) return { status: 404, body: { error: "Location not found" } };
+  // Owner Settings → Carts: only an ACTIVE cart can take the shift.
+  if (location.status === "INACTIVE") {
+    return { status: 400, body: { error: "Cart is deactivated. Pick an active cart." } };
+  }
   const at = ts ? new Date(ts) : new Date();
   if (!Number.isFinite(at.getTime())) {
     return { status: 400, body: { error: "ts must be a valid date" } };
@@ -5743,6 +5773,10 @@ async function handlePatchShift(req, id) {
   if (locationCode !== undefined) {
     const location = await fsQueryEqual("locations", "code", String(locationCode), 1).then((r) => r[0]);
     if (!location) return { status: 404, body: { error: "Location not found" } };
+    // Owner Settings → Carts: only an ACTIVE cart can take the shift.
+    if (location.status === "INACTIVE") {
+      return { status: 400, body: { error: "Cart is deactivated. Pick an active cart." } };
+    }
     data.locationId = location.id;
   }
   if (ts !== undefined) {
@@ -5902,7 +5936,7 @@ function manilaMonthRange(month) {
 async function handleCreateExpense(req, user) {
   const body = await req.json().catch(() => null);
   const { vendor, locationCode, amount, date, source, note, lines, category } = body || {};
-  const vendorCheck = validateNameEdge(vendor, "Vendor", 40);
+  const vendorCheck = validateVendorNameEdge(vendor);
   if (!vendorCheck.ok) {
     return { status: 400, body: { error: vendorCheck.error } };
   }
@@ -5922,6 +5956,10 @@ async function handleCreateExpense(req, user) {
   if (locationCode) {
     const loc = await fsQueryEqual("locations", "code", String(locationCode), 1).then((r) => r[0]);
     if (!loc) return { status: 404, body: { error: "Location not found" } };
+    // Owner Settings → Carts: only an ACTIVE cart can take values.
+    if (loc.status === "INACTIVE") {
+      return { status: 400, body: { error: "Cart is deactivated and cannot be assigned expenses." } };
+    }
     const scopeErr = checkOwnLocation(user, loc.id);
     if (scopeErr) return { status: scopeErr.status, body: scopeErr.body };
     locationId = loc.id;
@@ -6037,7 +6075,7 @@ async function handlePatchExpense(req, id) {
   const { vendor, amount, date, note, category } = body || {};
   const data = {};
   if (vendor !== undefined) {
-    const vendorCheck = validateNameEdge(vendor, "Vendor", 40);
+    const vendorCheck = validateVendorNameEdge(vendor);
     if (!vendorCheck.ok) {
       return { status: 400, body: { error: vendorCheck.error } };
     }
@@ -7867,6 +7905,26 @@ function cleanNameEdge(raw, max = 100) {
   return s;
 }
 const _LETTER_RE = /\p{L}/gu;
+// Single-line text fields shared by several modules (Category, Flavor name,
+// recipe items, Vendor). One rule fits them all: required; whitespace
+// collapsed to single spaces; trimmed; min..max characters; whitespace-only
+// input refused. Mirrors api/src/services/validation.js — keep both in sync.
+function validateTextLineEdge(raw, { label, min, max }) {
+  const value = String(raw ?? "").replace(/\s+/g, " ").trim();
+  if (!value) return { ok: false, value, error: `${label} is required.` };
+  if (value.length < min) {
+    return { ok: false, value, error: `${label} must be at least ${min} characters.` };
+  }
+  if (value.length > max) {
+    return { ok: false, value, error: `${label} must not exceed ${max} characters.` };
+  }
+  return { ok: true, value };
+}
+
+function validateVendorNameEdge(raw) {
+  return validateTextLineEdge(raw, { label: "Vendor", min: 3, max: 30 });
+}
+
 function validateNameEdge(raw, label = "Name", max = 100) {
   const value = cleanNameEdge(raw, max);
   if (!value) return { ok: false, value, error: `${label} is required.` };

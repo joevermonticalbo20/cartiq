@@ -1,12 +1,28 @@
 // Shared text-input rules for vendor/note/item-name fields (single source
 // so web and mobile validate identically):
-//  - vendor/note: 2-40 chars; item names: 2-30 chars
-//  - at least 2 LETTER characters (Unicode-aware; digits/symbols don't count
-//    but are allowed)
+//  - vendor: 3-30 chars; note: 2-40 chars; item names: 2-30 chars
+//  - text-line fields (category, flavor name, recipe item): declared per call
 //  - single spaces only: runs collapse to one, ends trimmed
 export const TEXT_MIN_LETTERS = 2;
 export const TEXT_MAX = 40;
 export const ITEM_NAME_MAX = 30;
+export const VENDOR_MIN = 3;
+export const VENDOR_MAX = 30;
+
+// Strict check for a single-line text field (Category, Flavor name, recipe
+// item names - the owner's 3/20/30 char limits). Collapses whitespace runs,
+// trims, and rejects whitespace-only input. Returns { ok, value, error }.
+export function validateTextLine(raw, { label, min, max }) {
+  const value = String(raw ?? "").replace(/\s+/g, " ").trim();
+  if (!value) return { ok: false, value, error: `${label} is required.` };
+  if (value.length < min) {
+    return { ok: false, value, error: `${label} must be at least ${min} characters.` };
+  }
+  if (value.length > max) {
+    return { ok: false, value, error: `${label} must not exceed ${max} characters.` };
+  }
+  return { ok: true, value };
+}
 
 export function countLetters(s) {
   const m = String(s ?? "").match(/\p{L}/gu);
@@ -23,16 +39,10 @@ export function sanitizeTextInput(raw, max = TEXT_MAX) {
 }
 
 // Strict checks used on submit. Returns { ok, value } (value trimmed).
+// Vendor rule (Add Expense): 3-30 characters, single spaces, leading and
+// trailing spaces are ignored, whitespace-only input is refused.
 export function validateVendor(raw) {
-  const value = sanitizeTextInput(raw).trim();
-  if (!value) return { ok: false, value, error: "Vendor is required (min 2 letters, max 40 characters)." };
-  if (value.length > TEXT_MAX) {
-    return { ok: false, value, error: "Vendor must be at most 40 characters." };
-  }
-  if (countLetters(value) < TEXT_MIN_LETTERS) {
-    return { ok: false, value, error: "Vendor needs at least 2 letters (max 40 characters)." };
-  }
-  return { ok: true, value };
+  return validateTextLine(raw, { label: "Vendor", min: VENDOR_MIN, max: VENDOR_MAX });
 }
 
 export function validateNote(raw) {

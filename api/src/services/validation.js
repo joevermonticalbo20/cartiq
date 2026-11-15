@@ -94,6 +94,34 @@ export async function validateRecoveryEmail(raw) {
 /* ------------------------------------------------------------------ */
 
 const CONTROL_RE = /[\u0000-\u001F\u007F]/g;
+
+// ---------------------------------------------------------------------------
+// Single-line text fields shared by several modules (Category, Flavor name,
+// recipe item names, Vendor). One rule fits them all:
+//
+//   required; whitespace collapsed to single spaces; trimmed;
+//   min .. max characters; whitespace-only input refused.
+//
+// These are deliberately STRICTER than the old 2-letter free-text rules,
+// because the owner's spec demands them. Returns { ok, value, error }.
+// ---------------------------------------------------------------------------
+export function validateTextLine(raw, { label, min, max }) {
+  let value = String(raw ?? "").replace(CONTROL_RE, "").replace(/\s+/g, " ").trim();
+  if (!value) return { ok: false, value, error: `${label} is required.` };
+  if (value.length < min) {
+    return { ok: false, value, error: `${label} must be at least ${min} characters.` };
+  }
+  if (value.length > max) {
+    return { ok: false, value, error: `${label} must not exceed ${max} characters.` };
+  }
+  return { ok: true, value };
+}
+
+/** Add Expense – Vendor name. Returns { ok, value, error }. */
+export function validateVendorName(raw) {
+  return validateTextLine(raw, { label: "Vendor", min: 3, max: 30 });
+}
+
 // Allow letters (any script), numbers, spaces, hyphen, apostrophe, period,
 // ampersand, hash, parentheses, colon, plus, asterisk, and slash. Everything
 // else (control chars, HTML markup, emoji) is rejected so names cannot be

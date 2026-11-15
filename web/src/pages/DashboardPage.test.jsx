@@ -66,6 +66,60 @@ function mockApiAllOk() {
   });
 }
 
+describe("DashboardPage Cart Status", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetLiveData();
+  });
+
+  it("hides a deactivated cart from the Cart Status section", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/locations") {
+        return Promise.resolve({
+          data: {
+            data: [
+              { id: 1, code: "CART-01", name: "Main Cart", status: "ACTIVE", itemCount: 2 },
+              { id: 2, code: "CART-02", name: "Old Cart", status: "INACTIVE", itemCount: 3 },
+            ],
+          },
+        });
+      }
+      if (url.includes("daysAgo")) {
+        return Promise.resolve({ data: { total_sales: 1000, orders: 30 } });
+      }
+      if (url.startsWith("/reports/daily")) {
+        return Promise.resolve({ data: { total_sales: 1250, orders: 34 } });
+      }
+      if (url.startsWith("/inventory")) {
+        return Promise.resolve({
+          data: {
+            locations: [
+              { id: 1, code: "CART-01", name: "Main Cart", items: [] },
+              { id: 2, code: "CART-02", name: "Old Cart", items: [] },
+            ],
+          },
+        });
+      }
+      if (url.startsWith("/staff/on-shift")) {
+        return Promise.resolve({ data: { on_shift: [] } });
+      }
+      if (url.startsWith("/orders")) {
+        return Promise.resolve({ data: { data: [] } });
+      }
+      if (url.includes("trends")) {
+        return Promise.resolve({ data: { by_weekday: [] } });
+      }
+      return Promise.resolve({ data: null });
+    });
+    renderPage();
+    // Active cart appears
+    expect(await screen.findByText("CART-01")).toBeInTheDocument();
+    // Deactivated cart never shows in the Cart Status section
+    const section = screen.getByText("Cart status").closest("section");
+    expect(within(section).queryByText("CART-02")).toBeNull();
+  });
+});
+
 describe("DashboardPage partial failure", () => {
   beforeEach(() => {
     vi.clearAllMocks();
