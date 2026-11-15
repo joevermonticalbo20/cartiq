@@ -736,6 +736,7 @@ router.delete("/my-rfid", requireAuth, async (req, res, next) => {
       // The RFID_UNBOUND alert above is this event's record - don't file it twice.
       storeAlert: false,
     });
+    await announceChange("staff", { id: user.id, username: user.username }).catch(() => {});
     emit("rfid:unbound", {
       userId: user.id,
       name: user.name,

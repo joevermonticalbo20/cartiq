@@ -5443,6 +5443,11 @@ async function bindClaimedTag({ rawUid, locationId }) {
       // The RFID_BOUND alert above is this event's record - don't file it twice.
       storeAlert: false,
     }).catch(() => {});
+    // Tell every phone the account changed (the one whose card it is, and
+    // anyone else's app): a silent DATA_CHANGED with kind "staff" makes each
+    // app re-read its profile, so the staff phone shows the card at once -
+    // no manual refresh.
+    await announceChange("staff", { id: target.id, username: target.username, rfidUid }).catch(() => {});
   } else {
     // Card already on this account: nothing changed, so nothing is announced.
     // The claim is NOT resolved here: the tap route resolves it once the shift
@@ -9754,6 +9759,9 @@ async function handleMyRfidUnbind(_req, origin, user) {
     // The RFID_UNBOUND alert above is this event's record - don't file it twice.
     storeAlert: false,
   }).catch(() => {});
+  // The account changed: a silent DATA_CHANGED with kind "staff" makes the
+  // owner's and the staff's apps re-read the profile (the card is gone).
+  await announceChange("staff", { id: Number(user.id), username: user.username }).catch(() => {});
   return jsonRes(origin, { rfidUid: null, removed: true });
 }
 

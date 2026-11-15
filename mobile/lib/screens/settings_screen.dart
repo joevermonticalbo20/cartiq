@@ -18,9 +18,6 @@ import '../utils/haptics.dart';
 import '../utils/manila_time.dart';
 import '../utils/password_strength.dart';
 import '../utils/pin_setup.dart';
-import '../widgets/notification_preview_dialog.dart';
-import '../widgets/notification_style.dart';
-import '../widgets/notification_tile.dart';
 import '../widgets/pin_pad.dart';
 import '../widgets/app_badge.dart';
 import '../widgets/rfid_claim_dialog.dart';
@@ -1160,11 +1157,6 @@ class SettingsScreenState extends State<SettingsScreen> {
           const SectionHeader(title: 'Server', eyebrow: 'Backend connection'),
           const SizedBox(height: AppSpacing.space3),
           _ServerSection(onChanged: () => setState(() {})),
-          const SizedBox(height: AppSpacing.space6),
-
-          const SectionHeader(title: 'Notifications', eyebrow: 'For you'),
-          const SizedBox(height: AppSpacing.space3),
-          const _NotificationsSection(),
           const SizedBox(height: AppSpacing.space6),
 
           const SectionHeader(title: 'Sync & storage', eyebrow: 'Offline data'),
@@ -2357,155 +2349,6 @@ class _StatusStrip extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _NotificationsSection extends StatefulWidget {
-  const _NotificationsSection();
-
-  @override
-  State<_NotificationsSection> createState() => _NotificationsSectionState();
-}
-
-class _NotificationsSectionState extends State<_NotificationsSection> {
-  bool _loading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
-  }
-
-  Future<void> _refresh() async {
-    // The screen can be gone by the time the post-frame callback runs (the
-    // person navigated away). Touching `context` after that throws.
-    if (!mounted) return;
-    setState(() => _loading = true);
-    await context.read<AuthState>().refreshMyAlerts();
-    if (mounted) setState(() => _loading = false);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final auth = context.watch<AuthState>();
-    final offline = auth.offlineMode || auth.token == null;
-    final items = auth.myAlerts;
-    final surfaceColor = Theme.of(context).colorScheme.surface;
-
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: surfaceColor,
-        borderRadius: BorderRadius.circular(AppRadius.xl),
-        boxShadow: AppShadow.sm(),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.space4,
-                AppSpacing.space4,
-                AppSpacing.space4,
-                AppSpacing.space2,
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.notifications_outlined,
-                    color: AppColors.primary,
-                    size: 20,
-                  ),
-                  const SizedBox(width: AppSpacing.space3),
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Text(
-                          'Notifications',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                        ),
-                        const SizedBox(width: 8),
-                        NotificationUnreadPill(
-                          items.where((a) => a['isRead'] != true).length,
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (_loading)
-                    const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  else ...[
-                    if (items.any((a) => a['isRead'] != true))
-                      TextButton(
-                        style: TextButton.styleFrom(
-                          minimumSize: const Size(0, 36),
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                        ),
-                        onPressed: () => auth.markAllMyAlertsRead(),
-                        child: const Text('Mark all read'),
-                      ),
-                    IconButton(
-                      icon: const Icon(Icons.refresh_rounded, size: 20),
-                      tooltip: 'Refresh',
-                      onPressed: offline ? null : _refresh,
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            if (offline) ...[
-              const Divider(height: 1, indent: 72),
-              Padding(
-                padding: const EdgeInsets.all(AppSpacing.space4),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.cloud_off_rounded,
-                      size: 18,
-                      color: AppColors.warn,
-                    ),
-                    const SizedBox(width: AppSpacing.space3),
-                    Expanded(
-                      child: Text(
-                        'Notifications refresh when you are online.',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AppColors.warn,
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ] else if (items.isEmpty) ...[
-              const Divider(height: 1, indent: 72),
-              NotificationEmptyState(),
-            ] else ...[
-              for (int i = 0; i < items.length; i++) ...[
-                const Divider(height: 1, indent: 72),
-                NotificationTile(
-                  alert: items[i],
-                  onTap: () async {
-                    final id = (items[i]['id'] as num).toInt();
-                    if (items[i]['isRead'] != true) {
-                      await auth.markMyAlertRead(id);
-                    }
-                    if (!context.mounted) return;
-                    await showNotificationPreview(context, items[i]);
-                  },
-                ),
-              ],
-            ],
-          ],
-        ),
       ),
     );
   }

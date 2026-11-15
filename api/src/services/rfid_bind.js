@@ -8,6 +8,7 @@
 import { db as prisma } from "../firestore.js";
 import { emit } from "../routes/events.js";
 import { pushToOwners } from "./push.js";
+import { announceChange } from "./announce.js";
 import { normalizeRfidUid } from "./rfid.js";
 import {
   CLAIM_ALREADY_REGISTERED,
@@ -312,6 +313,9 @@ export async function bindClaimedTag({ rawUid, locationId, db = prisma, messagin
         },
         { db, messaging },
       );
+      // Tell every phone the account changed: a silent DATA_CHANGED with
+      // kind "staff" makes the app re-read the profile - no manual refresh.
+      await announceChange("staff", { id: target.id, username: target.username }).catch(() => {});
     }
   } else {
     // Card already on this account: nothing changed, so nothing is announced.

@@ -148,6 +148,10 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       final auth = context.read<AuthState>();
       auth.resumeAlertPoll();
+      // Re-read the profile on every resume: a card registered from the web
+      // while the app was in the background shows its state at once, with no
+      // manual refresh.
+      auth.refreshProfile().catchError((_) {});
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       context.read<AuthState>().pauseAlertPoll();
