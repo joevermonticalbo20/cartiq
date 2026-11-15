@@ -1473,4 +1473,44 @@ router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, n
   }
 });
 
+// DELETE /api/staff/:id (OWNER) - remove a staff account for good.
+//
+// Two steps on purpose: the account must be DISABLED first, then it can be
+// deleted. That way a slip of the mouse can never remove someone who is
+// still working, and the owner gets a second look at the decision.
+router.delete("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    // You cannot delete yourself - that would end this session mid-request.
+    if (id === Number(req.user.sub)) {
+      return res.status(400).json({ error: "You cannot delete your own account" });
+    }
+    // Administrator accounts stay: they are the way back in if something
+    // goes wrong. They can be disabled instead.
+    if (user.role === "OWNER") {
+      return res.status(400).json({
+        error: "Administrator accounts cannot be deleted - disable it instead",
+      });
+    }
+    // Step one is always "disable", never "delete".
+    if (user.active) {
+      return res.status(400).json({ error: "Deactivate the account before deleting it" });
+    }
+    // The account's sessions, recovery codes and phone tokens go with it, so
+    // a deleted member cannot keep receiving owner notifications.
+    await prisma.refreshToken.deleteMany({ where: { userId: id } });
+    await prisma.passwordReset.deleteMany({ where: { userId: id } });
+    await prisma.pushTokens.deleteMany({ where: { userId: id } });
+    await prisma.user.delete({ where: { id } });
+    // The staff list is shown on the dashboard and in the staff tables: the
+    // account must disappear at once, everywhere.
+    await announceChange("staff", { id, username: user.username });
+    return res.json({ deleted: { id, username: user.username } });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 export default router;

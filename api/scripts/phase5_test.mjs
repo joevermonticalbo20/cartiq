@@ -142,6 +142,34 @@ async function main() {
   const listed = list.data.data.find((u) => u.id === newId);
   check("created staff shows CART-02 assignment", listed?.location?.code === "CART-02");
 
+  // ---- deleting a staff account (the second step after deactivating) ----
+  const delActive = await req(`/auth/staff/${newId}`, { method: "DELETE", token: tok });
+  check("an active account cannot be deleted", delActive.status === 400 &&
+        delActive.data?.error === "Deactivate the account before deleting it");
+
+  const ownerRow = list.data.data.find((u) => u.username === "owner");
+  const delSelf = await req(`/auth/staff/${ownerRow?.id}`, { method: "DELETE", token: tok });
+  check("an owner cannot delete their own account", delSelf.status === 400 &&
+        delSelf.data?.error === "You cannot delete your own account");
+
+  await req(`/auth/staff/${newId}`, { method: "PATCH", token: tok, body: { active: false } });
+  const deleted = await req(`/auth/staff/${newId}`, { method: "DELETE", token: tok });
+  check("a deactivated account is deleted", deleted.status === 200 &&
+        deleted.data?.deleted?.id === newId);
+
+  const afterDelete = await req("/auth/staff", { token: tok });
+  check("the deleted account is gone from the list",
+        !afterDelete.data?.data?.some((u) => u.id === newId));
+
+  const loginAfterDelete = await req("/auth/login", {
+    method: "POST",
+    body: { username: `teststaff_${run}`, password: "test123" },
+  });
+  check("the deleted account cannot log in", loginAfterDelete.status === 401);
+
+  const delAgain = await req(`/auth/staff/${newId}`, { method: "DELETE", token: tok });
+  check("deleting it again answers 404", delAgain.status === 404);
+
   // ---- devices ----
   const devicesStaff = await req("/devices", { token: staffTok });
   check("device registry forbidden for STAFF", devicesStaff.status === 403);

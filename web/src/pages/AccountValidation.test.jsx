@@ -33,6 +33,11 @@ const staffRow = {
   id: 2, name: "Stall Staff 1", username: "staff01", role: "STAFF", active: true,
   email: "staff01@cartiq.local", location: { code: "CART-01", name: "CART-01" }, rfidUid: "1A1336E1",
 };
+// A deactivated account: the only kind that may be deleted.
+const disabledStaff = {
+  id: 4, name: "Retired Staff", username: "staff02", role: "STAFF", active: false,
+  email: "staff02@cartiq.local", location: null, rfidUid: null,
+};
 
 const emptyOk = (url) => {
   if (url === "/catalog") return Promise.resolve({ data: { locations: [] } });
@@ -71,7 +76,7 @@ describe("staff and admin account fields", () => {
         return Promise.resolve({ data: { user: { id: 1, name: "Owner", username: "owner", role: "OWNER" } } });
       }
       if (url === "/auth/staff") {
-        return Promise.resolve({ data: { data: [ownerRow, secondAdmin, staffRow] } });
+        return Promise.resolve({ data: { data: [ownerRow, secondAdmin, staffRow, disabledStaff] } });
       }
       return emptyOk(url);
     });
@@ -315,5 +320,65 @@ describe("staff and admin account fields", () => {
       await within(dialog).findByText("Full name cannot contain numbers or special characters.")
     ).toBeInTheDocument();
     expect(api.patch).not.toHaveBeenCalled();
+  });
+});
+
+describe("deleting a staff account", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetLiveData();
+    api.get.mockImplementation((url) => {
+      if (url === "/auth/me") {
+        return Promise.resolve({ data: { user: { id: 1, name: "Owner", username: "owner", role: "OWNER" } } });
+      }
+      if (url === "/auth/staff") {
+        return Promise.resolve({ data: { data: [ownerRow, secondAdmin, staffRow, disabledStaff] } });
+      }
+      return emptyOk(url);
+    });
+    api.del.mockResolvedValue({ data: { deleted: { id: 4, username: "staff02" } } });
+  });
+
+  it("only offers the delete button on a deactivated account", async () => {
+    renderOwnerPage();
+    expect(await screen.findByText("Stall Staff 1")).toBeInTheDocument();
+    const activeRow = screen.getByText("Stall Staff 1").closest("tr");
+    const activeDelete = within(activeRow).getByTitle("Deactivate the account before deleting it");
+    expect(activeDelete).toBeDisabled();
+
+    const retiredRow = screen.getByText("Retired Staff").closest("tr");
+    const retiredDelete = within(retiredRow).getByTitle("Delete this account for good");
+    expect(retiredDelete).toBeEnabled();
+  });
+
+  it("asks first, then deletes the account", async () => {
+    renderOwnerPage();
+    expect(await screen.findByText("Retired Staff")).toBeInTheDocument();
+    const retiredRow = screen.getByText("Retired Staff").closest("tr");
+    fireEvent.click(within(retiredRow).getByTitle("Delete this account for good"));
+
+    // A confirmation, with the account named - nothing is deleted yet.
+    expect(await screen.findByText("Delete this account?")).toBeInTheDocument();
+    expect(screen.getByText(/will be removed for good/)).toBeInTheDocument();
+    expect(api.del).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /Delete Account/ }));
+    await vi.waitFor(() =>
+      expect(api.del).toHaveBeenCalledWith("/auth/staff/4"),
+    );
+    expect(await screen.findByText('Account "staff02" deleted')).toBeInTheDocument();
+  });
+
+  it("keeps the account when the owner cancels", async () => {
+    renderOwnerPage();
+    expect(await screen.findByText("Retired Staff")).toBeInTheDocument();
+    const retiredRow = screen.getByText("Retired Staff").closest("tr");
+    fireEvent.click(within(retiredRow).getByTitle("Delete this account for good"));
+    await screen.findByText("Delete this account?");
+    fireEvent.click(screen.getByRole("button", { name: /Cancel/ }));
+    await vi.waitFor(() =>
+      expect(screen.queryByText("Delete this account?")).toBeNull(),
+    );
+    expect(api.del).not.toHaveBeenCalled();
   });
 });

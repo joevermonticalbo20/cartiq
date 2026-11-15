@@ -273,6 +273,9 @@ export default function SettingsPage() {
 
   const [disabling, setDisabling] = useState(null);
   const [isDisabling, setIsDisabling] = useState(false);
+  // Deleting is the second step: the account must be disabled first.
+  const [staffDeleting, setStaffDeleting] = useState(null);
+  const [isStaffDeleting, setIsStaffDeleting] = useState(false);
 
   const [staffEditing, setStaffEditing] = useState(null);
   const [staffEditClosing, setStaffEditClosing] = useState(false);
@@ -1260,6 +1263,23 @@ export default function SettingsPage() {
       setIsDisabling(false);
     }
     setDisabling(null);
+  }
+
+  // Delete a staff account for good. The server only allows it once the
+  // account is disabled, so this is the second step of a two-step flow.
+  async function handleDeleteStaff() {
+    if (!staffDeleting || isStaffDeleting) return;
+    setIsStaffDeleting(true);
+    try {
+      await api.del(`/auth/staff/${staffDeleting.id}`);
+      toast(`Account "${staffDeleting.username}" deleted`, "success");
+      reloadStaff();
+    } catch (err) {
+      toast(getFriendlyError(err, "Delete failed"), "error");
+    } finally {
+      setIsStaffDeleting(false);
+      setStaffDeleting(null);
+    }
   }
 
   async function doResetPassword() {
@@ -2383,6 +2403,18 @@ export default function SettingsPage() {
                               >
                                 {s.active ? "Disable" : "Enable"}
                               </button>
+                              <button
+                                className="ghost small-btn"
+                                onClick={() => setStaffDeleting(s)}
+                                disabled={s.active}
+                                title={
+                                  s.active
+                                    ? "Deactivate the account before deleting it"
+                                    : "Delete this account for good"
+                                }
+                              >
+                                <Trash2 size={13} />
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -3127,6 +3159,19 @@ export default function SettingsPage() {
           pendingLabel="Updating..."
           onConfirm={() => toggleActive(disabling)}
           onCancel={() => setDisabling(null)}
+        />
+
+        {/* DELETE STAFF ACCOUNT CONFIRMATION */}
+        <ConfirmDialog
+          open={Boolean(staffDeleting)}
+          title="Delete this account?"
+          message={`"${staffDeleting?.username}" will be removed for good: it can no longer log in, its card is released, and its phone stops getting owner notifications. This cannot be undone.`}
+          confirmLabel="Delete Account"
+          danger={true}
+          pending={isStaffDeleting}
+          pendingLabel="Deleting..."
+          onConfirm={handleDeleteStaff}
+          onCancel={() => setStaffDeleting(null)}
         />
 
         {/* ADD IOT DEVICE MODAL */}

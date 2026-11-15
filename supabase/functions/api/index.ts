@@ -9363,6 +9363,42 @@ async function handlePatchStaff(req, id, me) {
   };
 }
 
+// DELETE /auth/staff/:id (OWNER) - remove a staff account for good.
+// Mirror of api/src/routes/auth.js. Two steps on purpose: the account must
+// be DISABLED first, then it can be deleted.
+async function handleDeleteStaff(id, me) {
+  const user = await fsGet("users", id);
+  if (!user) return { status: 404, body: { error: "User not found" } };
+  if (Number(id) === Number(me.id)) {
+    return { status: 400, body: { error: "You cannot delete your own account" } };
+  }
+  // Administrator accounts stay: they are the way back in if something goes
+  // wrong. They can be disabled instead.
+  if (user.role === "OWNER") {
+    return {
+      status: 400,
+      body: { error: "Administrator accounts cannot be deleted - disable it instead" },
+    };
+  }
+  // Step one is always "disable", never "delete".
+  if (user.active) {
+    return { status: 400, body: { error: "Deactivate the account before deleting it" } };
+  }
+  // The account's sessions, recovery codes and phone tokens go with it, so a
+  // deleted member cannot keep receiving owner notifications.
+  await deleteUserSessions(Number(id));
+  await deleteUserOtps(Number(id));
+  const tokens = await fsQueryEqual("pushTokens", "userId", Number(id), 10000);
+  for (const t of tokens) {
+    if (t._name) await fsDeleteByName(t._name).catch(() => {});
+  }
+  await fsDeleteByName(fsDocName("users", id));
+  // The staff list is shown on the dashboard and in the staff tables: the
+  // account must disappear at once, everywhere.
+  await announceChange("staff", { id: Number(id), username: user.username });
+  return { status: 200, body: { deleted: { id: Number(id), username: user.username } } };
+}
+
 // ---------- RFID self-service (mirrors api/src/routes/auth.js) ----------
 // The reader (ESP32 + MFRC522) only reports a tag UID; it does not know who is
 // holding the card. So the app, which knows the signed-in user, opens a claim on
@@ -9840,6 +9876,9 @@ Deno.serve(async (req) => {
         else if (req.method === "POST" && path === "/auth/staff") out = await handleCreateStaff(req);
         else if (req.method === "PATCH" && /^\/auth\/staff\/\d+$/.test(path)) {
           out = await handlePatchStaff(req, Number(path.split("/")[3]), auth.user);
+        }
+        else if (req.method === "DELETE" && /^\/auth\/staff\/\d+$/.test(path)) {
+          out = await handleDeleteStaff(Number(path.split("/")[3]), auth.user);
         }
         else return notFoundRes(origin, req, path);
         return jsonRes(origin, out.body, out.status);
