@@ -1270,7 +1270,9 @@ button.custom-select-trigger.active {
   gap: var(--space-1);
   min-height: 30px;
 }
-.sales-icon-btn {
+/* Element+class keeps these above the global `button` base rules
+   (background: var(--primary)) and `button:hover:not(:disabled)`. */
+button.sales-icon-btn {
   display: inline-grid;
   place-items: center;
   width: 30px;
@@ -1284,25 +1286,31 @@ button.custom-select-trigger.active {
   box-shadow: none;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
-.sales-icon-btn:hover:not(:disabled) {
+button.sales-icon-btn:hover:not(:disabled) {
   background: var(--surface-alt);
   border-color: var(--border-strong);
   color: var(--text);
   transform: none;
   box-shadow: none;
 }
-.sales-icon-btn:focus-visible {
+button.sales-icon-btn:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
-.sales-icon-btn.danger {
-  color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
-}
-.sales-icon-btn.danger:hover:not(:disabled) {
+/* Void action: soft pink pill with a dark-red X (matches the app danger-bg).
+   Named .is-danger so it cannot collide with the global `.danger` variant. */
+button.sales-icon-btn.is-danger {
   background: var(--danger-bg);
-  border-color: var(--danger);
   color: var(--danger);
+  border-color: transparent;
+  box-shadow: none;
+}
+button.sales-icon-btn.is-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger-bg) 70%, var(--danger) 30%);
+  border-color: transparent;
+  color: var(--danger);
+  transform: none;
+  box-shadow: none;
 }
 .sales-void-pill {
   display: inline-flex;

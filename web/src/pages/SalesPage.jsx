@@ -458,7 +458,7 @@ export default function SalesPage() {
                                 </button>
                                 <button
                                   type="button"
-                                  className="sales-icon-btn danger"
+                                  className="sales-icon-btn is-danger"
                                   onClick={() => setConfirming(o)}
                                   title="Void order"
                                   aria-label="Void order"
