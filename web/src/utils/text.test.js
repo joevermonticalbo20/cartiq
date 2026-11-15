@@ -8,6 +8,9 @@ import {
   validateEmail,
   validateRfidUid,
   validateDeviceId,
+  FULL_NAME_MAX,
+  validateFullName,
+  validateAccountUsername,
 } from "./text.js";
 
 describe("sanitizeTextInput", () => {
@@ -135,5 +138,111 @@ describe("validateItemName", () => {
     const long = validateItemName("c".repeat(31));
     expect(long.ok).toBe(true);
     expect(long.value).toBe("c".repeat(30));
+  });
+});
+
+describe("validateFullName (staff/admin accounts)", () => {
+  it("accepts the documented valid names", () => {
+    for (const ok of [
+      "Juan Dela Cruz",
+      "Maria Clara Santos",
+      "Anne-Marie Lopez",
+      "O'Connor Reyes",
+      "José Peña",
+      "Ñoño Santos",
+    ]) {
+      expect(validateFullName(ok).ok).toBe(true);
+    }
+  });
+
+  it("refuses empty input with the exact message", () => {
+    expect(validateFullName("")).toEqual({
+      ok: false,
+      value: "",
+      error: "Full name is required.",
+    });
+    expect(validateFullName("   ").error).toBe("Full name is required.");
+  });
+
+  it("enforces 2..50 characters", () => {
+    expect(validateFullName("J").error).toBe("Full name must be at least 2 characters.");
+    expect(validateFullName("Jo").ok).toBe(true);
+    expect(validateFullName("x".repeat(FULL_NAME_MAX)).ok).toBe(true);
+    expect(validateFullName("x".repeat(FULL_NAME_MAX + 1)).error).toBe(
+      "Full name must not exceed 50 characters."
+    );
+  });
+
+  it("refuses numbers and special characters, including HTML", () => {
+    for (const bad of ["Juan123", "123456", "@@@@@", "<script>alert(1)</script>", "Juan@Dela"]) {
+      expect(validateFullName(bad).ok).toBe(false);
+      expect(validateFullName(bad).error).toBe(
+        "Full name cannot contain numbers or special characters."
+      );
+    }
+  });
+
+  it("requires at least one letter even when the punctuation is allowed", () => {
+    expect(validateFullName("-'-'-'").error).toBe("Please enter a valid full name.");
+  });
+
+  it("trims leading and trailing spaces", () => {
+    expect(validateFullName("   Juan Dela Cruz   ")).toEqual({
+      ok: true,
+      value: "Juan Dela Cruz",
+    });
+  });
+});
+
+describe("validateAccountUsername (staff/admin accounts)", () => {
+  it("accepts the documented valid usernames", () => {
+    for (const ok of ["juandelacruz", "juan123", "staff_001", "admin2026"]) {
+      expect(validateAccountUsername(ok).ok).toBe(true);
+    }
+  });
+
+  it("converts to lowercase before storing", () => {
+    expect(validateAccountUsername("Staff_01")).toEqual({ ok: true, value: "staff_01" });
+    expect(validateAccountUsername("  JUANDELACRUZ  ")).toEqual({
+      ok: true,
+      value: "juandelacruz",
+    });
+  });
+
+  it("refuses empty input with the exact message", () => {
+    expect(validateAccountUsername("")).toEqual({
+      ok: false,
+      value: "",
+      error: "Username is required.",
+    });
+  });
+
+  it("enforces 4..30 characters", () => {
+    expect(validateAccountUsername("abc").error).toBe(
+      "Username must be between 4 and 30 characters."
+    );
+    expect(validateAccountUsername("a".repeat(31)).error).toBe(
+      "Username must be between 4 and 30 characters."
+    );
+    expect(validateAccountUsername("abcd").ok).toBe(true);
+    expect(validateAccountUsername("a".repeat(30)).ok).toBe(true);
+  });
+
+  it("must start with a letter", () => {
+    expect(validateAccountUsername("12345678").error).toBe(
+      "Username must start with a letter."
+    );
+    expect(validateAccountUsername("_staff01").error).toBe(
+      "Username must start with a letter."
+    );
+  });
+
+  it("refuses spaces and special characters", () => {
+    for (const bad of ["joever@123", "staff 001", "@@@@@@@", "staff!01"]) {
+      expect(validateAccountUsername(bad).ok).toBe(false);
+      expect(validateAccountUsername(bad).error).toBe(
+        "Username cannot contain spaces or special characters."
+      );
+    }
   });
 });

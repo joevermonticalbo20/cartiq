@@ -100,6 +100,75 @@ const CONTROL_RE = /[\u0000-\u001F\u007F]/g;
 // ampersand, hash, parentheses, colon, plus, asterisk, and slash. Everything
 // else (control chars, HTML markup, emoji) is rejected so names cannot be
 // smuggled as code.
+// ---------------------------------------------------------------------------
+// Account holders: staff and admin names + usernames.
+//
+// The owner's exact rules (Add Staff Account / Add Admin Account):
+//
+//   Full name - 2-50 characters; Unicode letters (incl. Filipino and accented
+//   letters), spaces, hyphens and apostrophes ONLY. Numbers and every other
+//   special character are refused. At least one letter, so a string of
+//   "@@@@@" is not a name. HTML cannot be built from this charset.
+//
+//   Username - 4-30 characters; lowercase letters, digits and underscore
+//   ONLY. Must START with a letter. Lowercased before storing. Numbers-only
+//   and spaces/specials are refused.
+//
+// These are deliberately STRICTER than the general name/username validators,
+// which stay: they are used for vendors, items, etc.
+// ---------------------------------------------------------------------------
+
+const _ACCOUNT_NAME_ALLOWED = /^[\p{L}\p{M} '-]+$/u;
+const _ACCOUNT_LETTER_RE = /\p{L}/u;
+const _ACCOUNT_USERNAME_ALLOWED = /^[a-z0-9_]{4,30}$/;
+const _ACCOUNT_USERNAME_STARTS_LETTER = /^[a-z]/u;
+
+export const FULL_NAME_MAX = 50;
+
+export function cleanFullName(raw) {
+  return String(raw ?? "").replace(/\s+/g, " ").trim();
+}
+
+/** Full name for a staff/admin account. Returns { ok, value, error }. */
+export function validateFullName(raw) {
+  const value = cleanFullName(raw);
+  if (!value) return { ok: false, value, error: "Full name is required." };
+  if (value.length < 2) {
+    return { ok: false, value, error: "Full name must be at least 2 characters." };
+  }
+  if (value.length > FULL_NAME_MAX) {
+    return { ok: false, value, error: "Full name must not exceed 50 characters." };
+  }
+  // Numbers or anything that is not a letter/space/hyphen/apostrophe are out.
+  if (!_ACCOUNT_NAME_ALLOWED.test(value)) {
+    return { ok: false, value, error: "Full name cannot contain numbers or special characters." };
+  }
+  // At least one letter: "@@@@@" (or an all-punctuation run) is not a name.
+  if (!_ACCOUNT_LETTER_RE.test(value)) {
+    return { ok: false, value, error: "Please enter a valid full name." };
+  }
+  return { ok: true, value };
+}
+
+/** Username for a staff/admin account. Lowercased before validating. */
+export function validateAccountUsername(raw) {
+  const value = String(raw ?? "").trim().toLowerCase();
+  if (!value) return { ok: false, value, error: "Username is required." };
+  if (/\s/.test(value) || /[^a-z0-9_]/.test(value)) {
+    return { ok: false, value, error: "Username cannot contain spaces or special characters." };
+  }
+  if (value.length < 4 || value.length > 30) {
+    return { ok: false, value, error: "Username must be between 4 and 30 characters." };
+  }
+  if (!_ACCOUNT_USERNAME_STARTS_LETTER.test(value)) {
+    return { ok: false, value, error: "Username must start with a letter." };
+  }
+  if (!_ACCOUNT_USERNAME_ALLOWED.test(value)) {
+    return { ok: false, value, error: "Please enter a valid username." };
+  }
+  return { ok: true, value };
+}
+
 const NAME_RE = /^[\p{L}\p{N}\p{M}][\p{L}\p{N}\p{M}\p{Pc}\p{Pd}'.\-&#\/()+:* ]*$/u;
 const LETTER_RE = /\p{L}/gu;
 

@@ -136,6 +136,12 @@ label.field {
   font-weight: 600;
   line-height: 1.4;
 }
+/* The input itself, when its field is invalid. Same danger ring as the OTP
+   verdict fields so the highlight reads the same everywhere. */
+input.input-invalid {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-bg);
+}
 .error-box {
   background: var(--danger-bg);
   color: var(--danger);

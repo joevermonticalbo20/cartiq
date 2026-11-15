@@ -7833,6 +7833,56 @@ function validateNameEdge(raw, label = "Name", max = 100) {
   }
   return { ok: true, value };
 }
+// ---------- account holders: staff/admin names + usernames (mirror api/src/services/validation.js) ----------
+// The owner's exact rules (Add Staff / Add Admin Account):
+//
+//   Full name - 2..50 chars; Unicode letters (incl. Filipino and accented),
+//   spaces, hyphens and apostrophes ONLY. Numbers and every other special
+//   character are refused. At least one letter, so a run of "@@@@@" is not a name.
+//
+//   Username - 4..30 chars; lowercase letters, digits and underscore ONLY.
+//   Must START with a letter. Lowercased before storing.
+const _ACCOUNT_NAME_ALLOWED = /^[\p{L}\p{M} '-]+$/u;
+const _ACCOUNT_LETTER_RE = /\p{L}/u;
+const _ACCOUNT_USERNAME_ALLOWED = /^[a-z0-9_]{4,30}$/;
+const _ACCOUNT_USERNAME_STARTS_LETTER = /^[a-z]/u;
+
+function validateFullNameEdge(raw) {
+  const value = String(raw ?? "").replace(/\s+/g, " ").trim();
+  if (!value) return { ok: false, value, error: "Full name is required." };
+  if (value.length < 2) {
+    return { ok: false, value, error: "Full name must be at least 2 characters." };
+  }
+  if (value.length > 50) {
+    return { ok: false, value, error: "Full name must not exceed 50 characters." };
+  }
+  if (!_ACCOUNT_NAME_ALLOWED.test(value)) {
+    return { ok: false, value, error: "Full name cannot contain numbers or special characters." };
+  }
+  if (!_ACCOUNT_LETTER_RE.test(value)) {
+    return { ok: false, value, error: "Please enter a valid full name." };
+  }
+  return { ok: true, value };
+}
+
+function validateAccountUsernameEdge(raw) {
+  const value = String(raw ?? "").trim().toLowerCase();
+  if (!value) return { ok: false, value, error: "Username is required." };
+  if (/\s/.test(value) || /[^a-z0-9_]/.test(value)) {
+    return { ok: false, value, error: "Username cannot contain spaces or special characters." };
+  }
+  if (value.length < 4 || value.length > 30) {
+    return { ok: false, value, error: "Username must be between 4 and 30 characters." };
+  }
+  if (!_ACCOUNT_USERNAME_STARTS_LETTER.test(value)) {
+    return { ok: false, value, error: "Username must start with a letter." };
+  }
+  if (!_ACCOUNT_USERNAME_ALLOWED.test(value)) {
+    return { ok: false, value, error: "Please enter a valid username." };
+  }
+  return { ok: true, value };
+}
+
 function cleanUsernameEdge(raw) {
   return String(raw ?? "").trim().toLowerCase();
 }
@@ -9126,9 +9176,10 @@ async function handleCreateStaff(req) {
   if (cleanRole !== "STAFF" && cleanRole !== "OWNER") {
     return { status: 400, body: { error: "role must be STAFF or OWNER" } };
   }
-  const nameCheck = validateNameEdge(name, "Name", 100);
+  // Staff and admin accounts follow the same Account rules.
+  const nameCheck = validateFullNameEdge(name);
   if (!nameCheck.ok) return { status: 400, body: { error: nameCheck.error } };
-  const usernameCheck = validateUsernameEdge(username);
+  const usernameCheck = validateAccountUsernameEdge(username);
   if (!usernameCheck.ok) return { status: 400, body: { error: usernameCheck.error } };
   const cleanUsername = usernameCheck.value;
   if (!password || String(password).length < 6) {
@@ -9138,7 +9189,7 @@ async function handleCreateStaff(req) {
     return { status: 400, body: { error: "password must be 6-72 chars (bcrypt limit)" } };
   }
   if (await fsQueryEqual("users", "username", cleanUsername, 1).then((r) => r[0])) {
-    return { status: 409, body: { error: `Username "${cleanUsername}" already exists` } };
+    return { status: 409, body: { error: "This username is already taken." } };
   }
   // Email is optional (recovery via Gmail OTP needs one on file). Real
   // addresses must be deliverable (MX check) and not disposable.
@@ -9217,18 +9268,19 @@ async function handlePatchStaff(req, id, me) {
   // hand (a card belongs to the cart it was enrolled at).
   let rfidCartCode = null;
   if (active !== undefined) data.active = Boolean(active);
+  // Staff and admin accounts follow the same Account rules as at creation.
   if (name !== undefined) {
-    const nameCheck = validateNameEdge(name, "Name", 100);
+    const nameCheck = validateFullNameEdge(name);
     if (!nameCheck.ok) return { status: 400, body: { error: nameCheck.error } };
     data.name = nameCheck.value;
   }
   if (username !== undefined) {
-    const usernameCheck = validateUsernameEdge(username);
+    const usernameCheck = validateAccountUsernameEdge(username);
     if (!usernameCheck.ok) return { status: 400, body: { error: usernameCheck.error } };
     if (usernameCheck.value !== user.username) {
       const existing = await fsQueryEqual("users", "username", usernameCheck.value, 1).then((r) => r[0]).catch(() => null);
       if (existing && Number(existing.id) !== Number(user.id)) {
-        return { status: 409, body: { error: `Username "${usernameCheck.value}" already exists` } };
+        return { status: 409, body: { error: "This username is already taken." } };
       }
       data.username = usernameCheck.value;
     }

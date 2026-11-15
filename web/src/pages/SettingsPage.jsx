@@ -41,7 +41,7 @@ import PasswordStrengthMeter, { meetsPasswordStrength } from "../components/Pass
 import { useToast } from "../components/Toast.jsx";
 import Select from "../components/Select.jsx";
 import EmptyState from "../components/EmptyState.jsx";
-import { sanitizeTextInput, validatePersonName, validateUsername, validateEmail, validateRfidUid, validateDeviceId, validateCartName, validateCartAddress, CART_NAME_MAX, CART_ADDRESS_MAX } from "../utils/text.js";
+import { sanitizeTextInput, validateEmail, validateRfidUid, validateDeviceId, validateCartName, validateCartAddress, CART_NAME_MAX, CART_ADDRESS_MAX, validateFullName, validateAccountUsername } from "../utils/text.js";
 
 // --- Time clock (owner-configured daily clock-in/out windows) ---
 // Mirror of the server-side settings/timeClock document (Asia/Manila 24h wire
@@ -68,6 +68,20 @@ const readerSecondsLeft = (expiresAtIso, fallbackMs = 90000) => {
     ? new Date(expiresAtIso).getTime()
     : Date.now() + fallbackMs;
   return Math.max(0, Math.round((expires - Date.now()) / 1000));
+};
+
+// --- Account fields: validate when the owner leaves a field ---
+// The message appears once the user has actually been in the field. An empty
+// field is only wrong on submit, so tabbing past it stays quiet.
+const checkNameOnBlur = (raw, setError) => {
+  if (!String(raw ?? "").trim()) return;
+  const res = validateFullName(raw);
+  setError(res.ok ? "" : res.error);
+};
+const checkUsernameOnBlur = (raw, setError) => {
+  if (!String(raw ?? "").trim()) return;
+  const res = validateAccountUsername(raw);
+  setError(res.ok ? "" : res.error);
 };
 
 const DAY_CHIPS = [  { value: 1, label: "Mon" },
@@ -245,6 +259,12 @@ export default function SettingsPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [addClosing, setAddClosing] = useState(false);
   const [isStaffAdding, setIsStaffAdding] = useState(false);
+  // Per-field messages for the Add Staff form. Empty on open: errors appear
+  // only after a submit, never before the user has typed.
+  const [staffNameError, setStaffNameError] = useState("");
+  const [staffUsernameError, setStaffUsernameError] = useState("");
+  const staffNameRef = useRef(null);
+  const staffUsernameRef = useRef(null);
 
   const [resetting, setResetting] = useState(null);
   const [resetClosing, setResetClosing] = useState(false);
@@ -257,6 +277,9 @@ export default function SettingsPage() {
   const [staffEditing, setStaffEditing] = useState(null);
   const [staffEditClosing, setStaffEditClosing] = useState(false);
   const [isStaffEditing, setIsStaffEditing] = useState(false);
+  // Username is immutable here, so only the name can be invalid.
+  const [editStaffNameError, setEditStaffNameError] = useState("");
+  const editStaffNameRef = useRef(null);
 
   // -- REGISTER A STAFF CARD AT THE READER --
   // The owner opens a claim for a staff member, walks to that staff member's
@@ -299,10 +322,20 @@ export default function SettingsPage() {
   const [adminClosing, setAdminClosing] = useState(false);
   const [isAdminAdding, setIsAdminAdding] = useState(false);
   const [adminError, setAdminError] = useState("");
+  // Per-field messages for the Add Admin form.
+  const [adminNameError, setAdminNameError] = useState("");
+  const [adminUsernameError, setAdminUsernameError] = useState("");
+  const adminNameRef = useRef(null);
+  const adminUsernameRef = useRef(null);
   const [adminEditing, setAdminEditing] = useState(null);
   const [adminEditClosing, setAdminEditClosing] = useState(false);
   const [isAdminEditing, setIsAdminEditing] = useState(false);
   const [adminEditError, setAdminEditError] = useState("");
+  // Per-field messages for the Edit Admin form.
+  const [editAdminNameError, setEditAdminNameError] = useState("");
+  const [editAdminUsernameError, setEditAdminUsernameError] = useState("");
+  const editAdminNameRef = useRef(null);
+  const editAdminUsernameRef = useRef(null);
   const [showNewAdminPw, setShowNewAdminPw] = useState(false);
   const [newAdmin, setNewAdmin] = useState({
     name: "",
@@ -898,14 +931,17 @@ export default function SettingsPage() {
   // --- STAFF ACTIONS ---
   async function createStaff(e) {
     e.preventDefault();
-    const nameCheck = validatePersonName(newStaff.name);
-    if (!nameCheck.ok) {
-      setStaffError(nameCheck.error);
-      return;
-    }
-    const usernameCheck = validateUsername(newStaff.username);
-    if (!usernameCheck.ok) {
-      setStaffError(usernameCheck.error);
+    // A stale server message must not sit next to the fresh field messages.
+    setStaffError("");
+    // Both fields are checked first, together: the messages sit under their
+    // inputs and the first invalid one is focused.
+    const nameCheck = validateFullName(newStaff.name);
+    const usernameCheck = validateAccountUsername(newStaff.username);
+    setStaffNameError(nameCheck.ok ? "" : nameCheck.error);
+    setStaffUsernameError(usernameCheck.ok ? "" : usernameCheck.error);
+    if (!nameCheck.ok || !usernameCheck.ok) {
+      if (!nameCheck.ok) staffNameRef.current?.focus();
+      else staffUsernameRef.current?.focus();
       return;
     }
     if (!meetsPasswordStrength(newStaff.password, "fair")) {
@@ -952,14 +988,16 @@ export default function SettingsPage() {
   // --- ADMIN ACTIONS ---
   async function createAdmin(e) {
     e.preventDefault();
-    const nameCheck = validatePersonName(newAdmin.name);
-    if (!nameCheck.ok) {
-      setAdminError(nameCheck.error);
-      return;
-    }
-    const usernameCheck = validateUsername(newAdmin.username);
-    if (!usernameCheck.ok) {
-      setAdminError(usernameCheck.error);
+    // A stale server message must not sit next to the fresh field messages.
+    setAdminError("");
+    // Same account rules as the staff form, enforced on both sides.
+    const nameCheck = validateFullName(newAdmin.name);
+    const usernameCheck = validateAccountUsername(newAdmin.username);
+    setAdminNameError(nameCheck.ok ? "" : nameCheck.error);
+    setAdminUsernameError(usernameCheck.ok ? "" : usernameCheck.error);
+    if (!nameCheck.ok || !usernameCheck.ok) {
+      if (!nameCheck.ok) adminNameRef.current?.focus();
+      else adminUsernameRef.current?.focus();
       return;
     }
     if (!meetsPasswordStrength(newAdmin.password, "fair")) {
@@ -1003,19 +1041,23 @@ export default function SettingsPage() {
       email: isPlaceholderEmail(admin?.email) ? "" : admin?.email || "",
     });
     setAdminEditError("");
+    setEditAdminNameError("");
+    setEditAdminUsernameError("");
   }
 
   async function handleEditAdmin(e) {
     e.preventDefault();
     if (!adminEditing) return;
-    const nameCheck = validatePersonName(adminEditing.name);
-    if (!nameCheck.ok) {
-      setAdminEditError(nameCheck.error);
-      return;
-    }
-    const usernameCheck = validateUsername(adminEditing.username);
-    if (!usernameCheck.ok) {
-      setAdminEditError(usernameCheck.error);
+    setAdminEditError("");
+    // Both fields are checked before anything is saved; messages sit under
+    // their inputs, first invalid one focused.
+    const nameCheck = validateFullName(adminEditing.name);
+    const usernameCheck = validateAccountUsername(adminEditing.username);
+    setEditAdminNameError(nameCheck.ok ? "" : nameCheck.error);
+    setEditAdminUsernameError(usernameCheck.ok ? "" : usernameCheck.error);
+    if (!nameCheck.ok || !usernameCheck.ok) {
+      if (!nameCheck.ok) editAdminNameRef.current?.focus();
+      else editAdminUsernameRef.current?.focus();
       return;
     }
     const emailCheck = validateEmail(adminEditing.email);
@@ -1156,9 +1198,11 @@ export default function SettingsPage() {
   async function handleEditStaff(e) {
     e.preventDefault();
     setStaffError("");
-    const nameCheck = validatePersonName(staffEditing?.name);
+    // Username is immutable - only the name can be invalid here.
+    const nameCheck = validateFullName(staffEditing?.name);
+    setEditStaffNameError(nameCheck.ok ? "" : nameCheck.error);
     if (!nameCheck.ok) {
-      setStaffError(nameCheck.error);
+      editStaffNameRef.current?.focus();
       return;
     }
     const original = staff.find((s) => s.id === staffEditing.id);
@@ -2104,7 +2148,7 @@ export default function SettingsPage() {
                     Owner-level accounts. They have full access to Settings, staff, and the POS.
                   </p>
                 </div>
-                <button onClick={() => { setAdminError(""); setAdminOpen(true); setShowNewAdminPw(false); }}>
+                <button onClick={() => { setAdminError(""); setAdminNameError(""); setAdminUsernameError(""); setAdminOpen(true); setShowNewAdminPw(false); }}>
                   <Plus size={15} /> Add admin
                 </button>
               </div>
@@ -2221,7 +2265,7 @@ export default function SettingsPage() {
             <section className="panel" style={{ padding: "var(--space-5)" }}>
               <div className="settings-table-heading">
                 <h3 className="section-title m-0 p-0" style={{ borderBottom: "none" }}>Staff accounts</h3>
-                <button onClick={() => { setStaffError(""); setAddOpen(true); setShowNewStaffPw(false); }}>
+                <button onClick={() => { setStaffError(""); setStaffNameError(""); setStaffUsernameError(""); setAddOpen(true); setShowNewStaffPw(false); }}>
                   <Plus size={15} /> Add staff
                 </button>
               </div>
@@ -2301,7 +2345,7 @@ export default function SettingsPage() {
                             <div className="settings-table-actions">
                               <button
                                 className="ghost small-btn"
-                                onClick={() => { setStaffEditing({...s}); setStaffError(""); }}
+                                onClick={() => { setStaffEditing({...s}); setStaffError(""); setEditStaffNameError(""); }}
                                 disabled={!s.active}
                                 title={s.active ? "Edit Staff Details" : "Enable the account before editing"}
                               >
@@ -2586,24 +2630,52 @@ export default function SettingsPage() {
           <div className={`modal-backdrop ${addClosing ? "is-closing" : ""}`}>
             <div className={`modal ${addClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
               <h3>Add staff account</h3>
-              <form onSubmit={createStaff} className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
+              <form onSubmit={createStaff} noValidate className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
                 <label className="field">
                   Full name *
                   <input
                     required
+                    ref={staffNameRef}
                     value={newStaff.name}
-                    onChange={(e) => setNewStaff({ ...newStaff, name: e.target.value })}
+                    onChange={(e) => {
+                      setNewStaff({ ...newStaff, name: e.target.value });
+                      if (staffNameError) setStaffNameError("");
+                    }}
+                    onBlur={(e) => checkNameOnBlur(e.target.value, setStaffNameError)}
+                    className={staffNameError ? "input-invalid" : undefined}
+                    aria-invalid={staffNameError ? "true" : undefined}
+                    aria-describedby={staffNameError ? "staff-name-error" : undefined}
                     style={{ height: "36px" }}
                   />
+                  {staffNameError && (
+                    <span className="field-error" id="staff-name-error" role="alert">
+                      {staffNameError}
+                    </span>
+                  )}
                 </label>
                 <label className="field">
                   Username *
                   <input
                     required
+                    ref={staffUsernameRef}
                     value={newStaff.username}
-                    onChange={(e) => setNewStaff({ ...newStaff, username: e.target.value })}
+                    onChange={(e) => {
+                      // Usernames are stored lowercase, so the field shows it.
+                      const v = e.target.value.toLowerCase();
+                      setNewStaff({ ...newStaff, username: v });
+                      if (staffUsernameError) setStaffUsernameError("");
+                    }}
+                    onBlur={(e) => checkUsernameOnBlur(e.target.value, setStaffUsernameError)}
+                    className={staffUsernameError ? "input-invalid" : undefined}
+                    aria-invalid={staffUsernameError ? "true" : undefined}
+                    aria-describedby={staffUsernameError ? "staff-username-error" : undefined}
                     style={{ height: "36px" }}
                   />
+                  {staffUsernameError && (
+                    <span className="field-error" id="staff-username-error" role="alert">
+                      {staffUsernameError}
+                    </span>
+                  )}
                 </label>
                 
                 <label className="field">
@@ -2679,26 +2751,53 @@ export default function SettingsPage() {
               <p className="muted" style={{ marginBottom: "20px", lineHeight: "1.4" }}>
                 Full owner-level access: Settings, staff, devices, products, and carts. Share the sign-in privately.
               </p>
-              <form onSubmit={createAdmin} className="flex flex-col gap-3">
+              <form onSubmit={createAdmin} noValidate className="flex flex-col gap-3">
                 <label className="field">
                   Full name *
                   <input
                     required
+                    ref={adminNameRef}
                     value={newAdmin.name}
-                    onChange={(e) => setNewAdmin({ ...newAdmin, name: e.target.value })}
+                    onChange={(e) => {
+                      setNewAdmin({ ...newAdmin, name: e.target.value });
+                      if (adminNameError) setAdminNameError("");
+                    }}
+                    onBlur={(e) => checkNameOnBlur(e.target.value, setAdminNameError)}
+                    className={adminNameError ? "input-invalid" : undefined}
+                    aria-invalid={adminNameError ? "true" : undefined}
+                    aria-describedby={adminNameError ? "admin-name-error" : undefined}
                     style={{ height: "36px" }}
                     autoComplete="off"
                   />
+                  {adminNameError && (
+                    <span className="field-error" id="admin-name-error" role="alert">
+                      {adminNameError}
+                    </span>
+                  )}
                 </label>
                 <label className="field">
                   Username *
                   <input
                     required
+                    ref={adminUsernameRef}
                     value={newAdmin.username}
-                    onChange={(e) => setNewAdmin({ ...newAdmin, username: e.target.value })}
+                    onChange={(e) => {
+                      const v = e.target.value.toLowerCase();
+                      setNewAdmin({ ...newAdmin, username: v });
+                      if (adminUsernameError) setAdminUsernameError("");
+                    }}
+                    onBlur={(e) => checkUsernameOnBlur(e.target.value, setAdminUsernameError)}
+                    className={adminUsernameError ? "input-invalid" : undefined}
+                    aria-invalid={adminUsernameError ? "true" : undefined}
+                    aria-describedby={adminUsernameError ? "admin-username-error" : undefined}
                     style={{ height: "36px" }}
                     autoComplete="off"
                   />
+                  {adminUsernameError && (
+                    <span className="field-error" id="admin-username-error" role="alert">
+                      {adminUsernameError}
+                    </span>
+                  )}
                 </label>
                 <label className="field">
                   Password * (min 8)
@@ -2754,26 +2853,53 @@ export default function SettingsPage() {
           <div className={`modal-backdrop ${adminEditClosing ? "is-closing" : ""}`}>
             <div className={`modal ${adminEditClosing ? "is-closing" : ""}`} role="dialog" aria-modal="true" aria-label="Edit admin account" onClick={(e) => e.stopPropagation()}>
               <h3><Edit2 size={22} className="muted" /> Edit admin account</h3>
-              <form onSubmit={handleEditAdmin} className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
+              <form onSubmit={handleEditAdmin} noValidate className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
                 <label className="field">
                   Full name *
                   <input
                     required
+                    ref={editAdminNameRef}
                     value={adminEditing?.name || ""}
-                    onChange={(e) => setAdminEditing({ ...adminEditing, name: e.target.value })}
+                    onChange={(e) => {
+                      setAdminEditing({ ...adminEditing, name: e.target.value });
+                      if (editAdminNameError) setEditAdminNameError("");
+                    }}
+                    onBlur={(e) => checkNameOnBlur(e.target.value, setEditAdminNameError)}
+                    className={editAdminNameError ? "input-invalid" : undefined}
+                    aria-invalid={editAdminNameError ? "true" : undefined}
+                    aria-describedby={editAdminNameError ? "edit-admin-name-error" : undefined}
                     style={{ height: "36px" }}
                     autoComplete="off"
                   />
+                  {editAdminNameError && (
+                    <span className="field-error" id="edit-admin-name-error" role="alert">
+                      {editAdminNameError}
+                    </span>
+                  )}
                 </label>
                 <label className="field">
                   Username *
                   <input
                     required
+                    ref={editAdminUsernameRef}
                     value={adminEditing?.username || ""}
-                    onChange={(e) => setAdminEditing({ ...adminEditing, username: e.target.value })}
+                    onChange={(e) => {
+                      const v = e.target.value.toLowerCase();
+                      setAdminEditing({ ...adminEditing, username: v });
+                      if (editAdminUsernameError) setEditAdminUsernameError("");
+                    }}
+                    onBlur={(e) => checkUsernameOnBlur(e.target.value, setEditAdminUsernameError)}
+                    className={editAdminUsernameError ? "input-invalid" : undefined}
+                    aria-invalid={editAdminUsernameError ? "true" : undefined}
+                    aria-describedby={editAdminUsernameError ? "edit-admin-username-error" : undefined}
                     style={{ height: "36px" }}
                     autoComplete="off"
                   />
+                  {editAdminUsernameError && (
+                    <span className="field-error" id="edit-admin-username-error" role="alert">
+                      {editAdminUsernameError}
+                    </span>
+                  )}
                 </label>
                 <label className="field">
                   Recovery email (optional — lets them reset their own password)
@@ -2806,15 +2932,28 @@ export default function SettingsPage() {
           <div className={`modal-backdrop ${staffEditClosing ? "is-closing" : ""}`}>
             <div className={`modal ${staffEditClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
               <h3><Edit2 size={22} className="muted"/> Edit Staff Account</h3>
-              <form onSubmit={handleEditStaff} className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
+              <form onSubmit={handleEditStaff} noValidate className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
                 <label className="field">
                   Full name *
                   <input
                     required
+                    ref={editStaffNameRef}
                     value={staffEditing?.name || ""}
-                    onChange={(e) => setStaffEditing({ ...staffEditing, name: e.target.value })}
+                    onChange={(e) => {
+                      setStaffEditing({ ...staffEditing, name: e.target.value });
+                      if (editStaffNameError) setEditStaffNameError("");
+                    }}
+                    onBlur={(e) => checkNameOnBlur(e.target.value, setEditStaffNameError)}
+                    className={editStaffNameError ? "input-invalid" : undefined}
+                    aria-invalid={editStaffNameError ? "true" : undefined}
+                    aria-describedby={editStaffNameError ? "edit-staff-name-error" : undefined}
                     style={{ height: "36px" }}
                   />
+                  {editStaffNameError && (
+                    <span className="field-error" id="edit-staff-name-error" role="alert">
+                      {editStaffNameError}
+                    </span>
+                  )}
                 </label>
                 <label className="field">
                   Username (immutable - set at creation)

@@ -28,8 +28,8 @@ import {
   RECOVERY_EMAIL_REQUIRED_MESSAGE,
 } from "../services/password_reset.js";
 import {
-  validateName,
-  validateUsername,
+  validateFullName,
+  validateAccountUsername,
   validateRecoveryEmail,
 } from "../services/validation.js";
 import { emailStatus, sendOtpEmail } from "../services/gmail.js";
@@ -1287,9 +1287,10 @@ router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) 
     if (cleanRole !== "STAFF" && cleanRole !== "OWNER") {
       return res.status(400).json({ error: "role must be STAFF or OWNER" });
     }
-    const nameCheck = validateName(name, "Name", 100);
+    // Both staff and admin accounts follow the Add/Admin Account rules.
+    const nameCheck = validateFullName(name);
     if (!nameCheck.ok) return res.status(400).json({ error: nameCheck.error });
-    const usernameCheck = validateUsername(username);
+    const usernameCheck = validateAccountUsername(username);
     if (!usernameCheck.ok) return res.status(400).json({ error: usernameCheck.error });
     if (!password || String(password).length < 6) {
       return res.status(400).json({ error: "name, username and password (min 6 chars) required" });
@@ -1298,7 +1299,7 @@ router.post("/staff", requireAuth, requireRole("OWNER"), async (req, res, next) 
       return res.status(400).json({ error: "password must be 6-72 chars (bcrypt limit)" });
     }
     const exists = await prisma.user.findUnique({ where: { username: usernameCheck.value } });
-    if (exists) return res.status(409).json({ error: `Username "${usernameCheck.value}" already exists` });
+    if (exists) return res.status(409).json({ error: "This username is already taken." });
 
     // Email is optional (recovery via Gmail OTP needs one on file). Stored
     // lowercase; empty string clears to null. Real addresses must be
@@ -1368,17 +1369,17 @@ router.patch("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, n
     const data = {};
     if (active !== undefined) data.active = Boolean(active);
     if (name !== undefined) {
-      const nameCheck = validateName(name, "Name", 100);
+      const nameCheck = validateFullName(name);
       if (!nameCheck.ok) return res.status(400).json({ error: nameCheck.error });
       data.name = nameCheck.value;
     }
     if (username !== undefined) {
-      const usernameCheck = validateUsername(username);
+      const usernameCheck = validateAccountUsername(username);
       if (!usernameCheck.ok) return res.status(400).json({ error: usernameCheck.error });
       if (usernameCheck.value !== user.username) {
         const occupied = await prisma.user.findUnique({ where: { username: usernameCheck.value } });
         if (occupied && occupied.id !== user.id) {
-          return res.status(409).json({ error: `Username "${usernameCheck.value}" already exists` });
+          return res.status(409).json({ error: "This username is already taken." });
         }
         data.username = usernameCheck.value;
       }
