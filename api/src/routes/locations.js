@@ -206,4 +206,39 @@ router.patch("/locations/:id", requireAuth, requireRole("OWNER"), async (req, re
   }
 });
 
+// DELETE /api/locations/:id (OWNER) - remove a cart for good.
+//
+// Two steps on purpose: the cart must be DEACTIVATED first. A cart that
+// already has sales is never deleted - that history belongs to the business.
+router.delete("/locations/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const cart = await prisma.location.findUnique({ where: { id } });
+    if (!cart) return res.status(404).json({ error: "Location not found" });
+    if (cart.status !== "INACTIVE") {
+      return res.status(400).json({ error: "Deactivate the cart before deleting it" });
+    }
+    // Sales history stays: those sales already happened.
+    const orders = await prisma.order.findMany({ where: { locationId: id } });
+    if (orders.length > 0) {
+      return res.status(400).json({
+        error: "This cart has sales history and cannot be deleted",
+      });
+    }
+    // The stock and the adjustments that produced it go with the cart.
+    await prisma.stockAdjustment.deleteMany({ where: { locationId: id } });
+    await prisma.inventoryItem.deleteMany({ where: { locationId: id } });
+    // People and readers are unassigned, not deleted.
+    await prisma.user.updateMany({ where: { locationId: id }, data: { locationId: null } });
+    await prisma.device.updateMany({ where: { locationId: id }, data: { locationId: null } });
+    await prisma.location.delete({ where: { id } });
+    // Every list that shows carts, and every dropdown that offers one, has to
+    // drop it at once.
+    await announceChange("locations", { id, code: cart.code, status: "DELETED" });
+    return res.json({ deleted: { id, code: cart.code } });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 export default router;

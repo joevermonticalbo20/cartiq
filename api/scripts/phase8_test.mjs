@@ -110,6 +110,28 @@ async function main() {
     backOn.data?.location?.status === "ACTIVE" &&
     backOn.data?.location?.name === "Test New Canteen v2");
 
+  // ---- deleting a cart (the second step after deactivating it) ----
+  const delActive = await req(`/locations/${cartId}`, { method: "DELETE", token: tok });
+  check("an active cart cannot be deleted", delActive.status === 400 &&
+    delActive.data?.error === "Deactivate the cart before deleting it");
+  const delAsStaff = await req(`/locations/${cartId}`, { method: "DELETE", token: staffTok });
+  check("staff cannot delete a cart 403", delAsStaff.status === 403);
+  const delUnknown = await req("/locations/999999", { method: "DELETE", token: tok });
+  check("deleting an unknown cart 404", delUnknown.status === 404);
+
+  await req(`/locations/${cartId}`, { method: "PATCH", token: tok, body: { status: "INACTIVE" } });
+  const delCart = await req(`/locations/${cartId}`, { method: "DELETE", token: tok });
+  check("a deactivated cart is deleted", delCart.status === 200 &&
+    delCart.data?.deleted?.code === "CART-04");
+  const listAfter = await req("/locations", { token: tok });
+  check("the deleted cart is gone from the list",
+    !(listAfter.data?.data ?? []).some((l) => l.code === "CART-04"));
+  const catalog3 = await req("/catalog", { token: tok });
+  check("the deleted cart is gone from the catalog",
+    !(catalog3.data?.locations ?? []).some((l) => l.code === "CART-04"));
+  const delAgain = await req(`/locations/${cartId}`, { method: "DELETE", token: tok });
+  check("deleting it again 404", delAgain.status === 404);
+
   // ---- products ----
   const plist = await req("/products", { token: tok });
   const fries = (plist.data?.data ?? []).find((p) => p.name === "Flavored Fries");

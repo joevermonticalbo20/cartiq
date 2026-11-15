@@ -368,6 +368,9 @@ export default function SettingsPage() {
   const [cartNameError, setCartNameError] = useState("");
   const [addressError, setAddressError] = useState("");
   const [cartError, setCartError] = useState("");
+  // Deleting is the second step: the cart must be deactivated first.
+  const [cartDeleting, setCartDeleting] = useState(null);
+  const [isCartDeleting, setIsCartDeleting] = useState(false);
   const [newCart, setNewCart] = useState({ code: "", name: "", address: "", seedInventory: true });
   
   const [cartToken, setCartToken] = useState(null);
@@ -1462,6 +1465,23 @@ export default function SettingsPage() {
     }
   }
 
+  // Delete a cart for good. The server only allows it once the cart is
+  // deactivated, so this is the second step of a two-step flow.
+  async function handleDeleteCart() {
+    if (!cartDeleting || isCartDeleting) return;
+    setIsCartDeleting(true);
+    try {
+      await api.del(`/locations/${cartDeleting.id}`);
+      toast(`Cart ${cartDeleting.code} deleted`, "success");
+      reloadCarts();
+    } catch (err) {
+      toast(getFriendlyError(err, "Delete failed"), "error");
+    } finally {
+      setIsCartDeleting(false);
+      setCartDeleting(null);
+    }
+  }
+
   async function copyDeviceToken() {
     if (!deviceToken?.token) return;
     try {
@@ -2269,6 +2289,15 @@ export default function SettingsPage() {
                                   >
                                     {a.active ? "Disable" : "Enable"}
                                   </button>
+                                  {!a.active && (
+                                    <button
+                                      className="ghost small-btn"
+                                      onClick={() => setStaffDeleting(a)}
+                                      title="Delete this account for good"
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  )}
                                 </div>
                               )}
                             </td>
@@ -2403,18 +2432,15 @@ export default function SettingsPage() {
                               >
                                 {s.active ? "Disable" : "Enable"}
                               </button>
-                              <button
-                                className="ghost small-btn"
-                                onClick={() => setStaffDeleting(s)}
-                                disabled={s.active}
-                                title={
-                                  s.active
-                                    ? "Deactivate the account before deleting it"
-                                    : "Delete this account for good"
-                                }
-                              >
-                                <Trash2 size={13} />
-                              </button>
+                              {!s.active && (
+                                <button
+                                  className="ghost small-btn"
+                                  onClick={() => setStaffDeleting(s)}
+                                  title="Delete this account for good"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -2509,6 +2535,15 @@ export default function SettingsPage() {
                               >
                                 {c.status === "INACTIVE" ? "Activate" : "Deactivate"}
                               </button>
+                              {c.status === "INACTIVE" && (
+                                <button
+                                  className="ghost small-btn"
+                                  onClick={() => setCartDeleting(c)}
+                                  title="Delete this cart for good"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -3172,6 +3207,19 @@ export default function SettingsPage() {
           pendingLabel="Deleting..."
           onConfirm={handleDeleteStaff}
           onCancel={() => setStaffDeleting(null)}
+        />
+
+        {/* DELETE CART CONFIRMATION */}
+        <ConfirmDialog
+          open={Boolean(cartDeleting)}
+          title="Delete this cart?"
+          message={`"${cartDeleting?.code}" will be removed for good, together with its stock. The staff and the reader assigned to it are unassigned, not deleted. This cannot be undone.`}
+          confirmLabel="Delete Cart"
+          danger={true}
+          pending={isCartDeleting}
+          pendingLabel="Deleting..."
+          onConfirm={handleDeleteCart}
+          onCancel={() => setCartDeleting(null)}
         />
 
         {/* ADD IOT DEVICE MODAL */}

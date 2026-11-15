@@ -38,6 +38,15 @@ const disabledStaff = {
   id: 4, name: "Retired Staff", username: "staff02", role: "STAFF", active: false,
   email: "staff02@cartiq.local", location: null, rfidUid: null,
 };
+// A deactivated administrator: deletable too, once it is disabled.
+const disabledAdmin = {
+  id: 5, name: "Old Admin", username: "oldadmin", role: "OWNER", active: false,
+  email: "oldadmin@cartiq.local", location: null, rfidUid: null,
+};
+const cartRows = [
+  { id: 11, code: "CART-01", name: "Main Cart", status: "ACTIVE", itemCount: 6, device: null },
+  { id: 12, code: "CART-09", name: "Old Cart", status: "INACTIVE", itemCount: 6, device: null },
+];
 
 const emptyOk = (url) => {
   if (url === "/catalog") return Promise.resolve({ data: { locations: [] } });
@@ -332,23 +341,27 @@ describe("deleting a staff account", () => {
         return Promise.resolve({ data: { user: { id: 1, name: "Owner", username: "owner", role: "OWNER" } } });
       }
       if (url === "/auth/staff") {
-        return Promise.resolve({ data: { data: [ownerRow, secondAdmin, staffRow, disabledStaff] } });
+        return Promise.resolve({ data: { data: [ownerRow, secondAdmin, staffRow, disabledStaff, disabledAdmin] } });
+      }
+      if (url === "/locations") {
+        return Promise.resolve({ data: { data: cartRows } });
       }
       return emptyOk(url);
     });
     api.del.mockResolvedValue({ data: { deleted: { id: 4, username: "staff02" } } });
   });
 
-  it("only offers the delete button on a deactivated account", async () => {
+  it("only shows the delete button once the account is deactivated", async () => {
     renderOwnerPage();
     expect(await screen.findByText("Stall Staff 1")).toBeInTheDocument();
     const activeRow = screen.getByText("Stall Staff 1").closest("tr");
-    const activeDelete = within(activeRow).getByTitle("Deactivate the account before deleting it");
-    expect(activeDelete).toBeDisabled();
+    // Nothing to delete while the account is still active.
+    expect(within(activeRow).queryByTitle("Delete this account for good")).toBeNull();
 
     const retiredRow = screen.getByText("Retired Staff").closest("tr");
-    const retiredDelete = within(retiredRow).getByTitle("Delete this account for good");
-    expect(retiredDelete).toBeEnabled();
+    expect(
+      within(retiredRow).getByTitle("Delete this account for good")
+    ).toBeEnabled();
   });
 
   it("asks first, then deletes the account", async () => {
@@ -380,5 +393,63 @@ describe("deleting a staff account", () => {
       expect(screen.queryByText("Delete this account?")).toBeNull(),
     );
     expect(api.del).not.toHaveBeenCalled();
+  });
+
+  it("shows the delete button on an administrator only once it is disabled", async () => {
+    renderOwnerPage();
+    expect(await screen.findByText("Co Owner")).toBeInTheDocument();
+    const activeAdminRow = screen.getByText("Co Owner").closest("tr");
+    expect(
+      within(activeAdminRow).queryByTitle("Delete this account for good")
+    ).toBeNull();
+
+    expect(await screen.findByText("Old Admin")).toBeInTheDocument();
+    const disabledAdminRow = screen.getByText("Old Admin").closest("tr");
+    expect(
+      within(disabledAdminRow).getByTitle("Delete this account for good")
+    ).toBeEnabled();
+  });
+
+  it("deletes a deactivated administrator", async () => {
+    api.del.mockResolvedValue({ data: { deleted: { id: 5, username: "oldadmin" } } });
+    renderOwnerPage();
+    expect(await screen.findByText("Old Admin")).toBeInTheDocument();
+    const disabledAdminRow = screen.getByText("Old Admin").closest("tr");
+    fireEvent.click(
+      within(disabledAdminRow).getByTitle("Delete this account for good")
+    );
+    expect(await screen.findByText("Delete this account?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Delete Account/ }));
+    await vi.waitFor(() => expect(api.del).toHaveBeenCalledWith("/auth/staff/5"));
+  });
+
+  it("shows the delete button on a cart only once it is deactivated", async () => {
+    renderOwnerPage();
+    expect(await screen.findByText("Carts")).toBeInTheDocument();
+    const section = screen.getByText("Carts").closest("section");
+    const activeCartRow = within(section).getByText("CART-01").closest("tr");
+    expect(within(activeCartRow).queryByTitle("Delete this cart for good")).toBeNull();
+
+    const inactiveCartRow = within(section).getByText("CART-09").closest("tr");
+    expect(
+      within(inactiveCartRow).getByTitle("Delete this cart for good")
+    ).toBeEnabled();
+  });
+
+  it("asks first, then deletes a deactivated cart", async () => {
+    api.del.mockResolvedValue({ data: { deleted: { id: 12, code: "CART-09" } } });
+    renderOwnerPage();
+    expect(await screen.findByText("Carts")).toBeInTheDocument();
+    const section = screen.getByText("Carts").closest("section");
+    const inactiveCartRow = within(section).getByText("CART-09").closest("tr");
+    fireEvent.click(within(inactiveCartRow).getByTitle("Delete this cart for good"));
+
+    expect(await screen.findByText("Delete this cart?")).toBeInTheDocument();
+    expect(screen.getByText(/will be removed for good, together with its stock/)).toBeInTheDocument();
+    expect(api.del).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /Delete Cart/ }));
+    await vi.waitFor(() => expect(api.del).toHaveBeenCalledWith("/locations/12"));
+    expect(await screen.findByText("Cart CART-09 deleted")).toBeInTheDocument();
   });
 });

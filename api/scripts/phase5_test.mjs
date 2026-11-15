@@ -170,6 +170,22 @@ async function main() {
   const delAgain = await req(`/auth/staff/${newId}`, { method: "DELETE", token: tok });
   check("deleting it again answers 404", delAgain.status === 404);
 
+  // An administrator account is deletable too, but only once it is disabled.
+  const adminAcc = await req("/auth/staff", {
+    method: "POST",
+    token: tok,
+    body: { name: "Second Owner", username: `owner_${run}`, password: "test123", role: "OWNER" },
+  });
+  check("a second administrator is created", adminAcc.status === 201);
+  const adminId = adminAcc.data?.user?.id;
+  const delAdminActive = await req(`/auth/staff/${adminId}`, { method: "DELETE", token: tok });
+  check("an active administrator cannot be deleted", delAdminActive.status === 400 &&
+        delAdminActive.data?.error === "Deactivate the account before deleting it");
+  await req(`/auth/staff/${adminId}`, { method: "PATCH", token: tok, body: { active: false } });
+  const delAdmin = await req(`/auth/staff/${adminId}`, { method: "DELETE", token: tok });
+  check("a deactivated administrator is deleted", delAdmin.status === 200 &&
+        delAdmin.data?.deleted?.id === adminId);
+
   // ---- devices ----
   const devicesStaff = await req("/devices", { token: staffTok });
   check("device registry forbidden for STAFF", devicesStaff.status === 403);

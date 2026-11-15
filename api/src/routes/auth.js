@@ -1487,13 +1487,6 @@ router.delete("/staff/:id", requireAuth, requireRole("OWNER"), async (req, res, 
     if (id === Number(req.user.sub)) {
       return res.status(400).json({ error: "You cannot delete your own account" });
     }
-    // Administrator accounts stay: they are the way back in if something
-    // goes wrong. They can be disabled instead.
-    if (user.role === "OWNER") {
-      return res.status(400).json({
-        error: "Administrator accounts cannot be deleted - disable it instead",
-      });
-    }
     // Step one is always "disable", never "delete".
     if (user.active) {
       return res.status(400).json({ error: "Deactivate the account before deleting it" });

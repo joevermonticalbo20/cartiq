@@ -2934,6 +2934,52 @@ async function handlePatchLocation(req, _origin, id) {
   return { status: 200, body: { location: cleanDoc(await fsGet("locations", existing.id)) } };
 }
 
+// DELETE /locations/:id (OWNER) - remove a cart for good.
+// Mirror of api/src/routes/locations.js. Two steps on purpose: the cart must
+// be DEACTIVATED first, and a cart that already has sales is never deleted.
+async function handleDeleteLocation(id) {
+  const cart = await fsGet("locations", id);
+  if (!cart) return { status: 404, body: { error: "Location not found" } };
+  if (cart.status !== "INACTIVE") {
+    return { status: 400, body: { error: "Deactivate the cart before deleting it" } };
+  }
+  // Sales history stays: those sales already happened.
+  const orders = await fsRunQuery("orders", {
+    filters: [{ field: "locationId", op: "EQUAL", value: Number(id) }],
+    limit: 1,
+  });
+  if (orders.length > 0) {
+    return {
+      status: 400,
+      body: { error: "This cart has sales history and cannot be deleted" },
+    };
+  }
+  const locFilter = [{ field: "locationId", op: "EQUAL", value: Number(id) }];
+  // The stock and the adjustments that produced it go with the cart.
+  const adjustments = await fsRunQuery("stockAdjustments", { filters: locFilter, limit: 2000 });
+  for (const a of adjustments) {
+    if (a._name) await fsDeleteByName(a._name).catch(() => {});
+  }
+  const items = await fsRunQuery("inventoryItems", { filters: locFilter, limit: 2000 });
+  for (const it of items) {
+    if (it._name) await fsDeleteByName(it._name).catch(() => {});
+  }
+  // People and readers are unassigned, not deleted.
+  const staff = await fsRunQuery("users", { filters: locFilter, limit: 500 });
+  for (const u of staff) {
+    await fsPatch("users", u.id, { locationId: null }).catch(() => {});
+  }
+  const devices = await fsRunQuery("devices", { filters: locFilter, limit: 500 });
+  for (const d of devices) {
+    await fsPatch("devices", d.id, { locationId: null }).catch(() => {});
+  }
+  await fsDeleteByName(fsDocName("locations", id));
+  // Every list that shows carts, and every dropdown that offers one, has to
+  // drop it at once.
+  await announceChange("locations", { id: Number(id), code: cart.code, status: "DELETED" });
+  return { status: 200, body: { deleted: { id: Number(id), code: cart.code } } };
+}
+
 async function handleListDevices() {
   const [devices, locations] = await Promise.all([fsListAll("devices"), fsListAll("locations")]);
   const locById = new Map(locations.map((l) => [l.id, l]));
@@ -9372,14 +9418,6 @@ async function handleDeleteStaff(id, me) {
   if (Number(id) === Number(me.id)) {
     return { status: 400, body: { error: "You cannot delete your own account" } };
   }
-  // Administrator accounts stay: they are the way back in if something goes
-  // wrong. They can be disabled instead.
-  if (user.role === "OWNER") {
-    return {
-      status: 400,
-      body: { error: "Administrator accounts cannot be deleted - disable it instead" },
-    };
-  }
   // Step one is always "disable", never "delete".
   if (user.active) {
     return { status: 400, body: { error: "Deactivate the account before deleting it" } };
@@ -9963,6 +10001,11 @@ Deno.serve(async (req) => {
           const idPart = path.slice("/locations/".length).split("/")[0].split("?")[0];
           if (!/^\d+$/.test(idPart)) return jsonRes(origin, { error: "Location not found" }, 404);
           out = await handlePatchLocation(req, origin, Number(idPart));
+        }
+        else if (req.method === "DELETE" && path.startsWith("/locations/")) {
+          const idPart = path.slice("/locations/".length).split("/")[0].split("?")[0];
+          if (!/^\d+$/.test(idPart)) return jsonRes(origin, { error: "Location not found" }, 404);
+          out = await handleDeleteLocation(Number(idPart));
         }
         else if (req.method === "GET" && path === "/devices") out = { status: 200, body: await handleListDevices() };
         else if (req.method === "POST" && path === "/devices") out = await handleCreateDevice(req);
