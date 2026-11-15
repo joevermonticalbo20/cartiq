@@ -423,12 +423,15 @@ describe("deleting a staff account", () => {
 
   it("shows the delete button on a cart only once it is deactivated", async () => {
     renderOwnerPage();
+    // CART-01 shows both in the Carts section and in the Staff table's cart
+    // badge - pick the row inside the Carts section.
     expect(await screen.findByText("Carts")).toBeInTheDocument();
     const section = screen.getByText("Carts").closest("section");
+    await within(section).findByText("CART-01", {}, { timeout: 4000 });
     const activeCartRow = within(section).getByText("CART-01").closest("tr");
     expect(within(activeCartRow).queryByTitle("Delete this cart for good")).toBeNull();
 
-    const inactiveCartRow = within(section).getByText("CART-09").closest("tr");
+    const inactiveCartRow = (await within(section).findByText("CART-09", {}, { timeout: 4000 })).closest("tr");
     expect(
       within(inactiveCartRow).getByTitle("Delete this cart for good")
     ).toBeEnabled();
@@ -439,7 +442,7 @@ describe("deleting a staff account", () => {
     renderOwnerPage();
     expect(await screen.findByText("Carts")).toBeInTheDocument();
     const section = screen.getByText("Carts").closest("section");
-    const inactiveCartRow = within(section).getByText("CART-09").closest("tr");
+    const inactiveCartRow = (await within(section).findByText("CART-09", {}, { timeout: 4000 })).closest("tr");
     fireEvent.click(within(inactiveCartRow).getByTitle("Delete this cart for good"));
 
     expect(await screen.findByText("Delete this cart?")).toBeInTheDocument();
