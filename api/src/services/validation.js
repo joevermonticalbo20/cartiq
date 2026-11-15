@@ -72,9 +72,16 @@ export async function hasMailExchange(domain) {
 
 /** Full recovery-email check (format + domain existence). */
 export async function validateRecoveryEmail(raw) {
-  const email = normalizeEmail(raw);
+  // The owner's rule: uppercase anywhere in the address is refused outright
+  // (Gmail.com with a capital G is not accepted). Leading/trailing spaces are
+  // trimmed automatically. The value is stored lowercased.
+  const trimmed = String(raw ?? "").trim();
+  if (trimmed !== trimmed.toLowerCase()) {
+    return { ok: false, email: trimmed.toLowerCase(), error: "Please enter a valid email address." };
+  }
+  const email = normalizeEmail(trimmed);
   if (!email || !validEmail(email)) {
-    return { ok: false, email, error: "email must be a valid email address" };
+    return { ok: false, email, error: "Please enter a valid email address." };
   }
   if (isPlaceholderEmail(email)) {
     return { ok: false, email, error: "Enter a real email address, not a placeholder" };
@@ -131,25 +138,53 @@ export function validateVendorName(raw) {
 //
 // The owner's exact rules (Add Staff Account / Add Admin Account):
 //
-//   Full name - 2-50 characters; Unicode letters (incl. Filipino and accented
-//   letters), spaces, hyphens and apostrophes ONLY. Numbers and every other
-//   special character are refused. At least one letter, so a string of
-//   "@@@@@" is not a name. HTML cannot be built from this charset.
+//   Full name - required, 2..30 characters; Unicode letters (incl. Filipino
+//   and accented), spaces, hyphens and apostrophes ONLY; numbers and every
+//   other special character refused; at least TWO LETTERS ("Nb" is not a
+//   name); no run of 3+ identical letters anywhere (so "AAa", "aaaa" and
+//   "AAaaAAaa aaaAA" are refused while "Aaron" and "Yyan" are fine).
 //
-//   Username - 4-30 characters; lowercase letters, digits and underscore
-//   ONLY. Must START with a letter. Lowercased before storing. Numbers-only
-//   and spaces/specials are refused.
+//   Username - min 4, max 20 characters; must start with an English letter;
+//   only a-z, 0-9, underscore (_) and period (.); spaces and every other
+//   special are strictly prohibited; no consecutive underscores or periods
+//   (same or mixed); must END with a letter or digit; case-insensitive
+//   (Admin123 == admin123); reserved system words and offensive terms are
+//   refused; leading/trailing spaces trimmed automatically.
 //
-// These are deliberately STRICTER than the general name validator, which
-// stays: it is used for vendors, items, products and other free-text names.
+// These are deliberately STRICTER than the general name/username validator,
+// which stays: it is used for vendors, items, products and other free-text names.
 // ---------------------------------------------------------------------------
 
 const _ACCOUNT_NAME_ALLOWED = /^[\p{L}\p{M} '-]+$/u;
-const _ACCOUNT_LETTER_RE = /\p{L}/u;
-const _ACCOUNT_USERNAME_ALLOWED = /^[a-z0-9_]{4,30}$/;
-const _ACCOUNT_USERNAME_STARTS_LETTER = /^[a-z]/u;
 
-export const FULL_NAME_MAX = 50;
+// Unicode letters, spaces, hyphens and apostrophes ONLY - no digits, no other
+// punctuation, so HTML/markup cannot be built from this charset.
+// (Note: these two are reused by validateFullName below.)
+const _ACCOUNT_SAME_LETTER_RUN = /(\p{L})\1\1/iu;
+
+// Reserved for the system's own use - exact matches only.
+const _RESERVED_USERNAMES = new Set([
+  "admin", "administrator", "superadmin", "root", "system", "owner", "support",
+  "help", "security", "staff", "service", "manager", "cashier", "pos", "cartiq",
+  "api", "auth", "login", "password", "reset", "account",
+  "null", "undefined", "anonymous", "nobody", "unknown", "user", "test",
+  "none", "guest", "demo", "default", "everyone", "postmaster",
+  "abuse", "noreply", "no-reply", "webmaster", "www", "mail", "ftp", "info",
+  "dev", "developer", "debug", "localhost", "backup", "sysadmin",
+]);
+// Offensive terms are refused as SUBSTRINGS (so "puta123" is out).
+const _OFFENSIVE_USERNAMES = [
+  "fuck", "fucking", "fucker", "shit", "bitch", "asshole", "cunt", "bastard",
+  "whore", "slut", "nigger", "faggot", "retard", "puta", "punyeta", "punyetr",
+  "putangina", "gago", "bobo", "tanga", "ulol", "pakyu",
+];
+
+export const FULL_NAME_MAX = 30;
+export const USERNAME_MAX = 20;
+const _USERNAME_STARTS_LETTER = /^[a-z]/u;
+const _USERNAME_ALLOWED = /^[a-z0-9_.]+$/;
+const _USERNAME_ALNUM_END = /[a-z0-9]$/;
+const _USERNAME_CONSECUTIVE = /[._]{2}/;
 
 export function cleanFullName(raw) {
   return String(raw ?? "").replace(/\s+/g, " ").trim();
@@ -163,14 +198,20 @@ export function validateFullName(raw) {
     return { ok: false, value, error: "Full name must be at least 2 characters." };
   }
   if (value.length > FULL_NAME_MAX) {
-    return { ok: false, value, error: "Full name must not exceed 50 characters." };
+    return { ok: false, value, error: "Full name must not exceed 30 characters." };
   }
   // Numbers or anything that is not a letter/space/hyphen/apostrophe are out.
   if (!_ACCOUNT_NAME_ALLOWED.test(value)) {
     return { ok: false, value, error: "Full name cannot contain numbers or special characters." };
   }
   // At least one letter: "@@@@@" (or an all-punctuation run) is not a name.
-  if (!_ACCOUNT_LETTER_RE.test(value)) {
+  const letterCount = (value.match(/\p{L}/gu) ?? []).length;
+  if (letterCount < 2) {
+    // At least two letters - "A", "-'-" and "A-" are not names.
+    return { ok: false, value, error: "Please enter a valid full name." };
+  }
+  // No run of 3+ identical letters anywhere in the name.
+  if (_ACCOUNT_SAME_LETTER_RUN.test(value)) {
     return { ok: false, value, error: "Please enter a valid full name." };
   }
   return { ok: true, value };
@@ -180,16 +221,29 @@ export function validateFullName(raw) {
 export function validateAccountUsername(raw) {
   const value = String(raw ?? "").trim().toLowerCase();
   if (!value) return { ok: false, value, error: "Username is required." };
-  if (/\s/.test(value) || /[^a-z0-9_]/.test(value)) {
+  if (/\s/.test(value) || /[^a-z0-9_.]/.test(value)) {
     return { ok: false, value, error: "Username cannot contain spaces or special characters." };
   }
-  if (value.length < 4 || value.length > 30) {
-    return { ok: false, value, error: "Username must be between 4 and 30 characters." };
+  if (value.length < 4 || value.length > USERNAME_MAX) {
+    return { ok: false, value, error: "Username must be between 4 and 20 characters." };
   }
-  if (!_ACCOUNT_USERNAME_STARTS_LETTER.test(value)) {
+  if (!_USERNAME_STARTS_LETTER.test(value)) {
     return { ok: false, value, error: "Username must start with a letter." };
   }
-  if (!_ACCOUNT_USERNAME_ALLOWED.test(value)) {
+  // No two consecutive periods or underscores (same or mixed: "..", "__", "._")
+  if (_USERNAME_CONSECUTIVE.test(value)) {
+    return { ok: false, value, error: "Username cannot contain consecutive underscores or periods." };
+  }
+  if (!_USERNAME_ALNUM_END.test(value)) {
+    return { ok: false, value, error: "Username must end with a letter or number." };
+  }
+  if (_RESERVED_USERNAMES.has(value)) {
+    return { ok: false, value, error: "This username is reserved for the system." };
+  }
+  if (_OFFENSIVE_USERNAMES.some((term) => value.includes(term))) {
+    return { ok: false, value, error: "This username contains inappropriate language." };
+  }
+  if (!_USERNAME_ALLOWED.test(value)) {
     return { ok: false, value, error: "Please enter a valid username." };
   }
   return { ok: true, value };

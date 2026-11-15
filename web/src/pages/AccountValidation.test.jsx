@@ -120,36 +120,32 @@ describe("staff and admin account fields", () => {
     expect(api.post).not.toHaveBeenCalled();
   });
 
-  it("refuses a name with numbers or special characters", async () => {
+  it("strips digits and special characters from the name as it is typed", async () => {
     renderOwnerPage();
     expect(await screen.findByText("Staff accounts")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Add staff/i }));
     const dialog = openModal();
     const nameInput = within(dialog).getByLabelText(/Full name/);
-    fireEvent.change(nameInput, { target: { value: "Juan123" } });
-    fireEvent.change(within(dialog).getByLabelText(/^Username/), { target: { value: "juan123" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: /Create account/ }));
-    expect(
-      await within(dialog).findByText("Full name cannot contain numbers or special characters.")
-    ).toBeInTheDocument();
-    expect(api.post).not.toHaveBeenCalled();
+    fireEvent.change(nameInput, { target: { value: "Juan123!@#" } });
+    expect(nameInput).toHaveValue("Juan");
+    fireEvent.change(nameInput, { target: { value: "<script>alert(1)</script>" } });
+    expect(nameInput).toHaveValue("Scriptalertscript");
   });
 
-  it("refuses a username that starts with a digit and one with spaces", async () => {
+  it("refuses a username that starts with a digit and strips spaces while typing", async () => {
     renderOwnerPage();
     expect(await screen.findByText("Staff accounts")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Add staff/i }));
     const dialog = openModal();
     fireEvent.change(within(dialog).getByLabelText(/Full name/), { target: { value: "Juan Dela Cruz" } });
-    fireEvent.change(within(dialog).getByLabelText(/^Username/), { target: { value: "12345678" } });
+    const usernameInput = within(dialog).getByLabelText(/^Username/);
+    fireEvent.change(usernameInput, { target: { value: "12345678" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /Create account/ }));
     expect(await within(dialog).findByText("Username must start with a letter.")).toBeInTheDocument();
 
+    // Spaces are stripped as the owner types, so they never reach the validator.
     fireEvent.change(within(dialog).getByLabelText(/^Username/), { target: { value: "staff 001" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: /Create account/ }));
-    expect(
-      await within(dialog).findByText("Username cannot contain spaces or special characters.")
-    ).toBeInTheDocument();
+    expect(usernameInput).toHaveValue("staff001");
     expect(api.post).not.toHaveBeenCalled();
   });
 
@@ -159,14 +155,14 @@ describe("staff and admin account fields", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add staff/i }));
     const dialog = openModal();
     const nameInput = within(dialog).getByLabelText(/Full name/);
-    fireEvent.change(nameInput, { target: { value: "Juan123" } });
+    fireEvent.change(nameInput, { target: { value: "BBBB" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /Create account/ }));
     expect(
-      await within(dialog).findByText("Full name cannot contain numbers or special characters.")
+      await within(dialog).findByText("Please enter a valid full name.")
     ).toBeInTheDocument();
     fireEvent.change(nameInput, { target: { value: "Juan Dela Cruz" } });
     expect(
-      within(dialog).queryByText("Full name cannot contain numbers or special characters.")
+      within(dialog).queryByText("Please enter a valid full name.")
     ).toBeNull();
     expect(nameInput).not.toHaveAttribute("aria-invalid");
   });
@@ -250,17 +246,17 @@ describe("staff and admin account fields", () => {
     fireEvent.blur(nameInput);
     expect(within(dialog).queryByText("Full name is required.")).toBeNull();
 
-    fireEvent.change(nameInput, { target: { value: "Juan123" } });
+    fireEvent.change(nameInput, { target: { value: "BBBB" } });
     fireEvent.blur(nameInput);
     expect(
-      await within(dialog).findByText("Full name cannot contain numbers or special characters.")
+      await within(dialog).findByText("Please enter a valid full name.")
     ).toBeInTheDocument();
 
     const usernameInput = within(dialog).getByLabelText(/^Username/);
-    fireEvent.change(usernameInput, { target: { value: "staff 001" } });
+    fireEvent.change(usernameInput, { target: { value: "staff__01" } });
     fireEvent.blur(usernameInput);
     expect(
-      await within(dialog).findByText("Username cannot contain spaces or special characters.")
+      await within(dialog).findByText("Username cannot contain consecutive underscores or periods.")
     ).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
   });
@@ -282,11 +278,11 @@ describe("staff and admin account fields", () => {
     expect(await screen.findByText("Co Owner")).toBeInTheDocument();
     fireEvent.click(screen.getByTitle("Edit admin"));
     const dialog = await screen.findByRole("dialog", { name: "Edit admin account" });
-    fireEvent.change(within(dialog).getByLabelText(/Full name/), { target: { value: "Co Owner2" } });
+    fireEvent.change(within(dialog).getByLabelText(/Full name/), { target: { value: "BBBB" } });
     fireEvent.change(within(dialog).getByLabelText(/^Username/), { target: { value: "coowner" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /Save Changes/ }));
     expect(
-      await within(dialog).findByText("Full name cannot contain numbers or special characters.")
+      await within(dialog).findByText("Please enter a valid full name.")
     ).toBeInTheDocument();
     expect(api.patch).not.toHaveBeenCalled();
 
@@ -323,10 +319,12 @@ describe("staff and admin account fields", () => {
     expect(dialog.textContent).toContain("Edit Staff Account");
     // The username is immutable - it cannot be edited, so it cannot be invalid.
     expect(within(dialog).getByLabelText(/Username/)).toBeDisabled();
-    fireEvent.change(within(dialog).getByLabelText(/Full name/), { target: { value: "Stall Staff 1!" } });
+    // Live typing strips "!", which would make the name valid - use BBBB
+    // directly to exercise server-side refusal of a same-letter run.
+    fireEvent.change(within(dialog).getByLabelText(/Full name/), { target: { value: "BBBB" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /Save Changes/ }));
     expect(
-      await within(dialog).findByText("Full name cannot contain numbers or special characters.")
+      await within(dialog).findByText("Please enter a valid full name.")
     ).toBeInTheDocument();
     expect(api.patch).not.toHaveBeenCalled();
   });

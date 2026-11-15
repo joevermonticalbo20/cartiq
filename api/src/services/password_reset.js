@@ -66,7 +66,29 @@ export function normalizeEmail(value) {
 export function validEmail(value) {
   const v = String(value ?? "").trim();
   if (!v || v.length > 254) return false;
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  // Uppercase anywhere is refused - input must already be lowercase.
+  if (v !== v.toLowerCase()) return false;
+  const at = v.indexOf("@");
+  if (at === -1 || at !== v.lastIndexOf("@")) return false;
+  const local = v.slice(0, at);
+  const domain = v.slice(at + 1);
+  if (
+    !local ||
+    local.startsWith(".") ||
+    local.endsWith(".") ||
+    local.includes("..") ||
+    !/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(local)
+  ) {
+    return false;
+  }
+  if (
+    !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/.test(domain) ||
+    domain.includes("..")
+  ) {
+    return false;
+  }
+  const labels = domain.split(".");
+  return labels.length >= 2 && /^[a-z]{2,}$/.test(labels[labels.length - 1]);
 }
 
 /** Cryptographically random 6-digit code, zero-padded ("004821" possible). */

@@ -79,11 +79,23 @@ function stubDns(answer) {
   return () => { globalThis.fetch = original; };
 }
 
-test("validateRecoveryEmail normalizes case", async () => {
+test("validateRecoveryEmail refuses uppercase anywhere in the address", async () => {
+  // The owner's rule: "Gmail.com" with a capital G is not accepted. Whitespace
+  // is trimmed, the address is stored lowercased, but case errors are refused.
   const restore = stubDns(true);
   try {
     const out = await validateRecoveryEmail("  User@Gmail.COM  ");
-    assert.deepEqual(out, { ok: true, email: "user@gmail.com" });
+    assert.equal(out.ok, false);
+    assert.equal(out.error, "Please enter a valid email address.");
+    assert.deepEqual(await validateRecoveryEmail("  USER@GMAIL.COM  "), {
+      ok: false,
+      email: "user@gmail.com",
+      error: "Please enter a valid email address.",
+    });
+    assert.deepEqual(await validateRecoveryEmail("  user@gmail.com  "), {
+      ok: true,
+      email: "user@gmail.com",
+    });
   } finally {
     restore();
   }

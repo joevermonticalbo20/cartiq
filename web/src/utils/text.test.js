@@ -129,11 +129,18 @@ describe("validateEmail", () => {
     expect(validateEmail("")).toEqual({ ok: true, value: "" });
   });
 
-  it("normalises case and trims", () => {
-    expect(validateEmail("  Owner@Example.COM ")).toEqual({
+  it("trims whitespace and stores the address lowercased", () => {
+    expect(validateEmail("  owner@example.com  ")).toEqual({
       ok: true,
       value: "owner@example.com",
     });
+  });
+
+  it("refuses uppercase anywhere, e.g. Gmail.com", () => {
+    expect(validateEmail("Owner@Gmail.com").ok).toBe(false);
+    expect(validateEmail("Owner@Gmail.com").error).toBe("Please enter a valid email address.");
+    expect(validateEmail("owner@Gmail.com").ok).toBe(false);
+    expect(validateEmail("owner@example.com").ok).toBe(true);
   });
 
   it("rejects a shape that cannot be a mailbox", () => {
@@ -141,6 +148,11 @@ describe("validateEmail", () => {
     expect(validateEmail("a@b").ok).toBe(false);
     expect(validateEmail("a b@example.com").ok).toBe(false);
     expect(validateEmail("@example.com").ok).toBe(false);
+    expect(validateEmail("owner@example..com").ok).toBe(false);
+    expect(validateEmail("owner@..example.com").ok).toBe(false);
+    expect(validateEmail("owner@example.c").ok).toBe(false);
+    expect(validateEmail("owner@@example.com").ok).toBe(false);
+    expect(validateEmail("owner.example.com").ok).toBe(false);
   });
 
   it("rejects an over-long address", () => {
@@ -216,13 +228,32 @@ describe("validateFullName (staff/admin accounts)", () => {
     expect(validateFullName("   ").error).toBe("Full name is required.");
   });
 
-  it("enforces 2..50 characters", () => {
+  it("enforces 2..30 characters", () => {
     expect(validateFullName("J").error).toBe("Full name must be at least 2 characters.");
     expect(validateFullName("Jo").ok).toBe(true);
-    expect(validateFullName("x".repeat(FULL_NAME_MAX)).ok).toBe(true);
+    expect(validateFullName("x".repeat(FULL_NAME_MAX)).ok).toBe(false); // same-letter run
+    const varied = "abcdefg ABCDEFG ".repeat(2).slice(0, FULL_NAME_MAX);
+    expect(varied.length).toBe(FULL_NAME_MAX);
+    expect(validateFullName(varied).ok).toBe(true);
     expect(validateFullName("x".repeat(FULL_NAME_MAX + 1)).error).toBe(
-      "Full name must not exceed 50 characters."
+      "Full name must not exceed 30 characters."
     );
+  });
+
+  it("requires at least two letters with the punctuation allowed", () => {
+    expect(validateFullName("-'-'-'").error).toBe("Please enter a valid full name.");
+    expect(validateFullName("A-").error).toBe("Please enter a valid full name.");
+    expect(validateFullName("AB").ok).toBe(true);
+  });
+
+  it("refuses a run of 3+ identical letters anywhere in the name", () => {
+    for (const bad of ["AAa", "aaaa", "AAaa", "Mariaaa Clara", "BBBB Boots"]) {
+      expect(validateFullName(bad).ok, bad).toBe(false);
+      expect(validateFullName(bad).error).toBe("Please enter a valid full name.");
+    }
+    for (const ok of ["Aaron", "Yyan", "Juan Dela Cruz"]) {
+      expect(validateFullName(ok).ok, ok).toBe(true);
+    }
   });
 
   it("refuses numbers and special characters, including HTML", () => {
@@ -269,15 +300,52 @@ describe("validateAccountUsername (staff/admin accounts)", () => {
     });
   });
 
-  it("enforces 4..30 characters", () => {
+  it("enforces 4..20 characters", () => {
     expect(validateAccountUsername("abc").error).toBe(
-      "Username must be between 4 and 30 characters."
+      "Username must be between 4 and 20 characters."
     );
-    expect(validateAccountUsername("a".repeat(31)).error).toBe(
-      "Username must be between 4 and 30 characters."
+    expect(validateAccountUsername("a".repeat(21)).error).toBe(
+      "Username must be between 4 and 20 characters."
     );
     expect(validateAccountUsername("abcd").ok).toBe(true);
-    expect(validateAccountUsername("a".repeat(30)).ok).toBe(true);
+    expect(validateAccountUsername("a".repeat(20)).ok).toBe(true);
+  });
+
+  it("refuses consecutive periods or underscores (same or mixed)", () => {
+    for (const bad of ["ab__cd", "ab..cd", "ab_.cd", "ab._cd", "staff__01"]) {
+      expect(validateAccountUsername(bad).error, bad).toBe(
+        "Username cannot contain consecutive underscores or periods."
+      );
+    }
+  });
+
+  it("must end with a letter or number", () => {
+    expect(validateAccountUsername("staff_").error).toBe(
+      "Username must end with a letter or number."
+    );
+    expect(validateAccountUsername("staff.").error).toBe(
+      "Username must end with a letter or number."
+    );
+    expect(validateAccountUsername("staff_1").ok).toBe(true);
+  });
+
+  it("refuses periods and reserved system words", () => {
+    expect(validateAccountUsername("jo..ver").ok).toBe(false);
+    expect(validateAccountUsername("admin").error).toBe(
+      "This username is reserved for the system."
+    );
+    expect(validateAccountUsername("owner").error).toBe(
+      "This username is reserved for the system."
+    );
+  });
+
+  it("refuses offensive terms as substrings", () => {
+    expect(validateAccountUsername("joever_fuck").error).toBe(
+      "This username contains inappropriate language."
+    );
+    expect(validateAccountUsername("staff_puta").error).toBe(
+      "This username contains inappropriate language."
+    );
   });
 
   it("must start with a letter", () => {

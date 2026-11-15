@@ -41,7 +41,7 @@ import PasswordStrengthMeter, { meetsPasswordStrength } from "../components/Pass
 import { useToast } from "../components/Toast.jsx";
 import Select from "../components/Select.jsx";
 import EmptyState from "../components/EmptyState.jsx";
-import { sanitizeTextInput, validateEmail, validateRfidUid, validateDeviceId, validateCartName, validateCartAddress, CART_NAME_MAX, CART_ADDRESS_MAX, validateFullName, validateAccountUsername } from "../utils/text.js";
+import { sanitizeTextInput, validateEmail, validateRfidUid, validateDeviceId, validateCartName, validateCartAddress, CART_NAME_MAX, CART_ADDRESS_MAX, validateFullName, validateAccountUsername, sanitizeFullNameTyping, sanitizeUsernameTyping } from "../utils/text.js";
 
 // --- Time clock (owner-configured daily clock-in/out windows) ---
 // Mirror of the server-side settings/timeClock document (Asia/Manila 24h wire
@@ -81,6 +81,11 @@ const checkNameOnBlur = (raw, setError) => {
 const checkUsernameOnBlur = (raw, setError) => {
   if (!String(raw ?? "").trim()) return;
   const res = validateAccountUsername(raw);
+  setError(res.ok ? "" : res.error);
+};
+const checkEmailOnBlur = (raw, setError) => {
+  // Optional: empty is fine, only invalid content complains.
+  const res = validateEmail(raw);
   setError(res.ok ? "" : res.error);
 };
 
@@ -259,8 +264,7 @@ export default function SettingsPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [addClosing, setAddClosing] = useState(false);
   const [isStaffAdding, setIsStaffAdding] = useState(false);
-  // Per-field messages for the Add Staff form. Empty on open: errors appear
-  // only after a submit, never before the user has typed.
+  const [staffEmailError, setStaffEmailError] = useState("");
   const [staffNameError, setStaffNameError] = useState("");
   const [staffUsernameError, setStaffUsernameError] = useState("");
   const staffNameRef = useRef(null);
@@ -282,6 +286,7 @@ export default function SettingsPage() {
   const [isStaffEditing, setIsStaffEditing] = useState(false);
   // Username is immutable here, so only the name can be invalid.
   const [editStaffNameError, setEditStaffNameError] = useState("");
+  const [editStaffEmailError, setEditStaffEmailError] = useState("");
   const editStaffNameRef = useRef(null);
 
   // -- REGISTER A STAFF CARD AT THE READER --
@@ -328,6 +333,7 @@ export default function SettingsPage() {
   // Per-field messages for the Add Admin form.
   const [adminNameError, setAdminNameError] = useState("");
   const [adminUsernameError, setAdminUsernameError] = useState("");
+  const [adminEmailError, setAdminEmailError] = useState("");
   const adminNameRef = useRef(null);
   const adminUsernameRef = useRef(null);
   const [adminEditing, setAdminEditing] = useState(null);
@@ -337,6 +343,7 @@ export default function SettingsPage() {
   // Per-field messages for the Edit Admin form.
   const [editAdminNameError, setEditAdminNameError] = useState("");
   const [editAdminUsernameError, setEditAdminUsernameError] = useState("");
+  const [editAdminEmailError, setEditAdminEmailError] = useState("");
   const editAdminNameRef = useRef(null);
   const editAdminUsernameRef = useRef(null);
   const [showNewAdminPw, setShowNewAdminPw] = useState(false);
@@ -957,8 +964,9 @@ export default function SettingsPage() {
       return;
     }
     const emailCheck = validateEmail(newStaff.email);
+    setStaffEmailError(emailCheck.ok ? "" : emailCheck.error);
     if (!emailCheck.ok) {
-      setStaffError(emailCheck.error);
+      // Recovery email sits at the bottom of the form, so focusing is enough.
       return;
     }
     const rfidCheck = validateRfidUid(newStaff.rfidUid);
@@ -1013,8 +1021,8 @@ export default function SettingsPage() {
       return;
     }
     const emailCheck = validateEmail(newAdmin.email);
+    setAdminEmailError(emailCheck.ok ? "" : emailCheck.error);
     if (!emailCheck.ok) {
-      setAdminError(emailCheck.error);
       return;
     }
     setAdminError("");
@@ -1049,6 +1057,7 @@ export default function SettingsPage() {
     setAdminEditError("");
     setEditAdminNameError("");
     setEditAdminUsernameError("");
+    setEditAdminEmailError("");
   }
 
   async function handleEditAdmin(e) {
@@ -1067,8 +1076,8 @@ export default function SettingsPage() {
       return;
     }
     const emailCheck = validateEmail(adminEditing.email);
+    setEditAdminEmailError(emailCheck.ok ? "" : emailCheck.error);
     if (!emailCheck.ok) {
-      setAdminEditError(emailCheck.error);
       return;
     }
     const cleanName = nameCheck.value;
@@ -1213,8 +1222,8 @@ export default function SettingsPage() {
     }
     const original = staff.find((s) => s.id === staffEditing.id);
     const emailCheck = validateEmail(staffEditing.email);
+    setEditStaffEmailError(emailCheck.ok ? "" : emailCheck.error);
     if (!emailCheck.ok) {
-      setStaffError(emailCheck.error);
       return;
     }
     const rfidCheck = validateRfidUid(staffEditing.rfidUid);
@@ -2188,7 +2197,7 @@ export default function SettingsPage() {
                     Owner-level accounts. They have full access to Settings, staff, and the POS.
                   </p>
                 </div>
-                <button onClick={() => { setAdminError(""); setAdminNameError(""); setAdminUsernameError(""); setAdminOpen(true); setShowNewAdminPw(false); }}>
+                <button onClick={() => { setAdminError(""); setAdminNameError(""); setAdminUsernameError(""); setAdminEmailError(""); setAdminOpen(true); setShowNewAdminPw(false); }}>
                   <Plus size={15} /> Add admin
                 </button>
               </div>
@@ -2314,7 +2323,7 @@ export default function SettingsPage() {
             <section className="panel" style={{ padding: "var(--space-5)" }}>
               <div className="settings-table-heading">
                 <h3 className="section-title m-0 p-0" style={{ borderBottom: "none" }}>Staff accounts</h3>
-                <button onClick={() => { setStaffError(""); setStaffNameError(""); setStaffUsernameError(""); setAddOpen(true); setShowNewStaffPw(false); }}>
+                <button onClick={() => { setStaffError(""); setStaffNameError(""); setStaffUsernameError(""); setStaffEmailError(""); setAddOpen(true); setShowNewStaffPw(false); }}>
                   <Plus size={15} /> Add staff
                 </button>
               </div>
@@ -2394,7 +2403,7 @@ export default function SettingsPage() {
                             <div className="settings-table-actions">
                               <button
                                 className="ghost small-btn"
-                                onClick={() => { setStaffEditing({...s}); setStaffError(""); setEditStaffNameError(""); }}
+                                onClick={() => { setStaffEditing({...s}); setStaffError(""); setEditStaffNameError(""); setEditStaffEmailError(""); }}
                                 disabled={!s.active}
                                 title={s.active ? "Edit Staff Details" : "Enable the account before editing"}
                               >
@@ -2705,7 +2714,9 @@ export default function SettingsPage() {
                     ref={staffNameRef}
                     value={newStaff.name}
                     onChange={(e) => {
-                      setNewStaff({ ...newStaff, name: e.target.value });
+                      // Live typing rules: letters/spaces/hyphen/apostrophe only,
+                      // collapse spaces, cap 30 chars, auto-capitalise word initials.
+                      setNewStaff({ ...newStaff, name: sanitizeFullNameTyping(e.target.value) });
                       if (staffNameError) setStaffNameError("");
                     }}
                     onBlur={(e) => checkNameOnBlur(e.target.value, setStaffNameError)}
@@ -2727,8 +2738,8 @@ export default function SettingsPage() {
                     ref={staffUsernameRef}
                     value={newStaff.username}
                     onChange={(e) => {
-                      // Usernames are stored lowercase, so the field shows it.
-                      const v = e.target.value.toLowerCase();
+                      // Live typing rules: a-z 0-9 _ . only, lowercase, 20 chars max.
+                      const v = sanitizeUsernameTyping(e.target.value);
                       setNewStaff({ ...newStaff, username: v });
                       if (staffUsernameError) setStaffUsernameError("");
                     }}
@@ -2792,10 +2803,29 @@ export default function SettingsPage() {
                     type="email"
                     placeholder="staff@example.com"
                     value={newStaff.email}
-                    onChange={(e) => setNewStaff({ ...newStaff, email: e.target.value })}
+                    onChange={(e) => {
+                      // Trim as soon as the owner leaves the field (the blur
+                      // handler), keep what is typed for now; lowercase for
+                      // storage, so 'Gmail.com' is never accepted.
+                      setNewStaff({ ...newStaff, email: e.target.value });
+                      if (staffEmailError) setStaffEmailError("");
+                    }}
+                    onBlur={(e) => {
+                      const cleaned = String(e.target.value ?? "").trim();
+                      setNewStaff({ ...newStaff, email: cleaned });
+                      checkEmailOnBlur(cleaned, setStaffEmailError);
+                    }}
+                    className={staffEmailError ? "input-invalid" : undefined}
+                    aria-invalid={staffEmailError ? "true" : undefined}
+                    aria-describedby={staffEmailError ? "staff-email-error" : undefined}
                     autoComplete="email"
                     style={{ height: "36px" }}
                   />
+                  {staffEmailError && (
+                    <span className="field-error" id="staff-email-error" role="alert">
+                      {staffEmailError}
+                    </span>
+                  )}
                 </label>
 
                 <div className="modal-actions" style={{ marginTop: "var(--space-3)" }}>
@@ -2826,7 +2856,9 @@ export default function SettingsPage() {
                     ref={adminNameRef}
                     value={newAdmin.name}
                     onChange={(e) => {
-                      setNewAdmin({ ...newAdmin, name: e.target.value });
+                      // Live typing rules: letters/spaces/hyphen/apostrophe only,
+                      // collapse spaces, cap 30 chars, auto-capitalise word initials.
+                      setNewAdmin({ ...newAdmin, name: sanitizeFullNameTyping(e.target.value) });
                       if (adminNameError) setAdminNameError("");
                     }}
                     onBlur={(e) => checkNameOnBlur(e.target.value, setAdminNameError)}
@@ -2849,7 +2881,8 @@ export default function SettingsPage() {
                     ref={adminUsernameRef}
                     value={newAdmin.username}
                     onChange={(e) => {
-                      const v = e.target.value.toLowerCase();
+                      // Live typing rules: a-z 0-9 _ . only, lowercase, 20 chars max.
+                      const v = sanitizeUsernameTyping(e.target.value);
                       setNewAdmin({ ...newAdmin, username: v });
                       if (adminUsernameError) setAdminUsernameError("");
                     }}
@@ -2895,10 +2928,26 @@ export default function SettingsPage() {
                     type="email"
                     placeholder="owner@example.com"
                     value={newAdmin.email}
-                    onChange={(e) => setNewAdmin({ ...newAdmin, email: e.target.value })}
+                    onChange={(e) => {
+                      setNewAdmin({ ...newAdmin, email: e.target.value });
+                      if (adminEmailError) setAdminEmailError("");
+                    }}
+                    onBlur={(e) => {
+                      const cleaned = String(e.target.value ?? "").trim();
+                      setNewAdmin({ ...newAdmin, email: cleaned });
+                      checkEmailOnBlur(cleaned, setAdminEmailError);
+                    }}
+                    className={adminEmailError ? "input-invalid" : undefined}
+                    aria-invalid={adminEmailError ? "true" : undefined}
+                    aria-describedby={adminEmailError ? "admin-email-error" : undefined}
                     autoComplete="email"
                     style={{ height: "36px" }}
                   />
+                  {adminEmailError && (
+                    <span className="field-error" id="admin-email-error" role="alert">
+                      {adminEmailError}
+                    </span>
+                  )}
                 </label>
 
                 <div className="modal-actions" style={{ marginTop: "var(--space-3)" }}>
@@ -2928,7 +2977,9 @@ export default function SettingsPage() {
                     ref={editAdminNameRef}
                     value={adminEditing?.name || ""}
                     onChange={(e) => {
-                      setAdminEditing({ ...adminEditing, name: e.target.value });
+                      // Live typing rules: letters/spaces/hyphen/apostrophe only,
+                      // collapse spaces, cap 30 chars, auto-capitalise word initials.
+                      setAdminEditing({ ...adminEditing, name: sanitizeFullNameTyping(e.target.value) });
                       if (editAdminNameError) setEditAdminNameError("");
                     }}
                     onBlur={(e) => checkNameOnBlur(e.target.value, setEditAdminNameError)}
@@ -2951,7 +3002,8 @@ export default function SettingsPage() {
                     ref={editAdminUsernameRef}
                     value={adminEditing?.username || ""}
                     onChange={(e) => {
-                      const v = e.target.value.toLowerCase();
+                      // Live typing rules: a-z 0-9 _ . only, lowercase, 20 chars max.
+                      const v = sanitizeUsernameTyping(e.target.value);
                       setAdminEditing({ ...adminEditing, username: v });
                       if (editAdminUsernameError) setEditAdminUsernameError("");
                     }}
@@ -2974,10 +3026,26 @@ export default function SettingsPage() {
                     type="email"
                     placeholder={`${adminEditing?.username || "admin"}@cartiq.local`}
                     value={adminEditing?.email || ""}
-                    onChange={(e) => setAdminEditing({ ...adminEditing, email: e.target.value })}
+                    onChange={(e) => {
+                      setAdminEditing({ ...adminEditing, email: e.target.value });
+                      if (editAdminEmailError) setEditAdminEmailError("");
+                    }}
+                    onBlur={(e) => {
+                      const cleaned = String(e.target.value ?? "").trim();
+                      setAdminEditing({ ...adminEditing, email: cleaned });
+                      checkEmailOnBlur(cleaned, setEditAdminEmailError);
+                    }}
+                    className={editAdminEmailError ? "input-invalid" : undefined}
+                    aria-invalid={editAdminEmailError ? "true" : undefined}
+                    aria-describedby={editAdminEmailError ? "edit-admin-email-error" : undefined}
                     autoComplete="email"
                     style={{ height: "36px" }}
                   />
+                  {editAdminEmailError && (
+                    <span className="field-error" id="edit-admin-email-error" role="alert">
+                      {editAdminEmailError}
+                    </span>
+                  )}
                 </label>
 
                 <div className="modal-actions" style={{ marginTop: "var(--space-3)" }}>
@@ -3007,7 +3075,9 @@ export default function SettingsPage() {
                     ref={editStaffNameRef}
                     value={staffEditing?.name || ""}
                     onChange={(e) => {
-                      setStaffEditing({ ...staffEditing, name: e.target.value });
+                      // Live typing rules: letters/spaces/hyphen/apostrophe only,
+                      // collapse spaces, cap 30 chars, auto-capitalise word initials.
+                      setStaffEditing({ ...staffEditing, name: sanitizeFullNameTyping(e.target.value) });
                       if (editStaffNameError) setEditStaffNameError("");
                     }}
                     onBlur={(e) => checkNameOnBlur(e.target.value, setEditStaffNameError)}
@@ -3063,10 +3133,26 @@ export default function SettingsPage() {
                     type="email"
                     placeholder={`${staffEditing?.username ?? "staff"}@cartiq.local`}
                     value={staffEditing?.email || ""}
-                    onChange={(e) => setStaffEditing({ ...staffEditing, email: e.target.value })}
+                    onChange={(e) => {
+                      setStaffEditing({ ...staffEditing, email: e.target.value });
+                      if (editStaffEmailError) setEditStaffEmailError("");
+                    }}
+                    onBlur={(e) => {
+                      const cleaned = String(e.target.value ?? "").trim();
+                      setStaffEditing({ ...staffEditing, email: cleaned });
+                      checkEmailOnBlur(cleaned, setEditStaffEmailError);
+                    }}
+                    className={editStaffEmailError ? "input-invalid" : undefined}
+                    aria-invalid={editStaffEmailError ? "true" : undefined}
+                    aria-describedby={editStaffEmailError ? "edit-staff-email-error" : undefined}
                     autoComplete="email"
                     style={{ height: "36px" }}
                   />
+                  {editStaffEmailError && (
+                    <span className="field-error" id="edit-staff-email-error" role="alert">
+                      {editStaffEmailError}
+                    </span>
+                  )}
                 </label>
 
                 <div className="modal-actions" style={{ marginTop: "var(--space-3)" }}>
