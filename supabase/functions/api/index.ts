@@ -3745,21 +3745,41 @@ async function handleListAlerts(url, user) {
     filters.push({ field: "userId", op: "EQUAL", value: Number(user.id) });
   }
   const STAFF_TARGETED_TYPES = ["VOID_DECISION", "RESTOCK_UPDATE", "LOW_STOCK_NOTIFY"];
+  const orderBy = [{ field: "createdAt", dir: "DESCENDING" }];
+  if (filters.length > 0) {
+    // Equality filter + another-field orderBy needs a composite index (e.g.
+    // userId + createdAt). A missing/building index used to make the whole
+    // endpoint throw - the app just showed "no notifications yet" forever.
+    // Instead fetch the equality-scoped set (bounded, pilot-scale) and sort
+    // in code. Exact under 2000 docs per targeted scope - the same pattern
+    // pagedList uses for equality + date range.
+    const rows = await fsRunQuery("alerts", { filters, limit: 2000 });
+    rows.sort((a, b) => new Date(b?.createdAt ?? 0).getTime() - new Date(a?.createdAt ?? 0).getTime());
+    const visible = isOwner
+      ? rows.filter((a) => !STAFF_TARGETED_TYPES.includes(a.type))
+      : rows;
+    const total = visible.length;
+    const offset = (page - 1) * pageSize;
+    const data = visible.slice(offset, offset + pageSize);
+    const last = data[data.length - 1];
+    return {
+      data: data.map(cleanDoc),
+      meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+      ...(last ? { nextCursor: encodeCursor(last, "createdAt") } : {}),
+    };
+  }
+  // No filter at all: Firestore's built-in ordering serves this directly.
   let total = await fsCount("alerts", filters);
   if (isOwner) {
     for (const type of STAFF_TARGETED_TYPES) {
-      total -= await fsCount("alerts", [
-        ...filters,
-        { field: "type", op: "EQUAL", value: type },
-      ]);
+      total -= await fsCount("alerts", [{ field: "type", op: "EQUAL", value: type }]);
     }
     total = Math.max(0, total);
   }
-  const orderBy = [{ field: "createdAt", dir: "DESCENDING" }];
   const decoded = cursor ? decodeCursor(cursor) : null;
   const slice = decoded
-    ? await fsRunQuery("alerts", { filters, orderBy, limit: pageSize, startAt: { values: [fsEncodeValue(decoded.t)] } })
-    : await fsRunQuery("alerts", { filters, orderBy, limit: pageSize, offset: (page - 1) * pageSize });
+    ? await fsRunQuery("alerts", { orderBy, limit: pageSize, startAt: { values: [fsEncodeValue(decoded.t)] } })
+    : await fsRunQuery("alerts", { orderBy, limit: pageSize, offset: (page - 1) * pageSize });
   const data = isOwner
     ? slice.filter((alert) => !STAFF_TARGETED_TYPES.includes(alert.type))
     : slice;
