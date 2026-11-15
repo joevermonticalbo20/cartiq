@@ -258,27 +258,40 @@ class _HomeScreenState extends State<HomeScreen> {
                       separatorBuilder: (_, _) => const Divider(height: 1),
                       itemBuilder: (_, i) {
                         final a = sheetAuth.myAlerts[i];
+                        final isRead = a['isRead'] == true;
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
-                          leading: const Icon(Icons.notifications_outlined),
+                          leading: Icon(
+                            Icons.notifications_outlined,
+                            color: isRead ? AppColors.muted : AppColors.primary,
+                          ),
                           title: Text(
                             (a['title'] ?? a['type'] ?? 'Update').toString(),
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+                            style: TextStyle(
+                              fontWeight:
+                                  isRead ? FontWeight.w600 : FontWeight.w800,
+                              color: isRead ? AppColors.muted : null,
+                            ),
                           ),
                           subtitle: Text(
                             (a['message'] ?? '').toString(),
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
+                            style: isRead
+                                ? TextStyle(color: AppColors.muted)
+                                : null,
                           ),
                           trailing: Text(
                             _when(a['createdAt']?.toString()),
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
-                          onTap: () async {
-                            await sheetAuth.markMyAlertRead(
-                              (a['id'] as num).toInt(),
-                            );
-                          },
+                          onTap: isRead
+                              ? null
+                              : () async {
+                                  await sheetAuth.markMyAlertRead(
+                                    (a['id'] as num).toInt(),
+                                  );
+                                },
                         );
                       },
                     ),

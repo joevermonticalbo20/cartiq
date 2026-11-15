@@ -307,6 +307,8 @@ export async function bindClaimedTag({ rawUid, locationId, db = prisma, messagin
           // Whoever opened the claim did this themselves - they know. Telling
           // them as well would say the same news twice on one screen.
           excludeUserId: claim.userId,
+          // The RFID_BOUND alert above is this event's record - don't file it twice.
+          storeAlert: false,
         },
         { db, messaging },
       );

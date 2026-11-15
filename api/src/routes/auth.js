@@ -733,6 +733,8 @@ router.delete("/my-rfid", requireAuth, async (req, res, next) => {
       title: "Card removed",
       body: `${user.name} removed card ${previous}`,
       data: { rfidUid: previous, staffName: user.name },
+      // The RFID_UNBOUND alert above is this event's record - don't file it twice.
+      storeAlert: false,
     });
     emit("rfid:unbound", {
       userId: user.id,

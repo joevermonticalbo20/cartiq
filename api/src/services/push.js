@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import { db as prisma } from "../firestore.js";
+import { emit } from "../routes/events.js";
 
 const require = createRequire(import.meta.url);
 const { getMessaging } = require("firebase-admin/messaging");
@@ -332,9 +333,16 @@ export async function sendCatalogPush(
  * This one carries a notification block (title + body), so it shows up even
  * when the owner's phone is in their pocket. The app turns it into a toast
  * while it is open.
+ *
+ * Unless `storeAlert` is set to false, one alert row (type OWNER_NOTICE, no
+ * userId, so every owner sees it in the notification center) is written for
+ * the same event - the notification part of the app and the web bell keep a
+ * record of every pop-up, read or unread. Call sites that already write
+ * their own alert (RFID_BOUND, RFID_UNBOUND) pass storeAlert: false so one
+ * event never lands twice.
  */
 export async function pushToOwners(
-  { title, body, data = {}, excludeUserId = null } = {},
+  { title, body, data = {}, excludeUserId = null, storeAlert = true } = {},
   { db = prisma, messaging = undefined } = {},
 ) {
   try {
@@ -351,6 +359,36 @@ export async function pushToOwners(
       ownerIds.delete(Number(excludeUserId));
     }
     if (!ownerIds.size) return;
+    // Record the notice in the notification center: one row, no userId, so
+    // every owner sees it - the same pattern as RFID_BOUND. Read or unread,
+    // it stays in the list. Best-effort; the push and SSE stream fire either way.
+    if (storeAlert) {
+      try {
+        const cleanTitle = String(title ?? "").trim().slice(0, 120) || "CartIQ";
+        const cleanBody = String(body ?? "").trim().slice(0, 1000);
+        const alert = await db.alert.create({
+          data: {
+            type: "OWNER_NOTICE",
+            title: cleanTitle,
+            message: cleanBody,
+            isRead: false,
+            payload: JSON.stringify(data ?? {}),
+          },
+        });
+        emit("alert:new", {
+          id: alert.id,
+          type: "OWNER_NOTICE",
+          userId: null,
+          title: alert.title ?? cleanTitle,
+          message: alert.message ?? cleanBody,
+          isRead: false,
+          createdAt: alert.createdAt ?? new Date().toISOString(),
+          locationId: null,
+        });
+      } catch {
+        // The notification center is best-effort.
+      }
+    }
     const rows = await db.pushTokens.findMany({});
     const tokens = rows
       .filter((row) => ownerIds.has(Number(row?.userId)))

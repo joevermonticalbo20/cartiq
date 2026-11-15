@@ -661,8 +661,15 @@ const CATALOG_PUSH_TYPE = "CATALOG_CHANGED";
  * This one carries a notification block (title + body), so it shows up even
  * when the owner's phone is in their pocket. The app turns it into a toast
  * while it is open.
+ *
+ * Unless `storeAlert` is set to false, one alert row (type OWNER_NOTICE, no
+ * userId, so every owner sees it in the notification center) is written for
+ * the same event - the notification part of the app and the web bell keep a
+ * record of every pop-up, read or unread. Call sites that already write
+ * their own alert (RFID_BOUND, RFID_UNBOUND) pass storeAlert: false so one
+ * event never lands twice.
  */
-async function pushToOwners({ title, body, data = {}, excludeUserId = null }: { title: string; body: string; data?: Record<string, unknown>; excludeUserId?: number | null }) {
+async function pushToOwners({ title, body, data = {}, excludeUserId = null, storeAlert = true }: { title: string; body: string; data?: Record<string, unknown>; excludeUserId?: number | null; storeAlert?: boolean }) {
   try {
     const users = await fsListAll("users");
     const ownerIds = new Set(
@@ -677,6 +684,40 @@ async function pushToOwners({ title, body, data = {}, excludeUserId = null }: { 
       ownerIds.delete(Number(excludeUserId));
     }
     if (!ownerIds.size) return;
+    // Record the notice in the notification center: one row, no userId, so
+    // every owner sees it - the same pattern as RFID_BOUND. Read or unread,
+    // it stays in the list. Best-effort; the push fires either way.
+    if (storeAlert) {
+      try {
+        const cleanTitle = String(title ?? "").trim().slice(0, 120) || "CartIQ";
+        const cleanMessage = String(body ?? "").trim().slice(0, 1000);
+        const counters = await readCounters(["alerts"]);
+        const { ids, writes } = counterWritesFor(counters, { alerts: 1 });
+        const alertDoc = {
+          id: ids.alerts[0],
+          type: "OWNER_NOTICE",
+          title: cleanTitle,
+          message: cleanMessage,
+          isRead: false,
+          payload: JSON.stringify(data ?? {}),
+          createdAt: new Date(),
+        };
+        writes.push(createWrite("alerts", alertDoc.id, alertDoc));
+        await fsCommit(writes);
+        await broadcastEvent("alert:new", {
+          id: alertDoc.id,
+          type: alertDoc.type,
+          userId: null,
+          title: alertDoc.title,
+          message: alertDoc.message,
+          isRead: false,
+          createdAt: alertDoc.createdAt.toISOString(),
+          locationId: null,
+        }).catch(() => {});
+      } catch {
+        // The notification center is best-effort.
+      }
+    }
     const rows = await fsListAll("pushTokens");
     const tokens = rows
       .filter((row) => ownerIds.has(Number(row?.userId)))
@@ -5379,6 +5420,8 @@ async function bindClaimedTag({ rawUid, locationId }) {
       // Whoever opened the claim did this themselves - they know. Telling them
       // as well would say the same news twice on one screen.
       excludeUserId: claim.userId,
+      // The RFID_BOUND alert above is this event's record - don't file it twice.
+      storeAlert: false,
     }).catch(() => {});
   } else {
     // Card already on this account: nothing changed, so nothing is announced.
@@ -9688,6 +9731,8 @@ async function handleMyRfidUnbind(_req, origin, user) {
     title: "Card removed",
     body: `${user.name} removed card ${previous}`,
     data: { rfidUid: previous, staffName: user.name },
+    // The RFID_UNBOUND alert above is this event's record - don't file it twice.
+    storeAlert: false,
   }).catch(() => {});
   return jsonRes(origin, { rfidUid: null, removed: true });
 }

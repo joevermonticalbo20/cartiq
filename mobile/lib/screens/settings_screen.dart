@@ -2449,7 +2449,7 @@ class _NotificationsSectionState extends State<_NotificationsSection> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   else ...[
-                    if (items.isNotEmpty)
+                    if (items.any((a) => a['isRead'] != true))
                       TextButton(
                         style: TextButton.styleFrom(
                           minimumSize: const Size(0, 36),
@@ -2505,53 +2505,68 @@ class _NotificationsSectionState extends State<_NotificationsSection> {
             ] else ...[
               for (int i = 0; i < items.length; i++) ...[
                 const Divider(height: 1, indent: 72),
-                ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.space4,
-                    vertical: AppSpacing.space2,
-                  ),
-                  leading: CircleAvatar(
-                    radius: 18,
-                    backgroundColor: AppColors.primary.withValues(alpha: 0.12),
-                    child: Icon(
-                      _iconFor(items[i]),
-                      size: 18,
-                      color: AppColors.primary,
+                Builder(builder: (context) {
+                  final isRead = items[i]['isRead'] == true;
+                  return ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.space4,
+                      vertical: AppSpacing.space2,
                     ),
-                  ),
-                  title: Text(
-                    items[i]['title']?.toString() ??
-                        items[i]['type']?.toString() ??
-                        'Update',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (items[i]['message'] != null)
-                        Text(
-                          items[i]['message'].toString(),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _when(items[i]['createdAt']?.toString()),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AppColors.muted,
-                            ),
+                    leading: CircleAvatar(
+                      radius: 18,
+                      backgroundColor: isRead
+                          ? AppColors.muted.withValues(alpha: 0.15)
+                          : AppColors.primary.withValues(alpha: 0.12),
+                      child: Icon(
+                        _iconFor(items[i]),
+                        size: 18,
+                        color: isRead ? AppColors.muted : AppColors.primary,
                       ),
-                    ],
-                  ),
-                  trailing: const Icon(
-                    Icons.chevron_right_rounded,
-                    size: 20,
-                    color: Colors.grey,
-                  ),
-                  onTap: () => auth.markMyAlertRead(
-                    (items[i]['id'] as num).toInt(),
-                  ),
-                ),
+                    ),
+                    title: Text(
+                      items[i]['title']?.toString() ??
+                          items[i]['type']?.toString() ??
+                          'Update',
+                      style: TextStyle(
+                        fontWeight: isRead ? FontWeight.w600 : FontWeight.w700,
+                        color: isRead ? AppColors.muted : null,
+                      ),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (items[i]['message'] != null)
+                          Text(
+                            items[i]['message'].toString(),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: isRead
+                                ? const TextStyle(color: AppColors.muted)
+                                : null,
+                          ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${isRead ? 'Read - ' : ''}${_when(items[i]['createdAt']?.toString())}',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: AppColors.muted,
+                              ),
+                        ),
+                      ],
+                    ),
+                    trailing: Icon(
+                      isRead
+                          ? Icons.check_circle_outline
+                          : Icons.chevron_right_rounded,
+                      size: 20,
+                      color: AppColors.muted,
+                    ),
+                    onTap: isRead
+                        ? null
+                        : () => auth.markMyAlertRead(
+                              (items[i]['id'] as num).toInt(),
+                            ),
+                  );
+                }),
               ],
             ],
           ],

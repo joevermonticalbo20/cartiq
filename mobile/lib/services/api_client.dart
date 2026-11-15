@@ -965,8 +965,12 @@ class ApiClient {
   Future<Map<String, dynamic>> stockAlerts(
     String token, {
     bool unreadOnly = true,
+    int pageSize = 10,
   }) async {
-    final path = unreadOnly ? '/alerts?unread_only=true' : '/alerts';
+    final size = pageSize.clamp(1, 100);
+    final path = unreadOnly
+        ? '/alerts?unread_only=true&pageSize=$size'
+        : '/alerts?pageSize=$size';
     final res = await _send(
       () => _http.get(_uri(path), headers: _headers(token: token)),
     );
@@ -977,8 +981,10 @@ class ApiClient {
   Future<List<dynamic>> stockAlertsList(
     String token, {
     bool unreadOnly = true,
+    int pageSize = 10,
   }) async {
-    final r = await stockAlerts(token, unreadOnly: unreadOnly);
+    final r =
+        await stockAlerts(token, unreadOnly: unreadOnly, pageSize: pageSize);
     return (r['data'] as List?) ?? [];
   }
 

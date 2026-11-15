@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { sendTargetedPush, sendCatalogPush, sendShiftPush, pushToOwners, CATALOG_PUSH_TYPE, __pushTestHelpers } from "../src/services/push.js";
 
 function fakeDb(rows, deleted = []) {
+  const createdAlerts = [];
   return {
     user: {
       // Mirrors the real filter: only owners, and only active ones.
@@ -21,6 +22,19 @@ function fakeDb(rows, deleted = []) {
       deleteMany: async (args) => {
         deleted.push(args);
         return { count: args.where.token.in.length };
+      },
+    },
+    // Every owner notice filed by pushToOwners lands here.
+    createdAlerts,
+    alert: {
+      create: async ({ data }) => {
+        const alert = {
+          id: 500 + createdAlerts.length,
+          createdAt: "2026-11-16T00:00:00.000Z",
+          ...data,
+        };
+        createdAlerts.push(alert);
+        return alert;
       },
     },
   };
@@ -317,10 +331,63 @@ describe("push service (owner notices)", () => {
   it("says nothing when no owner device is registered", async () => {
     let called = false;
     const messaging = { sendEachForMulticast: async () => { called = true; } };
+    const db = fakeDb([{ userId: 2, token: "staff-phone" }]);
     await pushToOwners(
       { title: "Time in", body: "x" },
-      { db: fakeDb([{ userId: 2, token: "staff-phone" }]), messaging },
+      { db, messaging },
     );
     assert.equal(called, false);
+    // No owner phone does not mean no record: the notification center entry
+    // is still filed so the owner sees it on the next login.
+    assert.equal(db.createdAlerts.length, 1);
+    assert.equal(db.createdAlerts[0].type, "OWNER_NOTICE");
+  });
+
+  it("records one OWNER_NOTICE alert in the notification center", async () => {
+    const sent = [];
+    const messaging = {
+      sendEachForMulticast: async (message) => {
+        sent.push(message);
+        return {
+          successCount: message.tokens.length,
+          failureCount: 0,
+          responses: message.tokens.map(() => ({ success: true })),
+        };
+      },
+    };
+    const db = fakeDb([{ userId: 1, token: "owner-a" }]);
+    await pushToOwners(
+      {
+        title: "Time out",
+        body: "Stall Staff 1 timed out at CART-01",
+        data: { event: "OUT", locationCode: "CART-01" },
+      },
+      { db, messaging },
+    );
+    assert.equal(db.createdAlerts.length, 1);
+    assert.equal(db.createdAlerts[0].type, "OWNER_NOTICE");
+    assert.equal(db.createdAlerts[0].title, "Time out");
+    assert.equal(db.createdAlerts[0].message, "Stall Staff 1 timed out at CART-01");
+    assert.equal(db.createdAlerts[0].isRead, false);
+    // No userId: an owner-feed notice belongs in every owner's list.
+    assert.equal(db.createdAlerts[0].userId, undefined);
+    // The push and the record are one event - both fire.
+    assert.equal(sent.length, 1);
+  });
+
+  it("does not file a duplicate when the call site already stores its own alert", async () => {
+    const db = fakeDb([{ userId: 1, token: "owner-a" }]);
+    const messaging = {
+      sendEachForMulticast: async (m) => ({
+        successCount: m.tokens.length,
+        failureCount: 0,
+        responses: m.tokens.map(() => ({ success: true })),
+      }),
+    };
+    await pushToOwners(
+      { title: "Card registered", body: "x registered card A1B2 at CART-01", storeAlert: false },
+      { db, messaging },
+    );
+    assert.equal(db.createdAlerts.length, 0);
   });
 });

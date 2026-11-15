@@ -286,10 +286,14 @@ class AuthState extends ChangeNotifier {
   }
 
   /// Targeted alerts for the signed-in staff account (void decisions, restock
-  /// updates). Refreshed on login and on app resume; the Settings screen shows
-  /// them. Never throws — failures leave the list as-is.
+  /// updates) plus, for the owner, the owner-feed notices (who clocked in at
+  /// which cart, card registrations). The Notifications part shows the latest
+  /// page of BOTH read and unread - history stays visible. myUnreadCount
+  /// counts only the unread ones. Refreshed on login and on app resume; the
+  /// Settings screen shows them. Never throws — failures leave the list as-is.
   final List<Map<String, dynamic>> myAlerts = [];
-  int get myUnreadCount => myAlerts.length;
+  int get myUnreadCount =>
+      myAlerts.where((a) => a['isRead'] != true).length;
 
   Timer? _alertPoll;
 
@@ -304,16 +308,19 @@ class AuthState extends ChangeNotifier {
     }
     var sawRestockUpdate = false;
     try {
-      final rows = await api.stockAlertsList(t, unreadOnly: true);
+      final rows =
+          await api.stockAlertsList(t, unreadOnly: false, pageSize: 50);
       myAlerts
         ..clear()
         ..addAll(rows.cast<Map<String, dynamic>>());
       // Owner action against a restock we asked for arrives here as a
       // RESTOCK_UPDATE. The first successful fetch only primes the seen set;
-      // later, a newly-seen RESTOCK_UPDATE asks Live Stock to re-read its
-      // requests (and signals Home too) without a manual refresh.
+      // later, a newly-seen UNREAD RESTOCK_UPDATE asks Live Stock to re-read
+      // its requests (and signals Home too) without a manual refresh. Read
+      // ones are history - they must not keep triggering a re-read.
       final updateIds = <int>{};
       for (final row in myAlerts) {
+        if (row['isRead'] == true) continue;
         if (row['type'] == 'RESTOCK_UPDATE' && row['id'] is num) {
           updateIds.add((row['id'] as num).toInt());
         }
@@ -366,7 +373,12 @@ class AuthState extends ChangeNotifier {
     if (t == null) return;
     try {
       await api.markAlertRead(t, id);
-      myAlerts.removeWhere((a) => a['id'] == id);
+      // Keep it in the list as history, just flip it to read.
+      for (final a in myAlerts) {
+        if (a['id'] is num && (a['id'] as num).toInt() == id) {
+          a['isRead'] = true;
+        }
+      }
     } catch (_) {
       /* best-effort */
     }
@@ -378,7 +390,9 @@ class AuthState extends ChangeNotifier {
     if (t == null) return;
     try {
       await api.markAllAlertsRead(t);
-      myAlerts.clear();
+      for (final a in myAlerts) {
+        a['isRead'] = true;
+      }
     } catch (_) {
       /* best-effort */
     }

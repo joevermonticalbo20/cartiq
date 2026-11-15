@@ -20,13 +20,15 @@ export const toastedAlertIds = new Set();
  *
  * A recorded shift is announced by `shift:new` (useShiftNotices), a card
  * registration by `rfid:bound`, a card removal by `rfid:unbound` and every
- * refused tap by its own `rfid:*` event (useRfidEvents). The alert behind each
- * of them still lands in the bell - that is the whole point: every toast has
- * a matching record - but the bell must not say it AGAIN, or one event would
- * raise two toasts on one screen.
+ * refused tap by its own `rfid:*` event (useRfidEvents). An OWNER_NOTICE
+ * (owner phones popped for a recorded tap) is the server's durable copy of
+ * exactly those events. The alert behind each of them still lands in the
+ * bell - that is the whole point: every toast has a matching record - but the
+ * bell must not say it AGAIN, or one event would raise two toasts on one screen.
  */
 export const SELF_ANNOUNCED_ALERT_TYPES = Object.freeze([
   "SHIFT",
+  "OWNER_NOTICE",
   "RFID_BOUND",
   "RFID_UNBOUND",
   "RFID_UNREGISTERED",
