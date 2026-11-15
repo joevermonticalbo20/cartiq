@@ -2,30 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme.dart';
 import '../utils/manila_time.dart';
-
-/// Shared icon for a notification, by raw type. Used by both the Home
-/// notification sheet and Settings -> Notifications.
-IconData notificationIconFor(Map<String, dynamic> alert) {
-  final t = ((alert['type'] as String?) ?? '').toLowerCase();
-  if (t.contains('void')) return Icons.cancel_rounded;
-  if (t.contains('restock')) return Icons.inventory_2_outlined;
-  if (t.contains('low')) return Icons.warning_amber_rounded;
-  return Icons.notifications_outlined;
-}
-
-/// Pretty label from a raw type, such as `RESTOCK_UPDATE` -> `Restock Update`.
-String notificationTypeLabel(Map<String, dynamic> alert) {
-  final raw = ((alert['type'] as String?) ?? '').trim();
-  if (raw.isEmpty) return 'Notification';
-  return raw
-      .split(RegExp(r'[_\s]+'))
-      .where((p) => p.isNotEmpty)
-      .map((p) {
-        final s = p.toLowerCase();
-        return s[0].toUpperCase() + s.substring(1);
-      })
-      .join(' ');
-}
+import 'notification_style.dart';
 
 /// Preview dialog for one notification: tap a row in the Notifications list
 /// and this shows the whole thing out loud - type, cart, full message, and
@@ -40,47 +17,50 @@ Future<void> showNotificationPreview(
   final location = (alert['locationCode']?.toString() ?? '').trim();
   final createdAt = ManilaTime.formatFull(alert['createdAt']);
   final typeLabel = notificationTypeLabel(alert);
+  final tone = notificationToneFor(alert);
 
   await showDialog<void>(
     context: context,
     builder: (dialogContext) => AlertDialog(
-      contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-      title: Row(
+      contentPadding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
+      titlePadding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+      title: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          CircleAvatar(
-            radius: 20,
-            backgroundColor:
-                AppColors.primary.withValues(alpha: 0.12),
-            child: Icon(
-              notificationIconFor(alert),
-              color: AppColors.primary,
-              size: 20,
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: tone.bg,
+              borderRadius: BorderRadius.circular(AppRadius.l),
+            ),
+            child: Icon(notificationIconFor(alert), size: 30, color: tone.fg),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            decoration: BoxDecoration(
+              color: tone.bg,
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+            ),
+            child: Text(
+              typeLabel.toUpperCase(),
+              style: TextStyle(
+                color: tone.fg,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.08,
+              ),
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  typeLabel.toUpperCase(),
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: AppColors.muted,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.06,
-                  ),
-                ),
-                Text(
-                  title.isNotEmpty ? title : typeLabel,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18,
-                  ),
-                ),
-              ],
+          const SizedBox(height: 8),
+          Text(
+            title.isNotEmpty ? title : typeLabel,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 19,
+              height: 1.25,
             ),
           ),
         ],
@@ -89,30 +69,57 @@ Future<void> showNotificationPreview(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (message.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            SelectableText(
-              message,
-              style: theme.textTheme.bodyMedium,
-            ),
-          ] else
-            Text(
-              'This notification carries no extra details.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: AppColors.muted,
+          if (message.isNotEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: theme.dividerColor.withValues(alpha: 0.25),
+                borderRadius: BorderRadius.circular(AppRadius.m),
+              ),
+              child: SelectableText(
+                message,
+                style: theme.textTheme.bodyMedium?.copyWith(height: 1.45),
               ),
             ),
-          const SizedBox(height: 16),
-          const Divider(height: 1),
           const SizedBox(height: 12),
-          _DetailRow(label: 'When', value: createdAt.isNotEmpty ? createdAt : '-'),
-          if (location.isNotEmpty) _DetailRow(label: 'Cart', value: location),
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(AppRadius.m),
+              border: Border.all(
+                color: theme.dividerColor,
+              ),
+            ),
+            child: Column(
+              children: [
+                _DetailRow(
+                  icon: Icons.schedule_rounded,
+                  label: 'When',
+                  value: createdAt.isNotEmpty ? createdAt : '-',
+                ),
+                if (location.isNotEmpty) ...[
+                  Divider(height: 1, indent: 44, color: theme.dividerColor),
+                  _DetailRow(
+                    icon: Icons.storefront_rounded,
+                    label: 'Cart',
+                    value: location,
+                  ),
+                ],
+              ],
+            ),
+          ),
         ],
       ),
+      actionsPadding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('Close'),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
         ),
       ],
     ),
@@ -120,26 +127,32 @@ Future<void> showNotificationPreview(
 }
 
 class _DetailRow extends StatelessWidget {
-  const _DetailRow({required this.label, required this.value});
+  const _DetailRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
 
+  final IconData icon;
   final String label;
   final String value;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Icon(icon, size: 18, color: AppColors.muted),
+          const SizedBox(width: 12),
           SizedBox(
-            width: 48,
+            width: 44,
             child: Text(
               label,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              style: theme.textTheme.labelSmall?.copyWith(
                     color: AppColors.muted,
                     fontWeight: FontWeight.w700,
-                    letterSpacing: 0.04,
                   ),
             ),
           ),
@@ -149,6 +162,7 @@ class _DetailRow extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 12.5,
                 height: 1.35,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),

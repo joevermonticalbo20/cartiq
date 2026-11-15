@@ -19,6 +19,8 @@ import '../utils/manila_time.dart';
 import '../utils/password_strength.dart';
 import '../utils/pin_setup.dart';
 import '../widgets/notification_preview_dialog.dart';
+import '../widgets/notification_style.dart';
+import '../widgets/notification_tile.dart';
 import '../widgets/pin_pad.dart';
 import '../widgets/app_badge.dart';
 import '../widgets/rfid_claim_dialog.dart';
@@ -2385,16 +2387,6 @@ class _NotificationsSectionState extends State<_NotificationsSection> {
     if (mounted) setState(() => _loading = false);
   }
 
-  String _when(String? iso) {
-    final dt = DateTime.tryParse(iso ?? '');
-    if (dt == null) return '';
-    final diff = DateTime.now().difference(dt);
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
-  }
-
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthState>();
@@ -2429,11 +2421,19 @@ class _NotificationsSectionState extends State<_NotificationsSection> {
                   ),
                   const SizedBox(width: AppSpacing.space3),
                   Expanded(
-                    child: Text(
-                      'Notifications',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+                    child: Row(
+                      children: [
+                        Text(
+                          'Notifications',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                        const SizedBox(width: 8),
+                        NotificationUnreadPill(
+                          items.where((a) => a['isRead'] != true).length,
+                        ),
+                      ],
                     ),
                   ),
                   if (_loading)
@@ -2487,83 +2487,21 @@ class _NotificationsSectionState extends State<_NotificationsSection> {
               ),
             ] else if (items.isEmpty) ...[
               const Divider(height: 1, indent: 72),
-              Padding(
-                padding: const EdgeInsets.all(AppSpacing.space4),
-                child: Text(
-                  'No notifications yet.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.muted,
-                      ),
-                ),
-              ),
+              NotificationEmptyState(),
             ] else ...[
               for (int i = 0; i < items.length; i++) ...[
                 const Divider(height: 1, indent: 72),
-                Builder(builder: (context) {
-                  final isRead = items[i]['isRead'] == true;
-                  return ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.space4,
-                      vertical: AppSpacing.space2,
-                    ),
-                    leading: CircleAvatar(
-                      radius: 18,
-                      backgroundColor: isRead
-                          ? AppColors.muted.withValues(alpha: 0.15)
-                          : AppColors.primary.withValues(alpha: 0.12),
-                      child: Icon(
-                        notificationIconFor(items[i]),
-                        size: 18,
-                        color: isRead ? AppColors.muted : AppColors.primary,
-                      ),
-                    ),
-                    title: Text(
-                      items[i]['title']?.toString() ??
-                          items[i]['type']?.toString() ??
-                          'Update',
-                      style: TextStyle(
-                        fontWeight: isRead ? FontWeight.w600 : FontWeight.w700,
-                        color: isRead ? AppColors.muted : null,
-                      ),
-                    ),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (items[i]['message'] != null)
-                          Text(
-                            items[i]['message'].toString(),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: isRead
-                                ? const TextStyle(color: AppColors.muted)
-                                : null,
-                          ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${isRead ? 'Read - ' : ''}${_when(items[i]['createdAt']?.toString())}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: AppColors.muted,
-                              ),
-                        ),
-                      ],
-                    ),
-                    trailing: Icon(
-                      isRead
-                          ? Icons.check_circle_outline
-                          : Icons.chevron_right_rounded,
-                      size: 20,
-                      color: AppColors.muted,
-                    ),
-                    onTap: () async {
-                      final id = (items[i]['id'] as num).toInt();
-                      if (!isRead) {
-                        await auth.markMyAlertRead(id);
-                      }
-                      if (!context.mounted) return;
-                      await showNotificationPreview(context, items[i]);
-                    },
-                  );
-                }),
+                NotificationTile(
+                  alert: items[i],
+                  onTap: () async {
+                    final id = (items[i]['id'] as num).toInt();
+                    if (items[i]['isRead'] != true) {
+                      await auth.markMyAlertRead(id);
+                    }
+                    if (!context.mounted) return;
+                    await showNotificationPreview(context, items[i]);
+                  },
+                ),
               ],
             ],
           ],

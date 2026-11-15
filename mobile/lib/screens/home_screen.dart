@@ -16,6 +16,8 @@ import '../widgets/app_badge.dart';
 import '../widgets/app_dialog.dart';
 import '../widgets/app_skeleton.dart';
 import '../widgets/notification_preview_dialog.dart';
+import '../widgets/notification_style.dart';
+import '../widgets/notification_tile.dart';
 import '../widgets/section_header.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -216,13 +218,22 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.notifications_outlined),
+                    Icon(
+                      Icons.notifications_outlined,
+                      color: AppColors.primary,
+                    ),
                     const SizedBox(width: AppSpacing.space2),
                     Expanded(
-                      child: Text(
-                        'Notifications',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w800),
+                      child: Row(
+                        children: [
+                          Text(
+                            'Notifications',
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(width: 8),
+                          NotificationUnreadPill(sheetAuth.myUnreadCount),
+                        ],
                       ),
                     ),
                     if (sheetAuth.myUnreadCount > 0)
@@ -238,19 +249,26 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (sheetAuth.offlineMode || sheetAuth.token == null)
                   Padding(
                     padding: const EdgeInsets.all(AppSpacing.space4),
-                    child: Text(
-                      'Notifications refresh when you are online.',
-                      style: Theme.of(context).textTheme.bodySmall,
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.cloud_off_rounded,
+                          size: 18,
+                          color: AppColors.warn,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Notifications refresh when you are online.',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                      ],
                     ),
                   )
                 else if (sheetAuth.myAlerts.isEmpty)
-                  Expanded(
-                    child: Center(
-                      child: Text(
-                        'No notifications yet.',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
+                  const Expanded(
+                    child: Center(child: NotificationEmptyState()),
                   )
                 else
                   Expanded(
@@ -259,33 +277,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       separatorBuilder: (_, _) => const Divider(height: 1),
                       itemBuilder: (_, i) {
                         final a = sheetAuth.myAlerts[i];
-                        final isRead = a['isRead'] == true;
-                        return ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(
-                            notificationIconFor(a),
-                            color: isRead ? AppColors.muted : AppColors.primary,
-                          ),
-                          title: Text(
-                            (a['title'] ?? a['type'] ?? 'Update').toString(),
-                            style: TextStyle(
-                              fontWeight:
-                                  isRead ? FontWeight.w600 : FontWeight.w800,
-                              color: isRead ? AppColors.muted : null,
-                            ),
-                          ),
-                          subtitle: Text(
-                            (a['message'] ?? '').toString(),
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                            style: isRead
-                                ? TextStyle(color: AppColors.muted)
-                                : null,
-                          ),
-                          trailing: Text(
-                            _when(a['createdAt']?.toString()),
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
+                        return NotificationTile(
+                          alert: a,
                           onTap: () async {
                             final wasRead = a['isRead'] == true;
                             if (!wasRead) {
@@ -307,16 +300,6 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
-  }
-
-  String _when(String? iso) {
-    final dt = DateTime.tryParse(iso ?? '');
-    if (dt == null) return '';
-    final diff = DateTime.now().difference(dt);
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
   }
 
   double get _avgTicket => _todayOrders > 0 ? _todaySales / _todayOrders : 0;
