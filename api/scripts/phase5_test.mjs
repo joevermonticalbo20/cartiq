@@ -91,7 +91,9 @@ async function main() {
     method: "POST",
     token: tok,
     body: {
-      name: `Test Staff ${run}`,
+      // Account names carry no digits (the owner's rule), so the run id
+      // lives in the username only.
+      name: "Test Staff",
       username: `teststaff_${run}`,
       password: "test123",
       locationCode: "CART-02",

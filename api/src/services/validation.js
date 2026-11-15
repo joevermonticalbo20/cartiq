@@ -6,8 +6,6 @@
 
 import { normalizeEmail, validEmail, isPlaceholderEmail } from "./password_reset.js";
 
-export const USERNAME_RE = /^[a-z0-9._-]{3,30}$/;
-
 // Common disposable/throwaway domains. They can be revisited freely and are
 // never accepted as recovery addresses.
 const DISPOSABLE_EMAIL_DOMAINS = new Set([
@@ -114,8 +112,8 @@ const CONTROL_RE = /[\u0000-\u001F\u007F]/g;
 //   ONLY. Must START with a letter. Lowercased before storing. Numbers-only
 //   and spaces/specials are refused.
 //
-// These are deliberately STRICTER than the general name/username validators,
-// which stay: they are used for vendors, items, etc.
+// These are deliberately STRICTER than the general name validator, which
+// stays: it is used for vendors, items, products and other free-text names.
 // ---------------------------------------------------------------------------
 
 const _ACCOUNT_NAME_ALLOWED = /^[\p{L}\p{M} '-]+$/u;
@@ -212,23 +210,6 @@ export function validateReason(raw, label = "Reason") {
 /* Username                                                            */
 /* ------------------------------------------------------------------ */
 
-/** Usernames are trimmed + lowercased so typed case never matters. */
-export function cleanUsername(raw) {
-  return String(raw ?? "").trim().toLowerCase();
-}
-
-export function validateUsername(raw) {
-  const value = cleanUsername(raw);
-  if (!value) return { ok: false, value, error: "Username is required." };
-  if (!USERNAME_RE.test(value)) {
-    return {
-      ok: false,
-      value,
-      error: "Username must be 3-30 chars: a-z, 0-9, dot, underscore or hyphen.",
-    };
-  }
-  if (value.startsWith(".") || value.endsWith(".") || value.includes("..")) {
-    return { ok: false, value, error: "Username cannot start or end with a dot, and cannot have consecutive dots." };
-  }
-  return { ok: true, value };
-}
+// Usernames for staff/admin accounts are validated by
+// validateAccountUsername() above - that is the only username rule the
+// product has, so there is no second, looser one to drift out of sync.

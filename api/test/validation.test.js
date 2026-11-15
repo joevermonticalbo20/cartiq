@@ -8,7 +8,6 @@ import {
   cleanName,
   validateName,
   validateReason,
-  validateUsername,
   validateRecoveryEmail,
   isDisposableEmail,
 } from "../src/services/validation.js";
@@ -34,13 +33,6 @@ test("validateName rejects empty, too-short, digits-only and dirty names", () =>
   const long = validateName("a".repeat(101));
   assert.equal(long.ok, true); // auto-truncates to 100 instead of rejecting
   assert.equal(long.value.length, 100);
-});
-
-test("validateUsername normalizes and enforces the pattern", () => {
-  assert.deepEqual(validateUsername("  Staff_01 "), { ok: true, value: "staff_01" });
-  for (const bad of ["", "ab", "staff 01", "staff!", ".staff", "staff.", "staff..01", "a".repeat(31)]) {
-    assert.equal(validateUsername(bad).ok, false, bad);
-  }
 });
 
 test("validateReason requires 3..500 characters", () => {

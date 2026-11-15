@@ -7750,7 +7750,6 @@ function maskEmail(v) {
 }
 
 // ---------- shared input validation (mirror api/src/services/validation.js) --
-const USERNAME_RE = /^[a-z0-9._-]{3,30}$/;
 const DISPOSABLE_EMAIL_DOMAINS = new Set([
   "mailinator.com",
   "guerrillamail.com",
@@ -7883,9 +7882,6 @@ function validateAccountUsernameEdge(raw) {
   return { ok: true, value };
 }
 
-function cleanUsernameEdge(raw) {
-  return String(raw ?? "").trim().toLowerCase();
-}
 // ---------- cart name and address (mirror api/src/services/cart_validation.js) ----------
 // Keep these in sync with the Express copy. The Add Cart UI validates with
 // the same rules; the server is the authority.
@@ -7934,22 +7930,6 @@ function validateCartAddressEdge(raw) {
   // At least one letter or digit: punctuation-only addresses are refused.
   if (!_CART_ALNUM_RE.test(value)) {
     return { ok: false, value, error: "Please enter a valid address." };
-  }
-  return { ok: true, value };
-}
-
-function validateUsernameEdge(raw) {
-  const value = cleanUsernameEdge(raw);
-  if (!value) return { ok: false, value, error: "Username is required." };
-  if (!USERNAME_RE.test(value)) {
-    return {
-      ok: false,
-      value,
-      error: "Username must be 3-30 chars: a-z, 0-9, dot, underscore or hyphen.",
-    };
-  }
-  if (value.startsWith(".") || value.endsWith(".") || value.includes("..")) {
-    return { ok: false, value, error: "Username cannot start or end with a dot, and cannot have consecutive dots." };
   }
   return { ok: true, value };
 }

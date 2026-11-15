@@ -87,18 +87,9 @@ export function validateReason(raw, label = "Reason", max = 500) {
   return { ok: true, value };
 }
 
-const USERNAME_PATTERN = /^[a-z0-9._-]{3,30}$/;
-export function validateUsername(raw) {
-  const value = String(raw ?? "").trim().toLowerCase();
-  if (!value) return { ok: false, value, error: "Username is required." };
-  if (!USERNAME_PATTERN.test(value)) {
-    return { ok: false, value, error: "Username must be 3-30 chars: a-z, 0-9, dot, underscore or hyphen." };
-  }
-  if (value.startsWith(".") || value.endsWith(".") || value.includes("..")) {
-    return { ok: false, value, error: "Username cannot start or end with a dot, and cannot have consecutive dots." };
-  }
-  return { ok: true, value };
-}
+// Usernames for staff/admin accounts are validated by
+// validateAccountUsername() below - that is the only username rule the
+// product has, so there is no second, looser one to drift out of sync.
 
 // Account holders (staff/admin): full name + username.
 //
