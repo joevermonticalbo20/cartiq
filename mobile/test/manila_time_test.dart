@@ -87,4 +87,17 @@ void main() {
       expect(ManilaTime.shortLabel('bogus'), isEmpty);
     });
   });
+
+  group('ManilaTime.formatFull', () {
+    test('includes full date and wall-clock time', () {
+      expect(
+        ManilaTime.formatFull('2026-11-15T09:37:25Z'),
+        'November 15, 2026 · 5:37:25 PM',
+      );
+    });
+
+    test('returns empty for unparsable input', () {
+      expect(ManilaTime.formatFull('bogus'), isEmpty);
+    });
+  });
 }

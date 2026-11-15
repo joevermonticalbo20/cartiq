@@ -15,6 +15,7 @@ import '../utils/manila_time.dart';
 import '../widgets/app_badge.dart';
 import '../widgets/app_dialog.dart';
 import '../widgets/app_skeleton.dart';
+import '../widgets/notification_preview_dialog.dart';
 import '../widgets/section_header.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -262,7 +263,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
                           leading: Icon(
-                            Icons.notifications_outlined,
+                            notificationIconFor(a),
                             color: isRead ? AppColors.muted : AppColors.primary,
                           ),
                           title: Text(
@@ -285,13 +286,16 @@ class _HomeScreenState extends State<HomeScreen> {
                             _when(a['createdAt']?.toString()),
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
-                          onTap: isRead
-                              ? null
-                              : () async {
-                                  await sheetAuth.markMyAlertRead(
-                                    (a['id'] as num).toInt(),
-                                  );
-                                },
+                          onTap: () async {
+                            final wasRead = a['isRead'] == true;
+                            if (!wasRead) {
+                              await sheetAuth.markMyAlertRead(
+                                (a['id'] as num).toInt(),
+                              );
+                            }
+                            if (!mounted) return;
+                            await showNotificationPreview(context, a);
+                          },
                         );
                       },
                     ),

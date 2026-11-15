@@ -71,4 +71,20 @@ class ManilaTime {
     if (dt.year != now().year) return '$md/${dt.year} · ${formatClock12(dt)}';
     return '$md · ${formatClock12(dt)}';
   }
+
+  /// Full date + time for detail views, such as
+  /// `November 15, 2026 · 5:37:25 PM` (Manila wall-clock with seconds).
+  static String formatFull(dynamic input) {
+    final dt = parse(input);
+    if (dt == null) return '';
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June', 'July',
+      'August', 'September', 'October', 'November', 'December',
+    ];
+    final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final minute = dt.minute.toString().padLeft(2, '0');
+    final second = dt.second.toString().padLeft(2, '0');
+    final period = dt.hour < 12 ? 'AM' : 'PM';
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year} · $hour:$minute:$second $period';
+  }
 }

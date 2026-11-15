@@ -18,6 +18,7 @@ import '../utils/haptics.dart';
 import '../utils/manila_time.dart';
 import '../utils/password_strength.dart';
 import '../utils/pin_setup.dart';
+import '../widgets/notification_preview_dialog.dart';
 import '../widgets/pin_pad.dart';
 import '../widgets/app_badge.dart';
 import '../widgets/rfid_claim_dialog.dart';
@@ -2384,13 +2385,6 @@ class _NotificationsSectionState extends State<_NotificationsSection> {
     if (mounted) setState(() => _loading = false);
   }
 
-  IconData _iconFor(Map<String, dynamic> alert) {
-    final t = (alert['type'] as String? ?? '').toLowerCase();
-    if (t.contains('void')) return Icons.cancel_rounded;
-    if (t.contains('restock')) return Icons.inventory_2_outlined;
-    return Icons.notifications_outlined;
-  }
-
   String _when(String? iso) {
     final dt = DateTime.tryParse(iso ?? '');
     if (dt == null) return '';
@@ -2518,7 +2512,7 @@ class _NotificationsSectionState extends State<_NotificationsSection> {
                           ? AppColors.muted.withValues(alpha: 0.15)
                           : AppColors.primary.withValues(alpha: 0.12),
                       child: Icon(
-                        _iconFor(items[i]),
+                        notificationIconFor(items[i]),
                         size: 18,
                         color: isRead ? AppColors.muted : AppColors.primary,
                       ),
@@ -2560,11 +2554,14 @@ class _NotificationsSectionState extends State<_NotificationsSection> {
                       size: 20,
                       color: AppColors.muted,
                     ),
-                    onTap: isRead
-                        ? null
-                        : () => auth.markMyAlertRead(
-                              (items[i]['id'] as num).toInt(),
-                            ),
+                    onTap: () async {
+                      final id = (items[i]['id'] as num).toInt();
+                      if (!isRead) {
+                        await auth.markMyAlertRead(id);
+                      }
+                      if (!context.mounted) return;
+                      await showNotificationPreview(context, items[i]);
+                    },
                   );
                 }),
               ],
