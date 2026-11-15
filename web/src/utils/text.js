@@ -117,18 +117,37 @@ const ACCOUNT_SAME_LETTER_RUN = /(\p{L})\1\1/iu;
 // punctuation, so HTML/markup cannot be built from this charset.
 const ACCOUNT_NAME_ALLOWED = /^[\p{L}\p{M} '-]+$/u;
 
-// Live typing helper for the Full name fields: strip every character that
-// is not a Unicode letter/mark, space, hyphen or apostrophe (so digits and
-// special characters never reach the field), collapse runs of spaces into
-// one, auto-capitalise the first letter of every word, cap at FULL_NAME_MAX
-// and trim. O'Connor stays O'Connor, Anne-Marie stays Anne-Marie.
+// Character-by-character filter for live typing: letters/marks/spaces/hyphen/
+// apostrophe only; digits and specials never land in the field; a run of 3+
+// IDENTICAL (case-insensitive) letters in a row is refused at the keystroke
+// that would create it, so "AAa" and "AAaaAAA" can never be typed. Spaces
+// collapse to one; each word's first letter auto-capitalises; cap at MAX.
 export function sanitizeFullNameTyping(raw) {
-  let s = String(raw ?? "").replace(/[^\p{L}\p{M}' -]/gu, "");
-  s = s.replace(/\s+/g, " ");
+  const source = String(raw ?? "");
+  let out = "";
+  for (const ch of source) {
+    if (!/[\p{L}\p{M}' -]/u.test(ch)) continue; // digits/specials never accepted
+    const isLetter = /[\p{L}\p{M}]/u.test(ch);
+    if (isLetter) {
+      const prev2 = out[out.length - 2] ?? "";
+      const prev1 = out[out.length - 1] ?? "";
+      const lc = ch.toLowerCase();
+      // Refuse the third (and later) consecutive identical letter.
+      if (
+        prev1 && prev2 &&
+        prev1.toLowerCase() === lc && prev2.toLowerCase() === lc
+      ) {
+        continue;
+      }
+    }
+    out += ch;
+  }
+  // Collapse runs of spaces into one space (text-line rule).
+  out = out.replace(/\s+/g, " ");
   // Auto-capitalise each word's first letter (keep the rest as typed).
-  s = s.replace(/(^|[\s'-])([\p{L}\p{M}])/gu, (_, sep, ch) => sep + ch.toUpperCase());
-  if (s.length > FULL_NAME_MAX) s = s.slice(0, FULL_NAME_MAX);
-  return s;
+  out = out.replace(/(^|[\s'-])([\p{L}\p{M}])/gu, (_, sep, ch) => sep + ch.toUpperCase());
+  if (out.length > FULL_NAME_MAX) out = out.slice(0, FULL_NAME_MAX);
+  return out;
 }
 
 /** Full name for a staff/admin account. Returns { ok, value, error }. */
@@ -232,12 +251,23 @@ export function validateAccountUsername(raw) {
 
 // Live typing helper for the Username fields: strip anything that is not a
 // letter/digit/underscore/period, keep the text lowercase and cap at
-// USERNAME_MAX. Spaces never make it into the field.
+// USERNAME_MAX. Spaces never make it into the field. A run of 3+ identical
+// characters in a row (letter or digit, case-insensitive) is refused at the
+// keystroke that would create it.
 export function sanitizeUsernameTyping(raw) {
-  let s = String(raw ?? "").trim().toLowerCase();
-  s = s.replace(/[^a-z0-9_.]/g, "");
-  if (s.length > USERNAME_MAX) s = s.slice(0, USERNAME_MAX);
-  return s;
+  const source = String(raw ?? "").trim().toLowerCase();
+  let out = "";
+  for (const ch of source) {
+    if (!/[a-z0-9_.]/.test(ch)) continue;
+    if (out.length >= 2) {
+      const prev2 = out[out.length - 2];
+      const prev1 = out[out.length - 1];
+      if (prev1 === ch && prev2 === ch) continue; // third identical char refused
+    }
+    out += ch;
+  }
+  if (out.length > USERNAME_MAX) out = out.slice(0, USERNAME_MAX);
+  return out;
 }
 
 // A recovery inbox has to survive a real mail server, so the shape is

@@ -993,7 +993,10 @@ export default function SettingsPage() {
       setShowNewStaffPw(false);
       reloadStaff();
     } catch (err) {
-      setStaffError(getFriendlyError(err, "Create failed - is the username or RFID already taken?"));
+      const msg = getFriendlyError(err, "Create failed - is the username or RFID already taken?");
+      // Route email problems to the Recovery email field, not the bottom box.
+      if (/email|domain|address/i.test(msg)) setStaffEmailError(msg);
+      else setStaffError(msg);
     } finally {
       setIsStaffAdding(false);
     }
@@ -1043,7 +1046,9 @@ export default function SettingsPage() {
       setShowNewAdminPw(false);
       reloadStaff();
     } catch (err) {
-      setAdminError(getFriendlyError(err, "Create failed - is the username already taken?"));
+      const msg = getFriendlyError(err, "Create failed - is the username already taken?");
+      if (/email|domain|address/i.test(msg)) setAdminEmailError(msg);
+      else setAdminError(msg);
     } finally {
       setIsAdminAdding(false);
     }
@@ -1109,7 +1114,10 @@ export default function SettingsPage() {
       closeAdminEditModal();
       reloadStaff();
     } catch (err) {
-      setAdminEditError(getFriendlyError(err, "Update failed - is the username or email already taken?"));
+      const msg = getFriendlyError(err, "Update failed - is the username or email already taken?");
+      // Route email problems to the Recovery email field, not the bottom box.
+      if (/email|domain|address/i.test(msg)) setEditAdminEmailError(msg);
+      else setAdminEditError(msg);
     } finally {
       setIsAdminEditing(false);
     }
@@ -1256,7 +1264,10 @@ export default function SettingsPage() {
       closeStaffEditModal();
       reloadStaff();
     } catch (err) {
-      setStaffError(getFriendlyError(err, "Update failed - username or RFID may already exist."));
+      const msg = getFriendlyError(err, "Update failed - username or RFID may already exist.");
+      // Route email problems to the Recovery email field, not the bottom box.
+      if (/email|domain|address/i.test(msg)) setEditStaffEmailError(msg);
+      else setStaffError(msg);
     } finally {
       setIsStaffEditing(false);
     }
@@ -2709,7 +2720,7 @@ export default function SettingsPage() {
               <form onSubmit={createStaff} noValidate className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
                 <label className="field">
                   Full name *
-                  <input
+                  <input spellCheck={false} 
                     required
                     ref={staffNameRef}
                     value={newStaff.name}
@@ -2733,7 +2744,7 @@ export default function SettingsPage() {
                 </label>
                 <label className="field">
                   Username *
-                  <input
+                  <input spellCheck={false} 
                     required
                     ref={staffUsernameRef}
                     value={newStaff.username}
@@ -2759,7 +2770,7 @@ export default function SettingsPage() {
                 <label className="field">
                   Password * (min 8)
                   <div style={{ position: "relative" }}>
-                    <input
+                    <input spellCheck={false} 
                       required
                       minLength={8}
                       type={showNewStaffPw ? "text" : "password"}
@@ -2790,7 +2801,7 @@ export default function SettingsPage() {
                   />
                 </label>                <label className="field">
                   RFID UID (optional)
-                  <input
+                  <input spellCheck={false} 
                     placeholder="e.g. 04A2B3C4"
                     value={newStaff.rfidUid}
                     onChange={(e) => setNewStaff({ ...newStaff, rfidUid: e.target.value })}
@@ -2799,7 +2810,7 @@ export default function SettingsPage() {
                 </label>
                 <label className="field">
                   Recovery email (optional - enables password reset)
-                  <input
+                  <input spellCheck={false} 
                     type="email"
                     placeholder="staff@example.com"
                     value={newStaff.email}
@@ -2851,7 +2862,7 @@ export default function SettingsPage() {
               <form onSubmit={createAdmin} noValidate className="flex flex-col gap-3">
                 <label className="field">
                   Full name *
-                  <input
+                  <input spellCheck={false} 
                     required
                     ref={adminNameRef}
                     value={newAdmin.name}
@@ -2876,7 +2887,7 @@ export default function SettingsPage() {
                 </label>
                 <label className="field">
                   Username *
-                  <input
+                  <input spellCheck={false} 
                     required
                     ref={adminUsernameRef}
                     value={newAdmin.username}
@@ -2902,7 +2913,7 @@ export default function SettingsPage() {
                 <label className="field">
                   Password * (min 8)
                   <div style={{ position: "relative" }}>
-                    <input
+                    <input spellCheck={false} 
                       required
                       minLength={8}
                       type={showNewAdminPw ? "text" : "password"}
@@ -2924,7 +2935,7 @@ export default function SettingsPage() {
                 </label>
                 <label className="field">
                   Recovery email (optional — lets them reset their own password)
-                  <input
+                  <input spellCheck={false} 
                     type="email"
                     placeholder="owner@example.com"
                     value={newAdmin.email}
@@ -2972,7 +2983,7 @@ export default function SettingsPage() {
               <form onSubmit={handleEditAdmin} noValidate className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
                 <label className="field">
                   Full name *
-                  <input
+                  <input spellCheck={false} 
                     required
                     ref={editAdminNameRef}
                     value={adminEditing?.name || ""}
@@ -2997,7 +3008,7 @@ export default function SettingsPage() {
                 </label>
                 <label className="field">
                   Username *
-                  <input
+                  <input spellCheck={false} 
                     required
                     ref={editAdminUsernameRef}
                     value={adminEditing?.username || ""}
@@ -3022,7 +3033,7 @@ export default function SettingsPage() {
                 </label>
                 <label className="field">
                   Recovery email (optional — lets them reset their own password)
-                  <input
+                  <input spellCheck={false} 
                     type="email"
                     placeholder={`${adminEditing?.username || "admin"}@cartiq.local`}
                     value={adminEditing?.email || ""}
@@ -3070,7 +3081,7 @@ export default function SettingsPage() {
               <form onSubmit={handleEditStaff} noValidate className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
                 <label className="field">
                   Full name *
-                  <input
+                  <input spellCheck={false} 
                     required
                     ref={editStaffNameRef}
                     value={staffEditing?.name || ""}
@@ -3094,7 +3105,7 @@ export default function SettingsPage() {
                 </label>
                 <label className="field">
                   Username (immutable - set at creation)
-                  <input
+                  <input spellCheck={false} 
                     value={staffEditing?.username || ""}
                     disabled
                     readOnly
@@ -3113,7 +3124,7 @@ export default function SettingsPage() {
                 </label>
                 <label className="field">
                   RFID UID (optional)
-                  <input
+                  <input spellCheck={false} 
                     placeholder="e.g. 04A2B3C4"
                     value={staffEditing?.rfidUid || ""}
                     onChange={(e) => setStaffEditing({ ...staffEditing, rfidUid: e.target.value })}
@@ -3129,7 +3140,7 @@ export default function SettingsPage() {
                 </label>
                 <label className="field">
                   Recovery email (optional - enables password reset)
-                  <input
+                  <input spellCheck={false} 
                     type="email"
                     placeholder={`${staffEditing?.username ?? "staff"}@cartiq.local`}
                     value={staffEditing?.email || ""}
@@ -3236,7 +3247,7 @@ export default function SettingsPage() {
               <label className="field" style={{ marginTop: "var(--space-3)" }}>
                 New temporary password
                 <div style={{ position: "relative" }}>
-                  <input
+                  <input spellCheck={false} 
                     autoFocus
                     type={showResetPw ? "text" : "password"}
                     value={resetPw}
@@ -3320,7 +3331,7 @@ export default function SettingsPage() {
               <form onSubmit={handleAddDevice} className="flex flex-col gap-3">
                 <label className="field">
                   Device ID (e.g. ESP32-A1B2) *
-                  <input
+                  <input spellCheck={false} 
                     required
                     value={newDevice.deviceId}
                     onChange={(e) => setNewDevice({ ...newDevice, deviceId: e.target.value })}
@@ -3369,7 +3380,7 @@ export default function SettingsPage() {
                   />
                 </label>
                 <label className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input
+                  <input spellCheck={false} 
                     type="checkbox"
                     checked={deviceEditing?.active || false}
                     onChange={(e) => setDeviceEditing({ ...deviceEditing, active: e.target.checked })}
@@ -3404,7 +3415,7 @@ export default function SettingsPage() {
               <form onSubmit={createCart} className="flex flex-col gap-4">
                 <label className="field">
                   Cart Code
-                  <input
+                  <input spellCheck={false} 
                     type="text"
                     required
                     minLength={3}
@@ -3419,7 +3430,7 @@ export default function SettingsPage() {
                 
                 <label className="field">
                   Cart Name
-                  <input
+                  <input spellCheck={false} 
                     type="text"
                     required
                     minLength={2}
@@ -3443,7 +3454,7 @@ export default function SettingsPage() {
 
                 <label className="field">
                   Address (Optional)
-                  <input
+                  <input spellCheck={false} 
                     type="text"
                     maxLength={CART_ADDRESS_MAX}
                     placeholder="e.g. Sta. Cruz, Laguna"
@@ -3463,7 +3474,7 @@ export default function SettingsPage() {
                 </label>
                 
                 <label className="field" style={{ flexDirection: "row", alignItems: "center", gap: "8px", cursor: "pointer" }}>
-                  <input
+                  <input spellCheck={false} 
                     type="checkbox"
                     checked={newCart.seedInventory}
                     onChange={(e) => setNewCart({ ...newCart, seedInventory: e.target.checked })}
@@ -3496,7 +3507,7 @@ export default function SettingsPage() {
               
               <label className="field">
                 Device Token ({cartToken.deviceId})
-                <input type="text" readOnly value={cartToken.token} onFocus={(e) => e.target.select()} />
+                <input spellCheck={false} type="text" readOnly value={cartToken.token} onFocus={(e) => e.target.select()} />
               </label>
               
               <div className="modal-actions">
@@ -3527,7 +3538,7 @@ export default function SettingsPage() {
               
               <label className="field">
                 Device Token ({deviceToken.deviceId})
-                <input type="text" readOnly value={deviceToken.token ?? ""} onFocus={(e) => e.target.select()} />
+                <input spellCheck={false} type="text" readOnly value={deviceToken.token ?? ""} onFocus={(e) => e.target.select()} />
               </label>
               
               <div className="modal-actions">
@@ -3555,7 +3566,7 @@ export default function SettingsPage() {
               <form onSubmit={handleEditCart} className="flex flex-col gap-4" style={{ marginTop: "var(--space-3)" }}>
                 <label className="field">
                   Cart Name
-                  <input
+                  <input spellCheck={false} 
                     type="text"
                     required
                     minLength={2}
@@ -3579,7 +3590,7 @@ export default function SettingsPage() {
 
                 <label className="field">
                   Address (Optional)
-                  <input
+                  <input spellCheck={false} 
                     type="text"
                     maxLength={CART_ADDRESS_MAX}
                     placeholder="e.g. Sta. Cruz, Laguna"

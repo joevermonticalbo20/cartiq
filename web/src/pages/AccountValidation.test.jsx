@@ -155,7 +155,7 @@ describe("staff and admin account fields", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add staff/i }));
     const dialog = openModal();
     const nameInput = within(dialog).getByLabelText(/Full name/);
-    fireEvent.change(nameInput, { target: { value: "BBBB" } });
+    fireEvent.change(nameInput, { target: { value: "-'-" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /Create account/ }));
     expect(
       await within(dialog).findByText("Please enter a valid full name.")
@@ -246,7 +246,7 @@ describe("staff and admin account fields", () => {
     fireEvent.blur(nameInput);
     expect(within(dialog).queryByText("Full name is required.")).toBeNull();
 
-    fireEvent.change(nameInput, { target: { value: "BBBB" } });
+    fireEvent.change(nameInput, { target: { value: "-'-" } });
     fireEvent.blur(nameInput);
     expect(
       await within(dialog).findByText("Please enter a valid full name.")
@@ -278,7 +278,7 @@ describe("staff and admin account fields", () => {
     expect(await screen.findByText("Co Owner")).toBeInTheDocument();
     fireEvent.click(screen.getByTitle("Edit admin"));
     const dialog = await screen.findByRole("dialog", { name: "Edit admin account" });
-    fireEvent.change(within(dialog).getByLabelText(/Full name/), { target: { value: "BBBB" } });
+    fireEvent.change(within(dialog).getByLabelText(/Full name/), { target: { value: "-'-" } });
     fireEvent.change(within(dialog).getByLabelText(/^Username/), { target: { value: "coowner" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /Save Changes/ }));
     expect(
@@ -319,9 +319,9 @@ describe("staff and admin account fields", () => {
     expect(dialog.textContent).toContain("Edit Staff Account");
     // The username is immutable - it cannot be edited, so it cannot be invalid.
     expect(within(dialog).getByLabelText(/Username/)).toBeDisabled();
-    // Live typing strips "!", which would make the name valid - use BBBB
-    // directly to exercise server-side refusal of a same-letter run.
-    fireEvent.change(within(dialog).getByLabelText(/Full name/), { target: { value: "BBBB" } });
+    // Live typing refuses digits and letters-packed runs, so use an allowed
+    // string with no letters at all to exercise the validator on save.
+    fireEvent.change(within(dialog).getByLabelText(/Full name/), { target: { value: "-'-" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /Save Changes/ }));
     expect(
       await within(dialog).findByText("Please enter a valid full name.")
