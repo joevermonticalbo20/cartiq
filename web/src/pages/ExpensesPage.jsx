@@ -31,14 +31,14 @@ export default function ExpensesPage() {
   const toast = useToast();
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
-  const currentMonth = new Date().toISOString().slice(0, 7);
+  const thisMonth = new Date().toISOString().slice(0, 7);
 
   const [code, setCode] = useState("");
   // One shared, live copy of the carts: a cart the owner added or
   // deactivated shows up in the filter at once.
   const { data: cartList } = useLiveList("carts");
   const locations = Array.isArray(cartList) ? cartList : [];
-  const [month, setMonth] = useState(currentMonth);
+  const [month, setMonth] = useState(""); // "" = all months (the same scope the phone app shows)
   const [category, setCategory] = useState("");
 
   const [confirming, setConfirming] = useState(null);
@@ -317,7 +317,7 @@ export default function ExpensesPage() {
         <PageHeader
           eyebrow="Operations"
           title="Expenses"
-          sub="Vendor costs by month and category."
+          sub="Vendor costs — the same view as the staff app: all months by default, filter to one if you want."
           actions={
             <div className="flex items-center gap-3 flex-wrap">
               {meta && (
@@ -354,6 +354,24 @@ export default function ExpensesPage() {
                 title="Filter by month"
                 style={{ height: "36px" }}
               />
+              <button
+                className="ghost small-btn"
+                aria-pressed={month === ""}
+                onClick={() => setMonth("")}
+                title="Show expenses from every month"
+                style={month === "" ? { borderColor: "var(--primary)", color: "var(--primary)" } : { opacity: 0.75 }}
+              >
+                All months
+              </button>
+              <button
+                className="ghost small-btn"
+                aria-pressed={month === thisMonth}
+                onClick={() => setMonth(thisMonth)}
+                title="Only this month"
+                style={month === thisMonth ? { borderColor: "var(--primary)", color: "var(--primary)" } : { opacity: 0.75 }}
+              >
+                This month
+              </button>
               <Select
                 value={category}
                 onChange={(val) => setCategory(val)}
@@ -362,12 +380,12 @@ export default function ExpensesPage() {
               />
             </div>
             
-            {(code || month !== currentMonth || category) && (
+            {(code || month !== "" || category) && (
               <button
                 className="danger-ghost small-btn"
                 onClick={() => {
                   setCode("");
-                  setMonth(currentMonth);
+                  setMonth("");
                   setCategory("");
                 }}
               >

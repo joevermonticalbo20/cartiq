@@ -9,7 +9,6 @@ import '../services/auth_state.dart';
 import '../services/offline_pin.dart';
 import '../services/rfid_registration.dart';
 import '../services/sync_service.dart';
-import '../config.dart';
 import '../state/cart_state.dart';
 import '../state/theme_controller.dart';
 import '../theme.dart';
@@ -33,7 +32,6 @@ class SettingsScreen extends StatefulWidget {
 class SettingsScreenState extends State<SettingsScreen> {
   bool? _hasPin;
   DateTime? _lastOnline;
-  PinEligibility? _eligibility;
 
   @override
   void initState() {
@@ -49,7 +47,6 @@ class SettingsScreenState extends State<SettingsScreen> {
     await auth.refreshProfile();
     final hasPin = await auth.pin.hasPin;
     final lastOnline = await auth.lastOnline;
-    final eligibility = await auth.checkOfflineEligibility();
     await auth.refreshTimeClock();
     await auth.refreshMyShifts();
 
@@ -57,7 +54,6 @@ class SettingsScreenState extends State<SettingsScreen> {
       setState(() {
         _hasPin = hasPin;
         _lastOnline = lastOnline;
-        _eligibility = eligibility;
       });
     }
   }
@@ -1190,41 +1186,6 @@ class SettingsScreenState extends State<SettingsScreen> {
                     iconColor: AppColors.primary,
                     title: 'Version',
                     subtitle: 'v$appVersion • Pota Fries Operations',
-                  ),
-                  _PremiumTile(
-                    icon: Icons.dns_outlined,
-                    iconColor: Colors.deepPurple,
-                    title: 'Backend',
-                    subtitle: AppConfig.apiBaseUrl,
-                  ),
-                  const _PremiumTile(
-                    icon: Icons.security_outlined,
-                    iconColor: Colors.teal,
-                    title: 'Disabled accounts',
-                    subtitle:
-                        'Stop working within 7 days offline, immediately when online.',
-                  ),
-                  _PremiumTile(
-                    icon: Icons.offline_bolt_outlined,
-                    iconColor: _eligibility != null && _eligibility!.eligible
-                        ? AppColors.ok
-                        : AppColors.warn,
-                    title: 'Offline login',
-                    subtitle: _eligibility == null
-                        ? 'Checking...'
-                        : _eligibility!.eligible
-                        ? 'Ready • PIN set for this staff account'
-                        : _eligibility!.message,
-                    trailing: _eligibility == null
-                        ? null
-                        : AppBadge(
-                            label: _eligibility!.eligible
-                                ? 'READY'
-                                : 'NOT READY',
-                            variant: _eligibility!.eligible
-                                ? AppBadgeVariant.ok
-                                : AppBadgeVariant.neutral,
-                          ),
                   ),
                 ],
               ),

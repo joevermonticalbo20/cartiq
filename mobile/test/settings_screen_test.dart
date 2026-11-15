@@ -197,8 +197,11 @@ void main() {
       await tester.scrollUntilVisible(find.text('Sync now'), 200);
       expect(find.text('Queued sales'), findsOneWidget);
       expect(find.text('Catalog cache'), findsOneWidget);
-      await tester.scrollUntilVisible(find.text('Disabled accounts'), 200);
+      await tester.scrollUntilVisible(find.text('Version'), 200);
       expect(find.text('Version'), findsOneWidget);
+      expect(find.text('Backend'), findsNothing);
+      expect(find.text('Disabled accounts'), findsNothing);
+      expect(find.text('Offline login'), findsNothing);
     });
 
     testWidgets('removing the card says so straight away', (tester) async {
