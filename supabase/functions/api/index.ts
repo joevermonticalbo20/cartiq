@@ -8024,13 +8024,6 @@ function validateInventoryItemNameEdge(raw) {
   return { ok: true, value };
 }
 
-/** Case-insensitive duplicate check against same-cart siblings. */
-function siblingNameClashEdge(siblings, candidate) {
-  const target = String(candidate ?? "").trim().toLowerCase();
-  if (!target) return null;
-  return siblings.find((s) => String(s.name ?? "").trim().toLowerCase() === target) ?? null;
-}
-
 function validateTextLineEdge(raw, { label, min, max }) {
   const value = String(raw ?? "").replace(/\s+/g, " ").trim();
   if (!value) return { ok: false, value, error: `${label} is required.` };
