@@ -394,7 +394,30 @@ class SettingsScreenState extends State<SettingsScreen> {
           }
 
           return AlertDialog(
-          title: const Text('Recovery email'),
+          title: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppColors.primaryTint,
+                  borderRadius: BorderRadius.circular(AppRadius.m),
+                ),
+                child: const Icon(
+                  Icons.alternate_email_rounded,
+                  color: AppColors.primary,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.space3),
+              const Expanded(
+                child: Text(
+                  'Recovery email',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -422,23 +445,6 @@ class SettingsScreenState extends State<SettingsScreen> {
                 onChanged: (value) => checkCode(value),
                 decoration: InputDecoration(
                   labelText: 'Verification code',
-                  helperText: codeCheck == 'valid'
-                      ? 'Code verified. You can save it now.'
-                      : codeCheck == 'invalid'
-                          ? (codeExpired
-                              ? 'That code has expired. Send a new one.'
-                              : 'That code does not match. Check the digits.')
-                          : codeSent
-                              ? 'A 6-digit code was sent to that email.'
-                              : 'Send a code to that email first.',
-                  helperStyle: TextStyle(
-                    color: codeCheck == 'valid'
-                        ? AppColors.ok
-                        : codeCheck == 'invalid'
-                            ? AppColors.danger
-                            : null,
-                    fontWeight: codeCheck == 'idle' ? null : FontWeight.w600,
-                  ),
                   border: codeCheck == 'valid'
                       ? codeBorder(AppColors.ok)
                       : codeCheck == 'invalid'
@@ -454,7 +460,35 @@ class SettingsScreenState extends State<SettingsScreen> {
                       : codeCheck == 'invalid'
                           ? codeBorder(AppColors.danger)
                           : null,
-                  suffixIcon: TextButton(
+                ),
+              ),
+              const SizedBox(height: AppSpacing.space2),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Text(
+                      codeCheck == 'valid'
+                          ? 'Code verified. You can save it now.'
+                          : codeCheck == 'invalid'
+                              ? (codeExpired
+                                  ? 'That code has expired. Send a new one.'
+                                  : 'That code does not match.')
+                              : codeSent
+                                  ? 'A 6-digit code was sent to that email.'
+                                  : 'Send a code first, then type it here.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: codeCheck == 'valid'
+                                ? AppColors.ok
+                                : codeCheck == 'invalid'
+                                    ? AppColors.danger
+                                    : AppColors.muted,
+                            fontWeight:
+                                codeCheck == 'idle' ? FontWeight.w500 : FontWeight.w700,
+                          ),
+                    ),
+                  ),
+                  TextButton(
                     onPressed: sendingCode || cooldown > 0
                         ? null
                         : () async {
@@ -536,33 +570,66 @@ class SettingsScreenState extends State<SettingsScreen> {
                             ? 'Resend in ${cooldown}s'
                             : (codeSent ? 'Resend' : 'Send code')),
                   ),
-                ),
+                ],
               ),
               const SizedBox(height: AppSpacing.space3),
               TextField(
                 controller: password,
                 obscureText: obscure,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Current password',
-                  helperText:
-                      'Required so a stolen session cannot redirect recovery',
+                  helperText: 'So a stolen session cannot redirect this.',
+                  helperMaxLines: 2,
+                  suffixIcon: IconButton(
+                    tooltip: obscure ? 'Show password' : 'Hide password',
+                    onPressed: () => setDialogState(() => obscure = !obscure),
+                    icon: Icon(
+                      obscure
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      size: 20,
+                    ),
+                  ),
                 ),
               ),              if (error != null) ...[
-                const SizedBox(height: AppSpacing.space2),
-                Text(
-                  error!,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: AppColors.danger),
+                const SizedBox(height: AppSpacing.space3),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.space3,
+                    vertical: AppSpacing.space2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.dangerBg,
+                    borderRadius: BorderRadius.circular(AppRadius.s),
+                    border: Border.all(
+                      color: AppColors.danger.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.error_outline_rounded,
+                        size: 16,
+                        color: AppColors.danger,
+                      ),
+                      const SizedBox(width: AppSpacing.space2),
+                      Expanded(
+                        child: Text(
+                          error!,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: AppColors.danger,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ],
           ),
           actions: [
-            TextButton(
-              onPressed: () => setDialogState(() => obscure = !obscure),
-              child: Text(obscure ? 'Show' : 'Hide'),
-            ),
             TextButton(
               onPressed: pending
                   ? null
@@ -763,16 +830,50 @@ class SettingsScreenState extends State<SettingsScreen> {
           }
 
           return AlertDialog(
-            title: const Text('Change password'),
-            content: SingleChildScrollView(
+            title: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryTint,
+                    borderRadius: BorderRadius.circular(AppRadius.m),
+                  ),
+                  child: const Icon(
+                    Icons.lock_outline_rounded,
+                    color: AppColors.primary,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.space3),
+                const Expanded(
+                  child: Text(
+                    'Change password',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
+            ),
+              content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   TextField(
                     controller: current,
                     obscureText: obscure,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Current password',
+                      suffixIcon: IconButton(
+                        tooltip: obscure ? 'Show password' : 'Hide password',
+                        onPressed: () => setDialogState(() => obscure = !obscure),
+                        icon: Icon(
+                          obscure
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                          size: 20,
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.space3),
@@ -840,41 +941,115 @@ class SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                   if (notice != null) ...[
-                    Text(notice!, style: Theme.of(context).textTheme.bodySmall),
+                    const SizedBox(height: AppSpacing.space2),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.space3,
+                        vertical: AppSpacing.space2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.okBg,
+                        borderRadius: BorderRadius.circular(AppRadius.s),
+                        border: Border.all(
+                          color: AppColors.ok.withValues(alpha: 0.35),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.mark_email_read_outlined,
+                            size: 16,
+                            color: AppColors.ok,
+                          ),
+                          const SizedBox(width: AppSpacing.space2),
+                          Expanded(
+                            child: Text(
+                              notice!,
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: AppColors.ok,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                   const SizedBox(height: AppSpacing.space3),
                   TextField(
                     controller: next,
                     obscureText: obscure,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'New password',
+                      suffixIcon: IconButton(
+                        tooltip: obscure ? 'Show password' : 'Hide password',
+                        onPressed: () => setDialogState(() => obscure = !obscure),
+                        icon: Icon(
+                          obscure
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                          size: 20,
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.space3),
                   TextField(
                     controller: confirm,
                     obscureText: obscure,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Confirm new password',
+                      suffixIcon: IconButton(
+                        tooltip: obscure ? 'Show password' : 'Hide password',
+                        onPressed: () => setDialogState(() => obscure = !obscure),
+                        icon: Icon(
+                          obscure
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                          size: 20,
+                        ),
+                      ),
                     ),
                   ),
                   if (error != null) ...[
-                    const SizedBox(height: AppSpacing.space2),
-                    Text(
-                      error!,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodySmall?.copyWith(color: AppColors.danger),
+                    const SizedBox(height: AppSpacing.space3),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.space3,
+                        vertical: AppSpacing.space2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.dangerBg,
+                        borderRadius: BorderRadius.circular(AppRadius.s),
+                        border: Border.all(
+                          color: AppColors.danger.withValues(alpha: 0.45),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.error_outline_rounded,
+                            size: 16,
+                            color: AppColors.danger,
+                          ),
+                          const SizedBox(width: AppSpacing.space2),
+                          Expanded(
+                            child: Text(
+                              error!,
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: AppColors.danger,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ],
               ),
             ),
             actions: [
-              TextButton(
-                onPressed: () => setDialogState(() => obscure = !obscure),
-                child: Text(obscure ? 'Show' : 'Hide'),
-              ),
               TextButton(
                 onPressed: pending
                     ? null
