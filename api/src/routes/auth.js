@@ -62,6 +62,14 @@ import { readTimeClock, timeClockVerdict } from "../services/time_clock.js";
 import { announceChange } from "../services/announce.js";
 import { openClaim, getClaim, claimView } from "../services/rfid_claims.js";
 import { emit } from "./events.js";
+import crypto from "node:crypto";
+
+// Refresh tokens are stored SHA-256 hashed: anyone with read access to the
+// refreshTokens collection reads digests, not live sessions. The raw JWT is
+// what the client holds; the database only ever needs to match a digest.
+function hashRefresh(token) {
+  return crypto.createHash("sha256").update(String(token)).digest("hex");
+}
 
 // Coarse per-IP spray guard, mirroring the Edge function. The real
 // credential guard is the persistent per-username lock in
@@ -258,7 +266,7 @@ router.post("/login", async (req, res, next) => {
     );
     await prisma.refreshToken.create({
       data: {
-        token: refreshToken,
+        token: hashRefresh(refreshToken),
         expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         userId: user.id,
       },
@@ -769,9 +777,16 @@ router.post("/refresh", async (req, res, next) => {
       return res.status(401).json({ error: "Invalid or expired refresh token" });
     }
     const tokenRecord = await prisma.refreshToken.findUnique({
-      where: { token: refreshToken },
+      where: { token: hashRefresh(refreshToken) },
     });
-    if (!tokenRecord) return res.status(401).json({ error: "Invalid refresh token record" });
+    if (!tokenRecord) {
+      // A replay of a rotated refresh token: break-glass — revoke every
+      // session for this user, so a stolen token can never mint a new one.
+      await prisma.refreshToken
+        .deleteMany({ where: { userId: payload.sub } })
+        .catch(() => {});
+      return res.status(401).json({ error: "Session invalid - please sign in again" });
+    }
     if (new Date() > tokenRecord.expiresAt) {
       return res.status(401).json({ error: "Refresh token expired" });
     }
@@ -809,7 +824,7 @@ router.post("/refresh", async (req, res, next) => {
     );
     await prisma.refreshToken.create({
       data: {
-        token: newRefreshToken,
+        token: hashRefresh(newRefreshToken),
         expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         userId: user.id,
       },
@@ -829,7 +844,7 @@ router.post("/logout", async (req, res, next) => {
     const { refreshToken } = req.body ?? {};
     if (!refreshToken) return res.json({ loggedOut: true });
     const tokenRecord = await prisma.refreshToken.findUnique({
-      where: { token: refreshToken },
+      where: { token: hashRefresh(refreshToken) },
     });
     if (tokenRecord) {
       await prisma.refreshToken.delete({ where: { id: tokenRecord.id } });

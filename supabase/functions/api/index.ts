@@ -1458,8 +1458,10 @@ async function mintSession(user) {
     30 * 24 * 60 * 60
   );
   const rid = await allocNumericId("refreshTokens");
+  // Stored hashed (SHA-256): anyone who can read the refreshTokens collection
+  // reads hashes, not live sessions.
   await fsCreate("refreshTokens", String(rid), {
-    token: refreshToken,
+    token: await sha256Hex(refreshToken),
     expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     userId: user.id,
     createdAt: new Date(),
@@ -1657,9 +1659,17 @@ async function handleRefresh(req, origin) {
   if (!payload || payload.type !== "refresh") {
     return jsonRes(origin, { error: "Invalid or expired refresh token" }, 401);
   }
-  const found = await fsQueryEqual("refreshTokens", "token", refreshToken, 1);
+  const found = await fsQueryEqual("refreshTokens", "token", await sha256Hex(refreshToken), 1);
   const record = found[0] || null;
-  if (!record) return jsonRes(origin, { error: "Invalid refresh token record" }, 401);
+  if (!record) {
+    // A replay of a rotated refresh token: break-glass — revoke every
+    // session for this user so a stolen token can never mint a new one.
+    const sessions = await fsQueryEqual("refreshTokens", "userId", Number(payload.sub), 10000).catch(() => []);
+    for (const s of sessions) {
+      if (s._name) await fsDeleteByName(s._name).catch(() => {});
+    }
+    return jsonRes(origin, { error: "Session invalid - please sign in again" }, 401);
+  }
   if (record.expiresAt instanceof Date && Date.now() > record.expiresAt.getTime()) {
     return jsonRes(origin, { error: "Refresh token expired" }, 401);
   }
@@ -1678,7 +1688,7 @@ async function handleLogout(req, origin) {
   const body = await req.json().catch(() => null);
   const refreshToken = body ? body.refreshToken : undefined;
   if (!refreshToken) return jsonRes(origin, { loggedOut: true }, 200);
-  const found = await fsQueryEqual("refreshTokens", "token", refreshToken, 1).catch(() => []);
+  const found = await fsQueryEqual("refreshTokens", "token", await sha256Hex(refreshToken), 1).catch(() => []);
   if (found[0]) {
     await fsDeleteByName(found[0]._name).catch(() => {});
   }
