@@ -43,6 +43,9 @@ class _HomeScreenState extends State<HomeScreen> {
   double _todaySales = 0;
   int _todayOrders = 0;
   int _queueCount = 0;
+  // Guard against rapid bell taps opening several modal bottom sheets. Only
+  // one is allowed at a time; extra taps until the sheet closes are ignored.
+  bool _openingNotifications = false;
 
   List<Map<String, dynamic>> _lowItems = const [];
   List<Map<String, dynamic>> _onShift = const [];
@@ -189,9 +192,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openNotifications(AuthState auth) async {
-    await auth.refreshMyAlerts();
-    if (!mounted) return;
-    await showModalBottomSheet<void>(
+    if (_openingNotifications) return; // already showing / opening
+    _openingNotifications = true;
+    try {
+      await auth.refreshMyAlerts();
+      if (!mounted) return;
+      await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -300,6 +306,10 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
+    } finally {
+      // The sheet closed; the bell may open a fresh one next time.
+      if (mounted) _openingNotifications = false;
+    }
   }
 
   double get _avgTicket => _todayOrders > 0 ? _todaySales / _todayOrders : 0;
