@@ -873,7 +873,7 @@ describe("SettingsPage administrators", () => {
       }),
     );
     expect(await screen.findByText(/Register a card for Stall Staff 1/)).toBeInTheDocument();
-    expect(screen.getByText(/Reader online/)).toBeInTheDocument();
+    expect(await screen.findByText(/Reader online/)).toBeInTheDocument();
   });
 
   it("refuses to open a reader claim for a staff member with no cart", async () => {
