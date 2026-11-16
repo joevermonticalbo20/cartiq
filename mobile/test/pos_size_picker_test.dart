@@ -146,6 +146,29 @@ void main() {
       expect(changes['Large'], 2);
     });
 
+    testWidgets('tapping the count opens a typed input', (tester) async {
+      final changes = <String, int>{};
+      await tester.pumpWidget(
+        _wrap(
+          PosSizePicker(
+            sizes: _sizes(),
+            selectedQuantities: const {'Large': 3},
+            onQuantityChanged: (name, value) => changes[name] = value,
+          ),
+        ),
+      );
+
+      // No other tile shows a "3", so the count box is findable.
+      await tester.tap(find.text('3'));
+      await tester.pumpAndSettle();
+      expect(find.text('How many Large?'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), '67');
+      await tester.tap(find.text('Set'));
+      await tester.pumpAndSettle();
+      expect(changes['Large'], 67);
+    });
+
     testWidgets('multiple sizes can hold their own quantities', (
       tester,
     ) async {

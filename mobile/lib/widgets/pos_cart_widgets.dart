@@ -4,6 +4,7 @@ import '../state/cart_state.dart';
 import '../theme.dart';
 import '../utils/haptics.dart';
 import '../utils/payment_rules.dart';
+import 'pos_quantity.dart' show showPosQuantityDialog;
 
 class PosQtyButton extends StatelessWidget {
   const PosQtyButton({super.key, required this.icon, this.onPressed});
@@ -311,10 +312,41 @@ class PosSizePicker extends StatelessWidget {
                           ? () => onQuantityChanged(name, quantity - 1)
                           : null,
                     ),
-                    Text(
-                      '$quantity',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
+                    // The count is its own input: tap it and type any amount
+                    // up to the servings left.
+                    Material(
+                      color: quantity > 0
+                          ? AppColors.primary.withValues(alpha: 0.1)
+                          : Theme.of(context).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(AppRadius.s),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: unavailable
+                            ? null
+                            : () async {
+                                final result = await showPosQuantityDialog(
+                                  context,
+                                  quantity: quantity > 0 ? quantity : 1,
+                                  maxQuantity: servings is num
+                                      ? servings.toInt()
+                                      : null,
+                                  title: 'How many $name?',
+                                );
+                                if (result != null) {
+                                  onQuantityChanged(name, result);
+                                }
+                              },
+                        child: Container(
+                          width: 54,
+                          height: 38,
+                          alignment: Alignment.center,
+                          child: Text(
+                            '$quantity',
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                     PosQtyButton(
