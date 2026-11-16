@@ -10657,7 +10657,7 @@ Deno.serve(async (req) => {
         else if (req.method === "DELETE" && /^\/analytics\/events\/\d+$/.test(path)) {
           const ownErr = requireOwner(auth.user);
           if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
-          out = await handleDeleteAnalyticsEvent(Number(path.split("/")[2]), auth.user);
+          out = await handleDeleteAnalyticsEvent(Number(path.split("/")[3]), auth.user);
         }
         else if (req.method === "GET" && path === "/analytics/trends") out = await handleTrends(inUrl);
         else if (req.method === "GET" && path === "/analytics/hourly") out = await handleHourly(inUrl);
