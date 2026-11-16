@@ -10648,7 +10648,7 @@ Deno.serve(async (req) => {
         const auth = await authUser(req);
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
         let out;
-        else if (req.method === "GET" && path === "/analytics/events") out = await handleListAnalyticsEvents(inUrl, auth.user);
+        if (req.method === "GET" && path === "/analytics/events") out = await handleListAnalyticsEvents(inUrl, auth.user);
         else if (req.method === "POST" && path === "/analytics/events") {
           const ownErr = requireOwner(auth.user);
           if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
