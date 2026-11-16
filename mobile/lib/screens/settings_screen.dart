@@ -573,24 +573,12 @@ class SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
               const SizedBox(height: AppSpacing.space3),
-              TextField(
+              _passwordField(
                 controller: password,
-                obscureText: obscure,
-                decoration: InputDecoration(
-                  labelText: 'Current password',
-                  helperText: 'So a stolen session cannot redirect this.',
-                  helperMaxLines: 2,
-                  suffixIcon: IconButton(
-                    tooltip: obscure ? 'Show password' : 'Hide password',
-                    onPressed: () => setDialogState(() => obscure = !obscure),
-                    icon: Icon(
-                      obscure
-                          ? Icons.visibility_off_outlined
-                          : Icons.visibility_outlined,
-                      size: 20,
-                    ),
-                  ),
-                ),
+                label: 'Current password',
+                obscure: obscure,
+                onToggle: () => setDialogState(() => obscure = !obscure),
+                helperText: 'So a stolen session cannot redirect this.',
               ),              if (error != null) ...[
                 const SizedBox(height: AppSpacing.space3),
                 Container(
@@ -859,22 +847,11 @@ class SettingsScreenState extends State<SettingsScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  TextField(
+                  _passwordField(
                     controller: current,
-                    obscureText: obscure,
-                    decoration: InputDecoration(
-                      labelText: 'Current password',
-                      suffixIcon: IconButton(
-                        tooltip: obscure ? 'Show password' : 'Hide password',
-                        onPressed: () => setDialogState(() => obscure = !obscure),
-                        icon: Icon(
-                          obscure
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined,
-                          size: 20,
-                        ),
-                      ),
-                    ),
+                    label: 'Current password',
+                    obscure: obscure,
+                    onToggle: () => setDialogState(() => obscure = !obscure),
                   ),
                   const SizedBox(height: AppSpacing.space3),
                   TextField(
@@ -976,40 +953,18 @@ class SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ],
                   const SizedBox(height: AppSpacing.space3),
-                  TextField(
+                  _passwordField(
                     controller: next,
-                    obscureText: obscure,
-                    decoration: InputDecoration(
-                      labelText: 'New password',
-                      suffixIcon: IconButton(
-                        tooltip: obscure ? 'Show password' : 'Hide password',
-                        onPressed: () => setDialogState(() => obscure = !obscure),
-                        icon: Icon(
-                          obscure
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined,
-                          size: 20,
-                        ),
-                      ),
-                    ),
+                    label: 'New password',
+                    obscure: obscure,
+                    onToggle: () => setDialogState(() => obscure = !obscure),
                   ),
                   const SizedBox(height: AppSpacing.space3),
-                  TextField(
+                  _passwordField(
                     controller: confirm,
-                    obscureText: obscure,
-                    decoration: InputDecoration(
-                      labelText: 'Confirm new password',
-                      suffixIcon: IconButton(
-                        tooltip: obscure ? 'Show password' : 'Hide password',
-                        onPressed: () => setDialogState(() => obscure = !obscure),
-                        icon: Icon(
-                          obscure
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined,
-                          size: 20,
-                        ),
-                      ),
-                    ),
+                    label: 'Confirm new password',
+                    obscure: obscure,
+                    onToggle: () => setDialogState(() => obscure = !obscure),
                   ),
                   if (error != null) ...[
                     const SizedBox(height: AppSpacing.space3),
@@ -2488,4 +2443,54 @@ class _StatusStrip extends StatelessWidget {
       ),
     );
   }
+}
+/// Password field matching the in-app style: a tinted rounded box with a
+/// lock on the left, dots, and an eye toggle on the right.
+Widget _passwordField({
+  required TextEditingController controller,
+  required String label,
+  required bool obscure,
+  required VoidCallback onToggle,
+  String? helperText,
+}) {
+  return TextField(
+    controller: controller,
+    obscureText: obscure,
+    decoration: InputDecoration(
+      labelText: label,
+      helperText: helperText,
+      helperMaxLines: 2,
+      filled: true,
+      fillColor: AppColors.infoBg,
+      prefixIcon: const Icon(
+        Icons.lock_outline_rounded,
+        color: AppColors.info,
+        size: 19,
+      ),
+      suffixIcon: IconButton(
+        tooltip: obscure ? 'Show password' : 'Hide password',
+        onPressed: onToggle,
+        icon: Icon(
+          obscure
+              ? Icons.visibility_off_outlined
+              : Icons.visibility_outlined,
+          size: 20,
+          color: AppColors.info,
+        ),
+      ),
+      // Filled, borderless until focused; a quiet ring on focus.
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadius.m),
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadius.m),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadius.m),
+        borderSide: const BorderSide(color: AppColors.info, width: 1.5),
+      ),
+    ),
+  );
 }
