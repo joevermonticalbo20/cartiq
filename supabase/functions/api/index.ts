@@ -6263,6 +6263,20 @@ function manilaHour(date) {
   return new Date(new Date(date).getTime() + 8 * 60 * 60 * 1000).getUTCHours();
 }
 
+// ---------- marked event days (holidays, school events, payday) ----------
+// Same rule as the Express backend: the forecast trains on the weekly
+// pattern; a one-off spike otherwise inflates every weekday's seasonal
+// factor. Marked days are excluded from the training window entirely.
+async function loadEventDayKeys(locationCode) {
+  const docs = await fsListAll("eventDays").catch(() => []);
+  const keys = new Set();
+  for (const d of docs) {
+    if (d.locationCode && locationCode && d.locationCode !== locationCode) continue;
+    if (typeof d.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d.date)) keys.add(d.date);
+  }
+  return keys;
+}
+
 function manilaDowOfKey(key) {
   return new Date(`${key}T00:00:00Z`).getUTCDay();
 }
@@ -6484,9 +6498,13 @@ function buildBasket(paidOrders, voidCount) {
   };
 }
 
-function forecastForSeries(seriesEntries, { horizon, minDays }) {
-  const keys = seriesEntries.map((e) => e.key);
-  const values = seriesEntries.map((e) => e.value);
+function forecastForSeries(seriesEntries, { horizon, minDays, excludeKeys }) {
+  let entries = seriesEntries;
+  if (excludeKeys && excludeKeys.size > 0) {
+    entries = seriesEntries.filter((e) => !excludeKeys.has(e.key));
+  }
+  const keys = entries.map((e) => e.key);
+  const values = entries.map((e) => e.value);
   const totalUse = values.reduce((a, b) => a + b, 0);
   const activeDays = values.filter((v) => v > 0).length;
   if (activeDays < 3 || totalUse <= 0) {
@@ -6548,9 +6566,11 @@ function forecastForSeries(seriesEntries, { horizon, minDays }) {
 async function buildForecastForLocation(locationId) {
   const horizon = ANALYTICS_CONFIG.HORIZON_DAYS;
   const windowDays = Math.max(ANALYTICS_CONFIG.MIN_DAYS_FOR_FORECAST + 7, 21);
-  const [inventory, usage] = await Promise.all([
+  const location = await fsGet("locations", Number(locationId)).catch(() => null);
+  const [inventory, usage, excludeKeys] = await Promise.all([
     fsQueryEqual("inventoryItems", "locationId", Number(locationId), 10000),
     buildDailyUsage(Number(locationId), windowDays),
+    loadEventDayKeys(location?.code ?? null),
   ]);
   inventory.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
   const allKeys = [];
@@ -6584,7 +6604,7 @@ async function buildForecastForLocation(locationId) {
       });
       continue;
     }
-    const fc = forecastForSeries(series, { horizon, minDays: ANALYTICS_CONFIG.MIN_DAYS_FOR_FORECAST });
+    const fc = forecastForSeries(series, { horizon, minDays: ANALYTICS_CONFIG.MIN_DAYS_FOR_FORECAST, excludeKeys });
     let depletionDays = null;
     let risk = "unknown";
     if (fc.data_sufficient && fc.avg_daily_use > 0) {
@@ -6610,6 +6630,7 @@ async function buildForecastForLocation(locationId) {
     horizon_days: horizon,
     config: ANALYTICS_CONFIG,
     generated_at: new Date().toISOString(),
+    event_days_excluded: [...excludeKeys].sort(),
     items: items.sort((a, b) => a.name.localeCompare(b.name)),
   };
 }
@@ -6781,10 +6802,14 @@ async function handleSalesForecast(url) {
   const days = win.days;
   const horizon = Math.min(Number(params.get("horizon")) || 7, 14);
   const location = await getLocationNative(params.get("code"));
-  const orders = await ordersSince(win.start, location ? location.id : null, "PAID", win.end);
+  const [orders, excludeKeys] = await Promise.all([
+    ordersSince(win.start, location ? location.id : null, "PAID", win.end),
+    loadEventDayKeys(location?.code ?? null),
+  ]);
   const dailyMap = new Map();
   for (const o of orders) {
     const k = manilaDayKey(o.createdAt);
+    if (excludeKeys.has(k)) continue;
     dailyMap.set(k, (dailyMap.get(k) ?? 0) + o.total);
   }
   const entries = [];
@@ -6795,7 +6820,7 @@ async function handleSalesForecast(url) {
   const result = forecastForSeries(entries, { horizon, minDays: ANALYTICS_CONFIG.MIN_DAYS_FOR_FORECAST });
   return {
     status: 200,
-    body: { period_days: days, horizon_days: horizon, location: location?.code ?? "ALL", ...result },
+    body: { period_days: days, horizon_days: horizon, location: location?.code ?? "ALL", event_days_excluded: [...excludeKeys].sort(), ...result },
   };
 }
 
@@ -6965,6 +6990,91 @@ async function handleReorderPrep(url) {
     status: 200,
     body: { code: location.code, days, generated_at: new Date().toISOString(), prep, calibration },
   };
+}
+
+// ---------- marked event days (analytics only) ----------
+// Same feature as the Express backend mirror (api/src/routes/holidays.js):
+// the forecast model trains on the weekly pattern; a school fair spike or
+// payday otherwise inflates seasonal factors for every day of the week.
+function validateAnalyticsEventLabel(raw) {
+  const value = String(raw ?? "").replace(/\s+/g, " ").trim();
+  if (!value) return { ok: false, error: "Description is required" };
+  if (value.length < 3) return { ok: false, error: "Description must be at least 3 characters" };
+  if (value.length > 60) return { ok: false, error: "Description must not exceed 60 characters" };
+  if (!/^[\p{L}\p{N}\p{M} .,'&()\-]+$/u.test(value)) {
+    return { ok: false, error: "Description may only contain letters, digits, spaces and ., ' - & ( )" };
+  }
+  return { ok: true, value };
+}
+
+function validateAnalyticsEventDate(raw) {
+  const value = String(raw ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return { ok: false, error: "date must be YYYY-MM-DD" };
+  const d = new Date(value + "T00:00:00+08:00");
+  if (!Number.isFinite(d.getTime())) return { ok: false, error: "date must be a valid calendar day" };
+  return { ok: true, value };
+}
+
+async function handleListAnalyticsEvents(_url, _user) {
+  const docs = await fsListAll("eventDays").catch(() => []);
+  const events = docs
+    .filter((d) => typeof d?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d.date))
+    .map((d) => ({
+      id: Number(d?.id) || null,
+      date: d.date,
+      label: String(d?.label ?? ""),
+      locationCode: d?.locationCode ?? null,
+    }))
+    .sort((a, b) => b.date.localeCompare(a.date) || Number(b.id) - Number(a.id));
+  return { status: 200, body: { data: events } };
+}
+
+async function handleCreateAnalyticsEvent(req, user) {
+  const body = await req.json().catch(() => null);
+  const dateCheck = validateAnalyticsEventDate(body?.date);
+  if (!dateCheck.ok) return { status: 400, body: { error: dateCheck.error } };
+  const labelCheck = validateAnalyticsEventLabel(body?.label);
+  if (!labelCheck.ok) return { status: 400, body: { error: labelCheck.error } };
+  const locationCode =
+    body?.locationCode === undefined || body?.locationCode === null || String(body.locationCode).trim() === ""
+      ? null
+      : String(body.locationCode).trim().toUpperCase();
+  if (locationCode !== null && !/^[A-Z0-9-]{3,40}$/.test(locationCode)) {
+    return { status: 400, body: { error: "locationCode must look like CART-01" } };
+  }
+  // Duplicate guard: same date + label + (optional) cart must not repeat.
+  const existing = await fsListAll("eventDays").catch(() => []);
+  const dup = existing.find((d) => d?.date === dateCheck.value && String(d?.label ?? "").toLowerCase() === labelCheck.value.toLowerCase() && (d?.locationCode ?? null) === locationCode);
+  if (dup) return { status: 409, body: { error: "That day and label are already marked" } };
+
+  const counters = await readCounters(["eventDays"]).catch(() => ({}));
+  const { ids, writes } = counterWritesFor(counters, { eventDays: 1 });
+  const doc = {
+    id: ids.eventDays[0],
+    date: dateCheck.value,
+    label: labelCheck.value,
+    locationCode,
+    createdAt: new Date(),
+    createdBy: user?.id ?? null,
+  };
+  writes.push(createWrite("eventDays", doc.id, doc));
+  try {
+    await fsCommit(writes);
+  } catch (e) {
+    if (e && RETRYABLE_CODES && RETRYABLE_CODES.has(e.code)) {
+      return { status: 409, body: { error: "Event already exists" } };
+    }
+    throw e;
+  }
+  return { status: 201, body: { event: { id: doc.id, date: doc.date, label: doc.label, locationCode: doc.locationCode } } };
+}
+
+async function handleDeleteAnalyticsEvent(id, user) {
+  if (!Number.isInteger(Number(id)) || Number(id) <= 0) return { status: 404, body: { error: "Event not found" } };
+  const existing = await fsGet("eventDays", Number(id)).catch(() => null);
+  if (!existing) return { status: 404, body: { error: "Event not found" } };
+  await fsDeleteByName(fsDocName("eventDays", existing.id)).catch(() => {});
+  return { status: 200, body: { deleted: { id: Number(id) } } };
 }
 
 async function handleStaffPerformance(url) {
@@ -10538,7 +10648,18 @@ Deno.serve(async (req) => {
         const auth = await authUser(req);
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
         let out;
-        if (req.method === "GET" && path === "/analytics/trends") out = await handleTrends(inUrl);
+        else if (req.method === "GET" && path === "/analytics/events") out = await handleListAnalyticsEvents(inUrl, auth.user);
+        else if (req.method === "POST" && path === "/analytics/events") {
+          const ownErr = requireOwner(auth.user);
+          if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
+          out = await handleCreateAnalyticsEvent(req, auth.user);
+        }
+        else if (req.method === "DELETE" && /^\/analytics\/events\/\d+$/.test(path)) {
+          const ownErr = requireOwner(auth.user);
+          if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
+          out = await handleDeleteAnalyticsEvent(Number(path.split("/")[2]), auth.user);
+        }
+        else if (req.method === "GET" && path === "/analytics/trends") out = await handleTrends(inUrl);
         else if (req.method === "GET" && path === "/analytics/hourly") out = await handleHourly(inUrl);
         else if (req.method === "GET" && path === "/analytics/basket") out = await handleBasket(inUrl);
         else if (req.method === "GET" && path === "/analytics/sales-forecast") out = await handleSalesForecast(inUrl);

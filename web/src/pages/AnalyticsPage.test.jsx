@@ -152,7 +152,7 @@ describe("AnalyticsPage forecast honesty guards", () => {
     mockApiAllOk();
   });
 
-  it("labels forecast accuracy as sMAPE with a tooltip, not MAPE", async () => {
+  it("labels forecast accuracy with a badge that carries tooltip tone", async () => {
     mockApiAllOk();
     renderPage();
     await screen.findByText("Quick Summary");
@@ -162,17 +162,18 @@ describe("AnalyticsPage forecast honesty guards", () => {
     fireEvent.click(await screen.findByRole("option", { name: /CART-01/ }));
 
     const header = await screen.findByTitle(
-      "Symmetric mean absolute percentage error (0-200%)"
+      "Confidence is derived from the backtest sMAPE: under 20% = high confidence, 20-50% = directional, over 50% = demonstration only"
     );
-    expect(header).toHaveTextContent("sMAPE");
-    expect(screen.queryByText("MAPE")).toBeNull();
+    expect(header).toHaveTextContent("Forecast confidence");
+    expect(screen.queryByTitle("Symmetric mean absolute percentage error (0-200%)")).toBeNull();
   });
 
-  it("labels the revenue backtest as sMAPE", async () => {
+  it("shows a confidence badge on the revenue forecast, not raw MAPE", async () => {
     mockApiAllOk();
     renderPage();
-    expect(await screen.findByText(/backtest sMAPE/)).toBeInTheDocument();
-    expect(screen.getByText("8.5%")).toBeInTheDocument();
+    await screen.findByText("Expected Sales");
+    expect(await screen.findByText(/High confidence \(8\.5%\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/backtest sMAPE/)).toBeNull();
   });
 
   it("shows sort direction arrows on the items table", async () => {

@@ -6,6 +6,7 @@ import {
   forecastForSeries,
   sampleStdDev,
   daysAgoStart,
+  loadEventDayKeys,
 } from "./analytics_engine.js";
 import { manilaDayKey } from "./timezone.js";
 
@@ -17,12 +18,14 @@ export async function buildForecastForLocation(locationId) {
   const horizon = CFG.HORIZON_DAYS;
   const windowDays = Math.max(CFG.MIN_DAYS_FOR_FORECAST + 7, 21);
 
-  const [inventory, usage] = await Promise.all([
+  const location = await prisma.location.findFirst({ where: { id: Number(locationId) } });
+  const [inventory, usage, excludeKeys] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: { locationId },
       orderBy: { name: "asc" },
     }),
     buildDailyUsage(locationId, windowDays),
+    loadEventDayKeys(location?.code ?? null),
   ]);
 
   const allKeys = [];
@@ -72,6 +75,7 @@ export async function buildForecastForLocation(locationId) {
     const fc = forecastForSeries(series, {
       horizon,
       minDays: CFG.MIN_DAYS_FOR_FORECAST,
+      excludeKeys,
     });
 
     let depletionDays = null;
@@ -112,6 +116,7 @@ export async function buildForecastForLocation(locationId) {
     horizon_days: horizon,
     config: CFG,
     generated_at: new Date().toISOString(),
+    event_days_excluded: [...excludeKeys].sort(),
     items: items.sort((a, b) => a.name.localeCompare(b.name)),
   };
 }

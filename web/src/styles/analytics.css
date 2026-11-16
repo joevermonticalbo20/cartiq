@@ -265,6 +265,68 @@
 @media (max-width: 900px) {
   .profit-charts-row { grid-template-columns: 1fr; }
 }
+/* ============================================================
+ * Event days (holiday / school-event forecast exclusion)
+ * ============================================================ */
+.analytics-events-form {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+.analytics-events-date,
+.analytics-events-label {
+  height: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.analytics-events-date { width: 150px; }
+.analytics-events-label { flex: 1 1 240px; min-width: 200px; }
+.analytics-events-error {
+  color: var(--danger);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  margin: 0 0 var(--space-2) 0;
+}
+.analytics-events-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+  max-height: 240px;
+  overflow: auto;
+}
+.analytics-events-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-alt);
+}
+.analytics-events-stamp {
+  min-width: 84px;
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.analytics-events-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
 /* ----- Responsive (max-width: 640px): mobile   analytics density ----- */
 @media (max-width: 640px) {
   .analytics-kpis { grid-template-columns: 1fr; }

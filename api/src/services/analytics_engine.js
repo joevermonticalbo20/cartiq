@@ -12,7 +12,6 @@ import { flavorSharesForOrderLine, mapsForOrderLine } from "./inventory_rules.js
 // Re-exported so existing import sites keep working; canonical impl lives
 // in services/timezone.js (single source of truth, no drift).
 export { daysAgoStart };
-
 export const ANALYTICS_CONFIG = {
   MIN_DAYS_FOR_FORECAST: 14, // proposal: forecasts activate after 2-4 weeks of data
   HORIZON_DAYS: 7,
@@ -90,6 +89,23 @@ export function smape(actual, predicted) {
   }
   if (errs.length === 0) return null;
   return Number((errs.reduce((s, e) => s + e, 0) / errs.length).toFixed(1));
+}
+
+// ---------- marked event days (holidays, school events, payday) ----------
+// The forecast model trains on the weekly pattern; a one-off spike on, say,
+// Graduation Day would otherwise inflate every weekday's seasonal factor.
+// Callers load the relevant marked days and pass them through as excludeKeys.
+
+export async function loadEventDayKeys(locationCode) {
+  const docs = await prisma.collection("eventDays").get();
+  const keys = new Set();
+  for (const doc of docs.docs ?? []) {
+    const d = doc.data();
+    // Optionally scoped to one cart; locationCode null means "all carts".
+    if (d.locationCode && locationCode && d.locationCode !== locationCode) continue;
+    if (typeof d.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d.date)) keys.add(d.date);
+  }
+  return keys;
 }
 
 // ---------- consumption series per inventory item ----------
@@ -250,10 +266,16 @@ export function buildBasket(paidOrders, voidCount) {
 
 // ---------- forecast assembly for one item ----------
 
-export function forecastForSeries(seriesEntries, { horizon, minDays }) {
+export function forecastForSeries(seriesEntries, { horizon, minDays, excludeKeys }) {
   // seriesEntries: [{key:"YYYY-MM-DD", value:number}] covering the full window
-  const keys = seriesEntries.map((e) => e.key);
-  const values = seriesEntries.map((e) => e.value);
+  // excludeKeys: optional set of day keys (holidays/school events) whose
+  // demand is atypical - the model trains on normal weeks only.
+  let entries = seriesEntries;
+  if (excludeKeys && excludeKeys.size > 0) {
+    entries = seriesEntries.filter((e) => !excludeKeys.has(e.key));
+  }
+  const keys = entries.map((e) => e.key);
+  const values = entries.map((e) => e.value);
   const totalUse = values.reduce((a, b) => a + b, 0);
   const activeDays = values.filter((v) => v > 0).length;
 

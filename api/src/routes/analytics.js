@@ -11,6 +11,7 @@ import {
   buildDailyUsage,
   weekdayFactors,
   movingAverage,
+  loadEventDayKeys,
 } from "../services/analytics_engine.js";
 import { EXPENSE_CATEGORIES } from "./expenses.js";
 import {
@@ -237,18 +238,22 @@ router.get("/analytics/sales-forecast", requireAuth, async (req, res, next) => {
     const horizon = Math.min(Number(req.query.horizon) || 7, 14);
     const location = await getLocation(req.query.code);
 
-    const orders = await prisma.order.findMany({
-      where: {
-        status: "PAID",
-        createdAt: windowFilter(win),
-        ...(location ? { locationId: location.id } : {}),
-      },
-      select: { total: true, createdAt: true },
-    });
+    const [orders, excludeKeys] = await Promise.all([
+      prisma.order.findMany({
+        where: {
+          status: "PAID",
+          createdAt: windowFilter(win),
+          ...(location ? { locationId: location.id } : {}),
+        },
+        select: { total: true, createdAt: true },
+      }),
+      loadEventDayKeys(location?.code ?? null),
+    ]);
 
     const dailyMap = new Map();
     for (const o of orders) {
       const k = dayKey(o.createdAt);
+      if (excludeKeys.has(k)) continue; // one-off spike day, skip from the model
       dailyMap.set(k, (dailyMap.get(k) ?? 0) + o.total);
     }
     const entries = [];
@@ -265,6 +270,7 @@ router.get("/analytics/sales-forecast", requireAuth, async (req, res, next) => {
       period_days: days,
       horizon_days: horizon,
       location: location?.code ?? "ALL",
+      event_days_excluded: [...excludeKeys].sort(),
       ...result,
     });
   } catch (err) {
