@@ -272,13 +272,15 @@ class AuthState extends ChangeNotifier {
     return true;
   }
 
-  /// Refresh the access token mid-session (e.g. when a sync hits 401).
-  /// Returns true when a fresh token was stored.
+  /// Refresh the access token mid-session. Returns true when a fresh
+  /// token was stored (and clears the offline flag - the device is online).
   Future<bool> refreshSession() async {
     try {
       final recovered = await _tryRefresh();
       if (recovered) {
-        // A successful refresh verifies the session: no PIN gate needed.
+        // A successful refresh verifies the session: no PIN gate needed,
+        // and the device counts as online again.
+        offlineMode = false;
         offlineUnlockRequired = false;
         notifyListeners();
       }

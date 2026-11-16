@@ -157,6 +157,21 @@ void main() {
   });
 
   group('SyncService drain', () {
+    test('offline-unlocked session uploads itself as soon as the network is back', () async {
+      // The app is in offline mode (PIN-unlocked): no token at all right now.
+      auth.token = null;
+      auth.refreshResult = true;
+      await queue.enqueue(_order('offline-sale'));
+
+      final result = await sync.syncAll();
+
+      expect(auth.refreshCalls, 1, reason: 'the refresh token was used to re-connect silently');
+      expect(result.online, isTrue);
+      expect(result.synced, 1);
+      expect(await queue.count, 0);
+      expect(dataRefresh.lastReason, 'sale');
+    });
+
     test('online no-op sync does not refresh mounted screens', () async {
       await sync.syncAll();
       expect(dataRefresh.lastReason, isNull);

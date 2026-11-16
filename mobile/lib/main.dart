@@ -378,13 +378,13 @@ class _CartIQAppState extends State<CartIQApp> {
           // Sync is started/stopped from a post-frame callback, never from
           // build(): a throw inside build() is a build error, and in release
           // that renders a blank ErrorWidget instead of the app.
-          final loggedIn = auth.isLoggedIn;
-          if (loggedIn != _syncRunning) {
-            _syncRunning = loggedIn;
+          final wantSync = auth.isLoggedIn || auth.offlineMode;
+          if (wantSync != _syncRunning) {
+            _syncRunning = wantSync;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted) return;
               try {
-                if (loggedIn) {
+                if (wantSync) {
                   widget.sync.start(interval: const Duration(seconds: 10));
                 } else {
                   widget.sync.stop();

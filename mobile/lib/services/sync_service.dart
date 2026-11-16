@@ -160,16 +160,6 @@ class SyncService extends ChangeNotifier {
 
   Future<SyncResult> _doSync() async {
     final startToken = auth.token;
-    if (startToken == null) {
-      // A signed-out device can still hold a queued offline session; say
-      // plainly what is needed instead of blaming the network.
-      return SyncResult(
-        online: false,
-        synced: 0,
-        remaining: await queue.count,
-        errorMessage: 'Sign in online to upload queued sales.',
-      );
-    }
     // Reachability gate: reports offline WITHOUT attempting any upload when
     // the server is known-unreachable (see sync_service_test "unreachable
     // server reports offline"). Skipping this would burn an upload attempt
@@ -184,8 +174,28 @@ class SyncService extends ChangeNotifier {
       return SyncResult(online: false, synced: 0, remaining: await queue.count);
     }
 
-    var synced = 0;
     var activeToken = startToken;
+    if (activeToken == null) {
+      // Offline unlock path: the device was signed in online before, and
+      // the refresh token survives. Mint a fresh session silently - the
+      // queued orders upload themselves as soon as the phone regains data,
+      // no manual sign-in required.
+      if (await auth.refreshSession()) {
+        activeToken = auth.token;
+      }
+    }
+    if (activeToken == null) {
+      // A signed-out device can still hold a queued offline session; say
+      // plainly what is needed instead of blaming the network.
+      return SyncResult(
+        online: false,
+        synced: 0,
+        remaining: await queue.count,
+        errorMessage: 'Sign in online to upload queued sales.',
+      );
+    }
+    final sessionToken = activeToken;
+    var synced = 0;
     var authExpired = false;
     var receiptsFailed = 0;
     String? receiptError;
@@ -214,7 +224,7 @@ class SyncService extends ChangeNotifier {
       }
       try {
         // Server returns 200 {duplicate:true} for replays — still synced.
-        final receiptFailure = await _submitRecord(record, activeToken);
+        final receiptFailure = await _submitRecord(record, sessionToken);
         if (receiptFailure != null) {
           receiptsFailed += 1;
           receiptError ??= receiptFailure;
@@ -244,9 +254,9 @@ class SyncService extends ChangeNotifier {
             errorMessage = ApiClient.sessionExpiredMessage;
             break;
           }
-          activeToken = fresh;
+          final retryToken = fresh;
           try {
-            final receiptFailure = await _submitRecord(record, activeToken);
+            final receiptFailure = await _submitRecord(record, retryToken);
             if (receiptFailure != null) {
               receiptsFailed += 1;
               receiptError ??= receiptFailure;
@@ -323,7 +333,7 @@ class SyncService extends ChangeNotifier {
         }
         try {
           await api.uploadOrderReceipt(
-            activeToken,
+            sessionToken,
             orderId.toInt(),
             mime: mime,
             data: data,
