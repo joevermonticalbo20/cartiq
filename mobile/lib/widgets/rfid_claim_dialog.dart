@@ -9,8 +9,9 @@ import '../theme.dart';
 ///
 /// Registration happens on the cart's reader (ESP32 + MFRC522), not on the
 /// phone, so this dialog cannot read anything itself - it opens a claim and
-/// shows progress while the person walks over to the reader. Dismissing is
-/// always allowed: Settings keeps a permanent way back in.
+/// shows progress while the person walks over to the reader. For IN/OUT
+/// clocking claims the dialog cannot be dismissed by tapping outside (or by
+/// the system back gesture): only the explicit "Not now" button closes it.
 class RfidClaimDialog extends StatefulWidget {
   const RfidClaimDialog({
     super.key,
@@ -54,9 +55,10 @@ class RfidClaimDialog extends StatefulWidget {
   }) {
     return showDialog<RfidClaimResult>(
       context: context,
-      // Dismissible on purpose: someone who cannot find the reader must not be
-      // trapped here. Settings always offers a way back.
-      barrierDismissible: true,
+      // IN/OUT claims cannot be dismissed by tapping outside: the vendor must
+      // make a deliberate choice ("Not now") instead of accidentally bumping
+      // the shift off. Card enrollments stay light-dismissable.
+      barrierDismissible: event == null,
       builder: (_) => RfidClaimDialog(
         token: token,
         registration: registration,
@@ -141,7 +143,12 @@ class _RfidClaimDialogState extends State<RfidClaimDialog> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final waiting = _error == null;
-    return AlertDialog(
+    final isClock = widget.event != null;
+    return PopScope(
+      // Only a deliberate "Not now" wins out for clock claims; anything else
+      // must go through the reader.
+      canPop: !isClock,
+      child: AlertDialog(
       title: Text(widget.title),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -191,6 +198,7 @@ class _RfidClaimDialogState extends State<RfidClaimDialog> {
           child: Text(waiting ? 'Not now' : 'Close'),
         ),
       ],
-    );
+    ),
+  );
   }
 }
