@@ -109,6 +109,7 @@ class SyncService extends ChangeNotifier {
   });
 
   Timer? _timer;
+  StreamSubscription<int>? _queueSubscription;
   bool _running = false;
   bool _appResumed = true;
   bool get isSyncing => _running;
@@ -499,19 +500,30 @@ class SyncService extends ChangeNotifier {
     );
   }
 
-  /// Start the periodic timer. Idempotent.
-  /// While the app is in the foreground, drain the queue every [interval].
-  void start({Duration interval = const Duration(seconds: 30)}) {
+  /// Start the periodic drain. Idempotent.
+  ///
+  /// The POS polls every [interval] while the app is in the foreground, and
+  /// ALSO reacts to the queue's change stream: the moment a row is written
+  /// (an offline sale) the drain starts at once instead of waiting for the
+  /// next tick - the vendor sees the upload finish seconds after the card
+  /// the customer just left.
+  void start({Duration interval = const Duration(seconds: 2)}) {
     if (_timer != null) return;
     _timer = Timer.periodic(interval, (_) {
       if (_appResumed) syncAll();
     });
+    // React to queue changes: every edge from 0 -> >0 drains at once.
+    _queueSubscription = queue.changes.listen((count) {
+      if (count > 0 && _appResumed) syncAll();
+    });
   }
 
-  /// Stop the periodic timer (e.g., on logout).
+  /// Stop the periodic timer (e.g., on logout or full sign-out).
   void stop() {
     _timer?.cancel();
     _timer = null;
+    _queueSubscription?.cancel();
+    _queueSubscription = null;
   }
 
   /// Hook for `WidgetsBindingObserver.didChangeAppLifecycleState`.

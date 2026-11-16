@@ -156,6 +156,9 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _reloadCatalog(forceRefresh: true);
+      // Re-drain whatever was queued while the POS was offline -
+      // coming back to the screen after WiFi returns syncs the orders.
+      context.read<SyncService>().syncAll();
     }
   }
 
@@ -271,6 +274,16 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
         );
         _rememberCatalogVersion(data);
         final products = (data['products'] as List).cast<Map<String, dynamic>>();
+        _catalog = products;
+        return products;
+      }
+      // Connection dropped after an online login: the vendor must keep
+      // serving from the same menu rather than an empty grid. The cached
+      // catalog is the truth they have; a stale menu beats no menu.
+      final cached = await auth.api.catalogCache();
+      if (cached != null && cached['products'] is List) {
+        _rememberCatalogVersion(cached);
+        final products = (cached['products'] as List).cast<Map<String, dynamic>>();
         _catalog = products;
         return products;
       }

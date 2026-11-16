@@ -385,7 +385,7 @@ class _CartIQAppState extends State<CartIQApp> {
               if (!mounted) return;
               try {
                 if (wantSync) {
-                  widget.sync.start(interval: const Duration(seconds: 10));
+                  widget.sync.start(interval: const Duration(seconds: 2));
                 } else {
                   widget.sync.stop();
                 }
