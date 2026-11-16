@@ -172,30 +172,25 @@ class PosFlavorSelectionBar extends StatelessWidget {
 
 /// The size picker for a fries product.
 ///
-/// The vendor taps a flavor ("BBQ Fries") and then picks the size
-/// (Medium / Large / XL 40 / XL 50). One size per order line: the sizes are
-/// shown as big tiles with the price, the live stock and a + / - stepper, so
-/// the choice is one tap instead of a list of small chips.
+/// The vendor taps a flavor ("BBQ Fries") and then picks the sizes
+/// (Medium / Large / XL 40 / XL 50). Every size tile carries its own
+/// stepper, so several sizes at different quantities can go to the cart in
+/// ONE add - the vendor never leaves the sheet for another screen.
 class PosSizePicker extends StatelessWidget {
   const PosSizePicker({
     super.key,
     required this.sizes,
-    required this.selected,
-    required this.selectedQuantity,
-    required this.onSelect,
+    required this.selectedQuantities,
     required this.onQuantityChanged,
   });
 
   /// The size options from the catalog: name, unitPrice, availableServings.
   final List<Map<String, dynamic>> sizes;
 
-  /// The currently picked size name (null = nothing picked yet).
-  final String? selected;
+  /// The picked quantities by size name (a missing name means 0).
+  final Map<String, int> selectedQuantities;
 
-  /// How many servings the vendor picked for [selected] (0 when none).
-  final int selectedQuantity;
-
-  final ValueChanged<String> onSelect;
+  /// Set the quantity for a size (0 or below removes it from the pick).
   final void Function(String size, int quantity) onQuantityChanged;
 
   bool _unavailable(Map<String, dynamic> size) {
@@ -215,7 +210,7 @@ class PosSizePicker extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          'Choose a size',
+          'Choose sizes',
           style: Theme.of(
             context,
           ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
@@ -239,8 +234,9 @@ class PosSizePicker extends StatelessWidget {
     final unavailable = _unavailable(size);
     final servings = size['availableServings'];
     final price = size['unitPrice'];
-    final isSelected = selected == name;
-    final quantity = isSelected ? selectedQuantity : 0;
+    final quantity = selectedQuantities[name] ?? 0;
+    final isSelected = quantity > 0;
+    final atStock = servings is num && quantity >= servings.toInt();
 
     final borderColor = isSelected
         ? AppColors.primary
@@ -256,7 +252,7 @@ class PosSizePicker extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadius.l),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: unavailable ? null : () => onSelect(name),
+          onTap: unavailable || atStock ? null : () => onQuantityChanged(name, quantity + 1),
           child: Container(
             padding: const EdgeInsets.all(AppSpacing.space3),
             decoration: BoxDecoration(
@@ -306,26 +302,29 @@ class PosSizePicker extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (isSelected)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      PosQtyButton(
-                        icon: Icons.remove,
-                        onPressed: () => onQuantityChanged(name, quantity - 1),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    PosQtyButton(
+                      icon: Icons.remove,
+                      onPressed: quantity > 0 && !unavailable
+                          ? () => onQuantityChanged(name, quantity - 1)
+                          : null,
+                    ),
+                    Text(
+                      '$quantity',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
                       ),
-                      Text(
-                        '$quantity',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      PosQtyButton(
-                        icon: Icons.add,
-                        onPressed: () => onQuantityChanged(name, quantity + 1),
-                      ),
-                    ],
-                  ),
+                    ),
+                    PosQtyButton(
+                      icon: Icons.add,
+                      onPressed: !unavailable && !atStock
+                          ? () => onQuantityChanged(name, quantity + 1)
+                          : null,
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -336,34 +335,71 @@ class PosSizePicker extends StatelessWidget {
 }
 
 /// The sticky bar under the size picker: what was picked and the total, with
-/// the button that adds it to the cart.
+/// the button that adds everything to the cart in one tap.
 class PosSizeSelectionBar extends StatelessWidget {
   const PosSizeSelectionBar({
     super.key,
-    required this.sizeName,
+    required this.summary,
     required this.quantity,
     required this.total,
     required this.onAdd,
   });
 
-  final String? sizeName;
+  /// The breakdown, such as "2 × Medium · 1 × Large". Empty when nothing.
+  final String summary;
+
+  /// Total servings across every picked size.
   final int quantity;
+
+  /// Peso total of everything picked.
   final double total;
+
   final VoidCallback? onAdd;
 
   @override
   Widget build(BuildContext context) {
-    final hasSelection = sizeName != null && quantity > 0;
-    final label = hasSelection
-        ? 'Add $quantity × $sizeName  •  ₱${total.toStringAsFixed(2)}'
-        : 'Pick a size';
+    final hasSelection = quantity > 0;
 
     return SizedBox(
       width: double.infinity,
-      child: FilledButton.icon(
-        icon: const Icon(Icons.add_shopping_cart_rounded),
-        label: Text(label),
+      child: FilledButton(
         onPressed: hasSelection ? onAdd : null,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.add_shopping_cart_rounded, size: 20),
+            const SizedBox(width: AppSpacing.space2),
+            Flexible(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    hasSelection
+                        ? 'Add $quantity serving${quantity == 1 ? '' : 's'}  •  ₱${total.toStringAsFixed(2)}'
+                        : 'Pick a size',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                    ),
+                  ),
+                  if (hasSelection && summary.isNotEmpty)
+                    Text(
+                      summary,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        height: 1.2,
+                        color: Colors.white.withValues(alpha: 0.85),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

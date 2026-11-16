@@ -485,13 +485,12 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
   }
 
   /// The size sheet for a fries product: tap a size tile, bump the quantity,
-  /// then add it to the cart. One size per order line.
+  /// then add it to the cart. Sets per size tile, all in one screen.
   Future<void> _openSizeSheet(
     Map<String, dynamic> product,
     List<Map<String, dynamic>> sizes,
   ) async {
     final quantities = <String, int>{};
-    String? picked;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -503,11 +502,16 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       builder: (sheetContext) => StatefulBuilder(
         builder: (context, setSheetState) {
           final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-          final qty = picked == null ? 0 : (quantities[picked] ?? 0);
-          final price = picked == null
-              ? 0.0
-              : _sizePrice(sizes, picked!) *
-                    (quantities[picked] ?? 0);
+          final count = quantities.values.fold<int>(0, (a, b) => a + b);
+          final price = quantities.entries.fold<double>(
+            0,
+            (sum, e) => sum + _sizePrice(sizes, e.key) * e.value,
+          );
+          final summary = sizes
+              .map((s) => s['name'] as String)
+              .where((name) => (quantities[name] ?? 0) > 0)
+              .map((name) => '${quantities[name]} × $name')
+              .join('  ·  ');
           return SafeArea(
             top: false,
             child: Padding(
@@ -535,7 +539,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: AppSpacing.space1),
                     Text(
-                      'Tap the size the customer wants',
+                      'Set the quantity on each tile - add several sizes at once',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: AppColors.muted,
                         fontWeight: FontWeight.w500,
@@ -546,17 +550,11 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                       child: SingleChildScrollView(
                         child: PosSizePicker(
                           sizes: sizes,
-                          selected: picked,
-                          selectedQuantity: qty,
-                          onSelect: (name) => setSheetState(() {
-                            picked = name;
-                            quantities[name] = quantities[name] ?? 1;
-                          }),
+                          selectedQuantities: quantities,
                           onQuantityChanged: (name, value) =>
                               setSheetState(() {
                                 if (value <= 0) {
                                   quantities.remove(name);
-                                  if (picked == name) picked = null;
                                 } else {
                                   final stock = _sizeStock(sizes, name);
                                   quantities[name] = stock == null
@@ -568,53 +566,46 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                       ),
                     ),
                     const SizedBox(height: AppSpacing.space2),
-                    if (picked != null) ...[
-                      PosQuantityField(
-                        quantity: qty,
-                        maxQuantity: _sizeStock(sizes, picked!),
-                        label: 'How many $picked?',
-                        hint: _sizeStock(sizes, picked!) == null
-                            ? null
-                            : 'Only ${_sizeStock(sizes, picked!)} in stock',
-                        onChanged: (value) => setSheetState(() {
-                          quantities[picked!] = value;
-                        }),
-                      ),
-                      const SizedBox(height: AppSpacing.space3),
-                    ],
                     PosSizeSelectionBar(
-                      sizeName: picked,
-                      quantity: qty,
+                      summary: summary,
+                      quantity: count,
                       total: price,
-                      onAdd: picked == null
+                      onAdd: count == 0
                           ? null
                           : () {
-                              final name = picked!;
-                              final wanted = quantities[name] ?? 1;
                               // The stock may have moved while the sheet was
                               // open (a sale on another cart, an owner edit).
-                              // Check the freshest catalog before it goes in.
-                              final live = _liveStockFor(
-                                product['name'] as String,
-                                name,
-                              );
-                              final ceiling =
-                                  live ?? _sizeStock(sizes, name);
-                              if (ceiling != null && wanted > ceiling) {
+                              // Check the freshest catalog for EVERY line before
+                              // it goes in.
+                              final clamped = <String, int>{};
+                              for (final entry in quantities.entries) {
+                                final live = _liveStockFor(
+                                  product['name'] as String,
+                                  entry.key,
+                                );
+                                final ceiling =
+                                    live ?? _sizeStock(sizes, entry.key);
+                                if (ceiling != null && entry.value > ceiling) {
+                                  clamped[entry.key] = ceiling;
+                                }
+                              }
+                              if (clamped.isNotEmpty) {
                                 setSheetState(() {
-                                  quantities[name] = ceiling;
+                                  clamped.forEach((k, v) => quantities[k] = v);
                                 });
                                 AppMessenger.showGlassToast(
                                   context: context,
                                   message:
-                                      'Stock changed - only $ceiling left now',
+                                      'Stock changed - ${clamped.entries.map((e) => '${e.key}: only ${e.value} left').join(', ')}',
                                   isSuccess: false,
                                 );
                                 return;
                               }
-                              _addSizeSelection(product, sizes, {
-                                name: wanted,
-                              });
+                              _addSizeSelection(
+                                product,
+                                sizes,
+                                Map.of(quantities),
+                              );
                               Navigator.pop(sheetContext);
                             },
                     ),

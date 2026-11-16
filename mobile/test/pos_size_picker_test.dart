@@ -69,9 +69,7 @@ void main() {
         _wrap(
           PosSizePicker(
             sizes: _sizes(),
-            selected: null,
-            selectedQuantity: 0,
-            onSelect: (_) {},
+            selectedQuantities: const {},
             onQuantityChanged: (_, _) {},
           ),
         ),
@@ -89,15 +87,13 @@ void main() {
     });
 
     testWidgets('marks the out-of-stock size and blocks it', (tester) async {
-      String? picked;
+      final picks = <String, int>{};
       await tester.pumpWidget(
         _wrap(
           PosSizePicker(
             sizes: _sizes(),
-            selected: null,
-            selectedQuantity: 0,
-            onSelect: (name) => picked = name,
-            onQuantityChanged: (_, _) {},
+            selectedQuantities: const {},
+            onQuantityChanged: (name, value) => picks[name] = value,
           ),
         ),
       );
@@ -105,29 +101,27 @@ void main() {
       expect(find.text('Out of stock'), findsOneWidget);
       await tester.tap(find.text('XL 50'));
       await tester.pump();
-      expect(picked, isNull, reason: 'an out-of-stock size must not be picked');
+      expect(picks, isEmpty, reason: 'an out-of-stock size must not be picked');
     });
 
-    testWidgets('picking a size reports it', (tester) async {
-      String? picked;
+    testWidgets('tapping a size adds one', (tester) async {
+      final picks = <String, int>{};
       await tester.pumpWidget(
         _wrap(
           PosSizePicker(
             sizes: _sizes(),
-            selected: null,
-            selectedQuantity: 0,
-            onSelect: (name) => picked = name,
-            onQuantityChanged: (_, _) {},
+            selectedQuantities: const {},
+            onQuantityChanged: (name, value) => picks[name] = value,
           ),
         ),
       );
 
       await tester.tap(find.text('Large'));
       await tester.pump();
-      expect(picked, 'Large');
+      expect(picks['Large'], 1);
     });
 
-    testWidgets('shows the picked quantity and steps it up and down', (
+    testWidgets('shows the picked quantities and steps them up and down', (
       tester,
     ) async {
       final changes = <String, int>{};
@@ -135,9 +129,7 @@ void main() {
         _wrap(
           PosSizePicker(
             sizes: _sizes(),
-            selected: 'Large',
-            selectedQuantity: 3,
-            onSelect: (_) {},
+            selectedQuantities: const {'Large': 3},
             onQuantityChanged: (name, value) => changes[name] = value,
           ),
         ),
@@ -145,23 +137,40 @@ void main() {
 
       expect(find.text('3'), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.add));
+      await tester.tap(find.byIcon(Icons.add).at(1));
       await tester.pump();
       expect(changes['Large'], 4);
 
-      await tester.tap(find.byIcon(Icons.remove));
+      await tester.tap(find.byIcon(Icons.remove).at(1));
       await tester.pump();
       expect(changes['Large'], 2);
+    });
+
+    testWidgets('multiple sizes can hold their own quantities', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          PosSizePicker(
+            sizes: _sizes(),
+            selectedQuantities: const {'Medium': 2, 'Large': 1},
+            onQuantityChanged: (_, _) {},
+          ),
+        ),
+      );
+
+      expect(find.text('2'), findsOneWidget);
+      expect(find.text('1'), findsOneWidget);
     });
   });
 
   group('PosSizeSelectionBar', () {
-    testWidgets('is disabled until a size is picked', (tester) async {
+    testWidgets('is disabled until something is picked', (tester) async {
       var added = false;
       await tester.pumpWidget(
         _wrap(
           PosSizeSelectionBar(
-            sizeName: null,
+            summary: '',
             quantity: 0,
             total: 0,
             onAdd: () => added = true,
@@ -175,15 +184,16 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           PosSizeSelectionBar(
-            sizeName: 'Medium',
-            quantity: 2,
-            total: 40,
+            summary: '2 × Medium · 1 × Large',
+            quantity: 3,
+            total: 70,
             onAdd: () => added = true,
           ),
         ),
       );
-      expect(find.textContaining('2 × Medium'), findsOneWidget);
-      expect(find.textContaining('₱40.00'), findsOneWidget);
+      expect(find.textContaining('3 serving'), findsOneWidget);
+      expect(find.textContaining('₱70.00'), findsOneWidget);
+      expect(find.text('2 × Medium · 1 × Large'), findsOneWidget);
 
       await tester.tap(find.byType(FilledButton));
       await tester.pump();
