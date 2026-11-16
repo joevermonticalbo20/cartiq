@@ -7069,7 +7069,7 @@ async function handleCreateAnalyticsEvent(req, user) {
   return { status: 201, body: { event: { id: doc.id, date: doc.date, label: doc.label, locationCode: doc.locationCode } } };
 }
 
-async function handleDeleteAnalyticsEvent(id, user) {
+async function handleDeleteAnalyticsEvent(id, _user) {
   if (!Number.isInteger(Number(id)) || Number(id) <= 0) return { status: 404, body: { error: "Event not found" } };
   const existing = await fsGet("eventDays", Number(id)).catch(() => null);
   if (!existing) return { status: 404, body: { error: "Event not found" } };
