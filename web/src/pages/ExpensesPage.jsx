@@ -31,7 +31,6 @@ export default function ExpensesPage() {
   const toast = useToast();
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
-  const thisMonth = new Date().toISOString().slice(0, 7);
 
   const [code, setCode] = useState("");
   // One shared, live copy of the carts: a cart the owner added or
@@ -354,24 +353,6 @@ export default function ExpensesPage() {
                 title="Filter by month"
                 style={{ height: "36px" }}
               />
-              <button
-                className="ghost small-btn"
-                aria-pressed={month === ""}
-                onClick={() => setMonth("")}
-                title="Show expenses from every month"
-                style={month === "" ? { borderColor: "var(--primary)", color: "var(--primary)" } : { opacity: 0.75 }}
-              >
-                All months
-              </button>
-              <button
-                className="ghost small-btn"
-                aria-pressed={month === thisMonth}
-                onClick={() => setMonth(thisMonth)}
-                title="Only this month"
-                style={month === thisMonth ? { borderColor: "var(--primary)", color: "var(--primary)" } : { opacity: 0.75 }}
-              >
-                This month
-              </button>
               <Select
                 value={category}
                 onChange={(val) => setCategory(val)}
