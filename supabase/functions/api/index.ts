@@ -6092,6 +6092,7 @@ async function handleListExpenses(url) {
   const params = url.searchParams;
   const code = params.get("code");
   const month = params.get("month");
+  const date = params.get("date");
   const category = params.get("category");
   const page = Math.max(1, Number(params.get("page")) || 1);
   const pageSize = Math.min(Number(params.get("pageSize")) || 10, 100);
@@ -6117,7 +6118,11 @@ async function handleListExpenses(url) {
   const catFilter = category && EXPENSE_CATEGORIES.includes(String(category)) ? String(category) : null;
   if (catFilter) filters.push({ field: "category", op: "EQUAL", value: catFilter });
   let range = null;
-  if (month && /^\d{4}-\d{2}$/.test(String(month))) {
+  if (date && /^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+    // A date filter wins over a month filter when both are sent.
+    const day = manilaDayRange(String(date));
+    if (day) range = day;
+  } else if (month && /^\d{4}-\d{2}$/.test(String(month))) {
     range = manilaMonthRange(month);
   }
   const orderBy = [{ field: "date", dir: "DESCENDING" }];

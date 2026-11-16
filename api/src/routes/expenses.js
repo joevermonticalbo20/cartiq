@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, assertOwnLocation } from "../middleware/auth.js";
 import { requireRole } from "../middleware/auth.js";
-import { manilaMonthRange } from "../services/timezone.js";
+import { manilaMonthRange, manilaDayRange } from "../services/timezone.js";
 import { validateReason, validateVendorName } from "../services/validation.js";
 import { announceChange } from "../services/announce.js";
 
@@ -106,10 +106,10 @@ router.post("/expenses", requireAuth, async (req, res, next) => {
   }
 });
 
-// GET /api/expenses?code=&month=YYYY-MM&category=&page=&pageSize=
+// GET /api/expenses?code=&month=YYYY-MM&date=YYYY-MM-DD&category=&page=&pageSize=
 router.get("/expenses", requireAuth, async (req, res, next) => {
   try {
-    const { code, month, category } = req.query;
+    const { code, month, category, date } = req.query;
     const page = Math.max(1, Number(req.query.page) || 1);
     const pageSize = Math.min(Number(req.query.pageSize) || 10, 100);
     const where = {};
@@ -117,7 +117,12 @@ router.get("/expenses", requireAuth, async (req, res, next) => {
     if (category && EXPENSE_CATEGORIES.includes(String(category))) {
       where.category = String(category);
     }
-    if (month && /^\d{4}-\d{2}$/.test(String(month))) {
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+      // Manila calendar day boundaries (not server-local midnight). A date
+      // filter wins over a month filter when both are sent.
+      const range = manilaDayRange(String(date));
+      if (range) where.date = { gte: range.start, lt: range.end };
+    } else if (month && /^\d{4}-\d{2}$/.test(String(month))) {
       // Manila calendar month boundaries (not server-local midnight).
       const range = manilaMonthRange(month);
       where.date = { gte: range.start, lt: range.end };

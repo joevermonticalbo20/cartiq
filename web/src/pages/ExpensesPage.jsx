@@ -37,7 +37,7 @@ export default function ExpensesPage() {
   // deactivated shows up in the filter at once.
   const { data: cartList } = useLiveList("carts");
   const locations = Array.isArray(cartList) ? cartList : [];
-  const [month, setMonth] = useState(""); // "" = all months (the same scope the phone app shows)
+  const [date, setDate] = useState(""); // "" = all days (the same scope the phone app shows)
   const [category, setCategory] = useState("");
 
   const [confirming, setConfirming] = useState(null);
@@ -69,12 +69,12 @@ export default function ExpensesPage() {
   const path = (p) =>
     `/expenses?page=${p}&pageSize=50` +
     (code ? `&code=${code}` : "") +
-    (month ? `&month=${month}` : "") +
+    (date ? `&date=${date}` : "") +
     (category ? `&category=${encodeURIComponent(category)}` : "");
 
   const { rows, meta, loading, error, gotoPage, refresh } = usePagedData(path, [
     code,
-    month,
+    date,
     category,
   ]);
 
@@ -87,7 +87,7 @@ export default function ExpensesPage() {
       .get(
         `/expenses?page=1&pageSize=1` +
           (code ? `&code=${code}` : "") +
-          (month ? `&month=${month}` : "") +
+          (date ? `&date=${date}` : "") +
           (category ? `&category=${encodeURIComponent(category)}` : "")
       )
       .then(({ data }) => setSummary(data))
@@ -99,14 +99,14 @@ export default function ExpensesPage() {
       const res = await api.get(
         `/expenses?page=1&pageSize=1` +
           (code ? `&code=${code}` : "") +
-          (month ? `&month=${month}` : "") +
+          (date ? `&date=${date}` : "") +
           (category ? `&category=${encodeURIComponent(category)}` : "")
       );
       setSummary(res.data);
     } catch {
       /* non-critical */
     }
-  }, [code, month, category]);
+  }, [code, date, category]);
 
   useEffect(() => {
     const timer = setTimeout(loadSummary, 0);
@@ -316,7 +316,7 @@ export default function ExpensesPage() {
         <PageHeader
           eyebrow="Operations"
           title="Expenses"
-          sub="Vendor costs — the same view as the staff app: all months by default, filter to one if you want."
+          sub="Vendor costs — the same view as the staff app: all days by default, filter to one if you want."
           actions={
             <div className="flex items-center gap-3 flex-wrap">
               {meta && (
@@ -347,10 +347,10 @@ export default function ExpensesPage() {
                 placeholder="All carts"
               />
               <input
-                type="month"
-                value={month}
-                onChange={(e) => setMonth(e.target.value)}
-                title="Filter by month"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                title="Filter by day"
                 style={{ height: "36px" }}
               />
               <Select
@@ -361,12 +361,12 @@ export default function ExpensesPage() {
               />
             </div>
             
-            {(code || month !== "" || category) && (
+            {(code || date !== "" || category) && (
               <button
                 className="danger-ghost small-btn"
                 onClick={() => {
                   setCode("");
-                  setMonth("");
+                  setDate("");
                   setCategory("");
                 }}
               >
