@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import {
   TrendingUp, TrendingDown, ShoppingBag,
-  DollarSign, BarChart2, PackageSearch, X, Sparkles, Printer, Trash2
+  DollarSign, BarChart2, PackageSearch, X, Sparkles, Printer
 } from "lucide-react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import api from "../api.js";
@@ -20,7 +20,6 @@ import Select from "../components/Select.jsx";
 import ProfitSection from "../components/analytics/ProfitSection.jsx";
 import AnalyticsTooltip, { TooltipItem } from "../components/analytics/AnalyticsTooltip.jsx";
 import { fmtMoneyAxis, fmtShortDate } from "../utils/format.js";
-import { useToast } from "../components/Toast.jsx";
 
 // API risk level -> badge variant
 const RISK_CHIP = { high: "danger", medium: "warn", low: "ok", unknown: "neutral" };
@@ -127,7 +126,6 @@ export default function AnalyticsPage() {
   const navigate = useNavigate();
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
-  const toast = useToast();
 
   // One shared, live copy of the carts: a cart the owner added or
   // deactivated shows up in the filter at once.
@@ -144,10 +142,6 @@ export default function AnalyticsPage() {
   const [profit, setProfit] = useState(null);
   const [hourly, setHourly] = useState(null);
   const [salesFc, setSalesFc] = useState(null);
-  const [events, setEvents] = useState([]);
-  const [eventForm, setEventForm] = useState({ date: "", label: "", locationCode: "" });
-  const [eventBusy, setEventBusy] = useState(false);
-  const [eventError, setEventError] = useState("");
   const [error, setError] = useState("");
   // Sections that failed to load. They must be named, not silently treated
   // as empty data (an empty forecast reads as "inventory looks healthy").
@@ -200,9 +194,8 @@ export default function AnalyticsPage() {
         : Promise.resolve({ data: null }),
       api.get(`/analytics/hourly?1=1${dateParams}${codeParam}`).catch((err) => ({ data: null, failed: true, error: err })),
       api.get(`/analytics/sales-forecast?1=1${dateParams}${codeParam}`).catch((err) => ({ data: null, failed: true, error: err })),
-      api.get("/analytics/events").catch(() => ({ data: { data: [] } })),
     ])
-      .then(([cur, ext, f, pf, hr, sf, ev]) => {
+      .then(([cur, ext, f, pf, hr, sf]) => {
         if (!alive) return;
         setLoading(false);
 
@@ -225,7 +218,6 @@ export default function AnalyticsPage() {
         setProfit(pf.data);
         setHourly(hr.data);
         setSalesFc(sf.data);
-        setEvents(ev.data?.data ?? []);
         // A section that failed to load must not be presented as "healthy":
         // name it instead of silently treating the missing data as good news.
         const failed = [];
@@ -297,38 +289,6 @@ export default function AnalyticsPage() {
       .sort((a, b) => b.sales - a.sales)
       .slice(0, 6);
   }, [trends]);
-
-  async function addEvent() {
-    setEventError("");
-    const date = String(eventForm.date ?? "").trim();
-    const label = String(eventForm.label ?? "").trim();
-    if (!date) return setEventError("Pick a date for the event");
-    if (label.length < 3) return setEventError("Description must be at least 3 characters");
-    setEventBusy(true);
-    try {
-      const { data } = await api.post("/analytics/events", { date, label, locationCode: eventForm.locationCode || null });
-      setEvents((current) => [data?.event ?? { id: Date.now(), date, label, locationCode: eventForm.locationCode || null }, ...(current ?? [])]);
-      setEventForm({ date: "", label: "", locationCode: "" });
-      setReload((n) => n + 1); // recompute forecasts with the day excluded
-    } catch (err) {
-      setEventError(getFriendlyError(err, "Could not save the event"));
-    } finally {
-      setEventBusy(false);
-    }
-  }
-
-  async function removeEvent(id) {
-    setEventBusy(true);
-    try {
-      await api.delete(`/analytics/events/${id}`);
-      setEvents((current) => (current ?? []).filter((e) => e.id !== id));
-      setReload((n) => n + 1); // recompute forecasts with the day restored
-    } catch (err) {
-      toast(getFriendlyError(err, "Could not remove the event"), "error");
-    } finally {
-      setEventBusy(false);
-    }
-  }
 
   const categoryTicks = useMemo(() => {
     if (categoryData.length === 0) return [0];
@@ -1199,61 +1159,6 @@ export default function AnalyticsPage() {
                 );
               })()}
             </div>
-
-            {isOwner && (
-              <div className="analytics-section panel analytics-events" id="section-events">
-                <div className="analytics-section-header">
-                  <div>
-                    <h2 className="analytics-section-title"><span className="section-num" aria-hidden="true">★</span> Event days</h2>
-                    <p className="analytics-section-sub">Holidays, school events, payday — excluded from the forecast so one-off spikes don&rsquo;t inflate the weekly pattern</p>
-                  </div>
-                </div>
-
-                <form
-                  className="analytics-events-form"
-                  onSubmit={(e) => { e.preventDefault(); addEvent(); }}
-                >
-                  <input type="date" value={eventForm.date} onChange={(e) => setEventForm({ ...eventForm, date: e.target.value })} aria-label="Event date" className="analytics-events-date" required />
-                  <input
-                    type="text"
-                    value={eventForm.label}
-                    onChange={(e) => setEventForm({ ...eventForm, label: e.target.value })}
-                    placeholder="Reason — e.g. Graduation ceremony, pay-out day"
-                    aria-label="Event description"
-                    className="analytics-events-label"
-                    maxLength={60}
-                    required
-                  />
-                  <button type="submit" className="small-btn primary" disabled={eventBusy}>
-                    {eventBusy ? "Adding..." : "+ Add event"}
-                  </button>
-                </form>
-                {eventError && <p className="analytics-events-error" role="alert">{eventError}</p>}
-
-                {events.length === 0 ? (
-                  <p className="muted small" style={{ margin: 0 }}>No event days marked yet. Add one for school fairs, paydays and holidays so the forecast learns a normal week instead.</p>
-                ) : (
-                  <ul className="analytics-events-list">
-                    {events.map((ev) => (
-                      <li key={ev.id ?? `${ev.date}-${ev.label}`} className="analytics-events-row">
-                        <span className="analytics-events-stamp">{fmtShortDate(ev.date)}</span>
-                        <span className="analytics-events-text">{ev.label}</span>
-                        <button
-                          type="button"
-                          className="small-btn danger-ghost"
-                          onClick={() => removeEvent(ev.id)}
-                          disabled={eventBusy}
-                          aria-label={`Remove ${ev.label} on ${ev.date}`}
-                          title="Remove marked day"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
 
             {isOwner && profit && <ProfitSection profit={profit} />}
 
