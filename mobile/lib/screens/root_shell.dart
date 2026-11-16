@@ -152,6 +152,9 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
       // while the app was in the background shows its state at once, with no
       // manual refresh.
       auth.refreshProfile().catchError((_) {});
+      // And re-read the orders: a void that landed while the app was in the
+      // background must reflect in the history screen on resume too.
+      context.read<DataRefresh?>()?.bump('orders');
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       context.read<AuthState>().pauseAlertPoll();
