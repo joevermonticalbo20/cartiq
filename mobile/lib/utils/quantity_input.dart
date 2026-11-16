@@ -1,3 +1,5 @@
+import 'package:flutter/services.dart';
+
 /// The rules for a quantity the vendor types.
 ///
 /// A vendor taking a big order ("200 fries") must not tap + 200 times, and
@@ -48,5 +50,38 @@ class QuantityInput {
   static int maxDigits(int? max) {
     if (max == null || max < minimum) return 5;
     return max.toString().length;
+  }
+}
+
+/// Formatter that refuses anything outside the stock range - at the
+/// keystroke, and at paste time.
+///
+/// A stock of 62 means "62" is the biggest number that may ever land in the
+/// field: typing "6" then "7" is refused (the "7" never enters), and pasting
+/// "999" never happens at all. Only whole numbers of at least
+/// [QuantityInput.minimum] make it in.
+class StockInputFormatter extends TextInputFormatter {
+  const StockInputFormatter({this.max});
+
+  /// The stock on hand. Null means "no ceiling known".
+  final int? max;
+
+  static final _digitsOnly = RegExp(r'^\d+$');
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final text = newValue.text;
+    // Clearing the field is allowed; anything pasted or typed that is not
+    // pure digits is refused.
+    if (text.isEmpty) return newValue;
+    if (!_digitsOnly.hasMatch(text)) return oldValue;
+    final value = int.tryParse(text);
+    if (value == null) return oldValue;
+    if (value < QuantityInput.minimum) return oldValue;
+    if (max != null && value > max!) return oldValue;
+    return newValue;
   }
 }

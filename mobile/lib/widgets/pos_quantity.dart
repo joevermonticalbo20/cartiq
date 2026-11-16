@@ -8,7 +8,6 @@ import '../theme.dart';
 import '../utils/digits_input.dart';
 import '../utils/haptics.dart';
 import '../utils/quantity_input.dart';
-
 /// The typed-quantity field the vendor uses for a big order ("200 fries").
 ///
 /// It refuses what the stock cannot cover: the value is only handed back to
@@ -346,6 +345,11 @@ class _PosQuantityDialogState extends State<_PosQuantityDialog> {
             autofocus: true,
             keyboardType: TextInputType.number,
             textInputAction: TextInputAction.done,
+            inputFormatters: [
+              // Hard cap at the stock on hand - refused at the keystroke,
+              // not merely on submit.
+              StockInputFormatter(max: widget.maxQuantity),
+            ],
             style: Theme.of(
               context,
             ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
