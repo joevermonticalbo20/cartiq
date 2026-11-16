@@ -76,7 +76,8 @@ class DataChange {
   const DataChange(this.kind);
 
   /// "locations" (carts), "devices" (readers), "staff" (accounts),
-  /// "expenses" (receipts) or "alerts" (the notification center).
+  /// "expenses" (receipts), "alerts" (the notification center) or
+  /// "orders" (an order changed status - a void - the history screen reloads).
   final String kind;
 
   static const locations = 'locations';
@@ -84,6 +85,7 @@ class DataChange {
   static const staff = 'staff';
   static const expenses = 'expenses';
   static const alerts = 'alerts';
+  static const orders = 'orders';
 
   /// The kind carried by a push payload ("" when it carried none).
   static String kindOf(Map<String, dynamic> data) =>
@@ -331,6 +333,11 @@ class CartIQPushService {
       final text = ownerNoticeMessage(message.data);
       if (text.isNotEmpty) await onOwnerNotice?.call(text);
       return;
+    }
+    // A void decision meant for THIS phone: the history screen must show
+    // the order as VOIDED at once - same silent path as a DATA_CHANGED push.
+    if ((message.data['type'] ?? '').toString().toUpperCase() == 'VOID_DECISION') {
+      await onDataChanged?.call('orders');
     }
     await _showForeground(message);
   }

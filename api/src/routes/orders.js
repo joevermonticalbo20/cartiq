@@ -8,6 +8,7 @@ import { manilaDayRange } from "../services/timezone.js";
 import { IMAGE_MAX_BYTES, IMAGE_PREFIX } from "../services/product_images.js";
 import { emit } from "./events.js";
 import { sendTargetedPush } from "../services/push.js";
+import { announceChange } from "../services/announce.js";
 
 const router = Router();
 
@@ -443,6 +444,9 @@ async function performVoid({ existing, actorId, reason }) {
       data: { status: "VOID", voidedBy: actorId, voidedAt: new Date(), voidReason: trimmedReason },
       include: { items: true },
     });
+    // Every phone re-reads its cart's orders - the history screen must show
+    // VOID without a manual refresh.
+    await announceChange("orders", { id: existing.id, status: "VOID" }).catch(() => {});
     return { order: updated, restored: [], warnings: [] };
   }
   const outcome = await prisma.$transaction(async (tx) => {
@@ -493,6 +497,9 @@ async function performVoid({ existing, actorId, reason }) {
     where: { id: existing.id },
     include: { items: true },
   });
+  // Every phone re-reads its cart's orders - the history screen must show
+  // VOID without a manual refresh.
+  await announceChange("orders", { id: existing.id, status: "VOID" }).catch(() => {});
   return { order, restored: outcome.restored, warnings: outcome.warnings };
 }
 

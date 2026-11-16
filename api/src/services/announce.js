@@ -35,6 +35,7 @@ export const CHANGE_KINDS = Object.freeze([
   "staff", // a staff / admin account was added, edited or disabled
   "expenses", // an expense was added, edited or deleted
   "alerts", // an alert was read, acknowledged or resolved
+  "orders", // an order changed status (a void) - the app's history list refreshes
 ]);
 
 /**

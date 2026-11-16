@@ -90,6 +90,37 @@ void main() {
       expect(kinds, isEmpty);
     });
 
+    test('a void decision rides the silent path too, and still notifies',
+        () async {
+      final service = CartIQPushService();
+      final kinds = <String>[];
+      final shown = <CartIQPushPayload>[];
+      service.onDataChanged = (kind) async {
+        kinds.add(kind);
+      };
+      service.notificationSink = (payload) async {
+        shown.add(payload);
+      };
+
+      await service.handleForegroundMessage(
+        const RemoteMessage(
+          data: {
+            'type': 'VOID_DECISION',
+            'alertId': '42',
+            'title': 'Void approved',
+            'body': 'Order #123 voided.',
+          },
+        ),
+      );
+
+      expect(
+        kinds,
+        ['orders'],
+        reason: 'the history must refresh at once',
+      );
+      expect(shown.length, 1, reason: 'the targeted notification still shows');
+    });
+
     test('the app turns the push into the right refresh', () async {
       // The bus is what the screens listen to; the reason tells them what
       // changed. This is the real wiring the app installs at startup.
@@ -119,6 +150,11 @@ void main() {
       final before = bus.version;
       await auth.push.onDataChanged?.call(DataChange.devices);
       expect(bus.version, before);
+
+      // An order changed status (a void): the history screen reloads.
+      await auth.push.onDataChanged?.call(DataChange.orders);
+      expect(reason, 'orders');
+      expect(bus.version, 3);
     });
   });
 }

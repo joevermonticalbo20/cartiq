@@ -89,6 +89,11 @@ class AuthState extends ChangeNotifier {
           // An alert was read, acknowledged or resolved: the list follows.
           await refreshMyAlerts();
           break;
+        case DataChange.orders:
+          // An order changed status (a void): the history screen reloads so
+          // the sale shows as VOIDED without a manual refresh.
+          dataRefresh?.bump('orders');
+          break;
         default:
           break;
       }

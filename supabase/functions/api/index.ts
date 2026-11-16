@@ -2230,6 +2230,8 @@ async function handlePatchOrder(req, origin, orderId, user) {
       voidedAt: new Date(),
       voidReason: reason ? String(reason).slice(0, 500) : null,
     });
+    // Every phone re-reads its cart's orders - the history must show VOID.
+    await announceChange("orders", { id: existing.id, status: "VOID" }).catch(() => {});
     const updated = await fsGet("orders", existing.id);
     return jsonRes(origin, { order: cleanDoc(updated), restored: [], warnings: [] }, 200);
   }
@@ -2290,6 +2292,9 @@ async function performVoidEdge({ orderId, actorId, reason }) {
       voidReason: reason ? String(reason).slice(0, 500) : null,
     }, fresh._updateTime));
     await fsCommit(writes);
+    // Every phone re-reads its cart's orders - the history screen must show
+    // VOID without a manual refresh.
+    await announceChange("orders", { id: orderId, status: "VOID" }).catch(() => {});
     return { warnings, restored };
   }, 4);
 }

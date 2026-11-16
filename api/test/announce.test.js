@@ -22,6 +22,7 @@ test("every kind has a live frame and a push payload", () => {
     "staff",
     "expenses",
     "alerts",
+    "orders",
   ]);
   for (const kind of CHANGE_KINDS) {
     assert.equal(changeEventName(kind), `${kind}:updated`);
