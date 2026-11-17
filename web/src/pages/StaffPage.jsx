@@ -13,6 +13,7 @@ import ErrorBox from "../components/ErrorBox.jsx";
 import { TableSkeleton } from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import Select from "../components/Select.jsx";
 import { useToast } from "../components/Toast.jsx";
 
@@ -47,6 +48,8 @@ export default function StaffPage() {
   const [editDays, setEditDays] = useState(new Array(7).fill(null));
   const [editError, setEditError] = useState("");
   const [editSaving, setEditSaving] = useState(false);
+  const [removeConfirm, setRemoveConfirm] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
   // One shared, live copy of the staff accounts and of the carts. A new
   // account, a disabled account or a deactivated cart shows up here at once,
@@ -180,6 +183,7 @@ export default function StaffPage() {
   const openScheduleEditor = (staffRow) => {
     setSchedError("");
     setEditError("");
+    setRemoveConfirm(false);
     setEditDays(
       Array.isArray(staffRow?.schedule?.days)
         ? staffRow.schedule.days.map((d) => (d ? { start: d.start, end: d.end } : null))
@@ -191,6 +195,25 @@ export default function StaffPage() {
     setEditClosing(true);
     setTimeout(() => { setEditStaff(null); setEditClosing(false); }, 150);
   };
+  async function removeSchedule() {
+    if (!editStaff) return;
+    setRemoving(true);
+    try {
+      await api.del(`/staff/${editStaff.id}/schedule`);
+      setSchedules((prev) =>
+        (prev ?? []).map((row) => (row.id === editStaff.id ? { ...row, schedule: null } : row)),
+      );
+      toast("Schedule removed - time in/out is unrestricted again", "success");
+      setRemoveConfirm(false);
+      closeScheduleEditor();
+    } catch (err) {
+      setEditError(getFriendlyError(err, "Could not remove the schedule."));
+      setRemoveConfirm(false);
+    } finally {
+      setRemoving(false);
+    }
+  }
+
   async function saveSchedule() {
     if (!editStaff) return;
     for (const [i, d] of editDays.entries()) {
@@ -733,17 +756,37 @@ export default function StaffPage() {
                 </p>
               )}
               {editError && <ErrorBox message={editError} style={{ marginTop: "var(--space-2, 8px)" }} />}
-              <div className="flex items-center justify-end gap-2" style={{ marginTop: "var(--space-3)" }}>
-                <button type="button" className="small-btn ghost" onClick={closeScheduleEditor} disabled={editSaving}>
-                  Cancel
-                </button>
-                <button type="button" className="small-btn" onClick={saveSchedule} disabled={editSaving}>
-                  {editSaving ? "Saving…" : "Save schedule"}
-                </button>
+              <div className="flex items-center justify-between gap-2" style={{ marginTop: "var(--space-3)" }}>
+                {editStaff.schedule ? (
+                  <button type="button" className="small-btn ghost schedule-remove" onClick={() => setRemoveConfirm(true)} disabled={editSaving || removing}>
+                    Remove schedule
+                  </button>
+                ) : (
+                  <span />
+                )}
+                <div className="flex items-center gap-2">
+                  <button type="button" className="small-btn ghost" onClick={closeScheduleEditor} disabled={editSaving || removing}>
+                    Cancel
+                  </button>
+                  <button type="button" className="small-btn" onClick={saveSchedule} disabled={editSaving || removing}>
+                    {editSaving ? "Saving…" : "Save schedule"}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         )}
+        <ConfirmDialog
+          open={removeConfirm}
+          title="Remove schedule?"
+          message={`Time in/out for ${editStaff?.name ?? "this staff member"} becomes unrestricted again. The saved weekly template and its edit history are erased. Time logs already recorded are not affected.`}
+          confirmLabel="Remove schedule"
+          danger
+          pending={removing}
+          pendingLabel="Removing…"
+          onConfirm={removeSchedule}
+          onCancel={() => setRemoveConfirm(false)}
+        />
 
         {/* --- ADD SHIFT MODAL --- */}
         {(addOpen || addClosing) && (

@@ -3350,6 +3350,17 @@ async function handlePutStaffSchedule(req, staffId, user) {
   return { status: 200, body: { schedule: scheduleViewEdge(doc) } };
 }
 
+/** DELETE /staff/:id/schedule — OWNER removes the roster (unrestricted again). */
+async function handleDeleteStaffSchedule(staffId) {
+  const target = await fsGet("users", String(staffId)).catch(() => null);
+  if (!target) return { status: 404, body: { error: "Staff not found" } };
+  const existing = await fsGet("staffSchedules", String(staffId)).catch(() => null);
+  if (!existing) return { status: 200, body: { deleted: false } }; // already unrestricted
+  await fsDeleteByName(fsDocName("staffSchedules", staffId));
+  await broadcastEvent("staff:updated", { kind: "schedule", id: staffId }).catch(() => {});
+  return { status: 200, body: { deleted: true } };
+}
+
 /** GET /staff/my-schedule — the signed-in account's own week (any role). */
 async function handleMySchedule(user) {
   const staffId = Number(user?.id);
@@ -11310,6 +11321,11 @@ Deno.serve(async (req) => {
           const ownErr = requireOwner(auth.user);
           if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
           out = await handlePutStaffSchedule(req, Number(path.split("/")[2]), auth.user);
+        }
+        else if (req.method === "DELETE" && /^\/staff\/\d+\/schedule$/.test(path)) {
+          const ownErr = requireOwner(auth.user);
+          if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
+          out = await handleDeleteStaffSchedule(Number(path.split("/")[2]));
         }
         else return notFoundRes(origin, req, path);
         return jsonRes(origin, out.body, out.status);

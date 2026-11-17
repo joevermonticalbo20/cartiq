@@ -1417,3 +1417,10 @@ button.sales-icon-btn.is-danger:hover:not(:disabled) {
   border-top: 1px solid var(--border);
   padding-top: 10px;
 }
+
+.schedule-remove {
+  color: var(--danger);
+}
+.schedule-remove:hover:not(:disabled) {
+  background: var(--danger-bg);
+}

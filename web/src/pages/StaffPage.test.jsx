@@ -216,4 +216,22 @@ describe("StaffPage Staff Schedules", () => {
     const [, body] = api.put.mock.calls[0];
     expect(body.days.every((d) => d === null)).toBe(true);
   });
+
+  it("removes the schedule after a confirmation", async () => {
+    api.del.mockResolvedValue({ data: { deleted: true } });
+    renderPage();
+    await screen.findByText("Scheduled");
+    fireEvent.click(within(rosterRowFor("staff01")).getByRole("button", { name: /edit/i }));
+    const dialog = document.body.querySelector(".modal");
+    fireEvent.click(within(dialog).getByRole("button", { name: /remove schedule/i }));
+    // The confirm dialog spells out the consequence before the delete runs.
+    const confirm = await screen.findByText(/becomes unrestricted again/i);
+    expect(confirm).toBeInTheDocument();
+    const dangerButton = screen
+      .getAllByRole("button", { name: "Remove schedule" })
+      .find((b) => b.classList.contains("danger"));
+    fireEvent.click(dangerButton);
+    expect(api.del).toHaveBeenCalledWith("/staff/2/schedule");
+    expect(await screen.findByText("No schedule")).toBeInTheDocument();
+  });
 });

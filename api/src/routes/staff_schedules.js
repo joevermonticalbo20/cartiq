@@ -107,6 +107,32 @@ router.put("/staff/:id/schedule", requireAuth, requireRole("OWNER"), async (req,
   }
 });
 
+// DELETE /api/staff/:id/schedule — OWNER removes the weekly roster entirely,
+// back to "no schedule" (unrestricted taps). The saved schedule and its edit
+// history are erased; the frontend confirm says so before asking.
+router.delete("/staff/:id/schedule", requireAuth, requireRole("OWNER"), async (req, res, next) => {
+  try {
+    const staffId = Number(req.params.id);
+    if (!Number.isInteger(staffId) || staffId <= 0) {
+      return res.status(404).json({ error: "Staff not found" });
+    }
+    const target = await prisma.user.findUnique({ where: { id: staffId } });
+    if (!target) return res.status(404).json({ error: "Staff not found" });
+    const ref = prisma.collection("staffSchedules").doc(String(staffId));
+    const snap = await ref.get().catch(() => null);
+    if (!snap?.exists) return res.json({ deleted: false }); // already unrestricted
+    await ref.delete();
+    try {
+      emit("staff:updated", { kind: "schedule", id: staffId });
+    } catch {
+      /* the stream must never fail the delete */
+    }
+    return res.json({ deleted: true });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // GET /api/staff/my-schedule — the signed-in staff member's own week.
 // Any signed-in role may read it (the POS greys its buttons from this);
 // OWNER gets their own (normally absent) doc back.
