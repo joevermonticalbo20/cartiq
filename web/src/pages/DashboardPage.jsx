@@ -305,7 +305,7 @@ export default function DashboardPage() {
 
         {Object.keys(sectionErrors).length > 0 && !loading && (
           <div className="error-box" role="alert" style={{ marginBottom: "var(--space-4)" }}>
-            Couldn't refresh:{" "}
+            {"Couldn't refresh: "}
             {Object.keys(sectionErrors).map((k) => sectionLabels[k] ?? k).join(", ")}. Showing available data.{" "}
             <button type="button" className="linklike" onClick={refresh}>Retry</button>
           </div>
