@@ -21,6 +21,8 @@ import {
   TAP_REGISTRATION,
 } from "../services/rfid.js";
 import { readTimeClock, timeClockVerdict } from "../services/time_clock.js";
+import { scheduleVerdict, tapBadge, entryForInstant } from "../services/staff_schedule.js";
+import { loadScheduleMap } from "../services/staff_schedule_store.js";
 import { CLAIM_BOUND, resolveClaim } from "../services/rfid_claims.js";
 import { bindClaimedTag } from "../services/rfid_bind.js";
 import { sendShiftPush, pushToOwners } from "../services/push.js";
@@ -257,6 +259,11 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
       e.event = intent.event;
     }
 
+    // Weekly schedules for the tapped cards. Prefetched outside the txn
+    // (tiny collection) so the gate below can refuse a tap outside the
+    // person's scheduled window. Unscheduled staff stay unrestricted.
+    const scheduleMap = await loadScheduleMap();
+
     // Same reads-first restructure as /iot/readings: users and unread
     // UNKNOWN_CARD alerts are prefetched, then shifts + alerts are written.
     // accepted/rejected live INSIDE the txn (see above) so contention
@@ -359,6 +366,40 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
             reason: wrongCartMessage(cardLocationCode(user)),
           });
           continue;
+        }
+        // Weekly staff schedule (owner-managed roster): a tap outside the
+        // person's scheduled window never logs a shift. The claim binds
+        // either way; only the attendance log is refused, like the clock
+        // window above. Unscheduled staff are unrestricted.
+        if (user) {
+          const sVerdict = scheduleVerdict(scheduleMap.get(user.id) ?? null, ts.getTime(), event);
+          if (sVerdict.scheduled && sVerdict.ok === false) {
+            rejected.push({ staff_uid: uid, event, reason: sVerdict.reason });
+            const dedupeKey = `schedule:${location.id}:${user.id}:${event}`;
+            const dup =
+              createdNeedles.has(dedupeKey) ||
+              unreadAlerts.some((a) => {
+                try {
+                  if (JSON.parse(a.payload ?? "{}")?.dedupeKey === dedupeKey) return true;
+                } catch {}
+                return false;
+              });
+            if (!dup) {
+              createdNeedles.add(dedupeKey);
+              newAlerts.push({
+                type: "TIMECLOCK_WINDOW",
+                message: `${event === "OUT" ? "Time out" : "Time in"} blocked at ${location.code}: ${sVerdict.reason}`,
+                payload: JSON.stringify({
+                  dedupeKey,
+                  event,
+                  staffId: user.id,
+                  locationId: location.id,
+                  locationCode: location.code,
+                }),
+              });
+            }
+            continue;
+          }
         }
         // One IN and one OUT per person per Manila day. After a time in, the
         // next tap is a duplicate, not a new shift.
@@ -660,7 +701,7 @@ router.get("/shifts/history", requireAuth, async (req, res, next) => {
       }
       where.ts = { gte: range.start, lt: range.end };
     }
-    const [total, shifts] = await Promise.all([
+    const [total, shifts, scheduleMap] = await Promise.all([
       prisma.shift.count({ where }),
       prisma.shift.findMany({
         where,
@@ -669,9 +710,20 @@ router.get("/shifts/history", requireAuth, async (req, res, next) => {
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
+      loadScheduleMap(),
     ]);
+    const data = shifts.map((s) => {
+      const raw = s.staffId != null ? scheduleMap.get(Number(s.staffId)) ?? null : null;
+      // No schedule doc -> "No schedule" badge; scheduled day off -> "Not scheduled".
+      const sched = raw ? entryForInstant(raw, s.ts) : undefined;
+      let punctuality;
+      if (sched === undefined) punctuality = { label: "No schedule", tone: "neutral" };
+      else if (sched === null) punctuality = { label: "Not scheduled", tone: "neutral" };
+      else punctuality = tapBadge({ event: s.event, instant: s.ts, entry: sched });
+      return { ...s, punctuality };
+    });
     return res.json({
-      data: shifts,
+      data,
       meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
     });
   } catch (err) {

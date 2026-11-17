@@ -5,7 +5,13 @@ import { emit } from "../routes/events.js";
 const require = createRequire(import.meta.url);
 const { getMessaging } = require("firebase-admin/messaging");
 
-const PUSH_TYPES = new Set(["VOID_DECISION", "RESTOCK_UPDATE", "LOW_STOCK_NOTIFY"]);
+const PUSH_TYPES = new Set([
+  "VOID_DECISION",
+  "RESTOCK_UPDATE",
+  "LOW_STOCK_NOTIFY",
+  "GCASH_CONFIRM",
+  "GCASH_DECISION",
+]);
 // The signal the server sends when the MENU changed (product archived, price
 // or recipe edited, stock adjusted). The app reloads its catalog silently -
 // no notification, because a visible popup for every menu tweak trains the
@@ -33,6 +39,8 @@ function pushTitle(alert) {
   if (title) return title.slice(0, 200);
   if (alert?.type === "VOID_DECISION") return "Void request update";
   if (alert?.type === "LOW_STOCK_NOTIFY") return "Low stock";
+  if (alert?.type === "GCASH_CONFIRM") return "GCash approved";
+  if (alert?.type === "GCASH_DECISION") return "GCash update";
   return "Restock request update";
 }
 
@@ -79,6 +87,16 @@ export async function sendTargetedPush(alert, { db = prisma, messaging = undefin
     const title = pushTitle(alert);
     const body = pushBody(alert);
     const alertTag = alert.id == null ? null : String(alert.id);
+    // Carry the linked order (when the alert payload names one) so the app
+    // can deep-link the notification straight to that order's sheet.
+    let orderId = null;
+    try {
+      const payload = JSON.parse(alert.payload ?? "{}");
+      const raw = payload?.orderId ?? payload?.order_id ?? payload?.order?.id ?? null;
+      if (raw != null && String(raw).trim()) orderId = String(raw).trim();
+    } catch {
+      orderId = null;
+    }
     const message = {
       tokens,
       notification: { title, body },
@@ -87,6 +105,7 @@ export async function sendTargetedPush(alert, { db = prisma, messaging = undefin
         type,
         title,
         body,
+        ...(orderId ? { orderId } : {}),
       },
       android: {
         priority: "high",

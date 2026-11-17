@@ -14,6 +14,8 @@ import {
   loadEventDayKeys,
 } from "../services/analytics_engine.js";
 import { EXPENSE_CATEGORIES } from "./expenses.js";
+import { tapBadge, entryForInstant } from "../services/staff_schedule.js";
+import { loadScheduleMap } from "../services/staff_schedule_store.js";
 import {
   manilaDayKey as dayKey,
   manilaDow,
@@ -567,12 +569,35 @@ router.get("/analytics/staff-performance", requireAuth, requireRole("OWNER"), as
       byStaff.set(key, entry);
     }
 
+    // On-time discipline per staff, from the same IN taps: % of classified
+    // (scheduled) clock-ins that were on time. Unclassifiable taps (no
+    // schedule doc, or that weekday is off) are excluded entirely.
+    const scheduleMap = await loadScheduleMap();
+    for (const s of shifts) {
+      if (s.event !== "IN") continue;
+      const staffId = s.staff?.id ?? s.staffId;
+      if (staffId == null) continue;
+      const raw = scheduleMap.get(Number(staffId)) ?? null;
+      if (!raw) continue;
+      const entry = entryForInstant(raw, s.ts);
+      if (!entry) continue;
+      const bucket = byStaff.get(staffId);
+      if (!bucket) continue;
+      bucket.in_classified = (bucket.in_classified ?? 0) + 1;
+      if (tapBadge({ event: "IN", instant: s.ts, entry }).tone === "ok") {
+        bucket.in_on_time = (bucket.in_on_time ?? 0) + 1;
+      }
+    }
+
     // Compute final aggregates
     const summary = [...byStaff.values()].map((e) => ({
       ...e,
       avg_ticket: e.orders > 0 ? Number((e.total_sales / e.orders).toFixed(2)) : 0,
       total_sales: Number(e.total_sales.toFixed(2)),
       shifts_completed: Math.min(e.shifts_in ?? 0, e.shifts_out ?? 0),
+      on_time_pct: e.in_classified > 0
+        ? Math.round(((e.in_on_time ?? 0) / e.in_classified) * 100)
+        : null,
     }));
     summary.sort((a, b) => b.total_sales - a.total_sales);
 

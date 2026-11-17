@@ -5,6 +5,7 @@ import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { requireDevice } from "../middleware/device.js";
 import { announceChange } from "../services/announce.js";
+import { maybePushAbsenceAlerts } from "../services/absence_push.js";
 
 const router = Router();
 const DEVICE_ID_RE = /^[A-Za-z0-9_-]{3,40}$/;
@@ -67,6 +68,10 @@ router.delete("/devices/push-token", requireAuth, requireRole("STAFF"), async (r
 router.post("/devices/heartbeat", requireDevice, async (req, res, next) => {
   try {
     void req;
+    // Absence sweep piggybacks on the heartbeat: if a scheduled staff
+    // member is >30 min past their start with no tap-in today, the owner
+    // gets one push (deduped per staff per day, 10-minute memoized).
+    void maybePushAbsenceAlerts().catch(() => {});
     return res.json({ ok: true, deviceOnline: true });
   } catch (err) {
     return next(err);

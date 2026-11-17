@@ -645,7 +645,7 @@ async function withRetry(fn, attempts) {
 
 // ---------- FCM push for targeted staff alerts ----------
 const FCM_CHANNEL_ID = "cartiq_alerts";
-const PUSH_ALERT_TYPES = new Set(["VOID_DECISION", "RESTOCK_UPDATE", "LOW_STOCK_NOTIFY"]);
+const PUSH_ALERT_TYPES = new Set(["VOID_DECISION", "RESTOCK_UPDATE", "LOW_STOCK_NOTIFY", "GCASH_CONFIRM", "GCASH_DECISION"]);
 // The signal the server sends when the MENU changed (product archived, price
 // or recipe edited, stock adjusted). The app reloads its catalog silently.
 const CATALOG_PUSH_TYPE = "CATALOG_CHANGED";
@@ -847,8 +847,22 @@ async function sendTargetedPush(alert) {
         ? "Void request update"
         : alert.type === "LOW_STOCK_NOTIFY"
           ? "Low stock"
-          : "Restock request update");
+          : alert.type === "GCASH_CONFIRM"
+            ? "GCash approved"
+            : alert.type === "GCASH_DECISION"
+              ? "GCash update"
+              : "Restock request update");
     const body = String(alert.message ?? "").trim().slice(0, 1000);
+    // Carry the linked order (when the alert payload names one) so the app
+    // can deep-link the notification straight to that order's sheet.
+    let orderId = null;
+    try {
+      const payload = JSON.parse(alert.payload ?? "{}");
+      const raw = payload?.orderId ?? payload?.order_id ?? payload?.order?.id ?? null;
+      if (raw != null && String(raw).trim()) orderId = String(raw).trim();
+    } catch {
+      orderId = null;
+    }
     const accessToken = await googleAccessToken("https://www.googleapis.com/auth/firebase.messaging");
     for (const token of tokens) {
       try {
@@ -869,6 +883,7 @@ async function sendTargetedPush(alert) {
                   type: String(alert.type),
                   title,
                   body,
+                  ...(orderId ? { orderId } : {}),
                 },
                 android: {
                   collapse_key: alert.id == null ? "" : String(alert.id),
@@ -3103,6 +3118,242 @@ async function handlePutTimeClock(req, origin, user) {
   return jsonRes(origin, { clock }, 200);
 }
 
+// ---------- staff weekly schedules ----------
+// Mirror of api/src/services/staff_schedule.js + staff_schedule_store.js.
+// One Firestore doc per staff member in the `staffSchedules` collection
+// (doc id = String(staffId)):
+//   { staffId, days: [null|{start,end} x7 (index 0 = Sunday)],
+//     updatedAt, updatedBy, updatedByName,
+//     history: [{ at, by, byName, before, after }, ...] }  // capped at 25
+const SCHEDULE_HISTORY_MAX = 25;
+const SCHEDULE_WEEKDAY_LABEL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function normalizeScheduleDays(raw) {
+  if (!Array.isArray(raw)) return null;
+  const out = new Array(7).fill(null);
+  for (let i = 0; i < 7; i++) {
+    const entry = raw[i];
+    if (entry == null) continue; // explicit day off
+    if (typeof entry !== "object") return null;
+    const start = canonicalHm(entry.start);
+    const end = canonicalHm(entry.end);
+    if (!start || !end) return null;
+    if (hmToMinutes(start) >= hmToMinutes(end)) return null;
+    out[i] = { start, end };
+  }
+  return out;
+}
+
+function isoOrNullEdge(v) {
+  if (!v) return null;
+  if (v instanceof Date) return Number.isFinite(v.getTime()) ? v.toISOString() : null;
+  const d = new Date(v);
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+}
+
+function scheduleViewEdge(rawDoc) {
+  if (!rawDoc) return null;
+  const days = normalizeScheduleDays(rawDoc.days);
+  if (!days) return null;
+  const history = Array.isArray(rawDoc.history) ? rawDoc.history.slice(-SCHEDULE_HISTORY_MAX) : [];
+  return {
+    days,
+    updatedAt: isoOrNullEdge(rawDoc.updatedAt),
+    updatedBy: rawDoc.updatedBy ?? null,
+    updatedByName: rawDoc.updatedByName ?? null,
+    history: history.map((h) => ({
+      at: isoOrNullEdge(h?.at),
+      by: h?.by ?? null,
+      byName: h?.byName ?? null,
+      before: h?.before ?? null,
+      after: h?.after ?? null,
+    })),
+  };
+}
+
+/** Whether a Time IN/OUT tap may land right now. Mirror of scheduleVerdict. */
+function staffScheduleVerdict(rawDoc, nowMs, event) {
+  if (!rawDoc) return { scheduled: false }; // no schedule = unrestricted (legacy staff)
+  const days = normalizeScheduleDays(rawDoc.days);
+  if (!days) return { scheduled: false };
+  const dayIdx = manilaWeekday(nowMs);
+  const entry = days[dayIdx];
+  if (!entry) {
+    return {
+      scheduled: true,
+      ok: false,
+      reason: `${SCHEDULE_WEEKDAY_LABEL[dayIdx]} is your scheduled day off - ask OWNER to change your schedule.`,
+    };
+  }
+  const now = manilaMinutesOfDay(nowMs);
+  const start = hmToMinutes(entry.start);
+  const end = hmToMinutes(entry.end);
+  if (event === "IN") {
+    const open = start - 15; // 15-minute early grace
+    if (now >= open && now <= end) return { scheduled: true, ok: true, entry, start, end };
+    if (now < open) {
+      return {
+        scheduled: true,
+        ok: false,
+        reason: `Time in opens 15 minutes before your scheduled start (${entry.start}). You may tap from ${String(Math.floor(open / 60)).padStart(2, "0")}:${String(open % 60).padStart(2, "0")}.`,
+      };
+    }
+    return {
+      scheduled: true,
+      ok: false,
+      reason: `Your scheduled shift today ended at ${entry.end}. Ask OWNER if you worked more.`,
+    };
+  }
+  // Time OUT
+  if (now >= start && now <= end + 60) return { scheduled: true, ok: true, entry, start, end };
+  if (now < start) {
+    return {
+      scheduled: true,
+      ok: false,
+      reason: `Your scheduled shift starts at ${entry.start}. You may time out only from then.`,
+    };
+  }
+  return {
+    scheduled: true,
+    ok: false,
+    reason: `Your scheduled shift ended at ${entry.end} (overtime window is 60 minutes). Ask OWNER to log your hours.`,
+  };
+}
+
+/** undefined = no schedule at all; null = scheduled day off; else the day's entry. */
+function scheduleEntryForInstant(rawDoc, instant) {
+  if (!rawDoc) return undefined;
+  const days = normalizeScheduleDays(rawDoc.days);
+  if (!days) return undefined;
+  return days[manilaWeekday(new Date(instant).getTime())] ?? null;
+}
+
+function fmtMinutesEdge(m) {
+  const abs = Math.max(0, Math.round(m));
+  if (abs < 60) return `${abs}m`;
+  return `${Math.floor(abs / 60)}h ${String(abs % 60).padStart(2, "0")}m`;
+}
+
+/** Badge for a single tap event against its scheduled entry. */
+function tapBadgeEdge(event, instant, entry) {
+  if (!entry) return { label: "No schedule", tone: "neutral" };
+  const t = manilaMinutesOfDay(new Date(instant).getTime());
+  if (!Number.isFinite(t)) return { label: "—", tone: "neutral" };
+  const start = hmToMinutes(entry.start);
+  const end = hmToMinutes(entry.end);
+  if (event === "IN") {
+    const late = t - start;
+    if (late <= 5) return { label: "On time", tone: "ok" };
+    return { label: `Tardy +${fmtMinutesEdge(late)}`, tone: "warn" };
+  }
+  const early = end - t;
+  if (early > 5) return { label: `Early out ${fmtMinutesEdge(early)}`, tone: "warn" };
+  const ot = t - end;
+  if (ot > 0) return { label: `OT +${fmtMinutesEdge(ot)}`, tone: "info" };
+  return { label: "On time", tone: "ok" };
+}
+
+/** All schedule docs keyed by numeric staffId. Best-effort, never throws. */
+async function loadScheduleMapEdge() {
+  const map = new Map();
+  try {
+    const docs = await fsListAll("staffSchedules");
+    for (const d of docs ?? []) {
+      const staffId = Number(d?.id);
+      if (!Number.isFinite(staffId)) continue;
+      map.set(staffId, d);
+    }
+  } catch {
+    // no schedules yet (or a transient read failure) — everyone unrestricted
+  }
+  return map;
+}
+
+/** GET /staff/schedules — OWNER roster: every STAFF account + its schedule. */
+async function handleListSchedules() {
+  const [users, locations, scheduleMap] = await Promise.all([
+    fsListAll("users"),
+    fsListAll("locations"),
+    loadScheduleMapEdge(),
+  ]);
+  const locById = new Map(locations.map((l) => [l.id, l]));
+  const data = users
+    .filter((u) => String(u?.role ?? "").toUpperCase() === "STAFF")
+    .map((u) => ({
+      id: u.id,
+      name: u.name,
+      username: u.username,
+      role: u.role,
+      active: u.active !== false,
+      locationId: u.locationId ?? null,
+      locationCode: u.locationId != null ? locById.get(u.locationId)?.code ?? null : null,
+      schedule: scheduleViewEdge(scheduleMap.get(Number(u.id)) ?? null),
+    }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  return { status: 200, body: { data } };
+}
+
+/** PUT /staff/:id/schedule — OWNER upsert; appends to the audit history (capped 25). */
+async function handlePutStaffSchedule(req, staffId, user) {
+  const target = await fsGet("users", String(staffId)).catch(() => null);
+  if (!target) return { status: 404, body: { error: "Staff not found" } };
+  if (String(target?.role ?? "").toUpperCase() !== "STAFF") {
+    return { status: 400, body: { error: "Schedules apply to staff accounts only." } };
+  }
+  const body = await req.json().catch(() => null);
+  const days = normalizeScheduleDays(body?.days);
+  if (!days) {
+    return {
+      status: 400,
+      body: { error: 'Each day must be null (day off) or { "start": "HH:MM", "end": "HH:MM" } with start before end (24h).' },
+    };
+  }
+  const existing = await fsGet("staffSchedules", String(staffId)).catch(() => null);
+  const before = existing ? normalizeScheduleDays(existing.days) : null;
+  const history = Array.isArray(existing?.history) ? existing.history.slice(-SCHEDULE_HISTORY_MAX) : [];
+  const editorId = Number(user?.id) || null;
+  const editorName = user?.name ?? user?.username ?? "Owner";
+  history.push({
+    at: new Date().toISOString(),
+    by: editorId,
+    byName: editorName,
+    before,
+    after: days,
+  });
+  while (history.length > SCHEDULE_HISTORY_MAX) history.shift();
+  const doc = {
+    staffId,
+    days,
+    updatedAt: new Date().toISOString(),
+    updatedBy: editorId,
+    updatedByName: editorName,
+    history,
+  };
+  await fsPatch("staffSchedules", String(staffId), doc);
+  // Reuse the "staff" live kind so the dashboard refetches the roster.
+  await broadcastEvent("staff:updated", { kind: "schedule", id: staffId }).catch(() => {});
+  return { status: 200, body: { schedule: scheduleViewEdge(doc) } };
+}
+
+/** GET /staff/my-schedule — the signed-in account's own week (any role). */
+async function handleMySchedule(user) {
+  const staffId = Number(user?.id);
+  if (!Number.isInteger(staffId) || staffId <= 0) {
+    return { status: 401, body: { error: "Session account is missing" } };
+  }
+  const raw = await fsGet("staffSchedules", String(staffId)).catch(() => null);
+  const doc = raw ? { staffId, ...raw } : null;
+  const now = Date.now();
+  return {
+    status: 200,
+    body: {
+      schedule: scheduleViewEdge(doc),
+      verdictIn: staffScheduleVerdict(doc, now, "IN"),
+      verdictOut: staffScheduleVerdict(doc, now, "OUT"),
+    },
+  };
+}
+
 /** Read several _counters docs at once (read phase). */
 async function readCounters(models) {
   const out = {};
@@ -5315,12 +5566,83 @@ async function authDevice(req) {
   return { device: null, error: { status: 401, body: { error: "Unknown or inactive device" } } };
 }
 
+// Absence sweep state: heartbeats arrive every 30s per cart, but one sweep
+// per 10 minutes is plenty — the 30-minute lateness window is coarse.
+// Deduped once per staff per Manila day via the absencePushes collection.
+let lastAbsenceSweepAt = 0;
+
+async function maybePushAbsenceAlertsEdge() {
+  const now = Date.now();
+  if (now - lastAbsenceSweepAt < 10 * 60 * 1000) return;
+  lastAbsenceSweepAt = now;
+  try {
+    const nowD = new Date(now);
+    const dayKey = manilaDayKey(nowD);
+    const weekday = manilaDow(nowD);
+    const nowMin = manilaMinutesOfDay(now);
+    const scheduleMap = await loadScheduleMapEdge();
+    if (!scheduleMap.size) return;
+    const users = await fsListAll("users");
+    const byId = new Map(users.filter((u) => u?.id != null).map((u) => [Number(u.id), u]));
+    // Today's IN taps, any cart — one bounded query, not one per staff.
+    let inStaffIds = new Set();
+    try {
+      const inShifts = await fsRunQuery("shifts", {
+        filters: [{ field: "ts", op: "GREATER_THAN_OR_EQUAL", value: manilaDayStart(0) }],
+        limit: 500,
+      });
+      inStaffIds = new Set(
+        (inShifts ?? []).filter((s) => s?.event === "IN").map((s) => Number(s.staffId)).filter(Number.isFinite),
+      );
+    } catch {
+      // Unreadable shifts — bail rather than guess who is absent.
+      return;
+    }
+    const due = [];
+    for (const [staffId, rawDoc] of scheduleMap) {
+      const days = normalizeScheduleDays(rawDoc?.days);
+      if (!days) continue;
+      const entry = days[weekday];
+      if (!entry) continue; // day off — nobody is absent
+      if (nowMin < hmToMinutes(entry.start) + 30) continue; // grace window
+      if (inStaffIds.has(staffId)) continue; // they tapped in
+      const user = byId.get(staffId);
+      if (!user || user.active === false) continue;
+      const markerId = `absence_${dayKey}_${staffId}`;
+      const marker = await fsGet("absencePushes", markerId).catch(() => null);
+      if (marker) continue;
+      due.push({ staffId, user, entry, markerId });
+    }
+    // Claim each marker separately: the create-only precondition lets only
+    // one cart's heartbeat win the right to notify for a staff member that
+    // day, even if several sweep at once.
+    for (const item of due) {
+      try {
+        await fsCommit([createWrite("absencePushes", item.markerId, { staffId: item.staffId, date: dayKey, at: new Date() })]);
+      } catch {
+        continue; // another cart's sweep beat us to it (or a transient error) — stay silent
+      }
+      const name = item.user.name ?? item.user.username ?? `Staff ${item.staffId}`;
+      await pushToOwners({
+        title: "No time in yet",
+        body: `${name} is scheduled ${item.entry.start}-${item.entry.end} on ${SCHEDULE_WEEKDAY_LABEL[weekday]} but has not tapped in.`,
+        data: { link: "attendance", staffId: item.staffId, date: dayKey, staffName: name },
+      }).catch(() => {});
+    }
+  } catch {
+    // Best-effort; a heartbeat must never fail.
+  }
+}
+
 async function handleDeviceHeartbeat(_req, _origin, device) {
   // Liveness ping for registration gating. Touch lastSeenAt so a powered,
   // Wi-Fi-connected node reads as online even when idle (load cells disabled
   // means no readings would otherwise keep it fresh). Mirrors
   // api/src/routes/devices.js POST /devices/heartbeat.
   await fsCommit([updateWrite("devices", device.id, { lastSeenAt: new Date() }, null)]).catch(() => {});
+  // Absence sweep rides along: scheduled staff >30 min late with no tap-in
+  // today gets the owner one push (10-minute memo, per-day dedupe).
+  void maybePushAbsenceAlertsEdge().catch(() => {});
   return { status: 200, body: { ok: true, deviceOnline: true } };
 }
 
@@ -5833,6 +6155,10 @@ async function handleDeviceShifts(req, _origin, device) {
     e.event = intent.event;
   }
 
+  // Weekly schedules for the tap gate below. Tiny collection; prefetched
+  // once so a contention retry does not re-read it.
+  const scheduleMap = await loadScheduleMapEdge();
+
   const outcome = await withRetry(async () => {
     const accepted = [];
     const rejected = [];
@@ -5926,6 +6252,40 @@ async function handleDeviceShifts(req, _origin, device) {
           reason: wrongCartMessage(cardLocationCode(user)),
         });
         continue;
+      }
+      // Weekly staff schedule (owner-managed roster): a tap outside the
+      // person's scheduled window never logs a shift. Unscheduled staff are
+      // unrestricted. Mirrors routes/iot.js.
+      if (user) {
+        const rawSchedule = scheduleMap.get(user.id) ?? null;
+        const sVerdict = staffScheduleVerdict(rawSchedule, ts.getTime(), event);
+        if (sVerdict.scheduled && sVerdict.ok === false) {
+          rejected.push({ staff_uid: uid, event, reason: sVerdict.reason });
+          const dedupeKey = `schedule:${location.id}:${user.id}:${event}`;
+          const dup =
+            createdNeedles.has(dedupeKey) ||
+            unreadAlerts.some((a) => {
+              try {
+                if (JSON.parse(a.payload ?? "{}")?.dedupeKey === dedupeKey) return true;
+              } catch { /* fall through */ }
+              return false;
+            });
+          if (!dup) {
+            createdNeedles.add(dedupeKey);
+            newAlerts.push({
+              type: "TIMECLOCK_WINDOW",
+              message: `${event === "OUT" ? "Time out" : "Time in"} blocked at ${location.code}: ${sVerdict.reason}`,
+              payload: JSON.stringify({
+                dedupeKey,
+                event,
+                staffId: user.id,
+                locationId: location.id,
+                locationCode: location.code,
+              }),
+            });
+          }
+          continue;
+        }
       }
       // One IN and one OUT per person per Manila day. After a time in, the
       // next tap is a duplicate, not a new shift.
@@ -6225,10 +6585,19 @@ async function handleShiftsHistory(url) {
   });
   const locations = await fsListAll("locations");
   const locById = new Map(locations.map((l) => [l.id, l]));
+  const scheduleMap = await loadScheduleMapEdge();
   const data = slice.map((s) => {
     const c = cleanDoc(s);
     const loc = locById.get(s.locationId);
     c.location = loc ? { code: loc.code, name: loc.name } : null;
+    const raw = s.staffId != null ? scheduleMap.get(Number(s.staffId)) ?? null : null;
+    const entry = scheduleEntryForInstant(raw, s.ts);
+    // No schedule doc -> "No schedule"; scheduled day off -> "Not scheduled".
+    c.punctuality = entry === undefined
+      ? { label: "No schedule", tone: "neutral" }
+      : entry === null
+        ? { label: "Not scheduled", tone: "neutral" }
+        : tapBadgeEdge(s.event, s.ts, entry);
     return c;
   });
   const _last = slice[slice.length - 1];
@@ -7351,6 +7720,7 @@ async function handleStaffPerformance(url) {
   const userById = new Map(users.map((u) => [Number(u.id), u]));
   const paid = orderRows.filter((o) => o.status === "PAID");
   const recent = shiftRows;
+  const scheduleMap = await loadScheduleMapEdge();
   const byStaff = new Map();
   for (const o of paid) {
     const staff = userById.get(Number(o.staffId));
@@ -7374,11 +7744,30 @@ async function handleStaffPerformance(url) {
     if (s.event === "OUT") entry.shifts_out = (entry.shifts_out ?? 0) + 1;
     byStaff.set(staff.id, entry);
   }
+  // On-time discipline per staff (classified scheduled clock-ins only).
+  for (const s of recent) {
+    if (s.event !== "IN") continue;
+    const staff = userById.get(Number(s.staffId));
+    if (!staff) continue;
+    const raw = scheduleMap.get(Number(staff.id)) ?? null;
+    if (!raw) continue;
+    const schedEntry = scheduleEntryForInstant(raw, s.ts);
+    if (!schedEntry) continue;
+    const bucket = byStaff.get(staff.id);
+    if (!bucket) continue;
+    bucket.in_classified = (bucket.in_classified ?? 0) + 1;
+    if (tapBadgeEdge("IN", s.ts, schedEntry).tone === "ok") {
+      bucket.in_on_time = (bucket.in_on_time ?? 0) + 1;
+    }
+  }
   const summary = [...byStaff.values()].map((e) => ({
     ...e,
     avg_ticket: e.orders > 0 ? Number((e.total_sales / e.orders).toFixed(2)) : 0,
     total_sales: Number(e.total_sales.toFixed(2)),
     shifts_completed: Math.min(e.shifts_in ?? 0, e.shifts_out ?? 0),
+    on_time_pct: e.in_classified > 0
+      ? Math.round(((e.in_on_time ?? 0) / e.in_classified) * 100)
+      : null,
   }));
   summary.sort((a, b) => b.total_sales - a.total_sales);
   return {
@@ -10866,7 +11255,9 @@ Deno.serve(async (req) => {
       }
       // Shifts management + staff/shift reads + sensor reads (user JWT).
       if (path === "/shifts/manual" || path.startsWith("/shifts/") ||
-          path === "/staff/on-shift" || path === "/readings/recent") {
+          path === "/staff/on-shift" || path === "/readings/recent" ||
+          path === "/staff/schedules" || path === "/staff/my-schedule" ||
+          /^\/staff\/\d+\/schedule$/.test(path)) {
         const auth = await authUser(req);
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
         let out;
@@ -10885,6 +11276,21 @@ Deno.serve(async (req) => {
         }
         else if (req.method === "GET" && path === "/readings/recent") {
           out = await handleReadingsRecent(inUrl);
+        }
+        // Staff weekly schedules. The roster and the per-staff PUT are OWNER-only;
+        // my-schedule is any signed-in role (the POS greys its Time buttons from it).
+        else if (req.method === "GET" && path === "/staff/schedules") {
+          const ownErr = requireOwner(auth.user);
+          if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
+          out = await handleListSchedules();
+        }
+        else if (req.method === "GET" && path === "/staff/my-schedule") {
+          out = await handleMySchedule(auth.user);
+        }
+        else if (req.method === "PUT" && /^\/staff\/\d+\/schedule$/.test(path)) {
+          const ownErr = requireOwner(auth.user);
+          if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
+          out = await handlePutStaffSchedule(req, Number(path.split("/")[2]), auth.user);
         }
         else return notFoundRes(origin, req, path);
         return jsonRes(origin, out.body, out.status);
