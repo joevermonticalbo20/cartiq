@@ -20,6 +20,7 @@ import '../utils/manila_time.dart';
 import '../widgets/app_badge.dart';
 import '../widgets/app_skeleton.dart';
 import '../widgets/empty_state.dart';
+import '../services/pending_proof_store.dart';
 import '../widgets/pos_quantity.dart';
 import '../widgets/section_header.dart';
 
@@ -481,64 +482,282 @@ class _HistoryScreenState extends State<HistoryScreen> {
     await _loadMore(reset: true);
   }
 
-  /// Uploads the GCash proof photo again - for when the staff grabbed the
-  /// wrong picture (or none) at the counter. Only allowed while the owner
-  /// has not decided the payment yet; the server enforces the same lock.
+  /// The replace-proof flow for a pending GCash order.
+  ///
+  /// Opens a sheet with the two ways to get the photo in: the camera or an
+  /// upload from the gallery. The capture stays on the device the moment it
+  /// is taken (keyed to this order), so if the vendor closes the sheet or
+  /// the app, reopening it here shows the same photo instead of an empty
+  /// picker. Nothing is uploaded until they tap "Use this photo".
   Future<void> _replaceReceipt(
     Map<String, dynamic> order,
   ) async {
     final rawId = order['id'];
-    final auth = context.read<AuthState>();
-    final token = auth.token;
-    if (rawId is! num || token == null) {
+    if (rawId is! num) {
       AppMessenger.showGlassToast(
         context: context,
-        message: token == null
-            ? 'Session expired. Please log in again.'
-            : 'Cannot upload: order has no numeric id.',
+        message: 'Cannot upload: order has no numeric id.',
         isSuccess: false,
       );
       return;
     }
-    try {
-      final picker = ImagePicker();
-      final xfile = await picker.pickImage(
-        source: ImageSource.camera,
-        imageQuality: 55,
-        maxWidth: 1024,
-        maxHeight: 1024,
-      );
-      if (xfile == null) return;
-      final path = xfile.path.toLowerCase();
-      final bytes = await File(xfile.path).readAsBytes();
-      if (bytes.isEmpty) return;
-      await auth.api.uploadOrderReceipt(
-        token,
-        rawId.toInt(),
-        mime: path.endsWith('.png') ? 'image/png' : 'image/jpeg',
-        data: base64Encode(bytes),
-      );
-      if (!mounted) return;
-      AppMessenger.showGlassToast(
-        context: context,
-        message: 'Receipt updated - the owner will see the new photo',
-        isSuccess: true,
-      );
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      AppMessenger.showGlassToast(
-        context: context,
-        message: e.message,
-        isSuccess: false,
-      );
-    } catch (_) {
-      if (!mounted) return;
-      AppMessenger.showGlassToast(
-        context: context,
-        message: 'Could not upload the photo. Try again when you are online.',
-        isSuccess: false,
-      );
+    final orderId = rawId.toInt();
+    final store = context.read<PendingProofStore>();
+    final key = PendingProofStore.orderKey(orderId);
+    // Restore a previously-captured photo, if any.
+    File? restored;
+    final savedPath = await store.read(key: key);
+    if (savedPath != null) {
+      final saved = File(savedPath);
+      if (await saved.exists()) restored = saved;
     }
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          var current = restored;
+          var busy = false;
+
+          Future<void> pick(ImageSource source) async {
+            if (busy) return;
+            try {
+              final picker = ImagePicker();
+              final xfile = await picker.pickImage(
+                source: source,
+                imageQuality: 55,
+                maxWidth: 1024,
+                maxHeight: 1024,
+              );
+              if (xfile == null) return;
+              // Persist immediately: the vendor may leave and come back.
+              await store.write(key: key, path: xfile.path);
+              setSheetState(() {
+                current = File(xfile.path);
+              });
+              Haptics.success();
+            } catch (_) {
+              if (!sheetContext.mounted) return;
+              AppMessenger.showGlassToast(
+                context: sheetContext,
+                message: source == ImageSource.camera
+                    ? 'Could not open the camera. Check the camera permission.'
+                    : 'Could not open the gallery. Check the media permission.',
+                isSuccess: false,
+              );
+            }
+          }
+
+          Future<void> upload() async {
+            if (current == null || busy) return;
+            final auth = context.read<AuthState>();
+            final token = auth.token;
+            if (token == null) {
+              AppMessenger.showGlassToast(
+                context: context,
+                message: 'Session expired. Please log in again.',
+                isSuccess: false,
+              );
+              return;
+            }
+            setSheetState(() => busy = true);
+            try {
+              final bytes = await current!.readAsBytes();
+              if (bytes.isEmpty) {
+                throw const FormatException('empty image');
+              }
+              final path = current!.path.toLowerCase();
+              await auth.api.uploadOrderReceipt(
+                token,
+                orderId,
+                mime: path.endsWith('.png') ? 'image/png' : 'image/jpeg',
+                data: base64Encode(bytes),
+              );
+              await store.delete(key: key);
+              if (!sheetContext.mounted || !mounted) return;
+              Navigator.pop(sheetContext);
+              Haptics.success();
+              AppMessenger.showGlassToast(
+                context: context,
+                message:
+                    'Receipt updated - the owner will see the new photo',
+                isSuccess: true,
+              );
+            } on ApiException catch (e) {
+              if (!sheetContext.mounted || !mounted) return;
+              AppMessenger.showGlassToast(
+                context: context,
+                message: e.message,
+                isSuccess: false,
+              );
+            } catch (_) {
+              if (!sheetContext.mounted || !mounted) return;
+              AppMessenger.showGlassToast(
+                context: context,
+                message:
+                    'Could not upload the photo. Try again when you are online.',
+                isSuccess: false,
+              );
+            } finally {
+              if (sheetContext.mounted) setSheetState(() => busy = false);
+            }
+          }
+
+          final preview = current;
+          return SafeArea(
+            top: false,
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                AppSpacing.space5,
+                AppSpacing.space3,
+                AppSpacing.space5,
+                AppSpacing.space5 + MediaQuery.of(context).viewInsets.bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(AppRadius.xs),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.space2),
+                  Text(
+                    'Replace proof photo',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Order #$orderId - shown to the owner for confirmation',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: AppSpacing.space3),
+                  if (preview == null)
+                    Column(
+                      children: [
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: () => pick(ImageSource.camera),
+                            icon: const Icon(Icons.camera_alt_rounded),
+                            label: const Text('Take photo'),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size(0, 52),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.space2),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () => pick(ImageSource.gallery),
+                            icon: const Icon(
+                              Icons.photo_library_outlined,
+                            ),
+                            label: const Text('Upload photo'),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(0, 52),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  else ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.m),
+                      child: GestureDetector(
+                        onTap: () => showPosImageViewer(
+                          context,
+                          file: preview,
+                        ),
+                        child: Image.file(
+                          preview,
+                          height: 200,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.space2),
+                    Text(
+                      'Tap the photo to view it full screen',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: AppSpacing.space3),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed:
+                                busy ? null : () => pick(ImageSource.camera),
+                            icon: const Icon(Icons.camera_alt_outlined),
+                            label: const Text('Retake'),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(0, 46),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.space2),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed:
+                                busy ? null : () => pick(ImageSource.gallery),
+                            icon: const Icon(
+                              Icons.photo_library_outlined,
+                            ),
+                            label: const Text('Upload photo'),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(0, 46),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.space2),
+                    FilledButton.icon(
+                      onPressed: busy ? null : upload,
+                      icon: busy
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Icon(Icons.check_rounded),
+                      label:
+                          Text(busy ? 'Uploading…' : 'Use this photo'),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(0, 52),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: AppSpacing.space2),
+                  TextButton(
+                    onPressed: () => Navigator.pop(sheetContext),
+                    child: const Text('Back'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   /// Shows the GCash proof photo the POS attached to this order. The

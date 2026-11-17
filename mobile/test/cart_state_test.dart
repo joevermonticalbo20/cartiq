@@ -89,6 +89,32 @@ void main() {
       expect(cart.total, 0);
     });
 
+    test('setQty cannot push the order past the 200-unit cap', () {
+      final cart = CartState();
+      cart.add('Medium Fries', 'Medium', 20);
+      cart.add('Large Fries', 'Large', 30);
+      cart.setQty(cart.items.first, 150);
+      cart.setQty(cart.items.last, 100); // would make 250
+      expect(cart.totalQty, 200);
+      expect(cart.items.last.qty, 50);
+    });
+
+    test('add cannot start a new line past the 200-unit cap', () {
+      final cart = CartState();
+      cart.add('Medium Fries', 'Medium', 20, qty: 150, maxQty: 300);
+      cart.add('Cheese Powder', null, 10, qty: 100, maxQty: 100);
+      expect(cart.totalQty, 200);
+      expect(cart.items.last.qty, 50);
+    });
+
+    test('changeQty cannot grow a line past the remaining capacity', () {
+      final cart = CartState();
+      cart.add('Medium Fries', 'Medium', 20, qty: 200, maxQty: 300);
+      cart.changeQty(cart.items.first, 1);
+      expect(cart.items.first.qty, 200);
+      expect(cart.totalQty, 200);
+    });
+
     test('restores a stock-rejected mixed order for editing', () {
       final cart = CartState();
       cart.restoreRejectedOrder({

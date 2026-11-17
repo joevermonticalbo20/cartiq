@@ -98,6 +98,17 @@ class CartState extends ChangeNotifier {
   int get totalQty => _items.fold(0, (sum, it) => sum + it.qty);
   double get total => _items.fold(0, (sum, it) => sum + it.lineTotal);
 
+  /// Units still sellable in this cart: [QuantityInput.maximum] minus
+  /// everything already in it. Every entry point respects this.
+  int get remainingCapacity =>
+      (QuantityInput.maximum - totalQty).clamp(0, QuantityInput.maximum);
+
+  /// The most this one line may become, accounting for everything else in the
+  /// cart. [item] must be an item currently in the cart.
+  int capacityFor(CartItem item) => (QuantityInput.maximum -
+          (totalQty - item.qty))
+      .clamp(0, QuantityInput.maximum);
+
   /// True when this cart was rebuilt from a draft that was saved before the
   /// app was closed (the vendor left mid-order). The POS shows a hint once,
   /// then clears the flag.
@@ -128,21 +139,26 @@ class CartState extends ChangeNotifier {
     final key = '$productName|$names';
     final existing = _items.where((it) => it.key == key).toList();
     if (existing.isNotEmpty) {
-      final next = existing.first.qty + qty;
-      final ceiling = maxQty ?? existing.first.maxQty;
-      final capped = ceiling == null
-          ? next.clamp(1, QuantityInput.maximum)
-          : next.clamp(1, ceiling.clamp(1, QuantityInput.maximum));
-      existing.first.qty = capped.toInt();
+      final target = existing.first;
+      final otherUnits = totalQty - target.qty;
+      final orderCap = (QuantityInput.maximum - otherUnits)
+          .clamp(0, QuantityInput.maximum);
+      final stockCeiling = maxQty ?? target.maxQty;
+      final ceiling =
+          stockCeiling == null || stockCeiling > orderCap ? orderCap : stockCeiling;
+      if (ceiling <= 0) return; // the cart is already full
+      target.qty = (target.qty + qty).clamp(1, ceiling).toInt();
     } else {
+      if (remainingCapacity <= 0) return; // the cart is already full
+      final effectiveCap = maxQty == null
+          ? remainingCapacity
+          : (maxQty < remainingCapacity ? maxQty : remainingCapacity);
       _items.add(
         CartItem(
           productName: productName,
           flavor: flavor,
           unitPrice: unitPrice,
-          qty: maxQty == null
-              ? qty.clamp(1, QuantityInput.maximum).toInt()
-              : qty.clamp(1, maxQty.clamp(1, QuantityInput.maximum)).toInt(),
+          qty: qty.clamp(1, effectiveCap).toInt(),
           maxQty: maxQty,
         ),
       );
@@ -162,22 +178,27 @@ class CartState extends ChangeNotifier {
     final key = '$productName|$normalized';
     final existing = _items.where((it) => it.key == key).toList();
     if (existing.isNotEmpty) {
-      final next = existing.first.qty + qty;
-      final ceiling = maxQty ?? existing.first.maxQty;
-      final capped = ceiling == null
-          ? next.clamp(1, QuantityInput.maximum)
-          : next.clamp(1, ceiling.clamp(1, QuantityInput.maximum));
-      existing.first.qty = capped.toInt();
+      final target = existing.first;
+      final otherUnits = totalQty - target.qty;
+      final orderCap = (QuantityInput.maximum - otherUnits)
+          .clamp(0, QuantityInput.maximum);
+      final stockCeiling = maxQty ?? target.maxQty;
+      final ceiling =
+          stockCeiling == null || stockCeiling > orderCap ? orderCap : stockCeiling;
+      if (ceiling <= 0) return; // the cart is already full
+      target.qty = (target.qty + qty).clamp(1, ceiling).toInt();
     } else {
+      if (remainingCapacity <= 0) return; // the cart is already full
+      final effectiveCap = maxQty == null
+          ? remainingCapacity
+          : (maxQty < remainingCapacity ? maxQty : remainingCapacity);
       _items.add(
         CartItem(
           productName: productName,
           flavor: null,
           flavors: normalized,
           unitPrice: unitPrice,
-          qty: maxQty == null
-              ? qty.clamp(1, QuantityInput.maximum).toInt()
-              : qty.clamp(1, maxQty.clamp(1, QuantityInput.maximum)).toInt(),
+          qty: qty.clamp(1, effectiveCap).toInt(),
           maxQty: maxQty,
         ),
       );
@@ -191,10 +212,12 @@ class CartState extends ChangeNotifier {
   /// (INSUFFICIENT_STOCK) after the customer already paid. A quantity of zero
   /// or less removes the line.
   void setQty(CartItem item, int qty) {
-    final ceiling = item.maxQty;
     var next = qty;
-    if (ceiling != null && next > ceiling) next = ceiling;
     if (next > QuantityInput.maximum) next = QuantityInput.maximum;
+    final ceiling = item.maxQty;
+    if (ceiling != null && next > ceiling) next = ceiling;
+    final capacity = capacityFor(item);
+    if (next > capacity) next = capacity;
     if (next <= 0) {
       _items.remove(item);
     } else {
@@ -208,12 +231,12 @@ class CartState extends ChangeNotifier {
     // server would reject the whole sale (INSUFFICIENT_STOCK) after the
     // customer already paid.
     final ceiling = item.maxQty;
+    final capacity = capacityFor(item);
     final next = item.qty + delta;
-    if (next > QuantityInput.maximum) {
-      notifyListeners();
-      return;
-    }
-    if (ceiling != null && next > ceiling) {
+    // The line may never exceed what is left for it, no matter what the
+    // stock says.
+    final hardCap = ceiling == null || ceiling > capacity ? capacity : ceiling;
+    if (next > QuantityInput.maximum || next > hardCap) {
       notifyListeners();
       return;
     }

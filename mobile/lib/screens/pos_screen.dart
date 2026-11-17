@@ -16,7 +16,9 @@ import '../services/persisted_queue.dart';
 import '../services/sync_service.dart';
 import '../state/cart_state.dart';
 import '../theme.dart';
+import '../services/pending_proof_store.dart';
 import '../utils/app_messenger.dart';
+import '../utils/quantity_input.dart';
 import '../utils/digits_input.dart';
 import '../utils/haptics.dart';
 import '../utils/payment_rules.dart';
@@ -452,15 +454,32 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                           onQuantityChanged: (name, value) => setSheetState(() {
                             if (value <= 0) {
                               selection.remove(name);
-                            } else {
-                              final flavor = flavors.firstWhere(
-                                (item) => item['name'] == name,
-                              );
-                              final stock = flavor['availableServings'];
-                              selection[name] = stock is num
-                                  ? value.clamp(1, stock.toInt()).toInt()
-                                  : value;
+                              return;
                             }
+                            final stock = flavors.firstWhere(
+                              (item) => item['name'] == name,
+                            )['availableServings'];
+                            // The whole cart may not exceed the 200-unit cap.
+                            final otherUnits = selection.entries
+                                .where((entry) => entry.key != name)
+                                .fold<int>(0, (sum, entry) => sum + entry.value);
+                            final capacityLeft = QuantityInput.maximum -
+                                context.read<CartState>().totalQty;
+                            final limit = (capacityLeft - otherUnits)
+                                .clamp(0, QuantityInput.maximum);
+                            if (value > limit) {
+                              final over = value - limit;
+                              AppMessenger.showGlassToast(
+                                context: context,
+                                message: QuantityInput.capacityMessage(over),
+                                isSuccess: false,
+                              );
+                              selection[name] = limit;
+                              return;
+                            }
+                            selection[name] = stock is num
+                                ? value.clamp(1, stock.toInt()).toInt()
+                                : value;
                           }),
                           onQuickAdd: (name, amount) => setSheetState(() {
                             final flavor = flavors.firstWhere(
@@ -468,11 +487,37 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                             );
                             final stock = flavor['availableServings'];
                             final current = selection[name] ?? 0;
-                            selection[name] = stock is num
+                            final otherUnits = selection.entries
+                                .where((entry) => entry.key != name)
+                                .fold<int>(0, (sum, entry) => sum + entry.value);
+                            final capacityLeft = QuantityInput.maximum -
+                                context.read<CartState>().totalQty;
+                            final limit = (capacityLeft - otherUnits)
+                                .clamp(0, QuantityInput.maximum);
+                            final next = stock is num
                                 ? (current + amount)
                                       .clamp(1, stock.toInt())
                                       .toInt()
                                 : current + amount;
+                            if (next > limit) {
+                              final over = next - limit;
+                              if (limit <= 0) {
+                                AppMessenger.showGlassToast(
+                                  context: context,
+                                  message: QuantityInput.capacityMessage(over),
+                                  isSuccess: false,
+                                );
+                                return;
+                              }
+                              AppMessenger.showGlassToast(
+                                context: context,
+                                message: QuantityInput.capacityMessage(over),
+                                isSuccess: false,
+                              );
+                              selection[name] = limit;
+                              return;
+                            }
+                            selection[name] = next;
                           }),
                         ),
                       ),
@@ -568,12 +613,32 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
                               setSheetState(() {
                                 if (value <= 0) {
                                   quantities.remove(name);
-                                } else {
-                                  final stock = _sizeStock(sizes, name);
-                                  quantities[name] = stock == null
-                                      ? value
-                                      : value.clamp(1, stock).toInt();
+                                  return;
                                 }
+                                final stock = _sizeStock(sizes, name);
+                                // The whole cart may not exceed the 200-unit
+                                // cap.
+                                final otherUnits = quantities.entries
+                                    .where((entry) => entry.key != name)
+                                    .fold<int>(0, (sum, entry) => sum + entry.value);
+                                final capacityLeft = QuantityInput.maximum -
+                                    context.read<CartState>().totalQty;
+                                final limit = (capacityLeft - otherUnits)
+                                    .clamp(0, QuantityInput.maximum);
+                                if (value > limit) {
+                                  final over = value - limit;
+                                  AppMessenger.showGlassToast(
+                                    context: context,
+                                    message:
+                                        QuantityInput.capacityMessage(over),
+                                    isSuccess: false,
+                                  );
+                                  quantities[name] = limit;
+                                  return;
+                                }
+                                quantities[name] = stock == null
+                                    ? value
+                                    : value.clamp(1, stock).toInt();
                               }),
                         ),
                       ),
@@ -832,6 +897,14 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
           isSuccess: false,
         );
         return;
+      }
+
+      // The proof rides inside the queued record from here on, so the
+      // pending copy on disk is no longer needed.
+      if (mounted) {
+        await context.read<PendingProofStore>().delete(
+          key: PendingProofStore.cartKey,
+        );
       }
 
       if (sheetContext.mounted) {
@@ -1301,6 +1374,27 @@ class _CartSheetState extends State<_CartSheet> {
   bool _submitting = false;
 
   @override
+  void initState() {
+    super.initState();
+    // The vendor closed this sheet earlier after capturing the proof: bring
+    // the photo back so it is never shot twice for the same sale.
+    _restoreProof();
+  }
+
+  Future<void> _restoreProof() async {
+    final store = context.read<PendingProofStore>();
+    final path = await store.read(key: PendingProofStore.cartKey);
+    if (path == null) return;
+    final file = File(path);
+    if (!await file.exists()) {
+      await store.delete(key: PendingProofStore.cartKey);
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _gcashProofImage = file);
+  }
+
+  @override
   void dispose() {
     _cashController.dispose();
     super.dispose();
@@ -1317,6 +1411,8 @@ class _CartSheetState extends State<_CartSheet> {
 
   bool get _canPay {
     if (_submitting) return false;
+    // A cart that crossed the 200-unit cap cannot be recorded at all.
+    if (widget.cart.totalQty > QuantityInput.maximum) return false;
     if (_method == PaymentMethod.gcash) {
       // A GCash sale without the photo is not a sale: the owner needs the
       // proof to reconcile it later.
@@ -1329,6 +1425,13 @@ class _CartSheetState extends State<_CartSheet> {
 
   void _submitIfReady() {
     if (!_canPay) {
+      if (widget.cart.totalQty > QuantityInput.maximum) {
+        AppMessenger.showGlassToast(
+          context: context,
+          message: QuantityInput.limitMessage,
+          isSuccess: false,
+        );
+      }
       return;
     }
     setState(() => _submitting = true);
@@ -1339,7 +1442,7 @@ class _CartSheetState extends State<_CartSheet> {
     );
   }
 
-  Future<void> _pickGCashProof() async {
+  Future<void> _pickGCashProof(ImageSource source) async {
     if (_isPickingImage) {
       return;
     }
@@ -1352,7 +1455,7 @@ class _CartSheetState extends State<_CartSheet> {
       // cart has no signal. 1024px @ q55 lands most GCash proofs near a
       // tenth of the cap; the API 413 path is still surfaced, never silent.
       final xfile = await picker.pickImage(
-        source: ImageSource.camera,
+        source: source,
         imageQuality: 55,
         maxWidth: 1024,
         maxHeight: 1024,
@@ -1363,6 +1466,9 @@ class _CartSheetState extends State<_CartSheet> {
       if (!mounted) return;
       if (xfile != null) {
         setState(() => _gcashProofImage = File(xfile.path));
+        // Keep the photo even if the vendor closes this sheet before paying.
+        final store = context.read<PendingProofStore>();
+        await store.write(key: PendingProofStore.cartKey, path: xfile.path);
         Haptics.success();
       }
     } catch (_) {
@@ -1370,7 +1476,9 @@ class _CartSheetState extends State<_CartSheet> {
       setState(() => _isPickingImage = false);
       AppMessenger.showGlassToast(
         context: context,
-        message: 'Could not open the camera. Check the camera permission.',
+        message: source == ImageSource.camera
+            ? 'Could not open the camera. Check the camera permission.'
+            : 'Could not open the gallery. Check the media permission.',
         isSuccess: false,
       );
       return;
@@ -1525,6 +1633,7 @@ class _CartSheetState extends State<_CartSheet> {
                                           context,
                                           quantity: item.qty,
                                           maxQuantity: item.maxQty,
+                                          capacityLimit: cart.capacityFor(item),
                                           title:
                                               'How many ${item.displayFlavor.isEmpty ? item.productName : item.displayFlavor}?',
                                         );
@@ -1600,6 +1709,27 @@ class _CartSheetState extends State<_CartSheet> {
                                           constraints: const BoxConstraints(),
                                           onPressed: () {
                                             Haptics.select();
+                                            final stock = item.maxQty;
+                                            if (stock != null && item.qty + 1 > stock) {
+                                              AppMessenger.showGlassToast(
+                                                context: context,
+                                                message: stock == 1
+                                                    ? 'Only 1 left in stock'
+                                                    : 'Only $stock left in stock',
+                                                isSuccess: false,
+                                              );
+                                              return;
+                                            }
+                                            final cap = cart.capacityFor(item);
+                                            if (item.qty + 1 > cap) {
+                                              AppMessenger.showGlassToast(
+                                                context: context,
+                                                message: QuantityInput
+                                                    .capacityMessage(item.qty + 1 - cap),
+                                                isSuccess: false,
+                                              );
+                                              return;
+                                            }
                                             cart.changeQty(item, 1);
                                           },
                                           icon: const Icon(Icons.add),
@@ -1778,7 +1908,7 @@ class _CartSheetState extends State<_CartSheet> {
                                 OutlinedButton.icon(
                                   onPressed: _isPickingImage
                                       ? null
-                                      : _pickGCashProof,
+                                      : () => _pickGCashProof(ImageSource.camera),
                                   icon: _isPickingImage
                                       ? const SizedBox(
                                           width: 16,
@@ -1803,6 +1933,23 @@ class _CartSheetState extends State<_CartSheet> {
                                     ),
                                   ),
                                 ),
+                                const SizedBox(height: AppSpacing.space2),
+                                OutlinedButton.icon(
+                                  onPressed: _isPickingImage
+                                      ? null
+                                      : () => _pickGCashProof(ImageSource.gallery),
+                                  icon: const Icon(
+                                    Icons.photo_library_outlined,
+                                    size: 16,
+                                  ),
+                                  label: const Text('Upload photo'),
+                                  style: OutlinedButton.styleFrom(
+                                    minimumSize: const Size(0, 44),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                    ),
+                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -1812,7 +1959,7 @@ class _CartSheetState extends State<_CartSheet> {
                       // The big tap area: the whole block opens the camera,
                       // so nobody has to aim at a small button.
                       InkWell(
-                        onTap: _isPickingImage ? null : _pickGCashProof,
+                        onTap: _isPickingImage ? null : () => _pickGCashProof(ImageSource.camera),
                         borderRadius: BorderRadius.circular(AppRadius.m),
                         child: Container(
                           width: double.infinity,
@@ -1872,6 +2019,29 @@ class _CartSheetState extends State<_CartSheet> {
                           ),
                         ),
                       ),
+                    // Beside the capture path, the vendor may always pick an
+                    // existing photo instead.
+                    if (_method == PaymentMethod.gcash &&
+                        _gcashProofImage == null) ...[
+                      const SizedBox(height: AppSpacing.space2),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _isPickingImage
+                              ? null
+                              : () =>
+                                  _pickGCashProof(ImageSource.gallery),
+                          icon: const Icon(
+                            Icons.photo_library_outlined,
+                            size: 18,
+                          ),
+                          label: const Text('Upload photo of receipt'),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 48),
+                          ),
+                        ),
+                      ),
+                    ],
                     if (_method == PaymentMethod.gcash &&
                         _gcashProofImage == null) ...[
                       const SizedBox(height: AppSpacing.space2),
@@ -1879,6 +2049,42 @@ class _CartSheetState extends State<_CartSheet> {
                         'Take the GCash receipt photo to record this sale',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: AppColors.muted,
+                        ),
+                      ),
+                    ],
+                    // A cart past the 200-unit cap may not be recorded at
+                    // all - say so right where the vendor commits.
+                    if (widget.cart.totalQty > QuantityInput.maximum) ...[
+                      const SizedBox(height: AppSpacing.space3),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(AppSpacing.space3),
+                        decoration: BoxDecoration(
+                          color: AppColors.danger.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(AppRadius.s),
+                          border: Border.all(
+                            color: AppColors.danger.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.info_outline_rounded,
+                              color: AppColors.danger,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'The order exceeds the 200-unit limit. Remove some servings before recording.',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: AppColors.danger,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],

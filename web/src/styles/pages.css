@@ -1242,6 +1242,12 @@ button.custom-select-trigger.active {
   gap: var(--space-1);
   min-height: 30px;
 }
+/* The icon button and the status pill keep their natural size - the wide
+   "DECLINED" pill must never squeeze the eye button. */
+.sales-actions .sales-icon-btn,
+.sales-actions .sales-void-pill {
+  flex: 0 0 auto;
+}
 /* Element+class keeps these above the global `button` base rules
    (background: var(--primary)) and `button:hover:not(:disabled)`. */
 button.sales-icon-btn {

@@ -293,10 +293,16 @@ class PosQtyStepButton extends StatelessWidget {
 }
 
 /// The numeric dialog used to type a quantity for a cart line.
+///
+/// [capacityLimit] is the most the cart can still take for this line,
+/// already accounting for everything else in the cart. When set and the
+/// vendor types above it, the error says exactly how many servings over the
+/// limit they went.
 Future<int?> showPosQuantityDialog(
   BuildContext context, {
   required int quantity,
   int? maxQuantity,
+  int? capacityLimit,
   String title = 'How many?',
 }) {
   return showDialog<int>(
@@ -304,6 +310,7 @@ Future<int?> showPosQuantityDialog(
     builder: (dialogContext) => _PosQuantityDialog(
       quantity: quantity,
       maxQuantity: maxQuantity,
+      capacityLimit: capacityLimit,
       title: title,
     ),
   );
@@ -313,22 +320,24 @@ class _PosQuantityDialog extends StatefulWidget {
   const _PosQuantityDialog({
     required this.quantity,
     required this.maxQuantity,
+    this.capacityLimit,
     required this.title,
   });
 
   final int quantity;
   final int? maxQuantity;
+  final int? capacityLimit;
   final String title;
 
   @override
   State<_PosQuantityDialog> createState() => _PosQuantityDialogState();
 }
 
-class _PosQuantityDialogState extends State<_PosQuantityDialog> {
-  late final TextEditingController _controller = TextEditingController(
+class _PosQuantityDialogState extends State<_PosQuantityDialog> {  late final TextEditingController _controller = TextEditingController(
     text: widget.quantity.toString(),
   );
   String? _error;
+  bool _limitToastShown = false;
 
   @override
   void dispose() {
@@ -342,6 +351,22 @@ class _PosQuantityDialogState extends State<_PosQuantityDialog> {
       setState(() => _error = 'Enter a number');
       return;
     }
+    final capacity = widget.capacityLimit;
+    if (capacity != null && value > capacity) {
+      final over = value - capacity;
+      final message = QuantityInput.capacityMessage(over);
+      setState(() => _error = message);
+      if (!_limitToastShown) {
+        _limitToastShown = true;
+        AppMessenger.showGlassToast(
+          context: context,
+          message: message,
+          isSuccess: false,
+        );
+      }
+      return;
+    }
+    if (_limitToastShown) _limitToastShown = false;
     if (value > QuantityInput.maximum) {
       setState(() => _error = QuantityInput.limitMessage);
       return;

@@ -14,6 +14,7 @@ import 'services/data_refresh.dart';
 import 'services/dropped_sales_store.dart';
 import 'services/failed_receipts_store.dart';
 import 'services/kv_store.dart';
+import 'services/pending_proof_store.dart';
 import 'services/persisted_queue.dart';
 import 'services/sync_service.dart';
 import 'state/cart_state.dart';
@@ -75,6 +76,10 @@ Future<void> main() async {
   final droppedStore = DroppedSalesStore(
     const SecureStoreAdapter(FlutterSecureStorage()),
   );
+  // GCash proofs the vendor already captured but has not paid/uploaded yet.
+  final pendingProofStore = PendingProofStore(
+    const SecureStoreAdapter(FlutterSecureStorage()),
+  );
   final sync = SyncService(
     api: api,
     auth: auth,
@@ -123,6 +128,7 @@ Future<void> main() async {
     themeController: themeController,
     dataRefresh: dataRefresh,
     cart: cart,
+    pendingProofStore: pendingProofStore,
     startupWarnings: startupWarnings,
   ));
 }
@@ -137,6 +143,7 @@ class _BootApp extends StatefulWidget {
     required this.themeController,
     required this.dataRefresh,
     required this.cart,
+    required this.pendingProofStore,
     this.startupWarnings = const [],
   });
 
@@ -146,6 +153,7 @@ class _BootApp extends StatefulWidget {
   final ThemeController themeController;
   final DataRefresh dataRefresh;
   final CartState cart;
+  final PendingProofStore pendingProofStore;
 
   /// Non-fatal problems hit while starting up (degraded offline storage, an
   /// unreadable preference store). Shown on the splash so a degraded POS is
@@ -216,6 +224,7 @@ class _BootAppState extends State<_BootApp> {
         themeController: widget.themeController,
         dataRefresh: widget.dataRefresh,
         cart: widget.cart,
+        pendingProofStore: widget.pendingProofStore,
       );
     }
     return MaterialApp(
@@ -316,6 +325,7 @@ class CartIQApp extends StatefulWidget {
     required this.themeController,
     required this.dataRefresh,
     required this.cart,
+    required this.pendingProofStore,
   });
 
   final AuthState auth;
@@ -326,6 +336,7 @@ class CartIQApp extends StatefulWidget {
   /// One cart for the whole app: the tabs share the order being recorded, and
   /// it is restored from the device draft when the app starts again.
   final CartState cart;
+  final PendingProofStore pendingProofStore;
 
   @override
   State<CartIQApp> createState() => _CartIQAppState();
@@ -372,6 +383,7 @@ class _CartIQAppState extends State<CartIQApp> {
         ChangeNotifierProvider.value(value: widget.sync),
         ChangeNotifierProvider.value(value: widget.dataRefresh),
         ChangeNotifierProvider.value(value: widget.cart),
+        Provider.value(value: widget.pendingProofStore),
       ],
       child: Consumer2<ThemeController, AuthState>(
         builder: (context, theme, auth, _) {
