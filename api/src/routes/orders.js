@@ -13,6 +13,11 @@ import { announceChange } from "../services/announce.js";
 
 const router = Router();
 
+// Hard cap on total units in one order (sum of every line's qty). The POS
+// warns at 20 units; this is the server gate. Catering orders above the cap
+// are split into two orders.
+const MAX_ORDER_UNITS = 50;
+
 const randomRef = () =>
   globalThis.crypto?.randomUUID?.() ??
   `ref-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -27,6 +32,13 @@ router.post("/orders", requireAuth, async (req, res, next) => {
     }
     if (items.length > 100) {
       return res.status(400).json({ error: "max 100 items per order" });
+    }
+    // Hard cap on the whole order: 50 units in total (sum of every line).
+    // The POS warns at 20 units; the server is the gate, not the app. Catering
+    // orders above 50 must be split into two orders.
+    const unitTotal = items.reduce((sum, it) => sum + (Number.isFinite(+it.qty) ? Math.trunc(+it.qty) : 0), 0);
+    if (unitTotal > MAX_ORDER_UNITS) {
+      return res.status(400).json({ error: `an order may not exceed ${MAX_ORDER_UNITS} units in total — split it into smaller orders` });
     }
     for (const it of items) {
       const qty = +it.qty;

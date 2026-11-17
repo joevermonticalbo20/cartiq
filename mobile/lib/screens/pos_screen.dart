@@ -760,6 +760,21 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
 
       final snapshotTotal = cart.total;
 
+      // Big order: make the cashier double-check past 20 units. The server
+      // refuses above 50 in total - better to ask here than to fail the sale
+      // after the customer already paid.
+      if (cart.totalQty >= 20 && mounted) {
+        final ok = await showAppConfirm(
+          context,
+          title: 'Malaking order ito',
+          message: '${cart.totalQty} units in total. Double-check the quantities before charging.',
+          confirmLabel: 'Continue',
+        );
+        if (!ok) {
+          return;
+        }
+      }
+
       // GCash proof photo: read + base64 ONCE. It rides inside the queued
       // payload; the sync service attaches it to the order after the sale is
       // recorded, so it works for both online and offline (queued) sales.

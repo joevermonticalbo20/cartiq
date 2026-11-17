@@ -61,6 +61,19 @@ async function main() {
   const orderId = created.data?.order?.id;
   check("setup order created", created.status === 201 && typeof orderId === "number");
 
+  // An order over 50 units in total (all lines summed) is refused before any
+  // stock is deducted - the server is the gate, not the app.
+  const tooBig = await req("/orders", {
+    method: "POST",
+    token: tok,
+    body: {
+      clientRef: `phase7-too-big-${run}`,
+      locationCode: "CART-01",
+      items: [{ productName: "Flavored Fries", qty: 51, unitPrice: 40 }],
+    },
+  });
+  check("order over 50 units refused", tooBig.status === 400, `got ${tooBig.status}`);
+
   const staffVoid = await req(`/orders/${orderId}`, {
     method: "PATCH", token: staffTok, body: { status: "VOID" },
   });

@@ -1805,6 +1805,9 @@ async function handleCatalog(req, origin) {
 
 // ---------- orders (mirrors api/src/routes/orders.js) ----------
 const ORDER_PAYMENT_METHODS = ["CASH", "GCASH"];
+// Hard cap on total units in one order (sum of every line's qty). The POS
+// warns at 20 units; this is the server gate.
+const MAX_ORDER_UNITS = 50;
 
 // Void-note rules for the OWNER voiding an order (direct void and approving a
 // staff void request). Mirrored in api/src/services/void_note.js — keep both
@@ -1901,6 +1904,13 @@ async function handleCreateOrder(req, origin, user) {
   }
   if (items.length > 100) {
     return jsonRes(origin, { error: "max 100 items per order" }, 400);
+  }
+  // Hard cap on the whole order: 50 units in total (sum of every line). The
+  // POS warns at 20 units; the server is the gate, not the app. Catering
+  // orders above the cap must be split into two orders.
+  const unitTotal = items.reduce((sum, it) => sum + (Number.isFinite(+it.qty) ? Math.trunc(+it.qty) : 0), 0);
+  if (unitTotal > MAX_ORDER_UNITS) {
+    return jsonRes(origin, { error: `an order may not exceed ${MAX_ORDER_UNITS} units in total — split it into smaller orders` }, 400);
   }
   for (const it of items) {
     const qty = +it.qty;
