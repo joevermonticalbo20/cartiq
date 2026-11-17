@@ -310,9 +310,8 @@ class SyncService extends ChangeNotifier {
           errorMessage = e.message;
           break; // retryable: network/timeout/rate-limit/5xx stays queued
         }
-        // Any other 4xx slipped past pre-validation: drop with its status
-        // as the reason, keep draining the rest.
-        await _dropRecord(dropped, record, 'SERVER_REJECTED_${e.statusCode}');
+        // A rejected record carries the server's own words, never a raw code.
+        await _dropRecord(dropped, record, e.message);
         continue;
       } catch (_) {
         break; // network hiccup mid-drain: try again next sync

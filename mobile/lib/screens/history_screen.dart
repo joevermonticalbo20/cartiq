@@ -481,6 +481,66 @@ class _HistoryScreenState extends State<HistoryScreen> {
     await _loadMore(reset: true);
   }
 
+  /// Uploads the GCash proof photo again - for when the staff grabbed the
+  /// wrong picture (or none) at the counter. Only allowed while the owner
+  /// has not decided the payment yet; the server enforces the same lock.
+  Future<void> _replaceReceipt(
+    Map<String, dynamic> order,
+  ) async {
+    final rawId = order['id'];
+    final auth = context.read<AuthState>();
+    final token = auth.token;
+    if (rawId is! num || token == null) {
+      AppMessenger.showGlassToast(
+        context: context,
+        message: token == null
+            ? 'Session expired. Please log in again.'
+            : 'Cannot upload: order has no numeric id.',
+        isSuccess: false,
+      );
+      return;
+    }
+    try {
+      final picker = ImagePicker();
+      final xfile = await picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 55,
+        maxWidth: 1024,
+        maxHeight: 1024,
+      );
+      if (xfile == null) return;
+      final path = xfile.path.toLowerCase();
+      final bytes = await File(xfile.path).readAsBytes();
+      if (bytes.isEmpty) return;
+      await auth.api.uploadOrderReceipt(
+        token,
+        rawId.toInt(),
+        mime: path.endsWith('.png') ? 'image/png' : 'image/jpeg',
+        data: base64Encode(bytes),
+      );
+      if (!mounted) return;
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Receipt updated - the owner will see the new photo',
+        isSuccess: true,
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      AppMessenger.showGlassToast(
+        context: context,
+        message: e.message,
+        isSuccess: false,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Could not upload the photo. Try again when you are online.',
+        isSuccess: false,
+      );
+    }
+  }
+
   /// Shows the GCash proof photo the POS attached to this order. The
   /// endpoint is authenticated (receipts are private), so the bytes are
   /// fetched with the session token and rendered from memory.
@@ -559,6 +619,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final dateStr = dt == null ? 'Unknown' : ManilaTime.formatTime12(dt);
 
     final isVoided = (order['status'] ?? 'PAID').toString() == 'VOID';
+    final isPendingGcash = (order['status'] ?? 'PAID').toString() == 'PENDING_GCASH';
+    final isRejectedGcash = (order['status'] ?? 'PAID').toString() == 'GCASH_REJECTED';
     final voidReason = order['voidReason'];
     final voidRequest = order['voidRequest'];
     final voidPending = voidRequest is Map && voidRequest['status'] == 'pending';
@@ -660,6 +722,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 if (isVoided)
                   const AppBadge(
                     label: 'VOIDED',
+                    variant: AppBadgeVariant.danger,
+                    icon: Icons.block_rounded,
+                  )
+                else if (isPendingGcash)
+                  const AppBadge(
+                    label: 'PENDING',
+                    variant: AppBadgeVariant.warn,
+                    icon: Icons.hourglass_top_rounded,
+                  )
+                else if (isRejectedGcash)
+                  const AppBadge(
+                    label: 'DECLINED',
                     variant: AppBadgeVariant.danger,
                     icon: Icons.block_rounded,
                   )
@@ -897,6 +971,72 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
               ),
             ],
+            if (isPendingGcash) ...[
+              const SizedBox(height: AppSpacing.space3),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppSpacing.space3),
+                decoration: BoxDecoration(
+                  color: AppColors.warn.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(AppRadius.s),
+                  border: Border.all(
+                    color: AppColors.warn.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.hourglass_top_rounded,
+                      color: AppColors.warn,
+                      size: 16,
+                    ),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Waiting for owner confirmation - this is not a sale yet',
+                        style: TextStyle(
+                          color: AppColors.warn,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (isRejectedGcash) ...[
+              const SizedBox(height: AppSpacing.space3),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppSpacing.space3),
+                decoration: BoxDecoration(
+                  color: AppColors.danger.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(AppRadius.s),
+                  border: Border.all(
+                    color: AppColors.danger.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline_rounded,
+                      color: AppColors.danger,
+                      size: 16,
+                    ),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'GCash payment declined by the owner - not a sale',
+                        style: TextStyle(
+                          color: AppColors.danger,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (voidPending) ...[
               const SizedBox(height: AppSpacing.space3),
               Container(
@@ -945,11 +1085,24 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   _viewOrderReceipt(sheetContext, order);
                 },
               ),
+              if (isPendingGcash)
+                TextButton.icon(
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(0, 44),
+                    foregroundColor: AppColors.info,
+                  ),
+                  icon: const Icon(Icons.upload_rounded, size: 18),
+                  label: const Text('Replace proof photo'),
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    _replaceReceipt(order);
+                  },
+                ),
             ],
             const SizedBox(height: AppSpacing.space5),
             Row(
               children: [
-                if (!isVoided && !voidPending)
+                if (!isVoided && !voidPending && !isPendingGcash && !isRejectedGcash)
                   Expanded(
                     child: OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
@@ -967,7 +1120,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       },
                     ),
                   ),
-                if (!isVoided && !voidPending)
+                if (!isVoided && !voidPending && !isPendingGcash && !isRejectedGcash)
                   const SizedBox(width: AppSpacing.space3),
                 Expanded(
                   child: FilledButton(

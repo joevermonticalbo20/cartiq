@@ -12,6 +12,7 @@ import ForgotPassword from "./pages/ForgotPassword.jsx";
 const DashboardPage = lazy(() => import("./pages/DashboardPage.jsx"));
 const SalesPage = lazy(() => import("./pages/SalesPage.jsx"));
 const VoidRequestsPage = lazy(() => import("./pages/VoidRequestsPage.jsx"));
+const GcashApprovalsPage = lazy(() => import("./pages/GcashApprovalsPage.jsx"));
 const InventoryPage = lazy(() => import("./pages/InventoryPage.jsx"));
 const StaffPage = lazy(() => import("./pages/StaffPage.jsx"));
 const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage.jsx"));
@@ -67,6 +68,7 @@ export default function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/sales" element={<SalesPage />} />
             <Route path="/sales/void-requests" element={<VoidRequestsPage />} />
+            <Route path="/sales/gcash-approvals" element={<GcashApprovalsPage />} />
             <Route path="/inventory" element={<InventoryPage />} />
             <Route path="/staff" element={<StaffPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />

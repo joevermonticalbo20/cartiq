@@ -16,7 +16,7 @@ const router = Router();
 // Hard cap on total units in one order (sum of every line's qty). The POS
 // warns at 20 units; this is the server gate. Catering orders above the cap
 // are split into two orders.
-const MAX_ORDER_UNITS = 50;
+const MAX_ORDER_UNITS = 200;
 
 const randomRef = () =>
   globalThis.crypto?.randomUUID?.() ??
@@ -38,17 +38,20 @@ router.post("/orders", requireAuth, async (req, res, next) => {
     // orders above 50 must be split into two orders.
     const unitTotal = items.reduce((sum, it) => sum + (Number.isFinite(+it.qty) ? Math.trunc(+it.qty) : 0), 0);
     if (unitTotal > MAX_ORDER_UNITS) {
-      return res.status(400).json({ error: `an order may not exceed ${MAX_ORDER_UNITS} units in total — split it into smaller orders` });
+      return res.status(400).json({ error: `Limit per order is ${MAX_ORDER_UNITS} units - please split the order` });
     }
     for (const it of items) {
       const qty = +it.qty;
       const price = +it.unitPrice;
       if (typeof it.productName !== "string" || !it.productName.trim() ||
-          !Number.isInteger(qty) || qty < 1 || qty > 100 ||
+          !Number.isInteger(qty) || qty < 1 ||
           !Number.isFinite(price) || price < 0 || price > 10000) {
         return res.status(400).json({
-          error: "each item needs a productName, an integer qty 1-100 and a unitPrice 0-10000",
+          error: "each item needs a productName, an integer qty 1-200 and a unitPrice 0-10000",
         });
+      }
+      if (qty > 200) {
+        return res.status(400).json({ error: "Limit per order is 200 units" });
       }
       if (it.flavorShares !== undefined) {
         const shares = it.flavorShares;
@@ -224,9 +227,13 @@ router.post("/orders", requireAuth, async (req, res, next) => {
             locationId: location.id,
             staffId: req.user.sub,
             total: orderTotal,
-            status: "PAID",
+            // GCash orders are not a sale until the owner confirms the proof.
+            status: payMethod === "GCASH" ? "PENDING_GCASH" : "PAID",
             paymentMethod: payMethod,
             items: itemRows,
+            // The GCash confirmation alert (if any) is linked here so the
+            // decision flow can resolve it without scanning alerts.
+            ...(payMethod === "GCASH" ? { gcash: { status: "pending" } } : {}),
           },
         });
         for (const { inv, newStock } of stockWrites.values()) {
@@ -264,19 +271,25 @@ router.post("/orders", requireAuth, async (req, res, next) => {
       staffName: req.user?.name,
     });
 
-    // Owner notification: a persisted SALE alert feeds the bell on reload
+    // Owner notification: a persisted alert feeds the bell on reload
     // (/alerts) and the live stream (alert:new) for open dashboards. A
     // notification must never fail a recorded sale, hence the try/catch.
+    // GCash sales are announced as "payment to confirm", not as a completed
+    // sale - the owner has not verified the money yet.
+    const isGcashPending = payMethod === "GCASH";
     try {
       const staffName = req.user?.name ?? req.user?.username;
-      const message =
-        `New sale: ₱${Number(result.order.total).toFixed(2)} · ` +
-        `${result.order.items.length} item(s) at ${location.code}` +
-        (staffName ? ` · ${staffName}` : "");
+      const message = isGcashPending
+        ? `GCash payment to confirm: ₱${Number(result.order.total).toFixed(2)} · ` +
+          `${result.order.items.length} item(s) at ${location.code}` +
+          (staffName ? ` · ${staffName}` : "")
+        : `New sale: ₱${Number(result.order.total).toFixed(2)} · ` +
+          `${result.order.items.length} item(s) at ${location.code}` +
+          (staffName ? ` · ${staffName}` : "");
       const alert = await prisma.alert.create({
         data: {
-          type: "SALE",
-          title: "New sale",
+          type: isGcashPending ? "GCASH_CONFIRM" : "SALE",
+          title: isGcashPending ? "GCash payment to confirm" : "New sale",
           locationId: location.id,
           message,
           payload: JSON.stringify({
@@ -284,9 +297,17 @@ router.post("/orders", requireAuth, async (req, res, next) => {
             total: result.order.total,
             itemCount: result.order.items.length,
             locationCode: location.code,
+            paymentMethod: payMethod,
           }),
         },
       });
+      if (isGcashPending && alert?.id != null) {
+        // Link the alert to the order so the decision flow can resolve it.
+        await prisma.order.update({
+          where: { id: result.order.id },
+          data: { gcash: { status: "pending", alertId: alert.id } },
+        });
+      }
       emit("alert:new", {
         id: alert.id,
         type: alert.type,
@@ -319,6 +340,128 @@ router.post("/orders", requireAuth, async (req, res, next) => {
     }
 
     return res.status(201).json({ duplicate: false, ...result, locationCode: location.code });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// GET /orders/pending-gcash (OWNER) — the GCash confirmation queue.
+// `pending` is the order itself (status PENDING_GCASH), never an alert's read
+// state. Each row carries the proof photo's arrival time so the owner can
+// spot a receipt replaced after recording.
+router.get("/orders/pending-gcash", requireAuth, requireRole("OWNER"), async (_req, res, next) => {
+  try {
+    const pending = await prisma.order.findMany({
+      where: { status: "PENDING_GCASH" },
+      include: {
+        items: true,
+        location: { select: { code: true, name: true } },
+        staff: { select: { name: true } },
+      },
+      take: 100,
+    });
+    const data = pending
+      .map((order) => {
+        const receiptMs = order.receipt?.updatedAtMs ? Number(order.receipt.updatedAtMs) : null;
+        const createdMs = order.createdAt ? new Date(order.createdAt).getTime() : null;
+        return {
+          orderId: order.id,
+          id: order.id,
+          total: order.total,
+          createdAt: order.createdAt,
+          staffName: order.staff?.name ?? null,
+          locationCode: order.location?.code ?? null,
+          locationName: order.location?.name ?? null,
+          itemCount: Array.isArray(order.items) ? order.items.length : 0,
+          items: (order.items ?? []).map((it) => ({
+            productName: it.productName,
+            flavor: it.flavor ?? null,
+            qty: it.qty,
+            unitPrice: it.unitPrice,
+          })),
+          receiptAvailable: receiptMs != null,
+          receiptReplacedAfterRecording: receiptMs != null && createdMs != null && receiptMs > createdMs + 60000,
+        };
+      })
+      .sort((a, b) => new Date(a.createdAt ?? 0) - new Date(b.createdAt ?? 0));
+    return res.json({ data, meta: { total: data.length } });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// PATCH /orders/:id/gcash-decision (OWNER) — the GCash confirmation decision.
+//   { decision: "confirm" } — the proof matches the owner's GCash account;
+//     the order becomes PAID and counts as a sale.
+//   { decision: "reject", note } — the payment does not check out; the order
+//     becomes GCASH_REJECTED, the reserved stock is restored, and the note is
+//     required (same rules as the void note: 20-100 letters/digits/space and
+//     , . - _, no three identical characters in a row).
+// Either way the GCASH_CONFIRM alert is resolved so it leaves the bell.
+router.patch("/orders/:id/gcash-decision", requireAuth, requireRole("OWNER"), async (req, res, next) => {
+  try {
+    const decision = String(req.body?.decision ?? "").trim().toLowerCase();
+    if (!["confirm", "reject"].includes(decision)) {
+      return res.status(400).json({ error: 'decision must be "confirm" or "reject"' });
+    }
+    const existing = await prisma.order.findUnique({ where: { id: Number(req.params.id) }, include: { items: true } });
+    if (!existing) return res.status(404).json({ error: "Order not found" });
+    if (existing.status !== "PENDING_GCASH") {
+      return res.status(409).json({ error: "Order is not awaiting a GCash decision" });
+    }
+    const alertId = existing.gcash?.alertId ?? null;
+    const resolveAlert = async () => {
+      if (alertId == null) return;
+      try {
+        await prisma.alert.update({ where: { id: Number(alertId) }, data: { isRead: true } });
+      } catch {
+        /* alert already gone is fine */
+      }
+    };
+    // The staff member who recorded the order hears the outcome either way.
+    const requesterId = existing.staffId ? Number(existing.staffId) : null;
+    const notifyRequester = async (title, message) => {
+      if (!requesterId) return;
+      try {
+        const notify = await prisma.alert.create({
+          data: {
+            type: "GCASH_DECISION",
+            title,
+            message,
+            userId: requesterId,
+            locationId: existing.locationId ?? null,
+            payload: JSON.stringify({ orderId: existing.id }),
+            isRead: false,
+          },
+        });
+        emit("alert:new", { id: notify.id, type: notify.type, userId: notify.userId ?? null, title: notify.title ?? null, message: notify.message, isRead: notify.isRead === true, createdAt: notify.createdAt, locationId: notify.locationId ?? null });
+        sendTargetedPush(notify).catch(() => {});
+      } catch {
+        /* best effort */
+      }
+    };
+
+    if (decision === "confirm") {
+      const out = await performGcashConfirm({ existing, actorId: req.user.sub });
+      await resolveAlert();
+      await notifyRequester(
+        "GCash confirmed",
+        `Order #${existing.id} was confirmed by the owner - it is now a paid sale.`,
+      );
+      return res.json(out);
+    }
+
+    const noteCheck = validateVoidNote(req.body?.note);
+    if (!noteCheck.ok) {
+      return res.status(400).json({ error: noteCheck.error });
+    }
+    const out = await performGcashReject({ existing, actorId: req.user.sub, note: noteCheck.value });
+    await resolveAlert();
+    await notifyRequester(
+      "GCash declined",
+      `Order #${existing.id} was declined by the owner - it is not a sale and the stock was restored.`,
+    );
+    return res.json(out);
   } catch (err) {
     return next(err);
   }
@@ -449,6 +592,9 @@ router.patch("/orders/:id", requireAuth, requireRole("OWNER"), async (req, res, 
     if (existing.status === "VOID") {
       return res.status(400).json({ error: "Order is already void" });
     }
+    if (existing.status === "PENDING_GCASH" || existing.status === "GCASH_REJECTED") {
+      return res.status(409).json({ error: "An unconfirmed GCash order cannot be voided - decide it from the GCash approvals page" });
+    }
     return res.json(await performVoid({ existing, actorId: req.user.sub, reason: voidNote }));
   } catch (err) {
     return next(err);
@@ -525,6 +671,91 @@ async function performVoid({ existing, actorId, reason }) {
   return { order, restored: outcome.restored, warnings: outcome.warnings };
 }
 
+// Shared GCash confirm executor: flips the order to PAID (stock was already
+// reserved at creation) with the deciding owner recorded. The caller
+// verified the order is PENDING_GCASH. Returns { order }.
+async function performGcashConfirm({ existing, actorId }) {
+  await prisma.$transaction(async (tx) => {
+    // Re-read inside the txn: two parallel decisions must not both win.
+    const fresh = await tx.order.findUnique({ where: { id: existing.id } });
+    if (!fresh) throw Object.assign(new Error("Order not found"), { status: 404 });
+    if (fresh.status !== "PENDING_GCASH") {
+      throw Object.assign(new Error("Order is not awaiting a GCash decision"), { status: 409 });
+    }
+    await tx.order.update({
+      where: { id: existing.id },
+      data: {
+        status: "PAID",
+        gcash: { ...(fresh.gcash ?? {}), status: "confirmed", decidedBy: actorId, decidedAt: new Date().toISOString() },
+      },
+    });
+  });
+  const order = await prisma.order.findUnique({ where: { id: existing.id }, include: { items: true } });
+  await announceChange("orders", { id: existing.id, status: "PAID" }).catch(() => {});
+  return { order };
+}
+
+// Shared GCash decline executor: restores the reserved stock (same restore
+// arithmetic as a void) and marks the order GCASH_REJECTED with the owner's
+// note. The caller verified the order is PENDING_GCASH.
+async function performGcashReject({ existing, actorId, note }) {
+  const trimmedNote = String(note ?? "").slice(0, 500);
+  const decision = { status: "rejected", decidedBy: actorId, decidedAt: new Date().toISOString(), note: trimmedNote };
+  if (process.env.VOID_RESTORE === "false") {
+    const updated = await prisma.order.update({
+      where: { id: existing.id },
+      data: { status: "GCASH_REJECTED", gcash: decision },
+      include: { items: true },
+    });
+    await announceChange("orders", { id: existing.id, status: "GCASH_REJECTED" }).catch(() => {});
+    return { order: updated, restored: [], warnings: [] };
+  }
+  const outcome = await prisma.$transaction(async (tx) => {
+    const fresh = await tx.order.findUnique({ where: { id: existing.id } });
+    if (!fresh) throw Object.assign(new Error("Order not found"), { status: 404 });
+    if (fresh.status !== "PENDING_GCASH") {
+      throw Object.assign(new Error("Order is not awaiting a GCash decision"), { status: 409 });
+    }
+    const [maps, invRows] = await Promise.all([
+      tx.ingredientMap.findMany(),
+      tx.inventoryItem.findMany({ where: { locationId: existing.locationId } }),
+    ]);
+    const { restores, warnings } = planVoidRestores(existing.items ?? [], maps, invRows);
+    const alloc = await tx.allocIds({ stockAdjustments: restores.size });
+    const adjIds = alloc.stockAdjustments ?? [];
+    let i = 0;
+    for (const { inv, newStock, added } of restores.values()) {
+      await tx.inventoryItem.update({ where: { id: inv.id }, data: { stock: newStock } });
+      await tx.stockAdjustment.create({
+        data: {
+          id: adjIds[i++],
+          inventoryItemId: inv.id,
+          locationId: inv.locationId,
+          actorId,
+          before: inv.stock,
+          after: newStock,
+          reason: `GCASH REJECT order #${existing.id}: restored ${added} ${inv.unit}${trimmedNote ? ` — ${trimmedNote}` : ""}`.slice(0, 500),
+        },
+      });
+    }
+    const updated = await tx.order.update({
+      where: { id: existing.id },
+      data: { status: "GCASH_REJECTED", gcash: decision },
+    });
+    return {
+      updated,
+      warnings,
+      restored: [...restores.values()].map(({ inv, newStock, added }) => ({ item: inv.name, restored: added, stock: newStock })),
+    };
+  });
+  const order = await prisma.order.findUnique({
+    where: { id: existing.id },
+    include: { items: true },
+  });
+  await announceChange("orders", { id: existing.id, status: "GCASH_REJECTED" }).catch(() => {});
+  return { order, restored: outcome.restored, warnings: outcome.warnings };
+}
+
 // ---------- order receipts (GCash proof photos) ----------
 // Same base64-in-Firestore approach as product images, but PRIVATE: receipts
 // carry customer names/ref numbers, so the GET requires auth (the dashboard
@@ -544,6 +775,11 @@ router.post("/orders/:id/receipt", requireAuth, async (req, res, next) => {
     if (!existing) return res.status(404).json({ error: "Order not found" });
     if (!mayAccessOrder(req.user, existing)) {
       return res.status(403).json({ error: "Forbidden: outside your cart" });
+    }
+    // The receipt is audit evidence once the owner decides the GCash payment:
+    // staff may only upload/replace it while the order awaits confirmation.
+    if (existing.status !== "PENDING_GCASH") {
+      return res.status(409).json({ error: "Order already decided - the receipt is locked" });
     }
     const { data, mime } = req.body ?? {};
     const m = String(mime ?? "").trim().toLowerCase();

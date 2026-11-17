@@ -43,8 +43,8 @@ const t2 = l2.data?.token;
 // orders limits
 const tooMany = await req("POST", "/orders", { token: t2, body: { locationCode: "CART-01", items: Array.from({ length: 101 }, (_, i) => ({ productName: `P${i}`, qty: 1, unitPrice: 10 })) } });
 ok("orders 101 items -> 400", tooMany.status === 400, `got ${tooMany.status}`);
-const badQty = await req("POST", "/orders", { token: t2, body: { locationCode: "CART-01", items: [{ productName: "X", qty: 101, unitPrice: 10 }] } });
-ok("orders qty 101 -> 400", badQty.status === 400, `got ${badQty.status}`);
+const badQty = await req("POST", "/orders", { token: t2, body: { locationCode: "CART-01", items: [{ productName: "X", qty: 201, unitPrice: 10 }] } });
+ok("orders qty 201 -> 400", badQty.status === 400, `got ${badQty.status}`);
 
 // VOID restore: create then void
 const catalog = await req("GET", "/catalog", { token: t2 });

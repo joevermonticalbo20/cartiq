@@ -11,6 +11,13 @@ class QuantityInput {
   /// The smallest order line.
   static const int minimum = 1;
 
+  /// The biggest order (and per line) the server accepts. Mirrored by the
+  /// API: an order with more units in total is refused with a clear message.
+  static const int maximum = 200;
+
+  /// The user-facing copy for the 200-unit limit (POS toast + field error).
+  static const String limitMessage = 'Limit per order is only 200 units';
+
   /// Parses what the vendor typed.
   ///
   /// Returns null when it is not a whole number of at least [minimum].
@@ -28,28 +35,32 @@ class QuantityInput {
   /// did not report one).
   static String? error(int? value, {int? max}) {
     if (value == null) return 'Enter a number';
+    if (value > maximum) return limitMessage;
     if (max != null && value > max) {
       return max == 1 ? 'Only 1 left in stock' : 'Only $max left in stock';
     }
     return null;
   }
 
-  /// Clamps a quantity into the range the stock allows.
+  /// Clamps a quantity into the range the stock allows - and never above
+  /// [maximum].
   static int clamp(int value, {int? max}) {
-    final ceiling = (max == null || max < minimum) ? null : max;
-    if (ceiling == null) return value < minimum ? minimum : value;
+    final stockCeiling = (max == null || max < minimum) ? maximum : max;
+    final ceiling = stockCeiling < maximum ? stockCeiling : maximum;
     if (value < minimum) return minimum;
     if (value > ceiling) return ceiling;
     return value;
   }
 
-  /// How many digits the field may hold: the stock on hand decides it.
+  /// How many digits the field may hold: the stock on hand decides it, the
+  /// absolute [maximum] caps it either way.
   ///
   /// A stock of 130 means three digits - "1310" cannot even be typed, let
   /// alone accepted.
   static int maxDigits(int? max) {
-    if (max == null || max < minimum) return 5;
-    return max.toString().length;
+    if (max == null || max < minimum) return maximum.toString().length;
+    final cap = max < maximum ? max : maximum;
+    return cap.toString().length;
   }
 }
 
@@ -61,10 +72,15 @@ class QuantityInput {
 /// "999" never happens at all. Only whole numbers of at least
 /// [QuantityInput.minimum] make it in.
 class StockInputFormatter extends TextInputFormatter {
-  const StockInputFormatter({this.max});
+  const StockInputFormatter({this.max, this.onRefuse});
 
   /// The stock on hand. Null means "no ceiling known".
   final int? max;
+
+  /// Fires when a value was refused because it broke the absolute cap - the
+  /// caller shows the user-facing toast. Above-stock refusals stay silent
+  /// (the field shows the stock error instead).
+  final VoidCallback? onRefuse;
 
   static final _digitsOnly = RegExp(r'^\d+$');
 
@@ -81,6 +97,10 @@ class StockInputFormatter extends TextInputFormatter {
     final value = int.tryParse(text);
     if (value == null) return oldValue;
     if (value < QuantityInput.minimum) return oldValue;
+    if (value > QuantityInput.maximum) {
+      onRefuse?.call();
+      return oldValue;
+    }
     if (max != null && value > max!) return oldValue;
     return newValue;
   }

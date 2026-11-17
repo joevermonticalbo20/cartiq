@@ -61,7 +61,7 @@ async function main() {
   const orderId = created.data?.order?.id;
   check("setup order created", created.status === 201 && typeof orderId === "number");
 
-  // An order over 50 units in total (all lines summed) is refused before any
+  // An order over 200 units in total (all lines summed) is refused before any
   // stock is deducted - the server is the gate, not the app.
   const tooBig = await req("/orders", {
     method: "POST",
@@ -69,10 +69,10 @@ async function main() {
     body: {
       clientRef: `phase7-too-big-${run}`,
       locationCode: "CART-01",
-      items: [{ productName: "Flavored Fries", qty: 51, unitPrice: 40 }],
+      items: [{ productName: "Flavored Fries", qty: 201, unitPrice: 40 }],
     },
   });
-  check("order over 50 units refused", tooBig.status === 400, `got ${tooBig.status}`);
+  check("order over 200 units refused", tooBig.status === 400, `got ${tooBig.status}`);
 
   const staffVoid = await req(`/orders/${orderId}`, {
     method: "PATCH", token: staffTok, body: { status: "VOID" },
@@ -188,6 +188,36 @@ async function main() {
     method: "PATCH", token: tok,
   });
   check("owner resolve path intact", resolve.data?.alert?.isRead === true);
+
+  // ---- GCash confirmation flow ----
+  const gcash = await req("/orders", {
+    method: "POST",
+    token: tok,
+    body: {
+      clientRef: `phase7-gcash-${run}`,
+      locationCode: "CART-01",
+      items: [{ productName: "Flavored Fries", qty: 1, unitPrice: 40 }],
+      paymentMethod: "GCASH",
+    },
+  });
+  check("gcash order starts pending",
+        gcash.status === 201 && gcash.data?.order?.status === "PENDING_GCASH");
+  // A pending GCash order is not a sale yet. The decision flow is exercised
+  // end-to-end here: confirm turns it into a paid sale.
+  const gcashId = gcash.data?.order?.id;
+  const noNote = await req(`/orders/${gcashId}/gcash-decision`, {
+    method: "PATCH",
+    token: tok,
+    body: { decision: "reject" },
+  });
+  check("reject without a note is refused", noNote.status === 400, `got ${noNote.status}`);
+  const confirmed = await req(`/orders/${gcashId}/gcash-decision`, {
+    method: "PATCH",
+    token: tok,
+    body: { decision: "confirm" },
+  });
+  check("owner confirms the gcash sale",
+        confirmed.status === 200 && confirmed.data?.order?.status === "PAID");
 
   // ---- payment method persistence ----
   const paid = await req("/orders", {

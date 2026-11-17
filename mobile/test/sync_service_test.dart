@@ -233,7 +233,7 @@ void main() {
         expect(await queue.count, 0);
         expect(result.dropped, hasLength(1));
         expect(result.dropped.single.id, 'poison');
-        expect(result.dropped.single.reason, 'SERVER_REJECTED_400');
+        expect(result.dropped.single.reason, 'bad payload');
         expect(result.fullySynced, isFalse);
       },
     );

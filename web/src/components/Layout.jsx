@@ -13,6 +13,7 @@ import {
   ReceiptText,
   Package,
   Settings as SettingsIcon,
+  Smartphone,
   Sun,
   TrendingUp,
   Users,
@@ -35,6 +36,7 @@ const NAV_GROUPS = [
       { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { to: "/sales", label: "Sales", icon: ReceiptText },
       { to: "/sales/void-requests", label: "Void Requests", icon: Hourglass },
+      { to: "/sales/gcash-approvals", label: "GCash Approvals", icon: Smartphone },
       { to: "/inventory", label: "Inventory", icon: Boxes },
       { to: "/staff", label: "Staff & Shifts", icon: Users },
     ]

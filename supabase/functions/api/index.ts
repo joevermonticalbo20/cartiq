@@ -1807,7 +1807,7 @@ async function handleCatalog(req, origin) {
 const ORDER_PAYMENT_METHODS = ["CASH", "GCASH"];
 // Hard cap on total units in one order (sum of every line's qty). The POS
 // warns at 20 units; this is the server gate.
-const MAX_ORDER_UNITS = 50;
+const MAX_ORDER_UNITS = 200;
 
 // Void-note rules for the OWNER voiding an order (direct void and approving a
 // staff void request). Mirrored in api/src/services/void_note.js — keep both
@@ -1905,22 +1905,25 @@ async function handleCreateOrder(req, origin, user) {
   if (items.length > 100) {
     return jsonRes(origin, { error: "max 100 items per order" }, 400);
   }
-  // Hard cap on the whole order: 50 units in total (sum of every line). The
+  // Hard cap on the whole order: 200 units in total (sum of every line). The
   // POS warns at 20 units; the server is the gate, not the app. Catering
   // orders above the cap must be split into two orders.
   const unitTotal = items.reduce((sum, it) => sum + (Number.isFinite(+it.qty) ? Math.trunc(+it.qty) : 0), 0);
   if (unitTotal > MAX_ORDER_UNITS) {
-    return jsonRes(origin, { error: `an order may not exceed ${MAX_ORDER_UNITS} units in total — split it into smaller orders` }, 400);
+    return jsonRes(origin, { error: `Limit per order is ${MAX_ORDER_UNITS} units - please split the order` }, 400);
   }
   for (const it of items) {
     const qty = +it.qty;
     const price = +it.unitPrice;
     if (typeof it.productName !== "string" || !it.productName.trim() ||
-        !Number.isInteger(qty) || qty < 1 || qty > 100 ||
+        !Number.isInteger(qty) || qty < 1 ||
         !Number.isFinite(price) || price < 0 || price > 10000) {
       return jsonRes(origin, {
-        error: "each item needs a productName, an integer qty 1-100 and a unitPrice 0-10000",
+        error: "each item needs a productName, an integer qty 1-200 and a unitPrice 0-10000",
       }, 400);
+    }
+    if (qty > 200) {
+      return jsonRes(origin, { error: "Limit per order is 200 units" }, 400);
     }
     if (it.flavorShares !== undefined) {
       const shares = it.flavorShares;
@@ -2067,21 +2070,28 @@ async function handleCreateOrder(req, origin, user) {
     const alertNext = alertCounter && alertCounter.next !== undefined ? Number(alertCounter.next) || 1 : 1;
     const orderId = orderNext;
     itemRows.forEach((row, i) => { row.id = orderNext + 1 + i; });
-    // Owner notification: every sale writes a SALE alert in the same commit.
+    // Owner notification: every sale writes an alert in the same commit.
     // Reloads read it from /alerts; the stream emits alert:new for open tabs.
+    // GCash sales are announced as "payment to confirm" — the money is not a
+    // sale until the owner verifies it.
+    const isGcash = payMethod === "GCASH";
     newAlerts.push({
-      type: "SALE",
-      title: "New sale",
+      type: isGcash ? "GCASH_CONFIRM" : "SALE",
+      title: isGcash ? "GCash payment to confirm" : "New sale",
       locationId: location.id,
-      message:
-        `New sale: ₱${Number(orderTotal).toFixed(2)} · ` +
-        `${itemRows.length} item(s) at ${location.code}` +
-        (user.name ? ` · ${user.name}` : ""),
+      message: isGcash
+        ? `GCash payment to confirm: ₱${Number(orderTotal).toFixed(2)} · ` +
+          `${itemRows.length} item(s) at ${location.code}` +
+          (user.name ? ` · ${user.name}` : "")
+        : `New sale: ₱${Number(orderTotal).toFixed(2)} · ` +
+          `${itemRows.length} item(s) at ${location.code}` +
+          (user.name ? ` · ${user.name}` : ""),
       payload: JSON.stringify({
         orderId,
         total: orderTotal,
         itemCount: itemRows.length,
         locationCode: location.code,
+        ...(isGcash ? { paymentMethod: payMethod } : {}),
       }),
     });
     // Alerts stay counter-allocated: the `alerts` model is numeric and
@@ -2096,6 +2106,8 @@ async function handleCreateOrder(req, origin, user) {
       a.ackedByName = null;
       a.createdAt = new Date();
     });
+    const saleAlert = newAlerts[newAlerts.length - 1];
+    const gcashPending = isGcash ? { status: "pending", alertId: saleAlert.id } : undefined;
     const now = new Date();
 
     // ---- WRITE PHASE (single atomic commit) ----
@@ -2110,7 +2122,8 @@ async function handleCreateOrder(req, origin, user) {
         locationId: location.id,
         staffId: user.id,
         total: orderTotal,
-        status: "PAID",
+        // GCash orders are not a sale until the owner confirms the proof.
+        status: isGcash ? "PENDING_GCASH" : "PAID",
         paymentMethod: payMethod,
         items: itemRows,
         createdAt: now,
@@ -2118,6 +2131,7 @@ async function handleCreateOrder(req, origin, user) {
         voidedBy: null,
         voidedAt: null,
         voidReason: null,
+        ...(gcashPending ? { gcash: gcashPending } : {}),
       }),
     ];
     for (const { inv, newStock } of stockWrites.values()) {
@@ -2140,8 +2154,9 @@ async function handleCreateOrder(req, origin, user) {
       dup: false,
       order: {
         id: orderId, clientRef: ref, locationId: location.id, staffId: user.id,
-        total: orderTotal, status: "PAID", paymentMethod: payMethod, items: itemRows,
+        total: orderTotal, status: isGcash ? "PENDING_GCASH" : "PAID", paymentMethod: payMethod, items: itemRows,
         createdAt: now, syncedAt: now, voidedBy: null, voidedAt: null, voidReason: null,
+        ...(gcashPending ? { gcash: gcashPending } : {}),
       },
       warnings,
       newAlerts,
@@ -2283,6 +2298,9 @@ async function handlePatchOrder(req, origin, orderId, user) {
   if (existing.status === "VOID") {
     return jsonRes(origin, { error: "Order is already void" }, 400);
   }
+  if (existing.status === "PENDING_GCASH" || existing.status === "GCASH_REJECTED") {
+    return jsonRes(origin, { error: "An unconfirmed GCash order cannot be voided - decide it from the GCash approvals page" }, 409);
+  }
   if (env("VOID_RESTORE") === "false") {
     await fsPatch("orders", existing.id, {
       status: "VOID",
@@ -2359,6 +2377,83 @@ async function performVoidEdge({ orderId, actorId, reason }) {
   }, 4);
 }
 
+// Shared GCash confirm executor: flips the order to PAID (stock was already
+// reserved at creation) with the deciding owner recorded. The caller
+// verified the order is PENDING_GCASH.
+async function performGcashConfirmEdge({ orderId, actorId }) {
+  return await withRetry(async () => {
+    const fresh = await fsGet("orders", orderId);
+    if (!fresh) {
+      throw Object.assign(new Error("Order not found"), { status: 404 });
+    }
+    if (fresh.status !== "PENDING_GCASH") {
+      throw Object.assign(new Error("Order is not awaiting a GCash decision"), { status: 409 });
+    }
+    const now = new Date();
+    await fsCommit([updateWrite("orders", fresh.id, {
+      status: "PAID",
+      gcash: { ...(fresh.gcash ?? {}), status: "confirmed", decidedBy: actorId, decidedAt: now.toISOString() },
+    }, fresh._updateTime)]);
+    await announceChange("orders", { id: orderId, status: "PAID" }).catch(() => {});
+    return { ok: true };
+  }, 4);
+}
+
+// Shared GCash decline executor: restores the reserved stock (void restore
+// arithmetic) and marks the order GCASH_REJECTED with the owner's note.
+// The caller verified the order is PENDING_GCASH.
+async function performGcashRejectEdge({ orderId, actorId, note }) {
+  return await withRetry(async () => {
+    const fresh = await fsGet("orders", orderId);
+    if (!fresh) {
+      throw Object.assign(new Error("Order not found"), { status: 404 });
+    }
+    if (fresh.status !== "PENDING_GCASH") {
+      throw Object.assign(new Error("Order is not awaiting a GCash decision"), { status: 409 });
+    }
+    const decision = { status: "rejected", decidedBy: actorId, decidedAt: new Date().toISOString(), note: String(note ?? "").slice(0, 500) };
+    const [maps, invRows, adjCounter] = await Promise.all([
+      fsListAll("ingredientMaps"),
+      fsQueryEqual("inventoryItems", "locationId", fresh.locationId, 10000),
+      fsGet("_counters", "stockAdjustments"),
+    ]);
+    const { restores, warnings } = planVoidRestores(fresh.items || [], maps, invRows);
+    const adjNext = adjCounter && adjCounter.next !== undefined ? Number(adjCounter.next) || 1 : 1;
+    const now = new Date();
+    const writes = [];
+    let i = 0;
+    const restored = [];
+    for (const { inv, newStock, added } of restores.values()) {
+      writes.push(updateWrite("inventoryItems", inv.id,
+        { stock: newStock, updatedAt: now }, inv._updateTime));
+      writes.push(createWrite("stockAdjustments", adjNext + i, {
+        id: adjNext + i,
+        inventoryItemId: inv.id,
+        locationId: inv.locationId,
+        actorId,
+        before: inv.stock,
+        after: newStock,
+        reason: `GCASH REJECT order #${orderId}: restored ${added} ${inv.unit}${note ? ` — ${String(note).slice(0, 200)}` : ""}`.slice(0, 500),
+        createdAt: now,
+      }));
+      restored.push({ item: inv.name, restored: added, stock: newStock });
+      i++;
+    }
+    if (restores.size > 0) {
+      writes.push(adjCounter && adjCounter._updateTime
+        ? updateWrite("_counters", "stockAdjustments", { next: adjNext + restores.size }, adjCounter._updateTime)
+        : createWrite("_counters", "stockAdjustments", { next: adjNext + restores.size }));
+    }
+    writes.push(updateWrite("orders", fresh.id, {
+      status: "GCASH_REJECTED",
+      gcash: decision,
+    }, fresh._updateTime));
+    await fsCommit(writes);
+    await announceChange("orders", { id: orderId, status: "GCASH_REJECTED" }).catch(() => {});
+    return { warnings, restored };
+  }, 4);
+}
+
 // ---------- order receipts + void requests (mirror api/src/routes/orders.js) ----------
 function mayAccessOrder(user, order) {
   if (!user) return false;
@@ -2372,6 +2467,11 @@ async function handleOrderReceiptSet(req, orderId, user) {
   if (!existing) return { status: 404, body: { error: "Order not found" } };
   if (!mayAccessOrder(user, existing)) {
     return { status: 403, body: { error: "Forbidden: outside your cart" } };
+  }
+  // The receipt is audit evidence once the owner decides the GCash payment:
+  // staff may only upload/replace it while the order awaits confirmation.
+  if (existing.status !== "PENDING_GCASH") {
+    return { status: 409, body: { error: "Order already decided - the receipt is locked" } };
   }
   const body = await req.json().catch(() => null);
   const data = body?.data;
@@ -2567,6 +2667,131 @@ async function handleOrderVoidDecision(req, orderId, user) {
   await notifyRequester(
     "Void approved",
     `Order #${orderId} was voided at your request. Stock restored.`,
+  );
+  const order = await fsGet("orders", orderId);
+  return { status: 200, body: { order: cleanDoc(order), restored: outcome.restored, warnings: outcome.warnings } };
+}
+
+/** GET /orders/pending-gcash (OWNER) — the GCash confirmation queue. */
+async function handlePendingGcash() {
+  const orders = await fsListAll("orders");
+  const [locations, users] = await Promise.all([
+    fsListAll("locations"),
+    fsListAll("users"),
+  ]);
+  const locById = new Map(locations.map((l) => [l.id, l]));
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const data = orders
+    .filter((o) => o.status === "PENDING_GCASH")
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+    .map((o) => {
+      const receiptMs = o.receipt?.updatedAtMs ? Number(o.receipt.updatedAtMs) : null;
+      const createdMs = o.createdAt ? new Date(o.createdAt).getTime() : null;
+      return {
+        orderId: o.id,
+        id: o.id,
+        total: o.total,
+        createdAt: o.createdAt,
+        staffName: userById.get(o.staffId)?.name ?? null,
+        locationCode: locById.get(o.locationId)?.code ?? null,
+        locationName: locById.get(o.locationId)?.name ?? null,
+        itemCount: Array.isArray(o.items) ? o.items.length : 0,
+        items: (o.items ?? []).map((it) => ({
+          productName: it.productName,
+          flavor: it.flavor ?? null,
+          qty: it.qty,
+          unitPrice: it.unitPrice,
+        })),
+        receiptAvailable: receiptMs != null,
+        receiptReplacedAfterRecording: receiptMs != null && createdMs != null && receiptMs > createdMs + 60000,
+      };
+    });
+  return { status: 200, body: { data, meta: { total: data.length } } };
+}
+
+/** PATCH /orders/:id/gcash-decision (OWNER) — the GCash confirmation decision.
+ *  { decision: "confirm" } — the proof matches the owner's GCash account; the
+ *  order becomes PAID and counts as a sale. { decision: "reject", note } —
+ *  the payment does not check out; GCASH_REJECTED, stock restored, note
+ *  required (void-note rules). The GCASH_CONFIRM alert is resolved either way. */
+async function handleGcashDecision(req, orderId, user) {
+  const ownErr = requireOwner(user);
+  if (ownErr) return ownErr;
+  const body = await req.json().catch(() => null);
+  const decision = String(body?.decision ?? "").trim().toLowerCase();
+  if (!["confirm", "reject"].includes(decision)) {
+    return { status: 400, body: { error: 'decision must be "confirm" or "reject"' } };
+  }
+  const existing = await fsGet("orders", orderId);
+  if (!existing) return { status: 404, body: { error: "Order not found" } };
+  if (existing.status !== "PENDING_GCASH") {
+    return { status: 409, body: { error: "Order is not awaiting a GCash decision" } };
+  }
+  const alertId = existing.gcash?.alertId;
+  const resolveAlert = async () => {
+    if (alertId == null) return;
+    try {
+      await fsPatch("alerts", Number(alertId), { isRead: true });
+    } catch {
+      /* alert already gone is fine */
+    }
+  };
+  // The staff member who recorded the order hears the outcome either way.
+  const notifyRequester = async (title, message) => {
+    const requesterId = Number(existing.staffId ?? 0);
+    if (!requesterId || requesterId === Number(user.id)) return;
+    try {
+      const counters = await readCounters(["alerts"]);
+      const { ids, writes } = counterWritesFor(counters, { alerts: 1 });
+      const alertDoc = {
+        id: ids.alerts[0],
+        type: "GCASH_DECISION",
+        title,
+        message,
+        userId: requesterId,
+        locationId: existing.locationId ?? null,
+        payload: JSON.stringify({ orderId }),
+        isRead: false,
+        createdAt: new Date(),
+      };
+      writes.push(createWrite("alerts", alertDoc.id, alertDoc));
+      await fsCommit(writes);
+      await broadcastEvent("alert:new", {
+        id: alertDoc.id,
+        type: alertDoc.type,
+        userId: alertDoc.userId ?? null,
+        title: alertDoc.title,
+        message: alertDoc.message,
+        isRead: false,
+        createdAt: alertDoc.createdAt.toISOString(),
+        locationId: alertDoc.locationId,
+      }).catch(() => {});
+      await sendTargetedPush(alertDoc).catch(() => {});
+    } catch {
+      /* notification is best-effort */
+    }
+  };
+
+  if (decision === "confirm") {
+    await performGcashConfirmEdge({ orderId, actorId: user.id });
+    await resolveAlert();
+    await notifyRequester(
+      "GCash confirmed",
+      `Order #${orderId} was confirmed by the owner - it is now a paid sale.`,
+    );
+    const order = await fsGet("orders", orderId);
+    return { status: 200, body: { order: cleanDoc(order) } };
+  }
+
+  const check = validateVoidNote(body?.note);
+  if (!check.ok) {
+    return { status: 400, body: { error: check.error } };
+  }
+  const outcome = await performGcashRejectEdge({ orderId, actorId: user.id, note: check.value });
+  await resolveAlert();
+  await notifyRequester(
+    "GCash declined",
+    `Order #${orderId} was declined by the owner - it is not a sale and the stock was restored.`,
   );
   const order = await fsGet("orders", orderId);
   return { status: 200, body: { order: cleanDoc(order), restored: outcome.restored, warnings: outcome.warnings } };
@@ -10367,6 +10592,12 @@ Deno.serve(async (req) => {
           const out = await handlePendingVoidRequests();
           return jsonRes(origin, out.body, out.status);
         }
+        if (req.method === "GET" && path === "/orders/pending-gcash") {
+          const ownErr = requireOwner(auth.user);
+          if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
+          const out = await handlePendingGcash();
+          return jsonRes(origin, out.body, out.status);
+        }
         if (req.method === "GET" && path === "/orders") return await handleListOrders(req, origin, inUrl);
         // Receipt + void-request subpaths (before the generic :id patch).
         const receiptMatch = path.match(/^\/orders\/(\d+)\/receipt$/);
@@ -10387,6 +10618,15 @@ Deno.serve(async (req) => {
           }
           if (req.method === "PATCH") {
             const out = await handleOrderVoidDecision(req, orderId, auth.user);
+            return jsonRes(origin, out.body, out.status);
+          }
+        }
+        const gcMatch = path.match(/^\/orders\/(\d+)\/gcash-decision$/);
+        if (gcMatch) {
+          const orderId = Number(gcMatch[1]);
+          if (req.method === "PATCH") {
+            // The PATCH is not the generic :id patch — it carries the decision.
+            const out = await handleGcashDecision(req, orderId, auth.user);
             return jsonRes(origin, out.body, out.status);
           }
         }

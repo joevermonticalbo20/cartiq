@@ -349,7 +349,7 @@ export default function SalesPage() {
                   label: "Payment",
                   width: 178,
                   render: (o) => (
-                    <Badge variant="neutral">{o.paymentMethod || "CASH"}</Badge>
+                    <Badge variant={o.status === "PENDING_GCASH" ? "warn" : "neutral"}>{o.paymentMethod || "CASH"}</Badge>
                   ),
                 },
                 {
@@ -434,8 +434,8 @@ export default function SalesPage() {
                                 </button>
                               </>
                             ) : (
-                              <span className={`sales-void-pill ${o.status === "REFUNDED" ? "refunded" : ""}`} aria-label={`Order is ${o.status}`}>
-                                {o.status}
+                              <span className={`sales-void-pill ${o.status === "REFUNDED" || o.status === "GCASH_REJECTED" ? "refunded" : ""}`} aria-label={`Order is ${o.status}`}>
+                                {o.status === "PENDING_GCASH" ? "PENDING" : o.status === "GCASH_REJECTED" ? "DECLINED" : o.status}
                               </span>
                             )}
                           </div>

@@ -28,12 +28,17 @@ void main() {
       expect(QuantityInput.error(200, max: 200), isNull);
       expect(
         QuantityInput.error(201, max: 200),
-        'Only 200 left in stock',
+        'Limit per order is only 200 units',
+      );
+      expect(
+        QuantityInput.error(201, max: null),
+        'Limit per order is only 200 units',
       );
       expect(QuantityInput.error(5, max: 1), 'Only 1 left in stock');
       expect(QuantityInput.error(null), 'Enter a number');
-      // No known ceiling: nothing to refuse.
-      expect(QuantityInput.error(9999), isNull);
+      // No known ceiling: the order cap still refuses above 200.
+      expect(QuantityInput.error(9999), 'Limit per order is only 200 units');
+      expect(QuantityInput.error(200), isNull);
     });
 
     test('clamps into the range the stock allows', () {
@@ -79,9 +84,11 @@ void main() {
       expect(formatter.formatEditUpdate(v('62'), v('')).text, '');
     });
 
-    test('null ceiling means no cap at the keystroke', () {
+    test('no ceiling known means the 200-unit order cap still applies', () {
       const unbounded = StockInputFormatter();
-      expect(unbounded.formatEditUpdate(v(''), v('99999')).text, '99999');
+      expect(unbounded.formatEditUpdate(v(''), v('200')).text, '200');
+      expect(unbounded.formatEditUpdate(v(''), v('201')).text, '');
+      expect(unbounded.formatEditUpdate(v(''), v('99999')).text, '');
     });
   });
 }

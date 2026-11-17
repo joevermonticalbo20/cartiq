@@ -3,6 +3,7 @@ import '../services/persisted_queue.dart';
 import '../state/cart_state.dart';
 import '../theme.dart';
 import '../utils/haptics.dart';
+import '../utils/quantity_input.dart';
 import '../utils/payment_rules.dart';
 import 'pos_quantity.dart' show showPosQuantityDialog;
 
@@ -237,7 +238,9 @@ class PosSizePicker extends StatelessWidget {
     final price = size['unitPrice'];
     final quantity = selectedQuantities[name] ?? 0;
     final isSelected = quantity > 0;
-    final atStock = servings is num && quantity >= servings.toInt();
+    // Absolute cap: never above 200 even if the catalog reports more.
+    final atStock = quantity >= QuantityInput.maximum ||
+        (servings is num && quantity >= servings.toInt());
 
     final borderColor = isSelected
         ? AppColors.primary
@@ -531,7 +534,8 @@ class PosFlavorPicker extends StatelessWidget {
   ) {
     final name = flavor['name'] as String;
     final stock = flavor['availableServings'];
-    final maxQty = stock is num ? stock.toInt() : quantity;
+    final stockCap = stock is num ? stock.toInt() : QuantityInput.maximum;
+    final maxQty = stockCap < QuantityInput.maximum ? stockCap : QuantityInput.maximum;
 
     return Container(
       margin: const EdgeInsets.only(top: AppSpacing.space3),

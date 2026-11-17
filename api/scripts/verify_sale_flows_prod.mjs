@@ -1,7 +1,8 @@
 // Production smoke check for the sale notification + receipt + void-request
 // chain (run after a deploy):
 //   1. /catalog/version bumps when the menu changes.
-//   2. A recorded sale writes a SALE alert (the bell's source).
+//   2. A recorded GCash sale starts PENDING_GCASH with a GCASH_CONFIRM alert
+//      (unread); owner confirmation flips it to PAID.
 //   3. A GCash receipt uploads and its (private) GET returns the exact bytes.
 //   4. A staff void request is created; approving it voids the order,
 //      restores stock, marks the request approved and resolves the alert.
@@ -84,7 +85,8 @@ try {
   check("menu change bumps the version", Number(v2) > Number(v1), `${v1} -> ${v2}`);
   if (tempId) await api(`/products/${tempId}`, { method: "DELETE", token });
 
-  // 2. A sale writes a SALE alert + 3..4 chain on the same order.
+  // 2. A GCash sale is recorded as PENDING_GCASH and writes a GCASH_CONFIRM
+  // alert (not a SALE alert) until the owner confirms the payment.
   const cart = await db.location.findUnique({ where: { code: CART } });
   const before = await stockOf(cart.id);
   const orderRes = await api("/orders", {
@@ -93,12 +95,12 @@ try {
     body: JSON.stringify({
       clientRef: `flows-verify-${Date.now()}`,
       locationCode: CART,
-      status: "PAID",
       paymentMethod: "GCASH",
       items: [{ productName: "Cheese Fries", flavor: "Medium", qty: 1, unitPrice: 20 }],
     }),
   });
   check("order placed", orderRes.status === 201, `got ${orderRes.status}`);
+  check("gcash order starts pending", orderRes.body?.order?.status === "PENDING_GCASH");
   const orderId = orderRes.body?.order?.id;
 
   const after = await stockOf(cart.id);
@@ -106,12 +108,12 @@ try {
 
   {
     const alerts = (await api("/alerts?page=1&pageSize=10", { token })).body?.data ?? [];
-    const saleAlert = alerts.find((a) => {
-      if (a.type !== "SALE") return false;
+    const gcAlert = alerts.find((a) => {
+      if (a.type !== "GCASH_CONFIRM") return false;
       try { return JSON.parse(a.payload ?? "{}")?.orderId === orderId; } catch { return false; }
     });
-    check("sale wrote a SALE alert for the order", Boolean(saleAlert), saleAlert?.message ?? "missing");
-    check("SALE alert starts unread", saleAlert?.isRead !== true);
+    check("gcash sale wrote a GCASH_CONFIRM alert for the order", Boolean(gcAlert), gcAlert?.message ?? "missing");
+    check("GCASH_CONFIRM alert starts unread", gcAlert?.isRead !== true);
   }
 
   // 3. GCash receipt upload + private GET.
@@ -159,6 +161,17 @@ try {
     );
     const anon = await api(`/orders/${orderId}/receipt`, {});
     check("receipt GET is private (401 without a token)", anon.status === 401, `got ${anon.status}`);
+  }
+
+  // 3b. Owner confirms the payment: the pending GCash order becomes a sale.
+  {
+    const confirmRes = await api(`/orders/${orderId}/gcash-decision`, {
+      method: "PATCH",
+      token,
+      body: JSON.stringify({ decision: "confirm" }),
+    });
+    check("owner confirms the gcash payment", confirmRes.status === 200 && confirmRes.body?.order?.status === "PAID",
+      `${confirmRes.status} ${confirmRes.body?.order?.status}`);
   }
 
   // 4. Void request -> approve.

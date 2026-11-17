@@ -873,6 +873,7 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
         return;
       }
 
+      final pendingGcash = method == PaymentMethod.gcash;
       final change = method == PaymentMethod.cash && cashTendered != null
           ? cashTendered - snapshotTotal
           : null;
@@ -883,7 +884,9 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
       if (result.fullySynced) {
         AppMessenger.showGlassToast(
           context: context,
-          message: 'Sale recorded   $paymentDetails',
+          message: pendingGcash
+              ? 'GCash order recorded - waiting for owner confirmation   $paymentDetails'
+              : 'Sale recorded   $paymentDetails',
           isSuccess: true,
         );
       } else if (!stockConflict) {
@@ -893,7 +896,9 @@ class _PosScreenState extends State<PosScreen> with WidgetsBindingObserver {
           // NO confirmation at all that the sale was recorded.
           AppMessenger.showGlassToast(
             context: context,
-            message: 'Sale recorded offline   $paymentDetails\nWill upload when connected',
+            message: pendingGcash
+                ? 'GCash order recorded offline   $paymentDetails\nWill upload when connected - owner confirms before it counts as a sale'
+                : 'Sale recorded offline   $paymentDetails\nWill upload when connected',
             isSuccess: true,
           );
         } else {

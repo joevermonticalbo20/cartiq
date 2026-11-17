@@ -8,6 +8,7 @@ export function alertLink(alert) {
   const t = String(alert?.type ?? "").toLowerCase();
   if (t === "sale" || t === "sales") return "/sales";
   if (t === "void_request" || t === "void_decision") return "/sales/void-requests";
+  if (t === "gcash_confirm" || t === "gcash_decision") return "/sales/gcash-approvals";
   if (t === "restock_request" || t === "restock") return "/inventory";
   if (t === "low_stock" || t === "critical" || t === "inventory") return "/inventory";
   return "/notifications";
@@ -49,6 +50,7 @@ export function alertLinkLabel(alert) {
   const t = String(alert?.type ?? "").toLowerCase();
   if (t === "sale" || t === "sales") return "Open sales";
   if (t === "void_request" || t === "void_decision") return "Open void requests";
+  if (t === "gcash_confirm" || t === "gcash_decision") return "Open GCash approvals";
   if (t === "restock_request" || t === "restock" || t === "low_stock" || t === "critical" || t === "inventory") return "Open inventory";
   return "Open notifications";
 }

@@ -7,6 +7,9 @@ describe("alertLink", () => {
     expect(alertLink({ type: "sale" })).toBe("/sales");
     expect(alertLink({ type: "VOID_REQUEST" })).toBe("/sales/void-requests");
     expect(alertLinkLabel({ type: "VOID_REQUEST" })).toBe("Open void requests");
+    expect(alertLink({ type: "GCASH_CONFIRM" })).toBe("/sales/gcash-approvals");
+    expect(alertLinkLabel({ type: "GCASH_CONFIRM" })).toBe("Open GCash approvals");
+    expect(alertLink({ type: "GCASH_DECISION" })).toBe("/sales/gcash-approvals");
   });
 
   it("routes stock alerts to the Inventory page", () => {

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../utils/quantity_input.dart';
+
 class CartItem {
   final String productName;
   final String? flavor;
@@ -128,16 +130,19 @@ class CartState extends ChangeNotifier {
     if (existing.isNotEmpty) {
       final next = existing.first.qty + qty;
       final ceiling = maxQty ?? existing.first.maxQty;
-      existing.first.qty = ceiling == null
-          ? next
-          : next.clamp(1, ceiling).toInt();
+      final capped = ceiling == null
+          ? next.clamp(1, QuantityInput.maximum)
+          : next.clamp(1, ceiling.clamp(1, QuantityInput.maximum));
+      existing.first.qty = capped.toInt();
     } else {
       _items.add(
         CartItem(
           productName: productName,
           flavor: flavor,
           unitPrice: unitPrice,
-          qty: maxQty == null ? qty : qty.clamp(1, maxQty).toInt(),
+          qty: maxQty == null
+              ? qty.clamp(1, QuantityInput.maximum).toInt()
+              : qty.clamp(1, maxQty.clamp(1, QuantityInput.maximum)).toInt(),
           maxQty: maxQty,
         ),
       );
@@ -159,9 +164,10 @@ class CartState extends ChangeNotifier {
     if (existing.isNotEmpty) {
       final next = existing.first.qty + qty;
       final ceiling = maxQty ?? existing.first.maxQty;
-      existing.first.qty = ceiling == null
-          ? next
-          : next.clamp(1, ceiling).toInt();
+      final capped = ceiling == null
+          ? next.clamp(1, QuantityInput.maximum)
+          : next.clamp(1, ceiling.clamp(1, QuantityInput.maximum));
+      existing.first.qty = capped.toInt();
     } else {
       _items.add(
         CartItem(
@@ -169,7 +175,9 @@ class CartState extends ChangeNotifier {
           flavor: null,
           flavors: normalized,
           unitPrice: unitPrice,
-          qty: maxQty == null ? qty : qty.clamp(1, maxQty).toInt(),
+          qty: maxQty == null
+              ? qty.clamp(1, QuantityInput.maximum).toInt()
+              : qty.clamp(1, maxQty.clamp(1, QuantityInput.maximum)).toInt(),
           maxQty: maxQty,
         ),
       );
@@ -186,6 +194,7 @@ class CartState extends ChangeNotifier {
     final ceiling = item.maxQty;
     var next = qty;
     if (ceiling != null && next > ceiling) next = ceiling;
+    if (next > QuantityInput.maximum) next = QuantityInput.maximum;
     if (next <= 0) {
       _items.remove(item);
     } else {
@@ -200,6 +209,10 @@ class CartState extends ChangeNotifier {
     // customer already paid.
     final ceiling = item.maxQty;
     final next = item.qty + delta;
+    if (next > QuantityInput.maximum) {
+      notifyListeners();
+      return;
+    }
     if (ceiling != null && next > ceiling) {
       notifyListeners();
       return;

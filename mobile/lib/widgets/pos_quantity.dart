@@ -5,6 +5,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../theme.dart';
+import '../utils/app_messenger.dart';
 import '../utils/digits_input.dart';
 import '../utils/haptics.dart';
 import '../utils/quantity_input.dart';
@@ -52,6 +53,19 @@ class _PosQuantityFieldState extends State<PosQuantityField> {
   );
   final FocusNode _focus = FocusNode();
   String? _error;
+  // Set the moment the 200-unit limit was announced, so holding down a
+  // key does not toast on every repeat.
+  bool _limitToastShown = false;
+
+  void _notifyLimit() {
+    if (_limitToastShown) return;
+    _limitToastShown = true;
+    AppMessenger.showGlassToast(
+      context: context,
+      message: QuantityInput.limitMessage,
+      isSuccess: false,
+    );
+  }
 
   @override
   void didUpdateWidget(covariant PosQuantityField oldWidget) {
@@ -81,6 +95,12 @@ class _PosQuantityFieldState extends State<PosQuantityField> {
       setState(() => _error = 'Enter a number');
       return;
     }
+    if (value > QuantityInput.maximum) {
+      _notifyLimit();
+      setState(() => _error = QuantityInput.limitMessage);
+      return;
+    }
+    if (_limitToastShown) _limitToastShown = false;
     if (widget.maxQuantity != null && value > widget.maxQuantity!) {
       setState(
         () => _error = widget.maxQuantity == 1
@@ -195,8 +215,9 @@ class _PosQuantityFieldState extends State<PosQuantityField> {
             const SizedBox(width: AppSpacing.space2),
             PosQtyStepButton(
               icon: Icons.add,
-              onPressed: widget.maxQuantity != null &&
-                      widget.quantity >= widget.maxQuantity!
+              onPressed: (widget.maxQuantity != null &&
+                          widget.quantity >= widget.maxQuantity!) ||
+                      widget.quantity >= QuantityInput.maximum
                   ? null
                   : () {
                       Haptics.select();
@@ -321,6 +342,10 @@ class _PosQuantityDialogState extends State<_PosQuantityDialog> {
       setState(() => _error = 'Enter a number');
       return;
     }
+    if (value > QuantityInput.maximum) {
+      setState(() => _error = QuantityInput.limitMessage);
+      return;
+    }
     if (widget.maxQuantity != null && value > widget.maxQuantity!) {
       setState(
         () => _error = widget.maxQuantity == 1
@@ -348,7 +373,17 @@ class _PosQuantityDialogState extends State<_PosQuantityDialog> {
             inputFormatters: [
               // Hard cap at the stock on hand - refused at the keystroke,
               // not merely on submit.
-              StockInputFormatter(max: widget.maxQuantity),
+              StockInputFormatter(
+                max: widget.maxQuantity,
+                onRefuse: () {
+                  if (!mounted) return;
+                  AppMessenger.showGlassToast(
+                    context: context,
+                    message: QuantityInput.limitMessage,
+                    isSuccess: false,
+                  );
+                },
+              ),
             ],
             style: Theme.of(
               context,

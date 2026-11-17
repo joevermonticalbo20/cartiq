@@ -45,8 +45,10 @@ void main() {
       await tester.enterText(find.byType(TextField), '201');
       await tester.pump();
 
-      expect(changed, 0, reason: 'the stock must not be exceeded');
-      expect(find.text('Only 200 left in stock'), findsOneWidget);
+      expect(changed, 0, reason: 'the order limit must not be exceeded');
+      expect(find.text('Limit per order is only 200 units'), findsAtLeastNWidgets(1));
+      // Let the glass toast (4s timer) finish so the test ends clean.
+      await tester.pump(const Duration(seconds: 5));
     });
 
     testWidgets('refuses zero and rubbish', (tester) async {
@@ -93,7 +95,7 @@ void main() {
           .text;
       expect(shortText.length, lessThanOrEqualTo(3));
 
-      // A stock of 1,300 gets four digits.
+      // The 200-unit order cap means three digits, no matter the stock.
       await tester.pumpWidget(
         _wrap(
           PosQuantityField(
@@ -107,7 +109,7 @@ void main() {
       await tester.pump();
       expect(
         tester.widget<TextField>(find.byType(TextField)).controller!.text,
-        '1300',
+        '130',
       );
     });
 
