@@ -425,11 +425,17 @@ export default function StaffPage() {
                   key: "source",
                   label: "Source",
                   width: 100,
-                  render: (s) => (
-                    <Badge variant={s.source === "MANUAL" ? "danger" : "neutral"}>
-                      {s.source}
-                    </Badge>
-                  ),
+                  render: (s) => {
+                    // The API never wrote a `source` field: a reader tap stores
+                    // the device id (e.g. esp32-cart-01) in deviceId, a manual
+                    // log stores "MANUAL". Derive the audit label from either.
+                    const isManual = (s.source ?? s.deviceId) === "MANUAL";
+                    return (
+                      <Badge variant={isManual ? "danger" : "neutral"}>
+                        {isManual ? "MANUAL" : "RFID"}
+                      </Badge>
+                    );
+                  },
                 },
               ]}
               data={rows}
