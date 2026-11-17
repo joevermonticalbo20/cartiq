@@ -1,7 +1,7 @@
-// Staff page: Manual Log dropdowns and Staff History edit change detection.
+// Staff page: Manual Log dropdowns and Shift History read-only rules.
 // The owner asked that (a) deactivated staff/carts disappear from the Manual
-// Log dropdowns, and (b) saving an unchanged history record shows
-// "No changes made" and never touches the server.
+// Log dropdowns, and (b) Shift History cannot be edited or deleted from the
+// web — the log is an append-only audit trail.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, Outlet } from "react-router-dom";
@@ -109,33 +109,19 @@ describe("StaffPage Manual Log", () => {
   });
 });
 
-describe("StaffPage Staff History edit", () => {
+describe("StaffPage Shift History is read-only", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     __resetLiveData();
     mockApi();
   });
 
-  it("reports no changes and does not call the server when nothing was modified", async () => {
+  it("shows the append-only note and offers no edit or delete actions", async () => {
     renderPage();
-    const editBtn = await screen.findByTitle("Edit Log");
-    fireEvent.click(editBtn);
-    const dialog = document.body.querySelector(".modal");
-    expect(dialog?.textContent).toContain("Edit Shift Log");
-    fireEvent.click(within(dialog).getByRole("button", { name: /Save Changes/ }));
-    expect(await screen.findByText("No changes made")).toBeInTheDocument();
+    expect(await screen.findByText(/append-only/i)).toBeInTheDocument();
+    expect(screen.queryByTitle("Edit Log")).toBeNull();
+    expect(screen.queryByTitle("Delete Log")).toBeNull();
     expect(api.patch).not.toHaveBeenCalled();
-  });
-
-  it("saves when the timestamp actually changed", async () => {
-    api.patch.mockResolvedValue({ data: { shift: { id: 42 } } });
-    renderPage();
-    const editBtn = await screen.findByTitle("Edit Log");
-    fireEvent.click(editBtn);
-    const dialog = document.body.querySelector(".modal");
-    const timeInput = dialog.querySelector('input[type="datetime-local"]');
-    fireEvent.change(timeInput, { target: { value: "2026-11-15T02:00" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: /Save Changes/ }));
-    await vi.waitFor(() => expect(api.patch).toHaveBeenCalled());
+    expect(api.del).not.toHaveBeenCalled();
   });
 });

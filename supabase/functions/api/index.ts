@@ -5913,52 +5913,10 @@ async function handleManualShift(req) {
   return { status: 201, body: { shift: cleanDoc(shift) } };
 }
 
-async function handlePatchShift(req, id) {
-  const body = await req.json().catch(() => null);
-  const { event, locationCode, ts } = body || {};
-  if (event === undefined && locationCode === undefined && ts === undefined) {
-    return { status: 400, body: { error: "provide event, locationCode, or ts" } };
-  }
-  const existing = await fsGet("shifts", id);
-  if (!existing) return { status: 404, body: { error: "Shift not found" } };
-  const data = {};
-  if (event !== undefined) {
-    const ev = String(event).toUpperCase();
-    if (!["IN", "OUT"].includes(ev)) {
-      return { status: 400, body: { error: 'event must be "IN" or "OUT"' } };
-    }
-    data.event = ev;
-  }
-  if (locationCode !== undefined) {
-    const location = await fsQueryEqual("locations", "code", String(locationCode), 1).then((r) => r[0]);
-    if (!location) return { status: 404, body: { error: "Location not found" } };
-    // Owner Settings → Carts: only an ACTIVE cart can take the shift.
-    if (location.status === "INACTIVE") {
-      return { status: 400, body: { error: "Cart is deactivated. Pick an active cart." } };
-    }
-    data.locationId = location.id;
-  }
-  if (ts !== undefined) {
-    const at = new Date(ts);
-    if (!Number.isFinite(at.getTime())) {
-      return { status: 400, body: { error: "ts must be a valid date" } };
-    }
-    data.ts = at;
-  }
-  await fsPatch("shifts", existing.id, data);
-  const updated = await fsGet("shifts", existing.id);
-  const loc = await fsGet("locations", updated.locationId).catch(() => null);
-  const out = cleanDoc(updated);
-  out.location = loc ? { code: loc.code, name: loc.name } : null;
-  return { status: 200, body: { shift: out } };
-}
-
-async function handleDeleteShift(id) {
-  const existing = await fsGet("shifts", id);
-  if (!existing) return { status: 404, body: { error: "Shift not found" } };
-  await fsDeleteByName(existing._name);
-  return { status: 200, body: { deleted: true } };
-}
+// Shift logs are an append-only audit trail: the callers that used to edit or
+// delete rows (owner Settings → Staff History) were removed, and the HTTP
+// routes refuse as well. Corrections are made by appending a new manual
+// entry, never by altering or removing history.
 
 async function handleOnShift() {
   const start = manilaDayStart(0);
@@ -10654,15 +10612,8 @@ Deno.serve(async (req) => {
           out = await handleManualShift(req);
         }
         else if ((req.method === "PATCH" || req.method === "DELETE") && /^\/shifts\/\d+$/.test(path)) {
-          const ownErr = requireOwner(auth.user);
-          if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
-          const sid = Number(path.split("/")[2]);
-          if (req.method === "PATCH") out = await handlePatchShift(req, sid);
-          else {
-            const existing = await fsGet("shifts", sid);
-            if (!existing) out = { status: 404, body: { error: "Shift not found" } };
-            else out = await handleDeleteShift(sid);
-          }
+          // Shift logs are append-only: refuse outright, for every role.
+          return jsonRes(origin, { error: "Shift logs are append-only and cannot be edited or deleted" }, 403);
         }
         else if (req.method === "GET" && path === "/staff/on-shift") out = { status: 200, body: await handleOnShift() };
         else if (req.method === "GET" && path === "/shifts/history") {

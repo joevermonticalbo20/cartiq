@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useOutletContext } from "react-router-dom";
-import { Trophy, Plus, Edit2, Trash2, Clock, Calendar } from "lucide-react";
+import { Trophy, Plus, Clock, Calendar } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
@@ -13,7 +13,6 @@ import ErrorBox from "../components/ErrorBox.jsx";
 import { TableSkeleton } from "../components/Skeleton.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
-import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import Select from "../components/Select.jsx";
 import { useToast } from "../components/Toast.jsx";
 
@@ -65,18 +64,9 @@ export default function StaffPage() {
   });
   const [tsTouched, setTsTouched] = useState(false);
 
-  const [editing, setEditing] = useState(null);
-  // The edit form keeps the INACTIVE cart it was opened with - an in-progress
-  // edit is never stranded. The manual log dropdown itself offers ACTIVE only.
-  const editingLocations = locations.filter(
-    (l) => l.status !== "INACTIVE" || l.code === editing?.locationCode
-  );
-  const [editClosing, setEditClosing] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editError, setEditError] = useState("");
+  // Shift logs are an audit trail: appended only, never edited or deleted
+  // from the web. The add flow above is the only write path.
 
-  const [deleting, setDeleting] = useState(null);
-  const [isDeleting, setIsDeleting] = useState(false);
   // Sections that fail to load must not masquerade as "empty": track which
   // top-section requests failed so the UI can say so with a retry.
   const [topErrors, setTopErrors] = useState([]);
@@ -133,7 +123,7 @@ export default function StaffPage() {
     refreshTable();
   }
 
-  const isAnyModalOpen = addOpen || addClosing || editing || editClosing || Boolean(deleting);
+  const isAnyModalOpen = addOpen || addClosing;
   useEffect(() => {
     if (isAnyModalOpen) document.body.style.overflow = "hidden";
     else document.body.style.overflow = "";
@@ -143,11 +133,6 @@ export default function StaffPage() {
   function closeAddModal() {
     setAddClosing(true);
     setTimeout(() => { setAddOpen(false); setAddClosing(false); }, 150);
-  }
-
-  function closeEditModal() {
-    setEditClosing(true);
-    setTimeout(() => { setEditing(null); setEditClosing(false); }, 150);
   }
 
   async function handleAddShift(e) {
@@ -197,74 +182,6 @@ export default function StaffPage() {
       setAddError(getFriendlyError(err, "Failed to log manual shift."));
     } finally {
       setIsAdding(false);
-    }
-  }
-
-  async function handleEditShift(e) {
-    e.preventDefault();
-    setEditError("");
-
-    // The add path checks the cart and the event; the edit path used to send
-    // them unchecked, so a shift with no cart could be saved with an empty
-    // cart code.
-    if (!editing?.locationCode) {
-      setEditError("Select a cart.");
-      return;
-    }
-    if (!editing?.event || !["IN", "OUT"].includes(editing.event)) {
-      setEditError("Choose Time in or Time out.");
-      return;
-    }
-
-    const at = editing?.ts ? new Date(editing.ts) : null;
-    if (!at || !Number.isFinite(at.getTime())) {
-      setEditError("Enter a valid date and time.");
-      return;
-    }
-
-    // Compare at minute precision: a datetime-local value has no seconds, so
-    // rounding both sides down keeps a quick open-and-save from looking like
-    // a change just because the original timestamp had seconds.
-    const original = (editing.originalTs ?? "");
-    const sameAt = original &&
-      Math.floor(at.getTime() / 60000) === Math.floor(new Date(original).getTime() / 60000);
-    const originalCode = editing.originalLocationCode ?? "";
-    const originalEvent = editing.originalEvent ?? "";
-    if (sameAt && editing.locationCode === originalCode && editing.event === originalEvent) {
-      toast("No changes made", "info");
-      closeEditModal();
-      return;
-    }
-
-    setIsEditing(true);
-    try {
-      await api.patch(`/shifts/${editing.id}`, {
-        locationCode: editing.locationCode,
-        event: editing.event,
-        ts: at.toISOString()
-      });
-      toast(`Shift log updated successfully`, "success");
-      closeEditModal();
-      handleRefreshAll();
-    } catch (err) {
-      setEditError(getFriendlyError(err, "Failed to update shift log."));
-    } finally {
-      setIsEditing(false);
-    }
-  }
-
-  async function handleDeleteShift() {
-    if (!deleting || isDeleting) return;
-    setIsDeleting(true);
-    try {
-      await api.del(`/shifts/${deleting.id}`);
-      toast("Shift log deleted successfully", "success");
-      handleRefreshAll();
-    } catch (err) {
-      toast(getFriendlyError(err, "Failed to delete shift log"), "error");
-    } finally {
-      setIsDeleting(false);
-      setDeleting(null);
     }
   }
 
@@ -418,9 +335,12 @@ export default function StaffPage() {
         {/* 3. SHIFT HISTORY */}
         <section className="panel staff-panel">
           <div className="flex items-center justify-between flex-wrap gap-3" style={{ marginBottom: "var(--space-4)" }}>
-            <h3 className="section-title m-0 p-0 flex items-center gap-2" style={{ borderBottom: "none" }}>
-              <Calendar size={20} className="muted" /> Shift History
-            </h3>
+            <div>
+              <h3 className="section-title m-0 p-0 flex items-center gap-2" style={{ borderBottom: "none" }}>
+                <Calendar size={20} className="muted" /> Shift History
+              </h3>
+              <p className="muted small" style={{ margin: "4px 0 0" }}>Logs are append-only — they cannot be edited or deleted.</p>
+            </div>
             <Select
               value={loc}
               onChange={(val) => setLoc(val)}
@@ -445,7 +365,6 @@ export default function StaffPage() {
                 { key: "cart", label: "Cart", width: 120, skeletonType: "badge" },
                 { key: "event", label: "Event", width: 100, skeletonType: "badge" },
                 { key: "source", label: "Source", width: 100, skeletonType: "badge" },
-                ...(isOwner ? [{ key: "actions", label: "Actions", align: "center", width: 100 }] : []),
               ]}
             />
           ) : error ? (
@@ -512,47 +431,6 @@ export default function StaffPage() {
                     </Badge>
                   ),
                 },
-                ...(isOwner
-                  ? [
-                      {
-                        key: "actions",
-                        label: "",
-                        width: 80,
-                        align: "right",
-                        render: (s) => (
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              className="ghost small-btn"
-                              onClick={() => {
-                                const at = new Date(s.ts);
-                                setEditing({
-                                  ...s,
-                                  ts: toLocalISOString(at),
-                                  locationCode: s.location?.code ?? "",
-                                  // Snapshot of what the row was when the modal opened -
-                                  // the save path uses it to detect "nothing changed".
-                                  originalTs: at.toISOString(),
-                                  originalLocationCode: s.location?.code ?? "",
-                                  originalEvent: s.event,
-                                });
-                                setEditError("");
-                              }}
-                              title="Edit Log"
-                            >
-                              <Edit2 size={13} />
-                            </button>
-                            <button
-                              className="danger-ghost small-btn"
-                              onClick={() => setDeleting(s)}
-                              title="Delete Log"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        ),
-                      },
-                    ]
-                  : []),
               ]}
               data={rows}
               pagination={meta ? { ...meta, onPageChange: gotoPage } : null}
@@ -583,7 +461,7 @@ export default function StaffPage() {
                     <Select
                       value={newShift.locationCode}
                       onChange={(val) => setNewShift({ ...newShift, locationCode: val })}
-                      options={editingLocations.map((l) => ({ value: l.code, label: l.code }))}
+                      options={activeLocations.map((l) => ({ value: l.code, label: l.code }))}
                     />
                   </label>
                   <label className="field">
@@ -623,68 +501,6 @@ export default function StaffPage() {
           </div>
         )}
 
-        {/* --- EDIT SHIFT MODAL --- */}
-        {(editing || editClosing) && (
-          <div className={`modal-backdrop ${editClosing ? "is-closing" : ""}`}>
-            <div className={`modal ${editClosing ? "is-closing" : ""}`} onClick={(e) => e.stopPropagation()}>
-              <h3><Edit2 size={22} className="muted"/> Edit Shift Log</h3>
-              <form onSubmit={handleEditShift} className="flex flex-col gap-4" style={{ marginTop: "var(--space-3)" }}>
-                <p className="muted small">Updating log for <strong>{editing?.staffName ?? `Unregistered card ${editing?.staffUid}`}</strong>.</p>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
-                  <label className="field">
-                    Cart
-                    <Select
-                      value={editing?.locationCode}
-                      onChange={(val) => setEditing({ ...editing, locationCode: val })}
-                      options={editingLocations.map((l) => ({ value: l.code, label: l.code }))}
-                    />
-                  </label>
-                  <label className="field">
-                    Event
-                    <Select
-                      value={editing?.event}
-                      onChange={(val) => setEditing({ ...editing, event: val })}
-                      options={[
-                        { value: "IN", label: "Clock IN" },
-                        { value: "OUT", label: "Clock OUT" }
-                      ]}
-                    />
-                  </label>
-                </div>
-                <label className="field">
-                  Date & Time
-                  <input
-                    type="datetime-local"
-                    required
-                    value={editing?.ts || ""}
-                    onChange={(e) => setEditing({ ...editing, ts: e.target.value })}
-                    style={{ height: "36px" }}
-                  />
-                </label>
-                <div className="modal-actions">
-                  <button type="button" className="ghost" onClick={closeEditModal} disabled={isEditing || editClosing}>Cancel</button>
-                  <button type="submit" disabled={isEditing || editClosing}>
-                    {isEditing ? "Saving..." : "Save Changes"}
-                  </button>
-                </div>
-                {editError && <p className="error-box" role="alert">{editError}</p>}
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* --- DELETE LOG CONFIRMATION --- */}
-        <ConfirmDialog
-          open={Boolean(deleting)}
-          title="Delete Shift Log?"
-          message={`Are you sure you want to permanently delete the ${deleting?.event} log for ${deleting?.staffName ?? `Unregistered card ${deleting?.staffUid}`}? This action cannot be undone.`}
-          confirmLabel="Delete Log"
-          danger
-          pending={isDeleting}
-          pendingLabel="Deleting..."
-          onConfirm={handleDeleteShift}
-          onCancel={() => setDeleting(null)}
-        />
       </div>
     </PageErrorBoundary>
   );
