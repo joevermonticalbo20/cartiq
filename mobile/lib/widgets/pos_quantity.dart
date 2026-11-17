@@ -333,11 +333,20 @@ class _PosQuantityDialog extends StatefulWidget {
   State<_PosQuantityDialog> createState() => _PosQuantityDialogState();
 }
 
-class _PosQuantityDialogState extends State<_PosQuantityDialog> {  late final TextEditingController _controller = TextEditingController(
+class _PosQuantityDialogState extends State<_PosQuantityDialog> {
+  late final TextEditingController _controller = TextEditingController(
     text: widget.quantity.toString(),
   );
   String? _error;
   bool _limitToastShown = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Open with the real verdict for whatever is typed/preset - e.g. a
+    // capacity of 0 shows the error and disables Set before any keystroke.
+    _error = _currentError();
+  }
 
   @override
   void dispose() {

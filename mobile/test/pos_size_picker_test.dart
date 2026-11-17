@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
+import 'package:cartiq_mobile/state/cart_state.dart';
 import 'package:cartiq_mobile/utils/sizes.dart';
 import 'package:cartiq_mobile/widgets/pos_cart_widgets.dart';
 import 'package:cartiq_mobile/widgets/pos_product_card.dart';
 
-Widget _wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
+Widget _wrap(Widget child) => MaterialApp(
+      home: ChangeNotifierProvider<CartState>(
+        create: (_) => CartState(),
+        child: Scaffold(body: child),
+      ),
+    );
 
 /// The catalog shape of a fries parent: the options are the SIZES.
 List<Map<String, dynamic>> _sizes() => [
@@ -167,6 +174,39 @@ void main() {
       await tester.tap(find.text('Set'));
       await tester.pumpAndSettle();
       expect(changes['Large'], 67);
+    });
+
+    testWidgets('with the 200-unit cap already used, the typed input refuses and shows the error', (tester) async {
+      final changes = <String, int>{};
+      await tester.pumpWidget(
+        _wrap(
+          PosSizePicker(
+            sizes: _sizes(),
+            selectedQuantities: const {'Medium': 200},
+            onQuantityChanged: (name, value) => changes[name] = value,
+          ),
+        ),
+      );
+
+      // Tap the Large count box (all zeroes show "0"; Medium shows "200").
+      await tester.tap(find.text('0').at(0));
+      await tester.pumpAndSettle();
+      expect(find.text('How many Large?'), findsOneWidget);
+
+      // Typing anything is refused with the exceeds message, and Set is
+      // disabled.
+      await tester.enterText(find.byType(TextField), '10');
+      await tester.pump();
+      expect(
+        find.text('The order exceeds the 200-unit limit by 10 servings'),
+        findsAtLeastNWidgets(1),
+      );
+      expect(
+        tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton, 'Set'),
+        ).onPressed,
+        isNull,
+      );
     });
 
     testWidgets('multiple sizes can hold their own quantities', (

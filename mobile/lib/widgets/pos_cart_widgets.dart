@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/persisted_queue.dart';
 import '../state/cart_state.dart';
 import '../theme.dart';
@@ -201,6 +202,18 @@ class PosSizePicker extends StatelessWidget {
             (size['availableServings'] as num) <= 0);
   }
 
+  /// How many units this one tile may still become, given everything else
+  /// in the fries selection and already in the cart. This is the number
+  /// the typed dialog enforces with an inline error + disabled Set.
+  int _capacityFor(BuildContext context, int ownQty) {
+    final sheetTotal =
+        selectedQuantities.values.fold<int>(0, (sum, qty) => sum + qty);
+    final outside = context.read<CartState>().totalQty;
+    final others = sheetTotal - ownQty;
+    return (QuantityInput.maximum - outside - others)
+        .clamp(0, QuantityInput.maximum);
+  }
+
   String _priceLabel(num value) {
     final v = value.toDouble();
     return v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(2);
@@ -333,6 +346,7 @@ class PosSizePicker extends StatelessWidget {
                                   maxQuantity: servings is num
                                       ? servings.toInt()
                                       : null,
+                                  capacityLimit: _capacityFor(context, quantity),
                                   title: 'How many $name?',
                                 );
                                 if (result != null) {
