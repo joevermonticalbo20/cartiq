@@ -179,7 +179,7 @@ try {
   const decision = await api(`/orders/${orderId}/void-request`, {
     method: "PATCH",
     token,
-    body: JSON.stringify({ decision: "approve" }),
+    body: JSON.stringify({ decision: "approve", note: "flows verification run, approving the void" }),
   });
   check("owner approval voids the order", decision.status === 200 && decision.body?.order?.status === "VOID", `${decision.status} ${decision.body?.order?.status}`);
   check("request marked approved", decision.body?.order?.voidRequest?.status === "approved");

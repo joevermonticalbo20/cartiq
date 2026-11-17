@@ -105,7 +105,7 @@ try {
     const voided = await api(`/orders/${orderId}`, {
       method: "PATCH",
       token,
-      body: JSON.stringify({ status: "VOID", reason: "stock verification" }),
+      body: JSON.stringify({ status: "VOID", note: "stock verification run, voiding the QA order" }),
     });
     check("order voided (200)", voided.status === 200, `got ${voided.status} ${JSON.stringify(voided.body)?.slice(0, 200)}`);
     check("void reported no restore warnings", Array.isArray(voided.body?.warnings) && voided.body.warnings.length === 0,

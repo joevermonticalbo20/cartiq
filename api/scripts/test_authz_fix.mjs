@@ -69,7 +69,7 @@ if (prod) {
     const deducted = [...before].filter(([name, was]) => during.has(name) && during.get(name) < was);
     ok("sale deducted recipe stock", deducted.length > 0, `${deducted.length} ingredient(s) moved`);
 
-    const voided = await req("PATCH", `/orders/${oid}`, { token: t2, body: { status: "VOID", reason: "test" } });
+    const voided = await req("PATCH", `/orders/${oid}`, { token: t2, body: { status: "VOID", note: "authz regression test void" } });
     ok("void restores", voided.status === 200 && Array.isArray(voided.data?.restored) && Array.isArray(voided.data?.warnings), `got ${voided.status}`);
     // Every ingredient the sale touched must be back where it started.
     const after = await stockMap();
@@ -85,7 +85,7 @@ if (prod) {
       voided.status !== 200 || orphanWarnings.length === 0,
       `warnings=${JSON.stringify(orphanWarnings)}`);
 
-    const again = await req("PATCH", `/orders/${oid}`, { token: t2, body: { status: "VOID" } });
+    const again = await req("PATCH", `/orders/${oid}`, { token: t2, body: { status: "VOID", note: "authz regression double void" } });
     // Sequential re-void: outside fast-path 400 (parallel races get 409).
     ok("double void -> 400", again.status === 400, `got ${again.status}`);
   }

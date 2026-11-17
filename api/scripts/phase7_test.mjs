@@ -78,7 +78,7 @@ async function main() {
 
   const voided = await req(`/orders/${orderId}`, {
     method: "PATCH", token: tok,
-    body: { status: "VOID", reason: "phase7 mis-tap" },
+    body: { status: "VOID", note: "phase7 mis-tap - voiding the QA order" },
   });
   check("owner can VOID",
         voided.status === 200 && voided.data?.order?.status === "VOID");
@@ -87,7 +87,7 @@ async function main() {
         typeof voided.data?.order?.voidedAt === "string");
 
   const revoid = await req(`/orders/${orderId}`, {
-    method: "PATCH", token: tok, body: { status: "VOID" },
+    method: "PATCH", token: tok, body: { status: "VOID", note: "phase7 double-check, voiding again" },
   });
   // Sequential re-void hits the outside fast-path check (400). A true
   // parallel race reaches the in-txn guard instead (409) — covered live,
@@ -95,7 +95,7 @@ async function main() {
   check("double VOID rejected", revoid.status === 400);
 
   const missing = await req("/orders/999999999", {
-    method: "PATCH", token: tok, body: { status: "VOID" },
+    method: "PATCH", token: tok, body: { status: "VOID", note: "phase7 unknown order check" },
   });
   check("VOID unknown order 404", missing.status === 404);
 
