@@ -5,12 +5,12 @@
 //
 // Rules (enforced at keystroke in the web client, and again here on the
 // server — the client can be bypassed):
-//   required, min 20, max 100 characters
+//   required, min 2, max 100 characters
 //   Unicode letters/digits and the characters ` , . - _ ` plus spaces
 //   single spaces only (no runs, no leading/trailing space after trim)
 //   no run of three identical characters in a row (case-insensitive)
 
-export const VOID_NOTE_MIN = 20;
+export const VOID_NOTE_MIN = 2;
 export const VOID_NOTE_MAX = 100;
 
 const VOID_NOTE_ALLOWED = /^[\p{L}\p{N} ,.\-_]+$/u;
@@ -31,7 +31,7 @@ export function validateVoidNote(raw) {
     return { ok: false, error: "Add a note explaining why the order is voided." };
   }
   if (value.length < VOID_NOTE_MIN) {
-    return { ok: false, error: `Note must be at least ${VOID_NOTE_MIN} characters.` };
+    return { ok: false, error: "A single letter is not valid - the minimum is 2." };
   }
   if (value.length > VOID_NOTE_MAX) {
     return { ok: false, error: `Note must not exceed ${VOID_NOTE_MAX} characters.` };

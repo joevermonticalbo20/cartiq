@@ -14,10 +14,12 @@ test("empty note is rejected", () => {
   assert.equal(validateVoidNote("   ").ok, false);
 });
 
-test("note shorter than 20 characters is rejected", () => {
-  const res = validateVoidNote("too short note");
+test("a single letter is rejected, two letters are accepted", () => {
+  const res = validateVoidNote("a");
   assert.equal(res.ok, false);
-  assert.match(res.error, /at least 20/);
+  assert.match(res.error, /minimum is 2/);
+  const ok = validateVoidNote("ok");
+  assert.equal(ok.ok, true);
 });
 
 test("note longer than 100 characters is rejected", () => {
@@ -41,7 +43,7 @@ test("three identical characters in a row are rejected, case-insensitive", () =>
 test("letters, digits, spaces and , . - _ are accepted", () => {
   const res = validateVoidNote("Wrong item, void order - customer says no. Refund ok_1");
   assert.equal(res.ok, true);
-  assert.equal(res.value.length >= 20, true);
+  assert.equal(res.value.length >= 2, true);
 });
 
 test("double spaces are normalized away before validation", () => {
