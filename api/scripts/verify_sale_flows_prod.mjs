@@ -168,7 +168,7 @@ try {
     const confirmRes = await api(`/orders/${orderId}/gcash-decision`, {
       method: "PATCH",
       token,
-      body: JSON.stringify({ decision: "confirm" }),
+      body: JSON.stringify({ decision: "confirm", note: "flows verification run, approving the payment" }),
     });
     check("owner confirms the gcash payment", confirmRes.status === 200 && confirmRes.body?.order?.status === "PAID",
       `${confirmRes.status} ${confirmRes.body?.order?.status}`);

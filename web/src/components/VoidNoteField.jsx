@@ -2,14 +2,15 @@ import { useEffect, useRef } from "react";
 import { sanitizeVoidNoteTyping, validateVoidNote, VOID_NOTE_MAX, VOID_NOTE_MIN } from "../utils/voidNote.js";
 
 /**
- * A note field for void confirmations. Strict rules:
+ * A note field for the owner's decision notes (void + GCash confirm/decline).
+ * Strict rules:
  *   required, min 20, max 100 characters
  *   letters/digits and the characters ` , . - _ ` plus single spaces
  *   no run of three identical characters in a row (blocked at keystroke)
  *   single spaces between words
- * The parent reads the valid value through the ref or the onValid payload.
+ * The parent reads the valid value through onErrorChange/validateVoidNote.
  */
-export default function VoidNoteField({ value, onChange, error, onErrorChange, autoFocus = false }) {
+export default function VoidNoteField({ value, onChange, error, onErrorChange, autoFocus = false, label = "Reason for void", placeholder = "Why is this order being voided? (e.g. wrong item punched, customer allergy, duplicate entry)" }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -26,7 +27,7 @@ export default function VoidNoteField({ value, onChange, error, onErrorChange, a
 
   return (
     <label className="field void-note-field">
-      Reason for void *
+      {label} *
       <textarea
         ref={ref}
         value={value}
@@ -38,8 +39,8 @@ export default function VoidNoteField({ value, onChange, error, onErrorChange, a
         className={error ? "input-invalid" : undefined}
         aria-invalid={error ? "true" : undefined}
         aria-describedby="void-note-error"
-        aria-label="Reason for void"
-        placeholder="Why is this order being voided? (e.g. wrong item punched, customer allergy, duplicate entry)"
+        aria-label={label}
+        placeholder={placeholder}
       />
       <div className="void-note-meta">
         <span id="void-note-count" className="muted small">

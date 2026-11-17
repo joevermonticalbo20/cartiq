@@ -846,6 +846,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final voidDenied = voidRequest is Map && voidRequest['status'] == 'denied';
     final isGcash =
         (order['paymentMethod'] ?? '').toString().toUpperCase() == 'GCASH';
+    // The owner's decision note (decline reason), when there is one.
+    final gcashNote = (order['gcash'] is Map)
+        ? (order['gcash'] as Map)['note']?.toString()
+        : null;
 
     // A GCash sale opens WITH its proof: the owner should not have to hunt
     // for a button to see the money they were handed. The proof is fetched
@@ -1235,7 +1239,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     color: AppColors.danger.withValues(alpha: 0.3),
                   ),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
                     Icon(
                       Icons.info_outline_rounded,
@@ -1244,12 +1248,27 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     ),
                     SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        'GCash payment declined by the owner - not a sale',
-                        style: TextStyle(
-                          color: AppColors.danger,
-                          fontWeight: FontWeight.w800,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'GCash payment declined by the owner - not a sale',
+                            style: TextStyle(
+                              color: AppColors.danger,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          if (gcashNote != null && gcashNote.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Reason: $gcashNote',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: AppColors.danger),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   ],

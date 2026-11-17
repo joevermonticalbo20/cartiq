@@ -205,16 +205,22 @@ async function main() {
   // A pending GCash order is not a sale yet. The decision flow is exercised
   // end-to-end here: confirm turns it into a paid sale.
   const gcashId = gcash.data?.order?.id;
-  const noNote = await req(`/orders/${gcashId}/gcash-decision`, {
+  const noRejectNote = await req(`/orders/${gcashId}/gcash-decision`, {
     method: "PATCH",
     token: tok,
     body: { decision: "reject" },
   });
-  check("reject without a note is refused", noNote.status === 400, `got ${noNote.status}`);
-  const confirmed = await req(`/orders/${gcashId}/gcash-decision`, {
+  check("reject without a note is refused", noRejectNote.status === 400, `got ${noRejectNote.status}`);
+  const noConfirmNote = await req(`/orders/${gcashId}/gcash-decision`, {
     method: "PATCH",
     token: tok,
     body: { decision: "confirm" },
+  });
+  check("confirm without a note is refused", noConfirmNote.status === 400, `got ${noConfirmNote.status}`);
+  const confirmed = await req(`/orders/${gcashId}/gcash-decision`, {
+    method: "PATCH",
+    token: tok,
+    body: { decision: "confirm", note: "phase7 same reference number, approved" },
   });
   check("owner confirms the gcash sale",
         confirmed.status === 200 && confirmed.data?.order?.status === "PAID");

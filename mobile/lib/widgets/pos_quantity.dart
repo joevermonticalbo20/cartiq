@@ -345,41 +345,42 @@ class _PosQuantityDialogState extends State<_PosQuantityDialog> {  late final Te
     super.dispose();
   }
 
-  void _submit() {
+  /// The validation error for whatever is typed, or null when it is usable.
+  String? _currentError() {
     final value = int.tryParse(_controller.text.trim());
-    if (value == null || value < 1) {
-      setState(() => _error = 'Enter a number');
-      return;
-    }
+    if (value == null || value < 1) return 'Enter a number';
     final capacity = widget.capacityLimit;
     if (capacity != null && value > capacity) {
-      final over = value - capacity;
-      final message = QuantityInput.capacityMessage(over);
-      setState(() => _error = message);
-      if (!_limitToastShown) {
+      return QuantityInput.capacityMessage(value - capacity);
+    }
+    if (value > QuantityInput.maximum) return QuantityInput.limitMessage;
+    if (widget.maxQuantity != null && value > widget.maxQuantity!) {
+      return widget.maxQuantity == 1
+          ? 'Only 1 left in stock'
+          : 'Only ${widget.maxQuantity} left in stock';
+    }
+    return null;
+  }
+
+  void _submit() {
+    final error = _currentError();
+    if (error != null) {
+      setState(() => _error = error);
+      // The toast only fires on the explicit Set tap, not on every keystroke.
+      final capacity = widget.capacityLimit;
+      final value = int.tryParse(_controller.text.trim()) ?? 0;
+      if (capacity != null && value > capacity && !_limitToastShown) {
         _limitToastShown = true;
         AppMessenger.showGlassToast(
           context: context,
-          message: message,
+          message: error,
           isSuccess: false,
         );
       }
       return;
     }
     if (_limitToastShown) _limitToastShown = false;
-    if (value > QuantityInput.maximum) {
-      setState(() => _error = QuantityInput.limitMessage);
-      return;
-    }
-    if (widget.maxQuantity != null && value > widget.maxQuantity!) {
-      setState(
-        () => _error = widget.maxQuantity == 1
-            ? 'Only 1 left in stock'
-            : 'Only ${widget.maxQuantity} left in stock',
-      );
-      return;
-    }
-    Navigator.pop(context, value);
+    Navigator.pop(context, int.tryParse(_controller.text.trim())!);
   }
 
   @override
@@ -420,7 +421,11 @@ class _PosQuantityDialogState extends State<_PosQuantityDialog> {  late final Te
               errorText: _error,
             ),
             onChanged: (_) {
-              if (_error != null) setState(() => _error = null);
+              // Validate live: the error shows right away and Set stays
+              // disabled until the number is usable again.
+              final error = _currentError();
+              if (error != _error) setState(() => _error = error);
+              if (_limitToastShown && error == null) _limitToastShown = false;
             },
             onSubmitted: (_) => _submit(),
           ),
@@ -438,7 +443,7 @@ class _PosQuantityDialogState extends State<_PosQuantityDialog> {  late final Te
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
-        FilledButton(onPressed: _submit, child: const Text('Set')),
+        FilledButton(onPressed: _error == null ? _submit : null, child: const Text('Set')),
       ],
     );
   }

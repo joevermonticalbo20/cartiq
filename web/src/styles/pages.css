@@ -1022,6 +1022,16 @@ button.settings-pw-submit:disabled {
   justify-content: flex-end;
   gap: var(--space-2);
 }
+/* GCash approvals table: its own column widths, and the order cell never
+   overflows into the staff column (it used to clip under the fixed 48px
+   first column, which also broke the header into "OR DER"). */
+.gcash-approvals-table th:nth-child(1) { width: 126px; }
+.gcash-approvals-table th:nth-child(2) { width: 150px; }
+.gcash-approvals-table th:nth-child(4) { width: 110px; }
+.gcash-approvals-table th:nth-child(5) { width: 190px; }
+.gcash-approvals-table th:nth-child(6) { width: 236px; }
+.gcash-approvals-table .gcash-approvals-order-cell { white-space: nowrap; }
+.gcash-approvals-table .gcash-approvals-staff-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 760px) {
   .void-requests-table .void-requests-hide-narrow { display: none; }
   .void-requests-table th:nth-child(1) { width: 44px; }

@@ -53,18 +53,26 @@ describe("GcashApprovalsPage", () => {
     });
   });
 
-  it("renders the pending GCash order and confirms with the owner's tap", async () => {
+  it("renders the pending GCash order and confirms with an owner note", async () => {
     renderPage();
     expect(await screen.findByText("#9")).toBeInTheDocument();
     expect(screen.getByText("₱120.00")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
-    // Confirm dialog -> Confirm payment
-    fireEvent.click(await screen.findByRole("button", { name: "Confirm payment" }));
+    // The confirm dialog requires a note before it can be submitted.
+    const confirm = await screen.findByRole("button", { name: "Confirm payment" });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/confirmation note/i), {
+      target: { value: "same reference number, approved" },
+    });
+    expect(confirm).not.toBeDisabled();
+
+    fireEvent.click(confirm);
     await waitFor(() =>
       expect(api.patch).toHaveBeenCalledWith(
         "/orders/9/gcash-decision",
-        { decision: "confirm" },
+        { decision: "confirm", note: "same reference number, approved" },
       ),
     );
   });
@@ -77,7 +85,7 @@ describe("GcashApprovalsPage", () => {
     const confirm = await screen.findByRole("button", { name: "Decline payment" });
     expect(confirm).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText(/reason for void/i), {
+    fireEvent.change(screen.getByLabelText(/decline reason/i), {
       target: { value: "GCash transaction not found in my app, declining" },
     });
     expect(confirm).not.toBeDisabled();

@@ -2379,8 +2379,8 @@ async function performVoidEdge({ orderId, actorId, reason }) {
 
 // Shared GCash confirm executor: flips the order to PAID (stock was already
 // reserved at creation) with the deciding owner recorded. The caller
-// verified the order is PENDING_GCASH.
-async function performGcashConfirmEdge({ orderId, actorId }) {
+// verified the order is PENDING_GCASH and already holds the owner's note.
+async function performGcashConfirmEdge({ orderId, actorId, note }) {
   return await withRetry(async () => {
     const fresh = await fsGet("orders", orderId);
     if (!fresh) {
@@ -2389,10 +2389,12 @@ async function performGcashConfirmEdge({ orderId, actorId }) {
     if (fresh.status !== "PENDING_GCASH") {
       throw Object.assign(new Error("Order is not awaiting a GCash decision"), { status: 409 });
     }
+    // The GCash confirmation note is stored on the order (example of what
+    // owners write: "same reference number, approved").
     const now = new Date();
     await fsCommit([updateWrite("orders", fresh.id, {
       status: "PAID",
-      gcash: { ...(fresh.gcash ?? {}), status: "confirmed", decidedBy: actorId, decidedAt: now.toISOString() },
+      gcash: { ...(fresh.gcash ?? {}), status: "confirmed", decidedBy: actorId, decidedAt: now.toISOString(), note: String(note ?? "").slice(0, 500) },
     }, fresh._updateTime)]);
     await announceChange("orders", { id: orderId, status: "PAID" }).catch(() => {});
     return { ok: true };
@@ -2675,7 +2677,7 @@ async function handleOrderVoidDecision(req, orderId, user) {
   await resolveAlert();
   await notifyRequester(
     "Void approved",
-    `Order #${orderId} was voided at your request. Stock restored.`,
+    `Order #${orderId} was voided at your request. Stock restored. Reason: ${decisionNote}`,
   );
   const order = await fsGet("orders", orderId);
   return { status: 200, body: { order: cleanDoc(order), restored: outcome.restored, warnings: outcome.warnings } };
@@ -2718,10 +2720,11 @@ async function handlePendingGcash() {
 }
 
 /** PATCH /orders/:id/gcash-decision (OWNER) — the GCash confirmation decision.
- *  { decision: "confirm" } — the proof matches the owner's GCash account; the
+ *  Both decisions require a note from the owner (void-note rules): { decision:
+ *  "confirm", note } — the proof matches the owner's GCash account; the
  *  order becomes PAID and counts as a sale. { decision: "reject", note } —
- *  the payment does not check out; GCASH_REJECTED, stock restored, note
- *  required (void-note rules). The GCASH_CONFIRM alert is resolved either way. */
+ *  the payment does not check out; GCASH_REJECTED, stock restored,
+ *  note required. Either way the GCASH_CONFIRM alert is resolved. */
 async function handleGcashDecision(req, orderId, user) {
   const ownErr = requireOwner(user);
   if (ownErr) return ownErr;
@@ -2780,12 +2783,18 @@ async function handleGcashDecision(req, orderId, user) {
     }
   };
 
+  // Both decisions require a note from the owner - the staff member sees it
+  // in the decision notification.
   if (decision === "confirm") {
-    await performGcashConfirmEdge({ orderId, actorId: user.id });
+    const confirmNote = validateVoidNote(body?.note);
+    if (!confirmNote.ok) {
+      return { status: 400, body: { error: confirmNote.error } };
+    }
+    await performGcashConfirmEdge({ orderId, actorId: user.id, note: confirmNote.value });
     await resolveAlert();
     await notifyRequester(
       "GCash confirmed",
-      `Order #${orderId} was confirmed by the owner - it is now a paid sale.`,
+      `Order #${orderId} was confirmed by the owner - it is now a paid sale. Note: ${confirmNote.value}`,
     );
     const order = await fsGet("orders", orderId);
     return { status: 200, body: { order: cleanDoc(order) } };
@@ -2799,7 +2808,7 @@ async function handleGcashDecision(req, orderId, user) {
   await resolveAlert();
   await notifyRequester(
     "GCash declined",
-    `Order #${orderId} was declined by the owner - it is not a sale and the stock was restored.`,
+    `Order #${orderId} was declined by the owner - it is not a sale and the stock was restored. Reason: ${check.value}`,
   );
   const order = await fsGet("orders", orderId);
   return { status: 200, body: { order: cleanDoc(order), restored: outcome.restored, warnings: outcome.warnings } };

@@ -390,12 +390,14 @@ router.get("/orders/pending-gcash", requireAuth, requireRole("OWNER"), async (_r
 });
 
 // PATCH /orders/:id/gcash-decision (OWNER) — the GCash confirmation decision.
-//   { decision: "confirm" } — the proof matches the owner's GCash account;
+//   { decision: "confirm", note } — the proof matches the owner's GCash account;
 //     the order becomes PAID and counts as a sale.
 //   { decision: "reject", note } — the payment does not check out; the order
 //     becomes GCASH_REJECTED, the reserved stock is restored, and the note is
 //     required (same rules as the void note: 20-100 letters/digits/space and
 //     , . - _, no three identical characters in a row).
+// Both decisions require the owner's note - it is stored on the order and
+// sent to the staff member in the decision notification.
 // Either way the GCASH_CONFIRM alert is resolved so it leaves the bell.
 router.patch("/orders/:id/gcash-decision", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
@@ -440,12 +442,18 @@ router.patch("/orders/:id/gcash-decision", requireAuth, requireRole("OWNER"), as
       }
     };
 
+    // Both decisions require a note from the owner - the staff member sees it
+    // in the decision notification.
     if (decision === "confirm") {
-      const out = await performGcashConfirm({ existing, actorId: req.user.sub });
+      const confirmNote = validateVoidNote(req.body?.note);
+      if (!confirmNote.ok) {
+        return res.status(400).json({ error: confirmNote.error });
+      }
+      const out = await performGcashConfirm({ existing, actorId: req.user.sub, note: confirmNote.value });
       await resolveAlert();
       await notifyRequester(
         "GCash confirmed",
-        `Order #${existing.id} was confirmed by the owner - it is now a paid sale.`,
+        `Order #${existing.id} was confirmed by the owner - it is now a paid sale. Note: ${confirmNote.value}`,
       );
       return res.json(out);
     }
@@ -458,7 +466,7 @@ router.patch("/orders/:id/gcash-decision", requireAuth, requireRole("OWNER"), as
     await resolveAlert();
     await notifyRequester(
       "GCash declined",
-      `Order #${existing.id} was declined by the owner - it is not a sale and the stock was restored.`,
+      `Order #${existing.id} was declined by the owner - it is not a sale and the stock was restored. Reason: ${noteCheck.value}`,
     );
     return res.json(out);
   } catch (err) {
@@ -672,8 +680,9 @@ async function performVoid({ existing, actorId, reason }) {
 
 // Shared GCash confirm executor: flips the order to PAID (stock was already
 // reserved at creation) with the deciding owner recorded. The caller
-// verified the order is PENDING_GCASH. Returns { order }.
-async function performGcashConfirm({ existing, actorId }) {
+// verified the order is PENDING_GCASH and already holds the owner's note.
+async function performGcashConfirm({ existing, actorId, note }) {
+  const trimmedNote = String(note ?? "").slice(0, 500);
   await prisma.$transaction(async (tx) => {
     // Re-read inside the txn: two parallel decisions must not both win.
     const fresh = await tx.order.findUnique({ where: { id: existing.id } });
@@ -685,7 +694,7 @@ async function performGcashConfirm({ existing, actorId }) {
       where: { id: existing.id },
       data: {
         status: "PAID",
-        gcash: { ...(fresh.gcash ?? {}), status: "confirmed", decidedBy: actorId, decidedAt: new Date().toISOString() },
+        gcash: { ...(fresh.gcash ?? {}), status: "confirmed", decidedBy: actorId, decidedAt: new Date().toISOString(), note: trimmedNote },
       },
     });
   });
@@ -965,7 +974,7 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
         data: {
           type: "VOID_DECISION",
           title: "Void approved",
-          message: `Order #${existing.id} was voided at your request. Stock restored.`,
+          message: `Order #${existing.id} was voided at your request. Stock restored. Reason: ${noteCheck.value}`,
           userId: requesterId,
           locationId: existing.locationId ?? null,
           payload: JSON.stringify({ orderId: existing.id }),
