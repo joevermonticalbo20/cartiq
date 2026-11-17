@@ -195,6 +195,7 @@ export default function Layout() {
                 <NavLink
                   key={to}
                   to={to}
+                  end
                   className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
                   title={label}
                 >
