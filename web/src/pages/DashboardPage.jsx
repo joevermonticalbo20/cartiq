@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import {
   AlertTriangle,
@@ -16,7 +16,18 @@ import {
   ShoppingBag,
   TrendingUp,
   X,
+  ChevronRight,
+  Banknote,
+  CreditCard
 } from "lucide-react";
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  Tooltip as RechartsTooltip, 
+  ResponsiveContainer 
+} from "recharts";
+
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import { useLiveList } from "../state/liveData.js";
@@ -27,14 +38,27 @@ import Skeleton, { SkeletonCards, SkeletonList, TableSkeleton } from "../compone
 import Select from "../components/Select.jsx";
 import { useLiveEvent, useLiveStatus } from "../hooks/useLiveStream.js";
 
+// Exact colors matching the CartIQ theme system variables
+const CHART_COLORS = [
+  "var(--primary)",           // Base Brand Red (#E73631)
+  "#F87171",                  // Light Red-Orange
+  "var(--primary-strong)",    // Darker Brand Red (#C72824)
+  "#FCA5A5",                  // Soft Light Red
+  "#991B1B",                  // Deep Dark Red
+  "#FECACA",                  // Pale Red
+  "#7F1D1D"                   // Very Dark Red
+];
+
 function statusClass(s) {
   if (s === "out") return "danger";
   if (s === "low") return "warn";
   return "ok";
 }
+
 function formatTime(d) {
   return new Date(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
+
 function initials(name) {
   if (!name) return "?";
   return name
@@ -43,23 +67,18 @@ function initials(name) {
     .map((p) => p[0]?.toUpperCase() ?? "")
     .join("");
 }
+
 function TrendArrow({ dir }) {
-  if (dir === "up") return <ArrowUp size={12} />;
-  if (dir === "down") return <ArrowDown size={12} />;
-  return <Minus size={12} />;
+  if (dir === "up") return <ArrowUp size={14} />;
+  if (dir === "down") return <ArrowDown size={14} />;
+  return <Minus size={14} />;
 }
+
 function getLocalToday() {
   const tzOffset = new Date().getTimezoneOffset() * 60000;
   return new Date(Date.now() - tzOffset).toISOString().slice(0, 10);
 }
 
-/**
- * The calendar day before [iso] ("YYYY-MM-DD").
- *
- * The date input gives a plain calendar date, so the arithmetic is done in UTC
- * (no timezone shift, no DST surprises in Manila).
- */
-// eslint-disable-next-line react-refresh/only-export-components -- pure helper colocated with its only consumer, unit-tested in place
 export function previousDay(iso) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? ""));
   if (!m) return "";
@@ -67,7 +86,7 @@ export function previousDay(iso) {
   d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString().slice(0, 10);
 }
-// HELPER: Para malinis ang decimal (max 2 places) tulad ng sa Inventory
+
 function formatStock(val) {
   return Number(val).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
@@ -81,18 +100,12 @@ export default function DashboardPage() {
   const [inventory, setInventory] = useState([]);
   const [onShift, setOnShift] = useState([]);
   const [latestSales, setLatestSales] = useState([]);
-  // The alerts ARRAY is never rendered - the Stock alerts panel reads live
-  // inventory status instead. The state is kept only so the alert:new live
-  // event has somewhere to land.
   const [, setAlerts] = useState([]);
   const [trends, setTrends] = useState(null);
   const [prev, setPrev] = useState(null);
-
   const [loading, setLoading] = useState(true);
   const [sectionErrors, setSectionErrors] = useState({});
 
-  // One shared, live copy of the carts: a cart the owner added or
-  // deactivated shows up in the filter at once.
   const { data: cartList } = useLiveList("carts");
   const locations = Array.isArray(cartList) ? cartList : [];
   const [dateFilter, setDateFilter] = useState("");
@@ -117,6 +130,7 @@ export default function DashboardPage() {
         console.debug(`[perf] Dashboard refresh completed in ${Math.round(performance.now() - startedAt)}ms`);
       }
     };
+
     const errs = {};
     const settle = async (key, promise, apply) => {
       try {
@@ -129,11 +143,8 @@ export default function DashboardPage() {
     const dQ = dateFilter ? `date=${dateFilter}` : "";
     const lQ = cartFilter ? `location_code=${cartFilter}` : "";
     const cQ = cartFilter ? `code=${cartFilter}` : "";
-    // The API honours `date` first and ignores `daysAgo`, so asking for
-    // "yesterday" with both parameters used to return the SAME day - the
-    // "% vs prior" cards then always read 0.0%. When a day is picked, ask for
-    // the previous day explicitly.
     const prevQ = dateFilter ? `date=${previousDay(dateFilter)}` : "daysAgo=1";
+
     const buildQ = (base, params) => {
       const query = params.filter(Boolean).join("&");
       if (!query) return base;
@@ -190,31 +201,26 @@ export default function DashboardPage() {
   const safeOnShift = Array.isArray(onShift) ? onShift : [];
   const safeLatestSales = Array.isArray(latestSales) ? latestSales : [];
 
-  // Deactivated carts disappear from the dashboard. Carts marked INACTIVE
-  // arrive in the shared list too, so drop them here. If the cart list
-  // hasn't loaded yet, show everything (it refreshes live).
   const inactiveCartsKnown = locations.length > 0;
   const isActiveCart = (code) =>
     !inactiveCartsKnown || locations.some((l) => l.code === code && l.status !== "INACTIVE");
+
   const activeInventoryBase = safeInventory.filter((l) => isActiveCart(l.code));
   const activeInventory = cartFilter && activeInventoryBase.some((l) => l.code === cartFilter)
     ? activeInventoryBase.filter((l) => l.code === cartFilter)
     : activeInventoryBase;
+
   const activeOnShift = cartFilter
     ? safeOnShift.filter((s) => s.location_code === cartFilter)
     : safeOnShift.filter((s) => isActiveCart(s.location_code));
 
-  const lowCount = activeInventory.reduce((sum, loc) => sum + (loc.items ?? []).filter((i) => i.status !== "ok").length, 0);
-  const criticalCount = activeInventory.reduce((sum, loc) => sum + (loc.items ?? []).filter((i) => i.status === "out").length, 0);
-
   const todaySales = report?.total_sales ?? 0;
   const todayOrders = report?.orders ?? 0;
   const avgTicket = todayOrders > 0 ? todaySales / todayOrders : 0;
+
   const topItem = (() => {
     const all = trends?.top_items ?? [];
     if (all.length === 0) return null;
-    // Copy before sorting: `all` is the array held in React state, and
-    // sorting it in place mutated the state behind React's back.
     return [...all].sort((a, b) => (b.qty ?? 0) - (a.qty ?? 0))[0];
   })();
 
@@ -227,439 +233,471 @@ export default function DashboardPage() {
   const salesDir = dirOf(salesDelta);
   const ordersDir = dirOf(ordersDelta);
 
-  const weeklyMax = trends?.by_weekday ? Math.max(...trends.by_weekday.map((s) => s.total_sales), 1) : 1;
-
   const locationOptions = [
     { value: "", label: "All carts" },
-    // Keep the currently selected cart in the list even if it was just
-    // deactivated - removing it while selected would silently reset the view.
     ...locations.filter((l) => l.status !== "INACTIVE" || l.code === cartFilter)
       .map((l) => ({ value: l.code, label: l.code }))
   ];
 
+  // Map Weekly Sales Trend data for Recharts using real API data only
+  const weeklyChartData = trends?.by_weekday || [];
+  
+  // Check if any cart has actual revenue breakdown in the returned weekday array
+  const hasCartBreakdown = !cartFilter && activeInventory.some((loc) => 
+    weeklyChartData.some((d) => d[loc.code] !== undefined)
+  );
+
   return (
     <PageErrorBoundary>
       <div className="page-container wide">
-      <div className="page-header">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="page-header-title">Hello, {firstName}</h1>
-            <span
-              className={`sse-pill ${sseStatus === "open" ? "open" : sseStatus === "down" ? "down" : sseStatus === "paused" ? "paused" : "connecting"}`}
-              title={
-                sseStatus === "paused"
-                  ? "Live stream paused while this tab is hidden - it resumes when you come back"
-                  : `Live stream: ${sseStatus}`
-              }
-              aria-label={`Connection status: ${sseStatus}`}
-            >
-              <Radio
-                size={11}
-                className={sseStatus === "open" ? "spin" : ""}
-                style={sseStatus === "open" ? { animation: "pulse-dot 1.6s ease-in-out infinite" } : undefined}
-              />
-              {sseStatus === "open"
-                ? "Live"
-                : sseStatus === "down"
-                  ? "Offline"
-                  : sseStatus === "paused"
-                    ? "Paused"
-                    : "Connecting"}
-            </span>
-            {livePulse > 0 && (
-              <span className="live-badge" aria-label={`${livePulse} live updates`}>
-                {livePulse}
+        <div className="page-header">
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="page-header-title">Hello, {firstName}</h1>
+              <span
+                className={`sse-pill ${sseStatus === "open" ? "open" : sseStatus === "down" ? "down" : sseStatus === "paused" ? "paused" : "connecting"}`}
+                title={
+                  sseStatus === "paused"
+                    ? "Live stream paused while this tab is hidden - it resumes when you come back"
+                    : `Live stream: ${sseStatus}`
+                }
+                aria-label={`Connection status: ${sseStatus}`}
+              >
+                <Radio
+                  size={11}
+                  className={sseStatus === "open" ? "spin" : ""}
+                  style={sseStatus === "open" ? { animation: "pulse-dot 1.6s ease-in-out infinite" } : undefined}
+                />
+                {sseStatus === "open"
+                  ? "Live"
+                  : sseStatus === "down"
+                    ? "Offline"
+                    : sseStatus === "paused"
+                      ? "Paused"
+                      : "Connecting"}
               </span>
+              {livePulse > 0 && (
+                <span className="live-badge" aria-label={`${livePulse} live updates`}>
+                  {livePulse}
+                </span>
+              )}
+            </div>
+            <p className="page-header-subtitle">
+              {loading ? "Syncing data..." : "Overview of today's operations"}
+            </p>
+          </div>
+          
+          <div className="page-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
+            <Select value={cartFilter} onChange={setCartFilter} options={locationOptions} placeholder="All carts" />
+            <input
+              type="date"
+              value={dateFilter}
+              onChange={e => setDateFilter(e.target.value)}
+              style={{ height: '48px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', padding: '0 12px', background: 'var(--surface-alt)', color: 'var(--text)' }}
+            />
+            {(dateFilter || cartFilter) && (
+               <button className="danger-ghost small-btn" onClick={() => { setDateFilter(""); setCartFilter(""); }}>
+                  <X size={14} /> Clear
+               </button>
             )}
           </div>
-          <p className="page-header-subtitle">
-            {loading ? "Loading latest data..." : "Stay on top of your operations, monitor progress, and track real-time status."}
-          </p>
         </div>
-        
-        <div className="page-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
-          <Select value={cartFilter} onChange={setCartFilter} options={locationOptions} placeholder="All carts" />
-          <input
-            type="date"
-            value={dateFilter}
-            onChange={e => setDateFilter(e.target.value)}
-            style={{ height: '48px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', padding: '0 12px', background: 'var(--surface-alt)', color: 'var(--text)' }}
-          />
-          {(dateFilter || cartFilter) && (
-             <button className="danger-ghost small-btn" onClick={() => { setDateFilter(""); setCartFilter(""); }}>
-                <X size={14} /> Clear
-             </button>
-          )}
-        </div>
-      </div>
 
-      {Object.keys(sectionErrors).length > 0 && !loading && (
-        <div className="error-box" role="alert" style={{ marginBottom: "var(--space-4)" }}>
-          Couldn&apos;t refresh:{" "}
-          {Object.keys(sectionErrors).map((k) => sectionLabels[k] ?? k).join(", ")}. Showing available data.{" "}
-          <button type="button" className="linklike" onClick={refresh}>Retry</button>
-        </div>
-      )}
+        {Object.keys(sectionErrors).length > 0 && !loading && (
+          <div className="error-box" role="alert" style={{ marginBottom: "var(--space-4)" }}>
+            Couldn't refresh:{" "}
+            {Object.keys(sectionErrors).map((k) => sectionLabels[k] ?? k).join(", ")}. Showing available data.{" "}
+            <button type="button" className="linklike" onClick={refresh}>Retry</button>
+          </div>
+        )}
 
-      {loading ? (
-        <>
-          {/* TOP SECTION SKELETON */}
-          <SkeletonCards count={4} className="dashboard-kpi-strip" />
-          <div className="dashboard-middle-row">
-            <div className="panel dashboard-trend-panel" style={{ display: "flex", flexDirection: "column" }}>
-              <div className="panel-head" style={{ marginBottom: "16px" }}>
-                 <Skeleton rows={1} height={24} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <Skeleton rows={1} height={140} />
-              </div>
-            </div>
-            <div className="panel">
-              <Skeleton rows={1} height={24} />
-              <Skeleton rows={1} height={160} />
-            </div>
-          </div>
-          
-          {/* BOTTOM SECTION SKELETON */}
-          <div className="dashboard-ops-row">
-            <section className="panel" style={{ display: "flex", flexDirection: "column", minHeight: "280px" }}>
-              <div className="panel-head" style={{ marginBottom: "16px" }}>
-                <div style={{ width: "110px" }}><Skeleton rows={1} height={24} /></div>
-                <div style={{ width: "70px" }}><Skeleton rows={1} height={24} /></div>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px", flex: 1 }}>
-                <SkeletonList rows={4} />
-              </div>
-            </section>
-            
-            <section className="panel" style={{ display: "flex", flexDirection: "column", minHeight: "280px" }}>
-              <div className="panel-head" style={{ marginBottom: "16px" }}>
-                <div style={{ width: "130px" }}><Skeleton rows={1} height={24} /></div>
-                <div style={{ width: "80px" }}><Skeleton rows={1} height={24} /></div>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px", flex: 1 }}>
-                <SkeletonList rows={4} />
-              </div>
-            </section>
-          </div>
-          
-          <div className="dashboard-bottom-row">
-            <section className="panel widget-orders" style={{ display: "flex", flexDirection: "column", minHeight: "320px" }}>
-              <div className="panel-head" style={{ marginBottom: "16px" }}>
-                <div style={{ width: "140px" }}><Skeleton rows={1} height={24} /></div>
-                <div style={{ width: "80px" }}><Skeleton rows={1} height={28} /></div>
-              </div>
-              <TableSkeleton
-                rows={5}
-                columns={[
-                  { key: "time", label: "Time" },
-                  { key: "items", label: "Items" },
-                  { key: "total", label: "Total", align: "right" },
-                  { key: "payment", label: "Payment" },
-                  { key: "location", label: "Location" },
-                ]}
-              />
-            </section>
-          </div>
-        </>
-      ) : (
-        <>
-          {/* ROW 1: CORE KPIs */}
-          <div className="dashboard-kpi-strip">
-            <div
-              className="kpi-card solid-brand"
-              onClick={() => navigate("/sales")}
-              onKeyDown={(e) => {
-                // role="button" without a key handler is not reachable by
-                // keyboard: Enter and Space must open the card too.
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  navigate("/sales");
-                }
-              }}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="kpi-card-header">
-                <span className="kpi-card-label">{dateFilter ? "Sales (Filtered)" : "Sales today"}</span>
-                <span className="kpi-card-icon"><DollarSign size={22} /></span>
-              </div>
-              <div className="kpi-card-body">
-                <div>
-                  <div className="kpi-card-value">{report ? <>P{Number(todaySales).toLocaleString()}</> : "—"}</div>
-                  <div className="kpi-card-sub">{report ? `${todayOrders} orders - avg P${avgTicket.toFixed(0)} ticket` : "Sales unavailable"}</div>
+        {loading ? (
+          <>
+            <SkeletonCards count={4} className="dashboard-kpi-strip" />
+            <div className="dashboard-middle-row">
+              <div className="panel dashboard-trend-panel" style={{ display: "flex", flexDirection: "column" }}>
+                <div className="panel-head" style={{ marginBottom: "16px" }}>
+                   <Skeleton rows={1} height={24} />
                 </div>
-                <span className="kpi-card-trend"><TrendArrow dir={salesDir} /> {labelOf(salesDelta)}</span>
+                <div style={{ flex: 1 }}>
+                  <Skeleton rows={1} height={140} />
+                </div>
+              </div>
+              <div className="panel" style={{ display: "flex", flexDirection: "column" }}>
+                <div className="panel-head" style={{ marginBottom: "16px" }}>
+                   <Skeleton rows={1} height={24} />
+                </div>
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <SkeletonList rows={3} />
+                </div>
               </div>
             </div>
             
-            <div
-              className="kpi-card"
-              onClick={() => navigate("/sales")}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  navigate("/sales");
-                }
-              }}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="kpi-card-header">
-                <span className="kpi-card-label">{dateFilter ? "Orders (Filtered)" : "Orders today"}</span>
-                <span className="kpi-card-icon"><ShoppingBag size={22} /></span>
-              </div>
-              <div className="kpi-card-body">
-                <div>
-                  <div className="kpi-card-value">{report ? todayOrders : "—"}</div>
-                  <div className="kpi-card-sub">Across {activeInventory.length} active carts</div>
+            <div className="dashboard-middle-row">
+              <section className="panel widget-orders" style={{ display: "flex", flexDirection: "column", minHeight: "320px" }}>
+                <div className="panel-head" style={{ marginBottom: "16px" }}>
+                  <div style={{ width: "140px" }}><Skeleton rows={1} height={24} /></div>
+                  <div style={{ width: "80px" }}><Skeleton rows={1} height={28} /></div>
                 </div>
-                <span className={`kpi-card-trend ${ordersDir}`}><TrendArrow dir={ordersDir} /> {labelOf(ordersDelta)}</span>
-              </div>
-            </div>
-
-            <div
-              className="kpi-card"
-              onClick={() => navigate("/sales")}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  navigate("/sales");
-                }
-              }}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="kpi-card-header">
-                <span className="kpi-card-label">Avg ticket</span>
-                <span className="kpi-card-icon"><ReceiptText size={20} /></span>
-              </div>
-              <div className="kpi-card-value">{report ? <>P{avgTicket.toFixed(0)}</> : "—"}</div>
-              <div className="kpi-card-sub">Per order {dateFilter ? "selected" : "today"}</div>
-            </div>
-
-            <div
-              className="kpi-card"
-              onClick={() => navigate("/analytics")}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  navigate("/analytics");
-                }
-              }}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="kpi-card-header">
-                <span className="kpi-card-label">Top item</span>
-                <span className="kpi-card-icon"><BarChart2 size={20} /></span>
-              </div>
-              <div className="kpi-card-value" style={{ fontSize: "var(--fs-lg)", fontWeight: "var(--fw-extrabold)" }}>
-                {topItem ? (topItem.flavor ?? topItem.name) : "—"}
-              </div>
-              <div className="kpi-card-sub">{topItem ? `${topItem.qty ?? 0} sold (7d)` : "No data yet"}</div>
-            </div>
-          </div>
-
-          {/* ROW 2: TRENDS & STOCK ALERTS */}
-          <div className="dashboard-middle-row">
-            {trends && trends.by_weekday ? (
-              <section className="panel dashboard-trend-panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-                <div className="panel-head">
-                  <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", margin: 0, padding: 0 }}>
-                    Weekly sales trend
-                  </h3>
-                  <Badge variant="brand">P{Number(trends.total_sales).toLocaleString()}</Badge>
+                <TableSkeleton
+                  rows={5}
+                  columns={[
+                    { key: "time", label: "Time" },
+                    { key: "items", label: "Items" },
+                    { key: "total", label: "Total", align: "right" },
+                    { key: "payment", label: "Payment" },
+                    { key: "location", label: "Location" },
+                  ]}
+                />
+              </section>
+              
+              <section className="panel" style={{ display: "flex", flexDirection: "column", minHeight: "280px" }}>
+                <div className="panel-head" style={{ marginBottom: "16px" }}>
+                  <div style={{ width: "130px" }}><Skeleton rows={1} height={24} /></div>
+                  <div style={{ width: "80px" }}><Skeleton rows={1} height={24} /></div>
                 </div>
-                <div className="trend-bars mt-2">
-                  {trends.by_weekday.map((d) => {
-                    const pct = (d.total_sales / weeklyMax) * 100;
-                    return (
-                      <div key={d.dow} className="trend-bar-col" title={`P${Number(d.total_sales).toLocaleString()} - ${d.orders ?? 0} orders`}>
-                        <div className="trend-bar" style={{ height: `${Math.max(pct, 2)}%` }} />
-                        <span className="muted small">{d.label}</span>
-                      </div>
-                    );
-                  })}
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px", flex: 1 }}>
+                  <SkeletonList rows={4} />
                 </div>
               </section>
-            ) : (
-              <div className="panel dashboard-trend-panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-                <EmptyState icon={TrendingUp} title="No trend data" compact />
+            </div>
+          </>
+        ) : (
+          <>
+            {/* ROW 1: CORE KPIs */}
+            <div className="dashboard-kpi-strip">
+              <div
+                className="kpi-card solid-brand"
+                onClick={() => navigate("/sales")}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    navigate("/sales");
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                <div className="kpi-card-header">
+                  <span className="kpi-card-label">{dateFilter ? "Sales (Filtered)" : "Sales today"}</span>
+                  <span className="kpi-card-icon"><DollarSign size={22} /></span>
+                </div>
+                <div className="kpi-card-body">
+                  <div>
+                    <div className="kpi-card-value">{report ? <>P{Number(todaySales).toLocaleString()}</> : "—"}</div>
+                    <div className="kpi-card-sub flex items-center gap-1">
+                      {report ? <><ShoppingBag size={12}/> {todayOrders} orders</> : "—"}
+                    </div>
+                  </div>
+                  <span className="kpi-card-trend"><TrendArrow dir={salesDir} /> {labelOf(salesDelta)}</span>
+                </div>
               </div>
-            )}
-            
-            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-              <div className="panel-head" style={{ marginBottom: "12px" }}>
-                <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
-                  Stock alerts
-                </h3>
-                <div className="flex items-center gap-2">
-                  {activeInventory.length > 0 && (
-                    <Badge variant={criticalCount > 0 ? "danger" : lowCount > 0 ? "warn" : "ok"}>
-                      {criticalCount > 0 ? `${criticalCount} critical` : lowCount > 0 ? `${lowCount} low` : "All OK"}
-                    </Badge>
-                  )}
-                  <button className="ghost small-btn" onClick={() => navigate("/inventory")}>View</button>
+              
+              <div
+                className="kpi-card"
+                onClick={() => navigate("/sales")}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    navigate("/sales");
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                <div className="kpi-card-header">
+                  <span className="kpi-card-label">{dateFilter ? "Orders (Filtered)" : "Orders today"}</span>
+                  <span className="kpi-card-icon"><ShoppingBag size={22} /></span>
+                </div>
+                <div className="kpi-card-body">
+                  <div>
+                    <div className="kpi-card-value">{report ? todayOrders : "—"}</div>
+                    <div className="kpi-card-sub flex items-center gap-1">
+                      <Boxes size={12}/> {activeInventory.length} Active Carts
+                    </div>
+                  </div>
+                  <span className={`kpi-card-trend ${ordersDir}`}><TrendArrow dir={ordersDir} /> {labelOf(ordersDelta)}</span>
                 </div>
               </div>
 
-              {activeInventory.length === 0 ? (
-                <EmptyState icon={Boxes} title="No carts configured" subtitle="Stock alerts appear as soon as a cart reports readings." compact />
+              <div
+                className="kpi-card"
+                onClick={() => navigate("/sales")}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    navigate("/sales");
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                <div className="kpi-card-header">
+                  <span className="kpi-card-label">Avg ticket</span>
+                  <span className="kpi-card-icon"><ReceiptText size={20} /></span>
+                </div>
+                <div className="kpi-card-value">{report ? <>P{avgTicket.toFixed(0)}</> : "—"}</div>
+                <div className="kpi-card-sub">
+                  <Badge variant="neutral">Per Order</Badge>
+                </div>
+              </div>
+
+              <div
+                className="kpi-card"
+                onClick={() => navigate("/analytics")}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    navigate("/analytics");
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                <div className="kpi-card-header">
+                  <span className="kpi-card-label">Top item</span>
+                  <span className="kpi-card-icon"><BarChart2 size={20} /></span>
+                </div>
+                <div className="kpi-card-value" style={{ fontSize: "var(--fs-lg)", fontWeight: "var(--fw-extrabold)" }}>
+                  {topItem ? (topItem.flavor ?? topItem.name) : "—"}
+                </div>
+                <div className="kpi-card-sub">
+                  {topItem ? <Badge variant="brand">{topItem.qty ?? 0} sold (7d)</Badge> : "No data yet"}
+                </div>
+              </div>
+            </div>
+
+            {/* ROW 2: TRENDS & COMBINED CART STATUS */}
+            <div className="dashboard-middle-row">
+              {trends && trends.by_weekday ? (
+                <section className="panel dashboard-trend-panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+                  <div className="panel-head">
+                    <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", margin: 0, padding: 0 }}>
+                      Weekly sales trend
+                    </h3>
+                    <Badge variant="brand">P{Number(trends.total_sales).toLocaleString()}</Badge>
+                  </div>
+                  
+                  <div className="trend-bars mt-2" style={{ flex: 1, minHeight: 180, width: "100%" }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={weeklyChartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }} maxBarSize={36}>
+                        <XAxis 
+                          dataKey="label" 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fontSize: 11, fill: "var(--text-muted)", fontWeight: 600 }} 
+                          dy={10}
+                        />
+                        <RechartsTooltip
+                          cursor={{ fill: "var(--surface-alt)" }}
+                          contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px", fontWeight: 600 }}
+                          formatter={(value, name) => [
+                            `P${Number(value).toLocaleString()}`, 
+                            name === "total_sales" ? "Total Revenue" : name
+                          ]}
+                        />
+                        
+                        {hasCartBreakdown ? (
+                          activeInventory.map((loc, idx) => (
+                            <Bar 
+                              key={loc.code} 
+                              dataKey={loc.code} 
+                              stackId="a" 
+                              fill={CHART_COLORS[idx % CHART_COLORS.length]}
+                              radius={idx === activeInventory.length - 1 ? [99, 99, 0, 0] : [0, 0, 0, 0]}
+                            />
+                          ))
+                        ) : (
+                          <Bar 
+                            dataKey="total_sales" 
+                            fill="var(--primary)" 
+                            radius={[99, 99, 0, 0]} 
+                          />
+                        )}
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </section>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-                  {activeInventory.every((loc) => (loc.items ?? []).every((i) => i.status === "ok")) ? (
-                    <EmptyState icon={CheckCircle} title="All stock healthy" subtitle="Nothing below threshold right now." compact />
+                <div className="panel dashboard-trend-panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+                  <EmptyState icon={TrendingUp} title="No trend data" compact />
+                </div>
+              )}
+              
+              <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+                <div className="panel-head" style={{ marginBottom: "12px" }}>
+                  <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
+                    Cart status
+                  </h3>
+                  <Badge variant="neutral">{activeInventory.length} active</Badge>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", flex: 1, gap: "10px" }}>
+                  {activeInventory.length === 0 ? (
+                     <EmptyState icon={Boxes} title="No carts configured" subtitle="Carts appear once added." compact />
                   ) : (
                     <>
-                      {activeInventory
-                        .flatMap((loc) => (loc.items ?? []).filter((i) => i.status !== "ok").map((i) => ({ ...i, locationCode: loc.code })))
-                        .slice(0, 5)
-                        .map((it) => {
-                          const Icon = it.status === "out" ? AlertTriangle : Info;
-                          return (
-                            <div className="alert-item" key={`${it.id}`}>
-                              <span className="alert-item-icon">
-                                <Icon size={16} style={{ color: it.status === "out" ? "var(--danger)" : "var(--warn)" }} />
-                              </span>
-                              <span className="alert-item-text">
-                                <div className="alert-item-name">{it.name} <span className="text-xs muted">@ {it.locationCode}</span></div>
-                                <div className="alert-item-detail">{formatStock(it.stock)} {it.unit} remaining - threshold {formatStock(it.threshold)}</div>
-                              </span>
-                              <Badge variant={statusClass(it.status)}>{it.status.toUpperCase()}</Badge>
+                      {activeInventory.slice(0, 5).map((loc) => {
+                        const locItems = loc.items ?? [];
+                        const lowItems = locItems.filter((i) => i.status === "low");
+                        const outItems = locItems.filter((i) => i.status === "out");
+                        
+                        const low = lowItems.length;
+                        const critical = outItems.length;
+                        const dotClass = critical > 0 ? "critical" : low > 0 ? "warn" : "ok";
+                        
+                        return (
+                          <div 
+                            key={loc.id} 
+                            className="cart-status-item" 
+                            style={{ 
+                              flexDirection: "column", 
+                              alignItems: "flex-start", 
+                              gap: "8px", 
+                              padding: "12px", 
+                              background: "var(--surface-alt)", 
+                              borderRadius: "var(--radius-sm)", 
+                              border: "1px solid var(--border)",
+                              margin: 0
+                            }} 
+                            onClick={() => navigate("/inventory", { state: { cartCode: loc.code } })} 
+                            role="button" 
+                            tabIndex={0}
+                          >
+                            <div className="flex justify-between items-center w-full">
+                              <div className="flex items-center gap-2">
+                                <span className={`status-dot ${dotClass}`} style={{ width: 10, height: 10 }} />
+                                <span className="font-bold">{loc.code}</span>
+                                <span className="text-xs muted flex items-center gap-1"><Boxes size={12}/> {locItems.length} items</span>
+                              </div>
+                              <Badge variant={critical > 0 ? "danger" : low > 0 ? "warn" : "ok"}>
+                                {critical > 0 ? `${critical} critical` : low > 0 ? `${low} low` : "All OK"}
+                              </Badge>
                             </div>
-                          );
-                        })}
-                      <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
-                        Showing up to 5 alerts. Check the Inventory page to manage all stocks.
+                            
+                            {(critical > 0 || low > 0) && (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {outItems.map(i => (
+                                  <span key={i.id} className="text-xs flex items-center gap-1 px-2 py-1 rounded-full" style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>
+                                    <AlertTriangle size={10} /> {i.name} ({formatStock(i.stock)}{i.unit})
+                                  </span>
+                                ))}
+                                {lowItems.map(i => (
+                                  <span key={i.id} className="text-xs flex items-center gap-1 px-2 py-1 rounded-full" style={{ background: "var(--warn-bg)", color: "var(--warn)" }}>
+                                    <Info size={10} /> {i.name} ({formatStock(i.stock)}{i.unit})
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      <div style={{ marginTop: "auto", paddingTop: "8px", display: "flex", justifyContent: "center" }}>
+                        <button className="ghost small-btn" onClick={() => navigate("/settings")}>
+                          Manage carts <ChevronRight size={14} />
+                        </button>
                       </div>
                     </>
                   )}
                 </div>
-              )}
-            </section>
-          </div>
+              </section>
+            </div>
 
-          {/* ROW 3: OPS SUMMARY */}
-          <div className="dashboard-ops-row">
-            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-              <div className="panel-head" style={{ marginBottom: "12px" }}>
-                <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
-                  Cart status
-                </h3>
-                <Badge variant="neutral">{activeInventory.length} carts</Badge>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-                {activeInventory.length === 0 ? (
-                   <EmptyState icon={Boxes} title="No carts configured" subtitle="Carts will appear here once added." compact />
+            {/* ROW 3: RECENT ORDERS & ON-SHIFT STAFF */}
+            <div className="dashboard-middle-row">
+              <section className="panel widget-orders" aria-live="polite">
+                <div className="panel-head">
+                  <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
+                    Recent orders
+                  </h3>
+                  <button className="ghost small-btn" onClick={() => navigate("/sales")}>
+                    View all <ChevronRight size={14}/>
+                  </button>
+                </div>
+
+                {safeLatestSales.length === 0 ? (
+                  <EmptyState icon={ShoppingBag} title="No sales found" compact />
                 ) : (
-                  <>
-                    {activeInventory.slice(0, 5).map((loc) => {
-                      const locItems = loc.items ?? [];
-                      const low = locItems.filter((i) => i.status !== "ok").length;
-                      const critical = locItems.filter((i) => i.status === "out").length;
-                      const dotClass = critical > 0 ? "critical" : low > 0 ? "warn" : "ok";
-                      return (
-                        <div key={loc.id} className="cart-status-item" onClick={() => navigate("/inventory", { state: { cartCode: loc.code } })} role="button" tabIndex={0}>
-                          <span className={`status-dot ${dotClass}`} />
-                          <span className="alert-item-text">
-                            <div className="alert-item-name">{loc.code}</div>
-                            <div className="alert-item-detail">{loc.name} - {locItems.length} items</div>
-                          </span>
-                          <Badge variant={critical > 0 ? "danger" : low > 0 ? "warn" : "ok"}>
-                            {critical > 0 ? `${critical} critical` : low > 0 ? `${low} low` : "OK"}
-                          </Badge>
-                        </div>
-                      );
-                    })}
-                    <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
-                      Showing up to 5 carts. Click on a cart to see complete inventory information.
-                    </div>
-                  </>
-                )}
-              </div>
-            </section>
-            
-            <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-              <div className="panel-head" style={{ marginBottom: "12px" }}>
-                <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
-                  On-shift staff
-                </h3>
-                <Badge variant={activeOnShift.length > 0 ? "ok" : "neutral"}>{activeOnShift.length} on duty</Badge>
-              </div>
-              
-              {activeOnShift.length === 0 ? (
-                <EmptyState icon={Clock} title="No one on shift" subtitle="Staff will appear here when they tap in." compact />
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-                  <div className="flex flex-col gap-2">
-                    {activeOnShift.slice(0, 5).map((s) => (
-                      <div key={`${s.name}-${s.location_code}`} className="cart-status-item" style={{ borderBottom: "none" }}>
-                        <span className="staff-avatar">{initials(s.name)}</span>
-                        <span className="alert-item-text">
-                          <div className="alert-item-name">{s.name}</div>
-                          <div className="alert-item-detail">{s.location_name} - since {formatTime(s.since)}</div>
-                        </span>
-                        <Badge variant={s.registered ? "ok" : "danger"}>{s.registered ? "ON" : "UNREG"}</Badge>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
-                    Showing up to 5 recent shifts. Go to the Staff page for complete information.
-                  </div>
-                </div>
-              )}
-            </section>
-          </div>
-
-          {/* ROW 4: RECENT ORDERS */}
-          <div className="dashboard-bottom-row">
-            <section className="panel widget-orders" aria-live="polite">
-              <div className="panel-head">
-                <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
-                  Recent orders
-                </h3>
-                <button className="ghost small-btn" onClick={() => navigate("/sales")}>
-                  View all
-                </button>
-              </div>
-              {safeLatestSales.length === 0 ? (
-                <EmptyState icon={ShoppingBag} title="No sales found" subtitle="Sales appear here as soon as staff records them." compact />
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-                  <div className="table-wrap">
-                    <table className="data">
-                      <thead>
-                        <tr>
-                          <th>Time</th>
-                          <th>Items</th>
-                          <th className="t-left">Total</th>
-                          <th>Payment</th>
-                          <th>Location</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {safeLatestSales.map((o) => (
-                          <tr key={o.id}>
-                            <td className="text-xs muted">{formatTime(o.createdAt)}</td>
-                            <td className="text-xs">{(o.items ?? []).map((i) => `${i.qty}x ${i.productName}${i.flavor ? ` (${i.flavor})` : ""}`).join(", ")}</td>
-                            <td className="t-left"><strong>P{Number(o.total).toLocaleString()}</strong></td>
-                            <td><Badge variant="neutral">{(o.paymentMethod || "CASH").toUpperCase()}</Badge></td>
-                            <td><Badge variant="info">{o.location?.code}</Badge></td>
+                  <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+                    <div className="table-wrap">
+                      <table className="data">
+                        <thead>
+                          <tr>
+                            <th>Time</th>
+                            <th>Items</th>
+                            <th className="t-left">Total</th>
+                            <th>Payment</th>
+                            <th>Location</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {safeLatestSales.map((o) => (
+                            <tr key={o.id}>
+                              <td className="text-xs muted">{formatTime(o.createdAt)}</td>
+                              <td className="text-xs">
+                                <div className="flex flex-col gap-1">
+                                  {(o.items ?? []).map((i, idx) => (
+                                    <span key={idx} className="flex items-center gap-2">
+                                      <Badge variant="brand">{i.qty}x</Badge> 
+                                      <span className="fw-medium">{i.productName}{i.flavor ? ` (${i.flavor})` : ""}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td className="t-left"><strong style={{ fontSize: "1.1em" }}>P{Number(o.total).toLocaleString()}</strong></td>
+                              <td>
+                                <div className="flex items-center gap-2">
+                                  {o.paymentMethod === "CASH" ? <Banknote size={14} className="muted"/> : <CreditCard size={14} className="muted"/>}
+                                  <Badge variant="neutral">{(o.paymentMethod || "CASH").toUpperCase()}</Badge>
+                                </div>
+                              </td>
+                              <td><Badge variant="info">{o.location?.code}</Badge></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                  <div className="text-center muted text-sm mt-4" style={{ marginTop: "auto", paddingTop: "16px" }}>
-                    Showing the 5 most recent orders. Click the &quot;View all&quot; button to see complete information.
-                  </div>
+                )}
+              </section>
+
+              <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+                <div className="panel-head" style={{ marginBottom: "12px" }}>
+                  <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
+                    On-shift staff
+                  </h3>
+                  <Badge variant={activeOnShift.length > 0 ? "ok" : "neutral"}>{activeOnShift.length} on duty</Badge>
                 </div>
-              )}
-            </section>
-          </div>
-        </>
-      )}
+                
+                {activeOnShift.length === 0 ? (
+                  <EmptyState icon={Clock} title="No one on shift" compact />
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+                    <div className="flex flex-col gap-2">
+                      {activeOnShift.slice(0, 5).map((s) => (
+                        <div key={`${s.name}-${s.location_code}`} className="cart-status-item" style={{ borderBottom: "none" }}>
+                          <span className="staff-avatar">{initials(s.name)}</span>
+                          <span className="alert-item-text">
+                            <div className="alert-item-name">{s.name}</div>
+                            <div className="text-xs muted flex items-center gap-1">
+                              <Badge variant="neutral">{s.location_name}</Badge>
+                              <Clock size={12} className="ml-1" /> {formatTime(s.since)}
+                            </div>
+                          </span>
+                          <Badge variant={s.registered ? "ok" : "danger"}>{s.registered ? "ON" : "UNREG"}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ marginTop: "auto", paddingTop: "16px", display: "flex", justifyContent: "center" }}>
+                      <button className="ghost small-btn" onClick={() => navigate("/staff")}>
+                        View all staff <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </section>
+            </div>
+          </>
+        )}
       </div>
     </PageErrorBoundary>
   );

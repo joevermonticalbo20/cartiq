@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent, within, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, Outlet } from "react-router-dom";
 import { ToastProvider } from "../components/Toast.jsx";
 
@@ -17,6 +17,8 @@ vi.mock("recharts", () => {
     Area: Stub,
     BarChart: Stub,
     Bar: Stub,
+    PieChart: Stub,
+    Pie: Stub,
     XAxis: Stub,
     YAxis: Stub,
     Tooltip: Stub,
@@ -86,12 +88,28 @@ const salesForecast = {
 };
 
 function mockApiAllOk() {
+  const todayParts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date()).map(({ type, value }) => [type, value])
+  );
+  const currentStart = new Date(Date.UTC(
+    Number(todayParts.year),
+    Number(todayParts.month) - 1,
+    Number(todayParts.day) - 29
+  )).toISOString().slice(0, 10);
   api.get.mockImplementation((url) => {
     if (url === "/catalog") {
       return Promise.resolve({ data: { locations: [{ code: "CART-01", name: "Cart 1" }] } });
     }
     if (url.startsWith("/analytics/trends")) {
-      return Promise.resolve({ data: url.includes("days=60") ? prevTrends : curTrends });
+      const params = new URLSearchParams(url.split("?")[1]);
+      const requestedEnd = params.get("endDate");
+      const trends = requestedEnd < currentStart ? prevTrends : curTrends;
+      return Promise.resolve({ data: { ...trends, location: params.get("code") ?? "ALL" } });
     }
     if (url.startsWith("/analytics/forecast")) {
       return Promise.resolve({ data: cartForecast });
@@ -141,6 +159,38 @@ describe("AnalyticsPage loading/error states", () => {
     await screen.findByText("Quick Summary");
     expect(calledUrls().some((u) => u.includes("/analytics/basket"))).toBe(false);
   });
+
+  it("requests real analytics for the selected cart and inclusive custom dates", async () => {
+    mockApiAllOk();
+    renderPage();
+    await screen.findByText("Quick Summary");
+
+    fireEvent.click(screen.getByRole("button", { name: "All carts" }));
+    fireEvent.click(await screen.findByRole("option", { name: /CART-01/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Last 30 days" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Custom Date Range" }));
+
+    const [startInput, endInput] = document.querySelectorAll('input[type="date"]');
+    fireEvent.change(startInput, { target: { value: "2026-11-02" } });
+    fireEvent.change(endInput, { target: { value: "2026-11-05" } });
+
+    await waitFor(() => {
+      const urls = calledUrls();
+      expect(urls).toContain(
+        "/analytics/trends?startDate=2026-11-02&endDate=2026-11-05&code=CART-01"
+      );
+      expect(urls).toContain(
+        "/analytics/hourly?startDate=2026-11-02&endDate=2026-11-05&code=CART-01"
+      );
+      expect(urls).toContain(
+        "/analytics/profit?startDate=2026-11-02&endDate=2026-11-05&code=CART-01"
+      );
+      expect(urls).toContain(
+        "/analytics/sales-forecast?startDate=2026-11-02&endDate=2026-11-05&code=CART-01"
+      );
+      expect(urls).toContain("/analytics/forecast?code=CART-01");
+    });
+  });
 });
 
 describe("AnalyticsPage forecast honesty guards", () => {
@@ -173,22 +223,22 @@ describe("AnalyticsPage forecast honesty guards", () => {
     renderPage();
     await screen.findByText("Expected Sales");
     expect(await screen.findByText(/High confidence \(8\.5%\)/)).toBeInTheDocument();
-    expect(screen.queryByText(/backtest sMAPE/)).toBeNull();
+    expect(screen.queryByTitle("Symmetric mean absolute percentage error (0-200%)")).toBeNull();
   });
 
   it("shows sort direction arrows on the items table", async () => {
     mockApiAllOk();
-    renderPage();
+    const { container } = renderPage();
     await screen.findByText("Quick Summary");
 
     // Default sort is Revenue desc — exactly one active arrow.
-    expect(screen.getAllByText("↓")).toHaveLength(1);
+    expect(container.querySelector(".sort-icon.active")).toHaveTextContent("▼");
 
     // Sorting another column moves the arrow instead of blanking it.
-    fireEvent.click(screen.getByText(/Qty Sold/));
-    expect(screen.getAllByText("↓")).toHaveLength(1);
-    fireEvent.click(screen.getByText(/Qty Sold/));
-    expect(screen.getByText("↑")).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/^Qty/));
+    expect(container.querySelector(".sort-icon.active")).toHaveTextContent("▼");
+    fireEvent.click(screen.getByText(/^Qty/));
+    expect(container.querySelector(".sort-icon.active")).toHaveTextContent("▲");
   });
 });
 

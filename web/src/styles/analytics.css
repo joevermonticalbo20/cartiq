@@ -283,6 +283,18 @@
   flex-direction: column;
 }
 
+.profit-chart-half > .empty-state-card {
+  flex: 1;
+  justify-content: center;
+  width: 100%;
+  min-height: 340px;
+  box-sizing: border-box;
+}
+
+.profit-chart-half > .chart-container {
+  height: 340px;
+}
+
 /* Make the wrapper fill the remaining space */
 .expense-empty-state {
   flex: 1;
@@ -298,6 +310,14 @@
   width: 100%;
   height: 100%;
   margin: 0;
+}
+
+@media (max-width: 640px) {
+  .profit-chart-half > .empty-state-card,
+  .profit-chart-half > .chart-container {
+    min-height: 240px;
+    height: 240px;
+  }
 }
 
 /* Pre-defined legend colors matching the CartIQ system variables */
