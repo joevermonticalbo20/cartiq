@@ -7,6 +7,7 @@ import 'package:cartiq_mobile/services/api_client.dart';
 import 'package:cartiq_mobile/services/auth_state.dart';
 import 'package:cartiq_mobile/services/offline_queue.dart';
 import 'package:cartiq_mobile/services/sync_service.dart';
+import 'package:cartiq_mobile/services/staff_schedule.dart';
 import 'package:cartiq_mobile/services/time_clock.dart';
 import 'package:cartiq_mobile/state/theme_controller.dart';
 import 'package:cartiq_mobile/utils/manila_time.dart';
@@ -275,5 +276,85 @@ void main() {
     expect(timeOut.onTap, isNotNull);
     expect(find.text('Tap card'), findsNWidgets(2));
     expect(find.textContaining('opens'), findsNothing);
+  });
+
+  testWidgets('a personal schedule locks Time in/out outside the window', (
+    tester,
+  ) async {
+    final store = _FakeStore();
+    final auth = _staffAuth(store);
+    // Cart-wide windows open (unconfigured); the roster is what locks now.
+    // Manila Wednesday 2026-11-04 20:00 (index 3) = 12:00 UTC.
+    auth.staffSchedule = StaffScheduleConfig(days: [
+      null,
+      null,
+      null,
+      {'start': '06:00', 'end': '14:00'},
+      null,
+      null,
+      null,
+    ]);
+    auth.clockNow = () => DateTime.utc(2026, 11, 4, 12); // Manila 20:00 Wed
+
+    await tester.pumpWidget(_settingsHarness(auth));
+    await tester.pumpAndSettle();
+
+    expect(
+      _clockTile(tester, 'attendance-time-in').onTap,
+      isNull,
+      reason: 'after the scheduled end, Time in is locked',
+    );
+    expect(
+      _clockTile(tester, 'attendance-time-out').onTap,
+      isNull,
+      reason: 'beyond the overtime window, Time out is locked',
+    );
+    expect(
+      find.textContaining('Your scheduled shift today ended at 2:00 PM'),
+      findsWidgets,
+    );
+  });
+
+  testWidgets('a scheduled day off locks both buttons with the reason', (
+    tester,
+  ) async {
+    final store = _FakeStore();
+    final auth = _staffAuth(store);
+    auth.staffSchedule = StaffScheduleConfig(days: const [
+      null, null, null, null, null, null, null,
+    ]); // every weekday is a scheduled day off
+    auth.clockNow = () => DateTime.utc(2026, 11, 5, 0); // Manila 08:00 Thu
+
+    await tester.pumpWidget(_settingsHarness(auth));
+    await tester.pumpAndSettle();
+
+    expect(_clockTile(tester, 'attendance-time-in').onTap, isNull);
+    expect(_clockTile(tester, 'attendance-time-out').onTap, isNull);
+    expect(find.textContaining('scheduled day off'), findsWidgets);
+    expect(find.text('Day off'), findsOneWidget);
+  });
+
+  testWidgets('inside the schedule window both buttons are tappable', (
+    tester,
+  ) async {
+    final store = _FakeStore();
+    final auth = _staffAuth(store);
+    auth.staffSchedule = StaffScheduleConfig(days: [
+      null,
+      null,
+      null,
+      {'start': '06:00', 'end': '14:00'},
+      null,
+      null,
+      null,
+    ]);
+    auth.clockNow = () => DateTime.utc(2026, 11, 4, 0); // Manila 08:00 Wed
+
+    await tester.pumpWidget(_settingsHarness(auth));
+    await tester.pumpAndSettle();
+
+    expect(_clockTile(tester, 'attendance-time-in').onTap, isNotNull);
+    expect(_clockTile(tester, 'attendance-time-out').onTap, isNotNull);
+    expect(find.text('Today: 6:00 AM – 2:00 PM'), findsOneWidget);
   });
 }

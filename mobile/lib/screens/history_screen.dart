@@ -29,10 +29,10 @@ class HistoryScreen extends StatefulWidget {
   final VoidCallback? onNewSale;
 
   @override
-  State<HistoryScreen> createState() => _HistoryScreenState();
+  State<HistoryScreen> createState() => HistoryScreenState();
 }
 
-class _HistoryScreenState extends State<HistoryScreen> {
+class HistoryScreenState extends State<HistoryScreen> {
   final List<Map<String, dynamic>> _rows = [];
   int _page = 1;
   bool _loading = false;
@@ -826,6 +826,50 @@ class _HistoryScreenState extends State<HistoryScreen> {
     if (!context.mounted) return;
 
     showPosImageViewer(context, bytes: photo);
+  }
+
+  /// Deep link target: open the order sheet for [orderId], fetching the
+  /// order when the paged list does not hold it. Called by the root shell
+  /// when a tapped notification carries an order id. Silently no-ops on a
+  /// missing order (a toast explains) — never throws into the shell.
+  Future<void> openOrderById(int orderId) async {
+    try {
+      Map<String, dynamic>? existing;
+      for (final row in _rows) {
+        final id = (row['id'] as num?)?.toInt();
+        if (id == orderId) {
+          existing = row;
+          break;
+        }
+      }
+      final order = existing ?? await (() async {
+        final auth = context.read<AuthState>();
+        final token = auth.token;
+        if (token == null) return null; // signed out / offline: nothing to fetch
+        try {
+          return await auth.api.getOrder(token, orderId);
+        } catch (_) {
+          return null;
+        }
+      })();
+      if (!mounted) return;
+      if (order == null || order.isEmpty) {
+        AppMessenger.showGlassToast(
+          context: context,
+          message: 'Could not open order #$orderId.',
+          isSuccess: false,
+        );
+        return;
+      }
+      await _showOrderDetails(order);
+    } catch (e) {
+      if (!mounted) return;
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Could not open order #$orderId.',
+        isSuccess: false,
+      );
+    }
   }
 
   Future<void> _showOrderDetails(Map<String, dynamic> order) async {

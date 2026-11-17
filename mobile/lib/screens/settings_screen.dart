@@ -145,11 +145,16 @@ class SettingsScreenState extends State<SettingsScreen> {
     }
     // The button is greyed out while closed — this backstop covers every
     // programmatic path too. The server enforces the same on the claim.
-    final open = event == 'IN' ? auth.clockInOpen : auth.clockOutOpen;
-    if (!open) {
+    final inWindow = event == 'IN'
+        ? auth.clockInOpen && auth.scheduleInOpen
+        : auth.clockOutOpen && auth.scheduleOutOpen;
+    if (!inWindow) {
+      // Say which of the two gates locked the row, not just that one did.
+      final schedHint = auth.scheduleHint(event);
+      final windowOpen = event == 'IN' ? auth.clockInOpen : auth.clockOutOpen;
       AppMessenger.showGlassToast(
         context: context,
-        message: auth.clockHint(event),
+        message: (!windowOpen) ? auth.clockHint(event) : (schedHint ?? 'Not your scheduled time.'),
         isSuccess: false,
       );
       return;
@@ -2133,8 +2138,8 @@ class _TimeRow extends StatelessWidget {
     final outAt = auth.myOutAtToday;
     final inDone = inAt != null;
     final outDone = outAt != null;
-    final canIn = auth.clockInOpen && !inDone;
-    final canOut = auth.clockOutOpen && !outDone;
+    final canIn = auth.clockInOpen && auth.scheduleInOpen && !inDone;
+    final canOut = auth.clockOutOpen && auth.scheduleOutOpen && !outDone;
     final dayOpen = auth.timeClockDayOpen;
     final caption = auth.timeClockCaption();
     final scheme = Theme.of(context).colorScheme;
@@ -2145,6 +2150,7 @@ class _TimeRow extends StatelessWidget {
 
     final String badge;
     final AppBadgeVariant badgeVariant;
+    final scheduleLabel = auth.scheduleTodayLabel;
     if (inDone && outDone) {
       badge = 'Complete';
       badgeVariant = AppBadgeVariant.ok;
@@ -2153,6 +2159,9 @@ class _TimeRow extends StatelessWidget {
       badgeVariant = AppBadgeVariant.ok;
     } else if (outDone) {
       badge = 'Timed out';
+      badgeVariant = AppBadgeVariant.neutral;
+    } else if (scheduleLabel == 'Today: Day off') {
+      badge = 'Day off';
       badgeVariant = AppBadgeVariant.neutral;
     } else if (!dayOpen) {
       badge = 'Closed';
@@ -2215,6 +2224,25 @@ class _TimeRow extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: AppSpacing.space4),
+              if (scheduleLabel != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.space3),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.event_note_rounded,
+                        size: 15,
+                        color: scheme.onSurface.withValues(alpha: 0.55),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        scheduleLabel,
+                        style: textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
               IntrinsicHeight(
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,

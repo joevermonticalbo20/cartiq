@@ -544,6 +544,19 @@ class ApiClient {
     return body['claim'] as Map<String, dynamic>;
   }
 
+  /// One order with items — used to deep-link a notification straight to
+  /// the order sheet. Throws [ApiException] on failure (offline included).
+  Future<Map<String, dynamic>> getOrder(String token, int orderId) async {
+    final res = await _send(
+      () => _http.get(
+        _uri('/orders/$orderId'),
+        headers: _headers(token: token),
+      ),
+    );
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    return (body['order'] as Map<String, dynamic>?) ?? const {};
+  }
+
   /// Remove this account's own card. Throws when offline.
   Future<Map<String, dynamic>> unbindRfid(String token) async {
     final res = await _send(
@@ -566,6 +579,20 @@ class ApiClient {
     );
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return (body['clock'] as Map<String, dynamic>?) ?? const {};
+  }
+
+  /// The signed-in staff member's weekly roster (web dashboard → Staff &
+  /// Shifts → Staff Schedules). `{schedule: {days, updatedAt, ...} | null,
+  /// verdictIn, verdictOut}` — a null schedule means unrestricted. Throws
+  /// [ApiException] on failure.
+  Future<Map<String, dynamic>> getMySchedule(String token) async {
+    final res = await _send(
+      () => _http.get(
+        _uri('/staff/my-schedule'),
+        headers: _headers(token: token),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   /// Request an email OTP for password reset. Always succeeds with the same

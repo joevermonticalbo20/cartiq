@@ -10,6 +10,7 @@ import 'offline_pin.dart';
 import 'push_notification_service.dart';
 import 'rfid_registration.dart';
 import 'time_clock.dart';
+import 'staff_schedule.dart';
 import '../utils/manila_time.dart';
 
 /// Holds the session token and profile for the whole app.
@@ -48,7 +49,17 @@ class AuthState extends ChangeNotifier {
             secureStorage ?? const SecureStoreAdapter(FlutterSecureStorage()),
         push = pushService ?? CartIQPushService() {
     pin = OfflinePinService(storage);
-    push.onNotificationOpened = (_, _) async {
+    // A tap on a targeted notification deep-links into the app: remember
+    // where it wants to go so the shell can route once the session allows.
+    // Persisted so a tap made while logged out survives until the staff
+    // member signs in (password or offline PIN).
+    push.onNotificationOpened = (type, alertId, orderId, link) async {
+      await stashDeepLink(
+        type: type,
+        alertId: alertId,
+        orderId: orderId,
+        link: link,
+      );
       refreshMyAlerts().catchError((_) {});
     };
     // The menu changed on the dashboard (product archived, price edited):
@@ -375,6 +386,77 @@ class AuthState extends ChangeNotifier {
     _startAlertPoll();
   }
 
+  // -----------------------------------------------------------------------
+  // Deep links from notification taps
+  //
+  // A tapped targeted notification (void decision, GCash outcome, restock,
+  // attendance) wants to land somewhere specific in the app. The tap can
+  // arrive while logged out — terminated app, session expired — so the
+  // destination is persisted and consumed once the shell is allowed to
+  // navigate (signed in, or offline-unlocked with the PIN).
+  // -----------------------------------------------------------------------
+
+  static const _pendingDeepLinkKey = 'cartiq_pending_deep_link';
+  Map<String, dynamic>? _pendingDeepLink;
+
+  /// The parked destination, when any. The shell consumes it with
+  /// [takePendingDeepLink] and routes to it.
+  Map<String, dynamic>? get pendingDeepLink => _pendingDeepLink;
+
+  /// Remember where a tapped notification wants to go. Written to secure
+  /// storage first so a cold start before login keeps it; the in-memory
+  /// copy drives the live case (app open when the tap happened).
+  Future<void> stashDeepLink({
+    required String type,
+    int? alertId,
+    int? orderId,
+    String? link,
+  }) async {
+    final cleanType = type.trim().isEmpty ? 'ALERT' : type.trim().toUpperCase();
+    final cleanLink = (link != null && link.trim().isNotEmpty) ? link.trim() : null;
+    _pendingDeepLink = {
+      'type': cleanType,
+      'alertId': ?alertId,
+      'orderId': ?orderId,
+      'link': ?cleanLink,
+    };
+    notifyListeners();
+    try {
+      await storage.write(
+        key: _pendingDeepLinkKey,
+        value: jsonEncode(_pendingDeepLink),
+      );
+    } catch (_) {
+      // Memory copy still carries it for this session.
+    }
+  }
+
+  /// Load a parked destination from secure storage (cold start before the
+  /// first [stashDeepLink] of this process). Call once the shell is up.
+  Future<void> restorePendingDeepLink() async {
+    if (_pendingDeepLink != null) return;
+    try {
+      final raw = await storage.read(key: _pendingDeepLinkKey);
+      if (raw == null || raw.isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic> && decoded['type'] != null) {
+        _pendingDeepLink = decoded;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  /// Consume the parked destination (or null). Removes it from storage and
+  /// memory, so one tap never routes twice.
+  Future<Map<String, dynamic>?> takePendingDeepLink() async {
+    final link = _pendingDeepLink;
+    _pendingDeepLink = null;
+    try {
+      await storage.delete(key: _pendingDeepLinkKey);
+    } catch (_) {}
+    return link;
+  }
+
   Future<void> markMyAlertRead(int id) async {
     final t = token;
     if (t == null) return;
@@ -591,6 +673,16 @@ class AuthState extends ChangeNotifier {
     offlineUnlockRequired = false;
     _stopTimeClockSync();
     _stopAlertPoll();
+    // A parked deep link from before logout must not fire after sign-out
+    // or on the next account's session (shared cart phones). The cached
+    // roster is this account's too — drop it; timeClock stays (cart-wide).
+    _pendingDeepLink = null;
+    try {
+      await storage.delete(key: _pendingDeepLinkKey);
+    } catch (_) {}
+    try {
+      await storage.delete(key: _myScheduleCacheKey);
+    } catch (_) {}
     // Signing out revokes the refresh token server-side and clears the two
     // tokens here — but the cached profile, catalog snapshot and last-verified
     // stamp stay so a staff member can still reach the queue-only POS offline
@@ -866,6 +958,12 @@ class AuthState extends ChangeNotifier {
     final cfg = timeClock ?? TimeClockConfig.defaults;
     if (!cfg.isDayOpen(_clockNow())) return 'Closed today - no selling day.';
     final parts = <String>[];
+    if (!scheduleInOpen && !myInDone) {
+      parts.add(scheduleHint('IN') ?? 'Not your scheduled time.');
+    }
+    if (!scheduleOutOpen && !myOutDone) {
+      parts.add(scheduleHint('OUT') ?? 'Not your scheduled time.');
+    }
     if (!clockInOpen && !myInDone) parts.add(clockHint('IN'));
     if (!clockOutOpen && !myOutDone) parts.add(clockHint('OUT'));
     return parts.join('  ·  ');
@@ -881,6 +979,87 @@ class AuthState extends ChangeNotifier {
         jsonDecode(raw) as Map<String, dynamic>,
       );
     } catch (_) {}
+  }
+
+  /// Weekly roster for this account, persisted so a cold start (even
+  /// offline) respects the last known schedule. Null = no schedule stored =
+  /// unrestricted (legacy behavior; matches the server).
+  StaffScheduleConfig? staffSchedule;
+  DateTime? _myScheduleFetchedAt;
+  static const _myScheduleCacheKey = 'cartiq_my_schedule';
+
+  /// "Time in is allowed inside your schedule" — the stricter of the two
+  /// gates (cart-wide windows AND the personal roster).
+  bool get scheduleInOpen {
+    final s = staffSchedule;
+    if (s == null) return true;
+    return s.isOpenNow('IN', _clockNow());
+  }
+
+  bool get scheduleOutOpen {
+    final s = staffSchedule;
+    if (s == null) return true;
+    return s.isOpenNow('OUT', _clockNow());
+  }
+
+  /// "Not your scheduled time - your shift is 6:00 AM to 2:00 PM." —
+  /// the reason a Time in/out row is greyed out, or null when open.
+  String? scheduleHint(String event) {
+    final s = staffSchedule;
+    if (s == null) return null;
+    return s.lockHint(event, _clockNow());
+  }
+
+  /// Today's own scheduled window for the POS card, or null (no schedule /
+  /// today is a scheduled day off). Unscheduled staff see no card at all.
+  Map<String, String>? get scheduleTodayEntry =>
+      staffSchedule?.todayEntry(_clockNow());
+
+  /// "Today: 6:00 AM – 2:00 PM" / "Today: Day off" for the POS card.
+  String? get scheduleTodayLabel {
+    final s = staffSchedule;
+    if (s == null) return null;
+    return s.todayLabel(_clockNow());
+  }
+
+  Future<void> _restoreMyScheduleCache() async {
+    try {
+      final raw = await storage.read(key: _myScheduleCacheKey);
+      if (raw == null || raw.isEmpty) return;
+      staffSchedule = StaffScheduleConfig.fromJson(
+        jsonDecode(raw) as Map<String, dynamic>,
+      );
+    } catch (_) {}
+  }
+
+  /// Pull this account's roster from the server. Silent on failure — the
+  /// POS keeps the last known state. Never throws.
+  Future<void> refreshMySchedule() async {
+    if (token == null || offlineMode) return;
+    try {
+      final raw = await api.getMySchedule(token!);
+      final sched = raw['schedule'];
+      if (sched is Map<String, dynamic>) {
+        final cfg = StaffScheduleConfig.fromJson(sched);
+        final changed = !(staffSchedule?.sameAs(cfg) ?? false);
+        staffSchedule = cfg;
+        try {
+          await storage.write(key: _myScheduleCacheKey, value: jsonEncode(cfg.toJson()));
+        } catch (_) {}
+        if (changed) notifyListeners();
+      } else {
+        final changed = staffSchedule != null;
+        staffSchedule = null;
+        try {
+          await storage.delete(key: _myScheduleCacheKey);
+        } catch (_) {}
+        if (changed) notifyListeners();
+      }
+      _myScheduleFetchedAt = DateTime.now();
+    } catch (_) {
+      // Offline / server unreachable: keep the cache — never flip staff
+      // into a locked-out state because of a network hiccup.
+    }
   }
 
   /// Pull the windows from the server. Silent on failure — the UI keeps the
@@ -914,6 +1093,7 @@ class AuthState extends ChangeNotifier {
       _outOpenCache = clockOutOpen;
       notifyListeners();
     }));
+    unawaited(_restoreMyScheduleCache().then((_) => notifyListeners()));
     if (token == null) return; // No session to sync.
     _timeClockFetchedAt = DateTime.now();
     _inOpenCache = clockInOpen;
@@ -921,6 +1101,7 @@ class AuthState extends ChangeNotifier {
     // Fetch right away instead of waiting for the first tick: the buttons must
     // already reflect the owner's window when the screen opens.
     unawaited(refreshTimeClock());
+    unawaited(refreshMySchedule());
     unawaited(refreshMyShifts());
     _timeClockTimer = Timer.periodic(
       const Duration(seconds: 30),
@@ -955,6 +1136,12 @@ class AuthState extends ChangeNotifier {
         DateTime.now().difference(shiftsFetched) > const Duration(minutes: 5)) {
       await refreshMyShifts();
     }
+    // Piggyback the schedule refresh onto the same 5-minute window.
+    final schedFetched = _myScheduleFetchedAt;
+    if (schedFetched == null ||
+        DateTime.now().difference(schedFetched) > const Duration(minutes: 5)) {
+      await refreshMySchedule();
+    }
   }
 
   void _stopTimeClockSync() {
@@ -966,6 +1153,8 @@ class AuthState extends ChangeNotifier {
     _outOpenCache = true;
     _myShiftsToday = const [];
     _myShiftsFetchedAt = null;
+    _myScheduleFetchedAt = null;
+    staffSchedule = null;
   }
 
   // -----------------------------------------------------------------------

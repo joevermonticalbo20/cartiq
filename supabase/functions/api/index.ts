@@ -2272,6 +2272,21 @@ async function handleListOrders(_req, origin, url) {
   }, 200);
 }
 
+/** GET /orders/:id — one order with items, for deep-links from notifications. */
+async function handleGetOrder(orderId, origin) {
+  const o = await fsGet("orders", orderId).catch(() => null);
+  if (!o) return jsonRes(origin, { error: "Order not found" }, 404);
+  const [locations, users] = await Promise.all([fsListAll("locations"), fsListAll("users")]);
+  const locById = new Map(locations.map((l) => [l.id, l]));
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const c = cleanDoc(o);
+  const loc = locById.get(o.locationId);
+  const staff = userById.get(o.staffId);
+  c.location = loc ? { code: loc.code, name: loc.name } : null;
+  c.staff = staff ? { name: staff.name } : null;
+  return jsonRes(origin, { order: c }, 200);
+}
+
 async function handlePatchOrder(req, origin, orderId, user) {
   if (user.role !== "OWNER") {
     return jsonRes(origin, { error: "Forbidden: insufficient role" }, 403);
@@ -11002,6 +11017,10 @@ Deno.serve(async (req) => {
           return jsonRes(origin, out.body, out.status);
         }
         if (req.method === "GET" && path === "/orders") return await handleListOrders(req, origin, inUrl);
+        // A single order, for deep-links from notifications.
+        if (req.method === "GET" && /^\/orders\/\d+$/.test(path)) {
+          return await handleGetOrder(Number(path.split("/")[2]), origin);
+        }
         // Receipt + void-request subpaths (before the generic :id patch).
         const receiptMatch = path.match(/^\/orders\/(\d+)\/receipt$/);
         if (receiptMatch) {

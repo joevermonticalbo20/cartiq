@@ -121,12 +121,21 @@ class CartIQPushPayload {
     required this.type,
     required this.title,
     required this.body,
+    this.orderId,
+    this.link,
   });
 
   final int? alertId;
   final String type;
   final String title;
   final String body;
+
+  /// The linked order, when the push carries one (void / GCash decisions).
+  final int? orderId;
+
+  /// Optional routing override sent by the server (e.g. "attendance" for
+  /// the absence sweep); wins over the type mapping.
+  final String? link;
 }
 
 /// The only Firebase-touching class in the app. It owns:
@@ -157,8 +166,10 @@ class CartIQPushService {
   final FlutterLocalNotificationsPlugin _notifications;
 
   /// Invoked when the user taps a notification shown by FCM or local
-  /// notifications, with the alert id/type parsed from the payload.
-  Future<void> Function(String type, int? alertId)? onNotificationOpened;
+  /// notifications, with the alert id/type and linked order parsed from
+  /// the payload. [link] is a server-side routing override, when any.
+  Future<void> Function(String type, int? alertId, int? orderId, String? link)?
+      onNotificationOpened;
 
   /// Invoked when the server says the menu changed (a product was archived,
   /// a price or recipe edited, stock adjusted). The app reloads its catalog:
@@ -283,7 +294,9 @@ class CartIQPushService {
         final parts = (response.payload ?? '').split('|');
         final alertId = parts.length > 1 ? int.tryParse(parts[1]) : null;
         final type = parts.isNotEmpty ? parts.first : 'ALERT';
-        onNotificationOpened?.call(type, alertId);
+        final orderId = parts.length > 2 ? int.tryParse(parts[2]) : null;
+        final link = parts.length > 3 && parts[3].isNotEmpty ? parts[3] : null;
+        onNotificationOpened?.call(type, alertId, orderId, link);
       },
     );
     await _notifications
@@ -368,7 +381,7 @@ class CartIQPushService {
         title: payload.title,
         body: payload.body,
         notificationDetails: notificationDetails,
-        payload: '${payload.type}|${payload.alertId ?? ''}',
+        payload: '${payload.type}|${payload.alertId ?? ''}|${payload.orderId ?? ''}|${payload.link ?? ''}',
       );
     } catch (_) {}
   }
@@ -376,13 +389,20 @@ class CartIQPushService {
   Future<void> _handleOpened(RemoteMessage message) async {
     final payload = _payloadFor(message);
     try {
-      await onNotificationOpened?.call(payload.type, payload.alertId);
+      await onNotificationOpened?.call(
+        payload.type,
+        payload.alertId,
+        payload.orderId,
+        payload.link,
+      );
     } catch (_) {}
   }
 
   CartIQPushPayload _payloadFor(RemoteMessage message) {
     final data = message.data;
     final alertId = int.tryParse((data['alertId'] ?? data['id'] ?? '').toString());
+    final orderId = int.tryParse((data['orderId'] ?? '').toString());
+    final link = (data['link'] ?? '').toString().trim();
     final title = (message.notification?.title ?? data['title'] ?? 'CartIQ').toString();
     final body = (message.notification?.body ?? data['body'] ?? data['message'] ?? '').toString();
     return CartIQPushPayload(
@@ -390,6 +410,8 @@ class CartIQPushService {
       type: (data['type'] ?? data['alertType'] ?? 'ALERT').toString(),
       title: title,
       body: body,
+      orderId: orderId,
+      link: link.isEmpty ? null : link,
     );
   }
 

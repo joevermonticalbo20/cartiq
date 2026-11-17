@@ -541,6 +541,27 @@ router.get("/orders", requireAuth, async (req, res, next) => {
   }
 });
 
+// GET /orders/:id — one order with items, for deep-links from notifications.
+// Any signed-in role (the history list is visible to every role too).
+router.get("/orders/:id", requireAuth, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(404).json({ error: "Order not found" });
+    const order = await prisma.order.findUnique({
+      where: { id },
+      include: {
+        items: true,
+        location: { select: { code: true, name: true } },
+        staff: { select: { name: true } },
+      },
+    });
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    return res.json({ order });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 function emptyMeta(page, pageSize) {
   return { total: 0, page, pageSize, totalPages: 1 };
 }

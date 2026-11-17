@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../services/api_client.dart';
 import '../services/auth_state.dart';
 import '../services/data_refresh.dart';
+import '../services/deep_link.dart';
 import '../services/persisted_queue.dart';
 import '../services/rfid_registration.dart';
 import '../services/sync_service.dart';
@@ -42,11 +43,15 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
 
   final _receiptsKey = GlobalKey<ReceiptsScreenState>();
   final _settingsKey = GlobalKey<SettingsScreenState>();
+  final _homeKey = GlobalKey<HomeScreenState>();
+  final _historyKey = GlobalKey<HistoryScreenState>();
   final _queue = PersistedOfflineQueue.instance;
   late final SyncService _sync;
   late final StreamSubscription<int> _queueSubscription;
   int _queuedOrders = 0;
   bool _syncListenerAdded = false;
+  bool _deepLinkListenerAdded = false;
+  bool _deepLinkApplying = false;
   SyncResult? _handledSyncResult;
   DataRefresh? _bus;
 
@@ -85,11 +90,18 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
     _readQueueCount();
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybePromptRfid());
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybePromptPin());
+    // Cold start with a notification tap parked before login: route to it now.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _applyPendingDeepLink());
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (!_deepLinkListenerAdded) {
+      // A notification tapped while the app is open re-routes immediately.
+      context.read<AuthState>().addListener(_onDeepLinkMaybeApply);
+      _deepLinkListenerAdded = true;
+    }
     if (_syncListenerAdded) return;
     _sync = context.read<SyncService>();
     _sync.addListener(_onSyncChanged);
@@ -107,10 +119,58 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (_deepLinkListenerAdded) {
+      context.read<AuthState>().removeListener(_onDeepLinkMaybeApply);
+    }
     _queueSubscription.cancel();
     if (_syncListenerAdded) _sync.removeListener(_onSyncChanged);
     _bus?.removeListener(_onDataChanged);
     super.dispose();
+  }
+
+  void _onDeepLinkMaybeApply() {
+    if (!mounted) return;
+    if (context.read<AuthState>().pendingDeepLink != null) {
+      unawaited(_applyPendingDeepLink());
+    }
+  }
+
+  /// Route a parked notification tap. Consumes the stash, so one tap never
+  /// routes twice. Anything unrecognized lands on Home + the bell sheet —
+  /// never nowhere.
+  Future<void> _applyPendingDeepLink() async {
+    if (_deepLinkApplying) return;
+    _deepLinkApplying = true;
+    try {
+      final auth = context.read<AuthState>();
+      await auth.restorePendingDeepLink(); // cold-start load; no-op when in-memory
+      final stash = await auth.takePendingDeepLink();
+      if (stash == null || !mounted) return;
+      final target = resolveDeepLink(stash);
+      // Let the shell settle (the stash may arrive before the first frame).
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      if (!mounted) return;
+      if (target.openLiveStock) {
+        unawaited(Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute(builder: (_) => const LiveStockScreen()),
+        ));
+        return;
+      }
+      setState(() => _index = target.tabIndex);
+      if (target.tabIndex == 3 && target.orderId != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _historyKey.currentState?.openOrderById(target.orderId!);
+        });
+      } else if (target.tabIndex == 2 && target.openNotifications) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _homeKey.currentState?.openNotifications();
+        });
+      }
+    } finally {
+      _deepLinkApplying = false;
+    }
   }
 
   void _onDataChanged() {
@@ -420,6 +480,7 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
                   const PosScreen(),
                   ReceiptsScreen(key: _receiptsKey),
                   HomeScreen(
+                    key: _homeKey,
                     onScanReceipt: () async {
                       await _openScan(context);
                       _receiptsKey.currentState?.reload();
@@ -435,7 +496,7 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
                       );
                     },
                   ),
-                  HistoryScreen(onNewSale: () => setState(() => _index = 0)),
+                  HistoryScreen(key: _historyKey, onNewSale: () => setState(() => _index = 0)),
                   SettingsScreen(key: _settingsKey),
                   // TINANGGAL NA ANG LIVE STOCK SCREEN DITO SA INDEXED STACK
                 ],

@@ -35,10 +35,10 @@ class HomeScreen extends StatefulWidget {
   final VoidCallback onGoLiveStock;
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<HomeScreen> createState() => HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class HomeScreenState extends State<HomeScreen> {
   bool _loading = true;
   double _todaySales = 0;
   int _todayOrders = 0;
@@ -189,6 +189,13 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
     ).showSnackBar(SnackBar(content: Text(result.message)));
     _refresh();
+  }
+
+  /// Deep link target: open the notification sheet without a bell tap.
+  /// Called by the root shell when a tapped notification wants Home + bell.
+  Future<void> openNotifications() async {
+    final auth = context.read<AuthState>();
+    await _openNotifications(auth);
   }
 
   Future<void> _openNotifications(AuthState auth) async {
