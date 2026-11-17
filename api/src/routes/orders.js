@@ -363,7 +363,6 @@ router.get("/orders/pending-gcash", requireAuth, requireRole("OWNER"), async (_r
     const data = pending
       .map((order) => {
         const receiptMs = order.receipt?.updatedAtMs ? Number(order.receipt.updatedAtMs) : null;
-        const createdMs = order.createdAt ? new Date(order.createdAt).getTime() : null;
         return {
           orderId: order.id,
           id: order.id,
@@ -380,7 +379,7 @@ router.get("/orders/pending-gcash", requireAuth, requireRole("OWNER"), async (_r
             unitPrice: it.unitPrice,
           })),
           receiptAvailable: receiptMs != null,
-          receiptReplacedAfterRecording: receiptMs != null && createdMs != null && receiptMs > createdMs + 60000,
+          receiptReplacedAfterRecording: Boolean(order.receipt?.replaced),
         };
       })
       .sort((a, b) => new Date(a.createdAt ?? 0) - new Date(b.createdAt ?? 0));
@@ -793,8 +792,17 @@ router.post("/orders/:id/receipt", requireAuth, async (req, res, next) => {
       return res.status(413).json({ error: `receipt too large (max ${Math.round(IMAGE_MAX_BYTES / 1024)} KB)` });
     }
     const updatedAtMs = Date.now();
+    // A proof replaced after it was first recorded is flagged for the owner's
+    // queue - only a re-upload flips it, never the very first upload.
+    const hadReceipt = await receiptDoc(existing.id).get();
     await receiptDoc(existing.id).set({ mime: m, data, bytes: bytes.length, updatedAtMs });
-    const receipt = { mime: m, bytes: bytes.length, updatedAtMs, uploadedBy: req.user.sub ?? null };
+    const receipt = {
+      mime: m,
+      bytes: bytes.length,
+      updatedAtMs,
+      uploadedBy: req.user.sub ?? null,
+      replaced: Boolean(hadReceipt.exists) || Boolean(existing.receipt?.replaced),
+    };
     const order = await prisma.order.update({
       where: { id: existing.id },
       data: { receipt },

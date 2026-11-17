@@ -2487,8 +2487,17 @@ async function handleOrderReceiptSet(req, orderId, user) {
     return { status: 413, body: { error: `receipt too large (max ${Math.round(IMAGE_MAX_BYTES / 1024)} KB)` } };
   }
   const updatedAtMs = Date.now();
+  // A proof replaced after it was first recorded is flagged for the owner's
+  // queue - only a re-upload flips it, never the very first upload.
+  const hadReceipt = await fsGet("orderReceipts", orderId);
   await fsCommit([updateWrite("orderReceipts", orderId, { mime, data, bytes, updatedAtMs })]);
-  const receipt = { mime, bytes, updatedAtMs, uploadedBy: user.id ?? null };
+  const receipt = {
+    mime,
+    bytes,
+    updatedAtMs,
+    uploadedBy: user.id ?? null,
+    replaced: Boolean(hadReceipt) || Boolean(existing.receipt?.replaced),
+  };
   await fsPatch("orders", orderId, { receipt });
   const order = await fsGet("orders", orderId);
   return { status: 200, body: { order: cleanDoc(order), receipt } };
@@ -2686,7 +2695,6 @@ async function handlePendingGcash() {
     .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
     .map((o) => {
       const receiptMs = o.receipt?.updatedAtMs ? Number(o.receipt.updatedAtMs) : null;
-      const createdMs = o.createdAt ? new Date(o.createdAt).getTime() : null;
       return {
         orderId: o.id,
         id: o.id,
@@ -2703,7 +2711,7 @@ async function handlePendingGcash() {
           unitPrice: it.unitPrice,
         })),
         receiptAvailable: receiptMs != null,
-        receiptReplacedAfterRecording: receiptMs != null && createdMs != null && receiptMs > createdMs + 60000,
+        receiptReplacedAfterRecording: Boolean(o.receipt?.replaced),
       };
     });
   return { status: 200, body: { data, meta: { total: data.length } } };
