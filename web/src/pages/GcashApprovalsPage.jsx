@@ -25,6 +25,11 @@ function itemsPreview(items) {
   return parts.join(", ") + (list.length > 2 ? ` +${list.length - 2} more` : "");
 }
 
+// One numeric id for every backend/caller: pending-gcash rows carry both.
+function rowId(order) {
+  return order?.orderId ?? order?.id;
+}
+
 export default function GcashApprovalsPage() {
   const toast = useToast();
   const { user } = useOutletContext();
@@ -79,7 +84,7 @@ export default function GcashApprovalsPage() {
   async function openReceipt(order) {
     setViewing({ order, url: null, loading: true, error: "" });
     try {
-      const res = await api.get(`/orders/${order.orderId ?? order.id}/receipt`, { responseType: "blob" });
+      const res = await api.get(`/orders/${rowId(order)}/receipt`, { responseType: "blob" });
       const url = URL.createObjectURL(res.data);
       setViewing((prev) => (prev ? { ...prev, url, loading: false } : prev));
     } catch (err) {
@@ -99,8 +104,8 @@ export default function GcashApprovalsPage() {
     if (!confirming || confirmPending) return;
     setConfirmPending(true);
     try {
-      await api.patch(`/orders/${confirming.orderId ?? confirming.id}/gcash-decision`, { decision: "confirm" });
-      toast(`Order #${confirming.orderId ?? confirming.id} confirmed - it is now a sale`, "success");
+      await api.patch(`/orders/${rowId(confirming)}/gcash-decision`, { decision: "confirm" });
+      toast(`Order #${rowId(confirming)} confirmed - it is now a sale`, "success");
       setConfirming(null);
       await load();
     } catch (err) {
@@ -119,8 +124,8 @@ export default function GcashApprovalsPage() {
     }
     setRejectPending(true);
     try {
-      await api.patch(`/orders/${rejecting.orderId ?? rejecting.id}/gcash-decision`, { decision: "reject", note: check.value });
-      toast(`Order #${rejecting.orderId ?? rejecting.id} declined - not a sale, stock restored`, "success");
+      await api.patch(`/orders/${rowId(rejecting)}/gcash-decision`, { decision: "reject", note: check.value });
+      toast(`Order #${rowId(rejecting)} declined - not a sale, stock restored`, "success");
       setRejecting(null);
       setRejectNote("");
       setRejectNoteError("");
@@ -172,7 +177,7 @@ export default function GcashApprovalsPage() {
                     </td>
                   </tr>
                 ) : orders.map((order) => {
-                  const id = order.orderId ?? order.id;
+                  const id = rowId(order);
                   return (
                     <tr key={id}>
                       <td className="void-requests-order">
