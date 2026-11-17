@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useOutletContext, useSearchParams, useNavigate } from "react-router-dom";
-import { ReceiptText, X, Download, Edit2, Eye, Hourglass, ChevronRight } from "lucide-react";
+import { useOutletContext, useSearchParams } from "react-router-dom";
+import { ReceiptText, X, Download, Edit2, Eye } from "lucide-react";
 
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import { useLiveList } from "../state/liveData.js";
-import { fetchAllVoidRequests } from "../utils/voidRequests.js";
 import Badge from "../components/Badge.jsx";
 import { useLiveEvent } from "../hooks/useLiveStream.js";
 import { usePagedData } from "../hooks/usePagedData.js";
@@ -25,7 +24,6 @@ export default function SalesPage() {
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
 
   // One shared, live copy of the carts: a cart the owner added or
   // deactivated shows up in the filter at once.
@@ -53,8 +51,6 @@ export default function SalesPage() {
   // --- NEW STATE FOR TOTAL INCOME ---
   const [totalIncome, setTotalIncome] = useState(null);
 
-  // Staff void requests: the POS files them, the OWNER decides here.
-  const [voidRequests, setVoidRequests] = useState([]);
   // GCash receipt viewer (blob fetched with the session, shown as object URL).
   const [viewingReceipt, setViewingReceipt] = useState(null);
 
@@ -87,29 +83,12 @@ export default function SalesPage() {
     return () => clearTimeout(timer);
   }, [loadSummary]);
 
-  const loadVoidRequests = useCallback(async () => {
-    if (!isOwner) return;
-    try {
-      const pending = await fetchAllVoidRequests(api);
-      setVoidRequests(pending);
-    } catch {
-      // background fetch; the table error surface owns failures
-    }
-  }, [isOwner]);
-
-  useEffect(() => {
-    const timer = setTimeout(loadVoidRequests, 0);
-    return () => clearTimeout(timer);
-  }, [loadVoidRequests]);
-
   function handleRefresh() {
     refresh();
     loadSummary();
-    loadVoidRequests();
   }
 
-  // Live: a sale (order:new) refreshes the table (debounced for rushes) and
-  // an alert (void request, low stock) re-reads the requests panel.
+  // Live: a sale (order:new) refreshes the table (debounced for rushes).
   const liveTimer = useRef(null);
   const scheduleLiveRefresh = useCallback(() => {
     if (liveTimer.current) clearTimeout(liveTimer.current);
@@ -120,15 +99,12 @@ export default function SalesPage() {
     }, 1500);
   }, [refresh, loadSummary]);
   useLiveEvent("order:new", scheduleLiveRefresh);
-  useLiveEvent("alert:new", loadVoidRequests);
   useEffect(
     () => () => {
       if (liveTimer.current) clearTimeout(liveTimer.current);
     },
     []
   );
-
-  // decideVoidRequest moved to /sales/void-requests page.
 
   async function openReceipt(order) {
     setViewingReceipt({ order, url: null, loading: true, error: "" });
@@ -311,30 +287,6 @@ export default function SalesPage() {
               )}
             </div>
           </div>
-
-          {isOwner && (
-            <section className="panel sales-void-requests" aria-label="Void requests">
-              <div className="sales-void-requests-head">
-                <div className="sales-void-requests-info">
-                  <h3 className="section-title sales-void-requests-title">
-                    <Hourglass size={16} aria-hidden="true" /> Void requests ({voidRequests.length})
-                  </h3>
-                  {voidRequests.length === 0 && (
-                    <p className="muted small sales-void-requests-empty">
-                      No pending void requests right now.
-                    </p>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  className="small-btn ghost"
-                  onClick={() => navigate("/sales/void-requests")}
-                >
-                  See all <ChevronRight size={14} aria-hidden="true" />
-                </button>
-              </div>
-            </section>
-          )}
 
           {error ? (
             <ErrorBox message={error} onRetry={handleRefresh} />

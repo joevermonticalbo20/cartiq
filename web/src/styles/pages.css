@@ -898,34 +898,6 @@ button.settings-pw-submit:disabled {
   }
 }
 
-.sales-void-requests.panel {
-  margin-bottom: var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  background: var(--surface-alt);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: none;
-}
-.sales-void-requests-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-3);
-}
-.sales-void-requests-info { grid-column: 1; }
-.sales-void-requests-head > button { grid-column: 2; grid-row: 1; justify-self: end; }
-.sales-void-requests-title.section-title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  border: 0;
-  font-size: var(--fs-lg);
-}
-.sales-void-requests-title svg { color: var(--primary); }
-.sales-void-requests-empty { margin: var(--space-2) 0 0; }
-
 .sales-filters-row {
   display: flex;
   justify-content: space-between;
