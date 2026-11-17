@@ -2667,7 +2667,7 @@ async function handleOrderVoidDecision(req, orderId, user) {
   await resolveAlert();
   await notifyRequester(
     "Void approved",
-    `Order #${orderId} was voided at your request. Stock restored.`,
+    `Order #${orderId} was voided at your request.\nStock restored.`,
   );
   const order = await fsGet("orders", orderId);
   return { status: 200, body: { order: cleanDoc(order), restored: outcome.restored, warnings: outcome.warnings } };
@@ -2792,7 +2792,7 @@ async function handleGcashDecision(req, orderId, user) {
   await resolveAlert();
   await notifyRequester(
     "GCash declined",
-    `Order #${orderId} was declined by the owner - it is not a sale and the stock was restored. Reason: ${check.value}`,
+    `Order #${orderId} was declined by the owner - it is not a sale.\nStock restored.\nReason: ${check.value}`,
   );
   const order = await fsGet("orders", orderId);
   return { status: 200, body: { order: cleanDoc(order), restored: outcome.restored, warnings: outcome.warnings } };

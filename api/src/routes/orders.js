@@ -461,7 +461,7 @@ router.patch("/orders/:id/gcash-decision", requireAuth, requireRole("OWNER"), as
     await resolveAlert();
     await notifyRequester(
       "GCash declined",
-      `Order #${existing.id} was declined by the owner - it is not a sale and the stock was restored. Reason: ${noteCheck.value}`,
+      `Order #${existing.id} was declined by the owner - it is not a sale.\nStock restored.\nReason: ${noteCheck.value}`,
     );
     return res.json(out);
   } catch (err) {
@@ -965,7 +965,7 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
         data: {
           type: "VOID_DECISION",
           title: "Void approved",
-          message: `Order #${existing.id} was voided at your request. Stock restored.`,
+          message: `Order #${existing.id} was voided at your request.\nStock restored.`,
           userId: requesterId,
           locationId: existing.locationId ?? null,
           payload: JSON.stringify({ orderId: existing.id }),

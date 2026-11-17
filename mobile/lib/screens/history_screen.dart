@@ -1633,11 +1633,27 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               )
                               .join(', ');
 
-                          final isVoided =
-                              (o['status'] ?? 'PAID').toString() == 'VOID';
+                          final statusStr = (o['status'] ?? 'PAID').toString();
+                          final isVoided = statusStr == 'VOID';
+                          final isPendingGcash = statusStr == 'PENDING_GCASH';
+                          final isRejectedGcash = statusStr == 'GCASH_REJECTED';
                           final payMethod = o['paymentMethod'] == 'GCASH'
                               ? 'GCash'
                               : 'Cash';
+                          final pillLabel = isVoided
+                              ? 'VOID'
+                              : isRejectedGcash
+                                  ? 'DECLINED'
+                                  : isPendingGcash
+                                      ? 'PENDING'
+                                      : payMethod;
+                          final pillColor = isVoided || isRejectedGcash
+                              ? AppColors.danger
+                              : isPendingGcash
+                                  ? AppColors.warn
+                                  : (payMethod == 'GCash'
+                                      ? AppColors.info
+                                      : AppColors.primary);
                           final timeStr = o['createdAt'] != null
                               ? ManilaTime.formatClock12(
                                   ManilaTime.parse(o['createdAt'])!,
@@ -1672,25 +1688,31 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                         height: 48,
                                         decoration: BoxDecoration(
                                           color:
-                                              (isVoided
+                                              (isVoided || isRejectedGcash
                                                       ? AppColors.danger
-                                                      : AppColors.primary)
+                                                      : isPendingGcash
+                                                          ? AppColors.warn
+                                                          : AppColors.primary)
                                                   .withValues(alpha: 0.1),
                                           borderRadius: BorderRadius.circular(
                                             AppRadius.m,
                                           ),
                                         ),
                                         child: Icon(
-                                          isVoided
+                                          isVoided || isRejectedGcash
                                               ? Icons.block_rounded
-                                              : (payMethod == 'GCash'
-                                                    ? Icons
-                                                          .phone_android_rounded
-                                                    : Icons.payments_rounded),
+                                              : isPendingGcash
+                                                  ? Icons.hourglass_top_rounded
+                                                  : (payMethod == 'GCash'
+                                                        ? Icons
+                                                              .phone_android_rounded
+                                                        : Icons.payments_rounded),
                                           size: 24,
-                                          color: isVoided
+                                          color: isVoided || isRejectedGcash
                                               ? AppColors.danger
-                                              : AppColors.primary,
+                                              : isPendingGcash
+                                                  ? AppColors.warn
+                                                  : AppColors.primary,
                                         ),
                                       ),
                                       const SizedBox(width: AppSpacing.space3),
@@ -1775,27 +1797,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                               vertical: 2,
                                             ),
                                             decoration: BoxDecoration(
-                                              color: isVoided
-                                                  ? AppColors.danger.withValues(
-                                                      alpha: 0.1,
-                                                    )
-                                                  : (payMethod == 'GCash'
-                                                            ? AppColors.info
-                                                            : AppColors.primary)
-                                                        .withValues(alpha: 0.1),
+                                              color: pillColor.withValues(alpha: 0.1),
                                               borderRadius:
                                                   BorderRadius.circular(4),
                                             ),
                                             child: Text(
-                                              isVoided ? 'VOID' : payMethod,
+                                              pillLabel,
                                               style: TextStyle(
                                                 fontSize: 10,
                                                 fontWeight: FontWeight.w800,
-                                                color: isVoided
-                                                    ? AppColors.danger
-                                                    : (payMethod == 'GCash'
-                                                          ? AppColors.info
-                                                          : AppColors.primary),
+                                                color: pillColor,
                                               ),
                                             ),
                                           ),
