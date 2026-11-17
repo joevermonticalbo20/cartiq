@@ -850,6 +850,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final gcashNote = (order['gcash'] is Map)
         ? (order['gcash'] as Map)['note']?.toString()
         : null;
+    // The owner's decline reason for a void request, when there is one.
+    final voidDeniedNote = (order['voidRequest'] is Map && order['voidRequest']['status'] == 'denied')
+        ? (order['voidRequest']['note']?.toString() ?? '')
+        : null;
 
     // A GCash sale opens WITH its proof: the owner should not have to hunt
     // for a button to see the money they were handed. The proof is fetched
@@ -1302,6 +1306,53 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           color: AppColors.warn,
                           fontWeight: FontWeight.w800,
                         ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (voidDeniedNote != null && voidDeniedNote.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.space3),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppSpacing.space3),
+                decoration: BoxDecoration(
+                  color: AppColors.warn.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(AppRadius.s),
+                  border: Border.all(
+                    color: AppColors.warn.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.info_outline_rounded,
+                      color: AppColors.warn,
+                      size: 16,
+                    ),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Void request declined',
+                            style: TextStyle(
+                              color: AppColors.warn,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Reason: $voidDeniedNote',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: AppColors.warn),
+                          ),
+                        ],
                       ),
                     ),
                   ],

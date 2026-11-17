@@ -276,6 +276,38 @@ async function main() {
         dupes.includes(true) && dupes.includes(false) &&
         !JSON.stringify([raceA, raceB]).includes("P2002"));
 
+  // ---- void request flow (note required for both decisions) ----
+  const created2 = await req("/orders", {
+    method: "POST",
+    token: tok,
+    body: {
+      clientRef: `phase7-voidreq-${run}`,
+      locationCode: "CART-01",
+      items: [{ productName: "Flavored Fries", qty: 1, unitPrice: 40 }],
+    },
+  });
+  const voId = created2.data?.order?.id;
+  const filed = await req(`/orders/${voId}/void-request`, {
+    method: "POST",
+    token: tok,
+    body: { reason: "phase7 void request" },
+  });
+  check("void request filed", filed.status === 201, `got ${filed.status}`);
+  const noNote = await req(`/orders/${voId}/void-request`, {
+    method: "PATCH",
+    token: tok,
+    body: { decision: "approve" },
+  });
+  check("approve without a note is refused", noNote.status === 400, `got ${noNote.status}`);
+  const approved = await req(`/orders/${voId}/void-request`, {
+    method: "PATCH",
+    token: tok,
+    body: { decision: "approve", note: "phase7 owner approves the void" },
+  });
+  check("approve with a note voids the order",
+        approved.status === 200 && approved.data?.order?.status === "VOID",
+        `got ${approved.status}`);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 }

@@ -922,8 +922,17 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
       }
     };
 
+    // Both decisions carry a reason now - approving a void and declining the
+    // request alike (min 2, max 100 letters/digits/space and , . - _, no
+    // three identical characters in a row).
+    const noteCheck = validateVoidNote(req.body?.note);
+    if (!noteCheck.ok) {
+      return res.status(400).json({ error: noteCheck.error });
+    }
+    const note = noteCheck.value;
+
     if (decision === "deny") {
-      const voidRequest = { ...(existing.voidRequest ?? {}), status: "denied", decidedBy: req.user.sub ?? null, decidedAt: new Date().toISOString() };
+      const voidRequest = { ...(existing.voidRequest ?? {}), status: "denied", decidedBy: req.user.sub ?? null, decidedAt: new Date().toISOString(), note };
       const order = await prisma.order.update({
         where: { id: existing.id },
         data: { voidRequest },
@@ -936,7 +945,7 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
           data: {
             type: "VOID_DECISION",
             title: "Void declined",
-            message: `Order #${existing.id} stays as paid - the owner declined your void request.`,
+            message: `Order #${existing.id} stays as paid - the owner declined your void request.\nReason: ${note}`,
             userId: requesterId,
             locationId: existing.locationId ?? null,
             payload: JSON.stringify({ orderId: existing.id }),
@@ -949,10 +958,9 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
       return res.json({ order, restored: [], warnings: [] });
     }
 
-    // Approving a void is a void. No note is requested any more - only
-    // declining a request may carry a reason (the deny path stays bare too).
-    const out = await performVoid({ existing, actorId: req.user.sub, reason: null });
-    const voidRequest = { ...(existing.voidRequest ?? {}), status: "approved", decidedBy: req.user.sub ?? null, decidedAt: new Date().toISOString() };
+    // Approving a void is a void.
+    const out = await performVoid({ existing, actorId: req.user.sub, reason: note });
+    const voidRequest = { ...(existing.voidRequest ?? {}), status: "approved", decidedBy: req.user.sub ?? null, decidedAt: new Date().toISOString(), note };
     const order = await prisma.order.update({
       where: { id: existing.id },
       data: { voidRequest },
@@ -965,7 +973,7 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
         data: {
           type: "VOID_DECISION",
           title: "Void approved",
-          message: `Order #${existing.id} was voided at your request.\nStock restored.`,
+          message: `Order #${existing.id} was voided at your request.\nStock restored.\nReason: ${note}`,
           userId: requesterId,
           locationId: existing.locationId ?? null,
           payload: JSON.stringify({ orderId: existing.id }),

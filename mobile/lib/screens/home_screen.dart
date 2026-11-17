@@ -287,10 +287,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           alert: a,
                           onTap: () async {
                             final wasRead = a['isRead'] == true;
+                            // Open the preview first - the bell must feel
+                            // instant, so the mark-read round trip happens
+                            // in the background rather than blocking the tap.
                             if (!wasRead) {
-                              await sheetAuth.markMyAlertRead(
-                                (a['id'] as num).toInt(),
-                              );
+                              unawaited(sheetAuth.markMyAlertRead((a['id'] as num).toInt()));
                             }
                             if (!mounted) return;
                             await showNotificationPreview(context, a);

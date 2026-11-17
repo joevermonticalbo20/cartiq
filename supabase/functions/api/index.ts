@@ -2637,8 +2637,14 @@ async function handleOrderVoidDecision(req, orderId, user) {
       /* notification is best-effort */
     }
   };
-  // Approving a void is a void. No note is requested any more - only the
-  // decline path may carry a reason (and it stays bare too).
+  // Both decisions carry a reason now - approving a void and declining the
+  // request alike (min 2, max 100 letters/digits/space and , . - _, no
+  // three identical characters in a row).
+  const noteCheck = validateVoidNote(body?.note);
+  if (!noteCheck.ok) {
+    return { status: 400, body: { error: noteCheck.error } };
+  }
+  const note = noteCheck.value;
 
   if (decision === "deny") {
     const voidRequest = {
@@ -2646,28 +2652,30 @@ async function handleOrderVoidDecision(req, orderId, user) {
       status: "denied",
       decidedBy: user.id ?? null,
       decidedAt: new Date().toISOString(),
+      note,
     };
     await fsPatch("orders", orderId, { voidRequest });
     await resolveAlert();
     await notifyRequester(
       "Void declined",
-      `Order #${orderId} stays as paid - the owner declined your void request.`,
+      `Order #${orderId} stays as paid - the owner declined your void request.\nReason: ${note}`,
     );
     const order = await fsGet("orders", orderId);
     return { status: 200, body: { order: cleanDoc(order), restored: [], warnings: [] } };
   }
-  const outcome = await performVoidEdge({ orderId, actorId: user.id, reason: null });
+  const outcome = await performVoidEdge({ orderId, actorId: user.id, reason: note });
   const voidRequest = {
     ...(existing.voidRequest || {}),
     status: "approved",
     decidedBy: user.id ?? null,
     decidedAt: new Date().toISOString(),
+    note,
   };
   await fsPatch("orders", orderId, { voidRequest });
   await resolveAlert();
   await notifyRequester(
     "Void approved",
-    `Order #${orderId} was voided at your request.\nStock restored.`,
+    `Order #${orderId} was voided at your request.\nStock restored.\nReason: ${note}`,
   );
   const order = await fsGet("orders", orderId);
   return { status: 200, body: { order: cleanDoc(order), restored: outcome.restored, warnings: outcome.warnings } };

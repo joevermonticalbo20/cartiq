@@ -7,6 +7,8 @@ import { getFriendlyError } from "../utils/errors.js";
 import { fetchAllVoidRequests } from "../utils/voidRequests.js";
 import { useLiveEvent } from "../hooks/useLiveStream.js";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import VoidNoteField from "../components/VoidNoteField.jsx";
+import { validateVoidNote } from "../utils/voidNote.js";
 import EmptyState from "../components/EmptyState.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
@@ -35,8 +37,12 @@ export default function VoidRequestsPage() {
   const [selected, setSelected] = useState(new Set());
   const [confirmBulk, setConfirmBulk] = useState(null); // "approve" | "deny" | null
   const [bulkPending, setBulkPending] = useState(false);
-  const [approving, setApproving] = useState(null); // the single request being confirmed
-  const [approvePending, setApprovePending] = useState(false);
+  const [decidingRequest, setDecidingRequest] = useState(null); // { request, decision }
+  const [decisionNote, setDecisionNote] = useState("");
+  const [decisionNoteError, setDecisionNoteError] = useState("");
+  const [decisionPending, setDecisionPending] = useState(false);
+  const [bulkNote, setBulkNote] = useState("");
+  const [bulkNoteError, setBulkNoteError] = useState("");
 
   const load = useCallback(async () => {
     if (!isOwner) return;
@@ -81,56 +87,60 @@ export default function VoidRequestsPage() {
     }
   };
 
-  async function approveOne(request) {
+  function decideOne(request, decision) {
+    setDecidingRequest({ request, decision });
+    setDecisionNote("");
+    setDecisionNoteError("");
+  }
+
+  async function doDecide() {
+    if (!decidingRequest || decisionPending) return;
+    const { request, decision } = decidingRequest;
     const orderId = orderIdOf(request);
     if (!orderId) {
       toast("This request has no order reference.", "error");
-      return false;
+      return;
     }
-    setApproving(null);
-    setApprovePending(true);
+    const check = validateVoidNote(decisionNote);
+    if (!check.ok) {
+      setDecisionNoteError(check.error);
+      return;
+    }
+    setDecisionPending(true);
     setDeciding(request.id);
     try {
-      await api.patch(`/orders/${orderId}/void-request`, { decision: "approve" });
-      toast(`Order #${orderId} voided - stock restored`, "success");
+      await api.patch(`/orders/${orderId}/void-request`, { decision, note: check.value });
+      toast(
+        decision === "approve"
+          ? `Order #${orderId} voided - stock restored`
+          : `Order #${orderId} stays as paid`,
+        "success",
+      );
+      setDecidingRequest(null);
       await load();
-      return true;
     } catch (err) {
-      toast(getFriendlyError(err, "Could not void the order."), "error");
-      return false;
+      toast(getFriendlyError(err, "Could not record the void decision."), "error");
     } finally {
-      setApprovePending(false);
+      setDecisionPending(false);
       setDeciding(null);
     }
   }
 
-  async function decideOne(request, decision) {
-    if (decision === "approve") {
-      setApproving(request);
-      return false;
-    }
-    const orderId = orderIdOf(request);
-    if (!orderId) {
-      toast("This request has no order reference.", "error");
-      return false;
-    }
-    setDeciding(request.id);
-    try {
-      await api.patch(`/orders/${orderId}/void-request`, { decision });
-      toast(`Order #${orderId} stays as paid`, "success");
-      await load();
-      return true;
-    } catch (err) {
-      toast(getFriendlyError(err, "Could not record the void decision."), "error");
-      return false;
-    } finally {
-      setDeciding(null);
-    }
+  function closeDecisionDialog() {
+    setDecidingRequest(null);
+    setDecisionNote("");
+    setDecisionNoteError("");
   }
 
   async function runBulk(decision) {
     if (bulkPending) return;
+    const check = validateVoidNote(bulkNote);
+    if (!check.ok) {
+      setBulkNoteError(check.error);
+      return;
+    }
     setBulkPending(true);
+    const note = check.value;
     const targets = voidRequests.filter((r) => selected.has(r.id));
     let okCount = 0;
     const failed = [];
@@ -139,7 +149,7 @@ export default function VoidRequestsPage() {
       if (!orderId) { failed.push(req); continue; }
       setDeciding(req.id);
       try {
-        await api.patch(`/orders/${orderId}/void-request`, { decision });
+        await api.patch(`/orders/${orderId}/void-request`, { decision, note });
         okCount++;
       } catch {
         failed.push(req);
@@ -149,6 +159,8 @@ export default function VoidRequestsPage() {
     }
     setBulkPending(false);
     setConfirmBulk(null);
+    setBulkNote("");
+    setBulkNoteError("");
     await load();
     toast(
       failed.length === 0
@@ -212,6 +224,8 @@ export default function VoidRequestsPage() {
                     disabled={!someSelected || bulkPending}
                     onClick={() => {
                       setConfirmBulk("deny");
+                      setBulkNote("");
+                      setBulkNoteError("");
                     }}
                   >
                     <Ban size={13} aria-hidden="true" /> Deny selected
@@ -222,6 +236,8 @@ export default function VoidRequestsPage() {
                     disabled={!someSelected || bulkPending}
                     onClick={() => {
                       setConfirmBulk("approve");
+                      setBulkNote("");
+                      setBulkNoteError("");
                     }}
                   >
                     <Check size={13} aria-hidden="true" /> Void selected
@@ -314,32 +330,58 @@ export default function VoidRequestsPage() {
           title={confirmBulk === "approve" ? "Void selected orders?" : "Deny selected requests?"}
           message={
             confirmBulk === "approve"
-              ? `${selected.size} order(s) will be voided and stock restored for each.`
-              : `${selected.size} request(s) will be denied; those orders stay as paid.`
+              ? `${selected.size} order(s) will be voided and stock restored for each. Give the reason for each.`
+              : `${selected.size} request(s) will be denied; those orders stay as paid. Give the reason for each.`
           }
           confirmLabel={confirmBulk === "approve" ? "Void selected" : "Deny selected"}
-          danger={confirmBulk === "deny"}
+          danger={confirmBulk === "approve"}
           pending={bulkPending}
           pendingLabel="Working..."
+          confirmDisabled={!validateVoidNote(bulkNote).ok}
           onConfirm={() => runBulk(confirmBulk)}
-          onCancel={() => setConfirmBulk(null)}
-        />
+          onCancel={() => {
+            setConfirmBulk(null);
+            setBulkNote("");
+            setBulkNoteError("");
+          }}
+        >
+          <VoidNoteField
+            value={bulkNote}
+            onChange={setBulkNote}
+            error={bulkNoteError}
+            onErrorChange={setBulkNoteError}
+            autoFocus
+            label={confirmBulk === "approve" ? "Reason for void" : "Decline reason"}
+          />
+        </ConfirmDialog>
 
         <ConfirmDialog
-          open={Boolean(approving)}
-          title="Void this order?"
+          open={Boolean(decidingRequest)}
+          title={decidingRequest?.decision === "approve" ? "Void this order?" : "Deny the void request?"}
+          danger={decidingRequest?.decision === "approve"}
           message={
-            approving
-              ? `Order #${orderIdOf(approving) ?? "?"} will be voided and its deducted stock restored. This cannot be undone.`
+            decidingRequest
+              ? decidingRequest.decision === "approve"
+                ? `Order #${orderIdOf(decidingRequest.request) ?? "?"} will be voided and its deducted stock restored. This cannot be undone.`
+                : `Order #${orderIdOf(decidingRequest.request) ?? "?"} stays as paid. The staff member will see the reason.`
               : ""
           }
-          confirmLabel="Void order"
-          danger
-          pending={approvePending}
-          pendingLabel="Voiding..."
-          onConfirm={() => approveOne(approving)}
-          onCancel={() => setApproving(null)}
-        />
+          confirmLabel={decidingRequest?.decision === "approve" ? "Void order" : "Deny request"}
+          pending={decisionPending}
+          pendingLabel={decidingRequest?.decision === "approve" ? "Voiding..." : "Declining..."}
+          confirmDisabled={!validateVoidNote(decisionNote).ok}
+          onConfirm={doDecide}
+          onCancel={closeDecisionDialog}
+        >
+          <VoidNoteField
+            value={decisionNote}
+            onChange={setDecisionNote}
+            error={decisionNoteError}
+            onErrorChange={setDecisionNoteError}
+            autoFocus
+            label={decidingRequest?.decision === "approve" ? "Reason for void" : "Decline reason"}
+          />
+        </ConfirmDialog>
       </div>
     </PageErrorBoundary>
   );

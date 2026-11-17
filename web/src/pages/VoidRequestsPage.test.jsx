@@ -68,33 +68,45 @@ describe("VoidRequestsPage approve flow", () => {
     });
   });
 
-  it("approves without a note - the confirm dialog asks no note", async () => {
+  it("approve requires a reason before voiding - the note gate is live", async () => {
     renderPage();
     expect(await screen.findByText("#7")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
 
-    // The confirm dialog opens with the Void button ready - no note field.
+    // The dialog opens with the Void button disabled until the reason is valid.
     const confirm = await screen.findByRole("button", { name: "Void order" });
-    expect(confirm).not.toBeDisabled();
-    expect(screen.queryByLabelText(/reason for void/i)).toBeNull();
+    expect(confirm).toBeDisabled();
 
+    const noteField = screen.getByLabelText(/reason for void/i);
+    fireEvent.change(noteField, { target: { value: "ok" } });
+
+    expect(confirm).not.toBeDisabled();
     fireEvent.click(confirm);
     await waitFor(() =>
       expect(api.patch).toHaveBeenCalledWith(
         "/orders/7/void-request",
-        { decision: "approve" },
+        { decision: "approve", note: "ok" },
       ),
     );
   });
 
-  it("deny needs no note and sends decision deny", async () => {
+  it("deny requires a reason before declining - the note gate is live", async () => {
     renderPage();
     expect(await screen.findByText("#7")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Deny" }));
+
+    const confirm = await screen.findByRole("button", { name: "Deny request" });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/decline reason/i), {
+      target: { value: "requested in error" },
+    });
+    expect(confirm).not.toBeDisabled();
+
+    fireEvent.click(confirm);
     await waitFor(() =>
-      expect(api.patch).toHaveBeenCalledWith("/orders/7/void-request", { decision: "deny" }),
+      expect(api.patch).toHaveBeenCalledWith("/orders/7/void-request", { decision: "deny", note: "requested in error" }),
     );
-    expect(screen.queryByLabelText(/decline reason|reason for void|confirmation note/i)).toBeNull();
   });
 });
