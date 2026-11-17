@@ -1269,6 +1269,22 @@ button.sales-icon-btn:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
+/* GCash proof viewer: blue info pill. Matches the GCash flows across the
+   app (the POS proof affordance uses the same info blue). Named .is-info
+   so it cannot collide with global .info styles. */
+button.sales-icon-btn.is-info {
+  background: var(--info-bg);
+  color: var(--info);
+  border-color: transparent;
+  box-shadow: none;
+}
+button.sales-icon-btn.is-info:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--info-bg) 70%, var(--info) 30%);
+  border-color: transparent;
+  color: var(--info);
+  transform: none;
+  box-shadow: none;
+}
 /* Void action: soft pink pill with a dark-red X (matches the app danger-bg).
    Named .is-danger so it cannot collide with the global `.danger` variant. */
 button.sales-icon-btn.is-danger {

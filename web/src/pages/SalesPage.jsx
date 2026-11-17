@@ -397,7 +397,7 @@ export default function SalesPage() {
                             {o.receipt || String(o.paymentMethod ?? "").toUpperCase() === "GCASH" ? (
                               <button
                                 type="button"
-                                className="sales-icon-btn"
+                                className="sales-icon-btn is-info"
                                 onClick={() => openReceipt(o)}
                                 title="View GCash receipt"
                                 aria-label="View GCash receipt"
