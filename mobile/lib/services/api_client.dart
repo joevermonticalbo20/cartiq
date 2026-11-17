@@ -862,18 +862,26 @@ class ApiClient {
   ///
   /// [orderId] must be the numeric order id — the `clientRef` string is not
   /// accepted by this route.
+  ///
+  /// [note] is required by the server: the owner must write a 20-100
+  /// character reason (letters/digits/spaces and ` , . - _ ` only) before an
+  /// order can be voided. Omitting it gets a 400.
   Future<Map<String, dynamic>> voidOrder(
     String token,
     int orderId, {
-    String? reason,
+    required String note,
   }) async {
+    final trimmed = note.trim();
+    if (trimmed.length < 20 || trimmed.length > 100) {
+      throw ApiException('Void note must be 20-100 characters.');
+    }
     final res = await _send(
       () => _http.patch(
         _uri('/orders/$orderId'),
         headers: _headers(token: token),
         body: jsonEncode({
           'status': 'VOID',
-          if (reason != null && reason.isNotEmpty) 'reason': reason,
+          'note': trimmed,
         }),
       ),
     );

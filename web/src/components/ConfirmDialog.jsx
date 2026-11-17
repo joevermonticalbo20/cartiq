@@ -6,12 +6,18 @@ export default function ConfirmDialog({
   message,
   confirmLabel = "Confirm",
   danger = false,
+  // When set, the confirm button is disabled even before the async pending
+  // guard kicks in (e.g. note not valid yet).
+  confirmDisabled = false,
   // pending: async onConfirm in flight — disables both buttons so a
   // double-click can't fire the action twice.
   pending = false,
   pendingLabel = null,
   onConfirm,
   onCancel,
+  // Optional richer content between the message and the action buttons
+  // (e.g. a note field with live validation).
+  children = null,
 }) {
   // renderOpen controls whether the component is actually in the DOM
   const [renderOpen, setRenderOpen] = useState(open);
@@ -100,6 +106,8 @@ export default function ConfirmDialog({
           </p>
         )}
 
+        {children && <div style={{ marginBottom: "16px" }}>{children}</div>}
+
         <div className="modal-actions">
           <button
             ref={cancelRef}
@@ -115,7 +123,7 @@ export default function ConfirmDialog({
             type="button"
             className={danger ? "danger" : ""}
             onClick={onConfirm}
-            disabled={isClosing || pending}
+            disabled={isClosing || pending || confirmDisabled}
           >
             {pending && pendingLabel ? pendingLabel : confirmLabel}
           </button>

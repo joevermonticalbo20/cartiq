@@ -1806,6 +1806,38 @@ async function handleCatalog(req, origin) {
 // ---------- orders (mirrors api/src/routes/orders.js) ----------
 const ORDER_PAYMENT_METHODS = ["CASH", "GCASH"];
 
+// Void-note rules for the OWNER voiding an order (direct void and approving a
+// staff void request). Mirrored in api/src/services/void_note.js — keep both
+// in sync when changing policy. Enforced here because the web client can be
+// bypassed:
+//   required, min 20, max 100 characters
+//   Unicode letters/digits and the characters ` , . - _ ` plus single spaces
+//   no run of three identical characters in a row (case-insensitive)
+const VOID_NOTE_MIN = 20;
+const VOID_NOTE_MAX = 100;
+const VOID_NOTE_ALLOWED = /^[\p{L}\p{N} ,.\-_]+$/u;
+const VOID_NOTE_TRIPLE = /(.)(\1)(\1)/iu;
+
+function validateVoidNote(raw) {
+  const value = String(raw ?? "").replace(/\s+/g, " ").trim();
+  if (!value) {
+    return { ok: false as const, error: "Add a note explaining why the order is voided." };
+  }
+  if (value.length < VOID_NOTE_MIN) {
+    return { ok: false as const, error: `Note must be at least ${VOID_NOTE_MIN} characters.` };
+  }
+  if (value.length > VOID_NOTE_MAX) {
+    return { ok: false as const, error: `Note must not exceed ${VOID_NOTE_MAX} characters.` };
+  }
+  if (!VOID_NOTE_ALLOWED.test(value)) {
+    return { ok: false as const, error: "Note may only contain letters, digits, spaces and the characters , . - _" };
+  }
+  if (VOID_NOTE_TRIPLE.test(value)) {
+    return { ok: false as const, error: "Note cannot contain three identical characters in a row." };
+  }
+  return { ok: true as const, value };
+}
+
 /** STAFF cart scoping (mirrors assertOwnLocation): OWNERs bypass. */
 function checkOwnLocation(user, locationId) {
   if (user && user.role === "OWNER") return null;
@@ -2205,9 +2237,17 @@ async function handlePatchOrder(req, origin, orderId, user) {
     return jsonRes(origin, { error: "Forbidden: insufficient role" }, 403);
   }
   const body = await req.json().catch(() => null);
-  const { status, reason, paymentMethod } = body || {};
+  const { status, reason, note, paymentMethod } = body || {};
   if (status !== undefined && status !== "VOID") {
     return jsonRes(origin, { error: 'only status "VOID" is supported (omit status to edit payment method)' }, 400);
+  }
+  // A void always needs the owner's note — client or not. Accept `note`
+  // (current web client) and fall back to the legacy `reason` field.
+  let voidNote = null;
+  if (status === "VOID") {
+    const check = validateVoidNote(note ?? reason);
+    if (!check.ok) return jsonRes(origin, { error: check.error }, 400);
+    voidNote = check.value;
   }
   const existing = await fsGet("orders", orderId);
   if (!existing) return jsonRes(origin, { error: "Order not found" }, 404);
@@ -2238,7 +2278,7 @@ async function handlePatchOrder(req, origin, orderId, user) {
       status: "VOID",
       voidedBy: user.id,
       voidedAt: new Date(),
-      voidReason: reason ? String(reason).slice(0, 500) : null,
+      voidReason: voidNote,
     });
     // Every phone re-reads its cart's orders - the history must show VOID.
     await announceChange("orders", { id: existing.id, status: "VOID" }).catch(() => {});
@@ -2246,7 +2286,7 @@ async function handlePatchOrder(req, origin, orderId, user) {
     return jsonRes(origin, { order: cleanDoc(updated), restored: [], warnings: [] }, 200);
   }
 
-  const outcome = await performVoidEdge({ orderId: existing.id, actorId: user.id, reason });
+  const outcome = await performVoidEdge({ orderId: existing.id, actorId: user.id, reason: voidNote });
 
   const order = await fsGet("orders", existing.id);
   return jsonRes(origin, { order: cleanDoc(order), restored: outcome.restored, warnings: outcome.warnings }, 200);
@@ -2478,6 +2518,17 @@ async function handleOrderVoidDecision(req, orderId, user) {
       /* notification is best-effort */
     }
   };
+  // Approving a void is a void: the owner must write the same note the
+  // direct-void flow requires. Deny stays note-less (no void happens).
+  let decisionNote = null;
+  if (decision === "approve") {
+    const check = validateVoidNote(body?.note);
+    if (!check.ok) {
+      return { status: 400, body: { error: check.error } };
+    }
+    decisionNote = check.value;
+  }
+
   if (decision === "deny") {
     const voidRequest = {
       ...(existing.voidRequest || {}),
@@ -2494,10 +2545,7 @@ async function handleOrderVoidDecision(req, orderId, user) {
     const order = await fsGet("orders", orderId);
     return { status: 200, body: { order: cleanDoc(order), restored: [], warnings: [] } };
   }
-  const reasonText = existing.voidRequest?.reason
-    ? `Void request: ${existing.voidRequest.reason}`
-    : "Void request approved";
-  const outcome = await performVoidEdge({ orderId, actorId: user.id, reason: reasonText });
+  const outcome = await performVoidEdge({ orderId, actorId: user.id, reason: decisionNote });
   const voidRequest = {
     ...(existing.voidRequest || {}),
     status: "approved",

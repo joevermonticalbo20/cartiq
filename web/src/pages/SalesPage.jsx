@@ -16,6 +16,8 @@ import ErrorBox from "../components/ErrorBox.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import Select from "../components/Select.jsx";
+import VoidNoteField from "../components/VoidNoteField.jsx";
+import { validateVoidNote } from "../utils/voidNote.js";
 import { useToast } from "../components/Toast.jsx";
 
 export default function SalesPage() {
@@ -37,6 +39,8 @@ export default function SalesPage() {
   const [loc, setLoc] = useState(() => searchParams.get("cart") ?? "");
   const [date, setDate] = useState("");
   const [confirming, setConfirming] = useState(null);
+  const [voidNote, setVoidNote] = useState("");
+  const [voidNoteError, setVoidNoteError] = useState("");
   const [exporting, setExporting] = useState(false);
   const [isVoiding, setIsVoiding] = useState(false);
 
@@ -233,11 +237,18 @@ export default function SalesPage() {
 
   async function doVoid() {
     if (!confirming || isVoiding) return;
+    const check = validateVoidNote(voidNote);
+    if (!check.ok) {
+      setVoidNoteError(check.error);
+      return;
+    }
     setIsVoiding(true);
     try {
-      await api.patch(`/orders/${confirming.id}`, { status: "VOID" });
+      await api.patch(`/orders/${confirming.id}`, { status: "VOID", note: check.value });
       toast(`Voided order #${confirming.id}`, "success");
       handleRefresh();
+      setVoidNote("");
+      setVoidNoteError("");
     } catch (err) {
       toast(getFriendlyError(err, "Void failed"), "error");
     } finally {
@@ -459,7 +470,11 @@ export default function SalesPage() {
                                 <button
                                   type="button"
                                   className="sales-icon-btn is-danger"
-                                  onClick={() => setConfirming(o)}
+                                  onClick={() => {
+                                    setConfirming(o);
+                                    setVoidNote("");
+                                    setVoidNoteError("");
+                                  }}
                                   title="Void order"
                                   aria-label="Void order"
                                 >
@@ -586,9 +601,22 @@ export default function SalesPage() {
           danger
           pending={isVoiding}
           pendingLabel="Voiding..."
+          confirmDisabled={!validateVoidNote(voidNote).ok}
           onConfirm={doVoid}
-          onCancel={() => setConfirming(null)}
-        />
+          onCancel={() => {
+            setConfirming(null);
+            setVoidNote("");
+            setVoidNoteError("");
+          }}
+        >
+          <VoidNoteField
+            value={voidNote}
+            onChange={setVoidNote}
+            error={voidNoteError}
+            onErrorChange={setVoidNoteError}
+            autoFocus
+          />
+        </ConfirmDialog>
       </div>
     </PageErrorBoundary>
   );

@@ -136,6 +136,16 @@ label.field {
   font-weight: 600;
   line-height: 1.4;
 }
+textarea.input-invalid {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-bg);
+}
+.void-note-field .void-note-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+}
 /* The input itself, when its field is invalid. Same danger ring as the OTP
    verdict fields so the highlight reads the same everywhere. */
 input.input-invalid {

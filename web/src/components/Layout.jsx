@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileSpreadsheet,
+  Hourglass,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -33,6 +34,7 @@ const NAV_GROUPS = [
     items: [
       { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { to: "/sales", label: "Sales", icon: ReceiptText },
+      { to: "/sales/void-requests", label: "Void Requests", icon: Hourglass },
       { to: "/inventory", label: "Inventory", icon: Boxes },
       { to: "/staff", label: "Staff & Shifts", icon: Users },
     ]

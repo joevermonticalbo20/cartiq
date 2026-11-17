@@ -5,6 +5,7 @@ import { flavorSharesForOrderLine, fmtStock, mapsForOrderLine, oversellShortage,
 import { lowStockDedupeKey, shouldOpenLowStockAlert } from "../services/low_stock_alert.js";
 import { notifyAssignedStaffOfLowStock } from "../services/staff_low_stock_notify.js";
 import { manilaDayRange } from "../services/timezone.js";
+import { validateVoidNote } from "../services/void_note.js";
 import { IMAGE_MAX_BYTES, IMAGE_PREFIX } from "../services/product_images.js";
 import { emit } from "./events.js";
 import { sendTargetedPush } from "../services/push.js";
@@ -388,18 +389,27 @@ function emptyMeta(page, pageSize) {
 }
 
 // PATCH /orders/:id (OWNER only) — two operations, never mixed:
-//   { status: "VOID", reason? } — void a mis-tapped sale. The row stays in
+//   { status: "VOID", note } — void a mis-tapped sale. The row stays in
 //   history with actor + timestamp, and deducted recipe stock is restored
 //   (auto-restore) with an audit trail. Missing inventory rows are reported in
-//   warnings[] instead of failing the void.
+//   warnings[] instead of failing the void. The note is mandatory: 20-100
+//   letters/digits/space/, . - _ with no three identical characters in a row.
 //   { paymentMethod } — correct a mis-tapped payment method on a PAID order
 //   (CASH|GCASH). Stock untouched.
 const ORDER_PAYMENT_METHODS = ["CASH", "GCASH"];
 router.patch("/orders/:id", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
-    const { status, reason, paymentMethod } = req.body ?? {};
+    const { status, reason, note, paymentMethod } = req.body ?? {};
     if (status !== undefined && status !== "VOID") {
       return res.status(400).json({ error: 'only status "VOID" is supported (omit status to edit payment method)' });
+    }
+    // A void always needs the owner's note — client or not. Accept `note`
+    // (current web client) and fall back to the legacy `reason` field.
+    let voidNote = null;
+    if (status === "VOID") {
+      const check = validateVoidNote(note ?? reason);
+      if (!check.ok) return res.status(400).json({ error: check.error });
+      voidNote = check.value;
     }
     const existing = await prisma.order.findUnique({
       where: { id: Number(req.params.id) },
@@ -427,7 +437,7 @@ router.patch("/orders/:id", requireAuth, requireRole("OWNER"), async (req, res, 
     if (existing.status === "VOID") {
       return res.status(400).json({ error: "Order is already void" });
     }
-    return res.json(await performVoid({ existing, actorId: req.user.sub, reason }));
+    return res.json(await performVoid({ existing, actorId: req.user.sub, reason: voidNote }));
   } catch (err) {
     return next(err);
   }
@@ -626,8 +636,10 @@ router.post("/orders/:id/void-request", requireAuth, async (req, res, next) => {
 });
 
 // PATCH /orders/:id/void-request (OWNER) — the final decision.
-//   { decision: "approve" } -> performs the void (stock restored) and marks
+//   { decision: "approve", note } -> performs the void (stock restored) and marks
 //   the request approved; { decision: "deny" } leaves the sale PAID.
+//   The note is mandatory for approve (same rules as a direct void); deny
+//   needs no note.
 // Either way the VOID_REQUEST alert is resolved so it leaves the bell.
 router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
@@ -677,10 +689,13 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
       return res.json({ order, restored: [], warnings: [] });
     }
 
-    const reasonText = existing.voidRequest?.reason
-      ? `Void request: ${existing.voidRequest.reason}`
-      : "Void request approved";
-    const out = await performVoid({ existing, actorId: req.user.sub, reason: reasonText });
+    // Approving a void is a void: the owner must write the same note the
+    // direct-void flow requires. Deny stays note-less (no void happens).
+    const noteCheck = validateVoidNote(req.body?.note);
+    if (!noteCheck.ok) {
+      return res.status(400).json({ error: noteCheck.error });
+    }
+    const out = await performVoid({ existing, actorId: req.user.sub, reason: noteCheck.value });
     const voidRequest = { ...(existing.voidRequest ?? {}), status: "approved", decidedBy: req.user.sub ?? null, decidedAt: new Date().toISOString() };
     const order = await prisma.order.update({
       where: { id: existing.id },

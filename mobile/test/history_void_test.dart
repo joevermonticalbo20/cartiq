@@ -46,20 +46,20 @@ void main() {
       });
       final api = ApiClient(secureStorage: _MemStore(), httpClient: client);
 
-      final res = await api.voidOrder('tok', 7, reason: 'Wrong item punched');
+      final res = await api.voidOrder('tok', 7, note: 'Wrong item punched in by mistake');
 
       expect(seen, hasLength(1), reason: 'a request must actually be sent');
       expect(seen.single.method, 'PATCH');
       expect(seen.single.url.path, endsWith('/orders/7'));
       final body = jsonDecode(seen.single.body) as Map<String, dynamic>;
       expect(body['status'], 'VOID');
-      expect(body['reason'], 'Wrong item punched');
+      expect(body['note'], 'Wrong item punched in by mistake');
       // And the payload is the one the UI needs to stay honest.
       expect(res['restored'], isA<List>());
       expect(res['warnings'], isA<List>());
     });
 
-    test('omits an empty reason rather than sending ""', () async {
+    test('a note shorter than 20 characters is rejected before any request is sent', () async {
       final seen = <http.Request>[];
       final client = MockClient((req) async {
         seen.add(req);
@@ -67,10 +67,11 @@ void main() {
       });
       final api = ApiClient(secureStorage: _MemStore(), httpClient: client);
 
-      await api.voidOrder('tok', 7, reason: '');
-      final body = jsonDecode(seen.single.body) as Map<String, dynamic>;
-      expect(body.containsKey('reason'), isFalse);
-      expect(body['status'], 'VOID');
+      await expectLater(
+        api.voidOrder('tok', 7, note: 'too short'),
+        throwsA(isA<ApiException>()),
+      );
+      expect(seen, isEmpty, reason: 'no request must leave the device for an invalid note');
     });
 
     test('a server error surfaces as ApiException with the server message', () async {
@@ -83,7 +84,7 @@ void main() {
 
       // This is what stops the toast claiming success on a rejected void.
       await expectLater(
-        api.voidOrder('tok', 7),
+        api.voidOrder('tok', 7, note: 'Duplicate entry, voiding per owner review'),
         throwsA(
           isA<ApiException>().having((e) => e.message, 'message', contains('already void')),
         ),
