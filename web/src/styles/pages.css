@@ -1335,3 +1335,85 @@ button.sales-icon-btn.is-danger:hover:not(:disabled) {
   background: var(--warn-bg);
   border-color: color-mix(in srgb, var(--warn) 35%, transparent);
 }
+
+/* ---------- Staff schedules (Staff Activity) ---------- */
+.schedule-table {
+  min-width: 980px;
+}
+.schedule-cell {
+  text-align: center !important;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.schedule-cell.off {
+  color: var(--text-muted);
+}
+.schedule-row-inactive td {
+  opacity: 0.55;
+}
+.schedule-modal {
+  max-width: 560px;
+}
+.schedule-unrestricted {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: var(--fs-xs);
+}
+.schedule-quick {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0 4px;
+}
+.schedule-day-list {
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+}
+.schedule-day-row {
+  display: grid;
+  grid-template-columns: 96px 56px 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.schedule-day-row:last-child {
+  border-bottom: none;
+}
+.schedule-day-name {
+  font-weight: 600;
+  font-size: var(--fs-sm);
+}
+.schedule-off {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.schedule-off input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+.schedule-day-row input[type="time"] {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.schedule-day-row input[type="time"]:disabled {
+  opacity: 0.35;
+}
+.schedule-audit {
+  margin: 10px 0 0;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}

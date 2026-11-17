@@ -11,6 +11,7 @@ export function alertLink(alert) {
   if (t === "gcash_confirm" || t === "gcash_decision") return "/sales/gcash-approvals";
   if (t === "restock_request" || t === "restock") return "/inventory";
   if (t === "low_stock" || t === "critical" || t === "inventory") return "/inventory";
+  if (t === "absence") return "/staff";
   return "/notifications";
 }
 
@@ -52,5 +53,6 @@ export function alertLinkLabel(alert) {
   if (t === "void_request" || t === "void_decision") return "Open void requests";
   if (t === "gcash_confirm" || t === "gcash_decision") return "Open GCash approvals";
   if (t === "restock_request" || t === "restock" || t === "low_stock" || t === "critical" || t === "inventory") return "Open inventory";
+  if (t === "absence") return "Open staff";
   return "Open notifications";
 }
