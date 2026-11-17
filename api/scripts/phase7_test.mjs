@@ -276,7 +276,8 @@ async function main() {
         dupes.includes(true) && dupes.includes(false) &&
         !JSON.stringify([raceA, raceB]).includes("P2002"));
 
-  // ---- void request flow (note required for both decisions) ----
+  // ---- void request flow ----
+  // Approve is note-less; deny requires the owner's reason.
   const created2 = await req("/orders", {
     method: "POST",
     token: tok,
@@ -293,18 +294,40 @@ async function main() {
     body: { reason: "phase7 void request" },
   });
   check("void request filed", filed.status === 201, `got ${filed.status}`);
-  const noNote = await req(`/orders/${voId}/void-request`, {
+
+  // Deny requires a reason: without one the server refuses.
+  const denyNoNote = await req(`/orders/${voId}/void-request`, {
+    method: "PATCH",
+    token: tok,
+    body: { decision: "deny" },
+  });
+  check("deny without a reason is refused", denyNoNote.status === 400, `got ${denyNoNote.status}`);
+
+  // Deny with a reason keeps the sale PAID.
+  const denied = await req(`/orders/${voId}/void-request`, {
+    method: "PATCH",
+    token: tok,
+    body: { decision: "deny", note: "phase7 owner declines the void" },
+  });
+  check("deny with a reason keeps the sale paid",
+        denied.status === 200 && denied.data?.order?.status === "PAID",
+        `got ${denied.status}`);
+
+  // Filing again after a deny: the request can be re-filed.
+  const refiled = await req(`/orders/${voId}/void-request`, {
+    method: "POST",
+    token: tok,
+    body: { reason: "phase7 void request, again" },
+  });
+  check("re-file after deny", refiled.status === 201, `got ${refiled.status}`);
+
+  // Approve is one tap - no note needed.
+  const approved = await req(`/orders/${voId}/void-request`, {
     method: "PATCH",
     token: tok,
     body: { decision: "approve" },
   });
-  check("approve without a note is refused", noNote.status === 400, `got ${noNote.status}`);
-  const approved = await req(`/orders/${voId}/void-request`, {
-    method: "PATCH",
-    token: tok,
-    body: { decision: "approve", note: "phase7 owner approves the void" },
-  });
-  check("approve with a note voids the order",
+  check("approve without a note voids the order",
         approved.status === 200 && approved.data?.order?.status === "VOID",
         `got ${approved.status}`);
 

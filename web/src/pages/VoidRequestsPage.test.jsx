@@ -68,25 +68,22 @@ describe("VoidRequestsPage approve flow", () => {
     });
   });
 
-  it("approve requires a reason before voiding - the note gate is live", async () => {
+  it("approve is one tap - no reason field, Void button ready", async () => {
     renderPage();
     expect(await screen.findByText("#7")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
 
-    // The dialog opens with the Void button disabled until the reason is valid.
+    // The confirm dialog opens with the Void button ready - no note field.
     const confirm = await screen.findByRole("button", { name: "Void order" });
-    expect(confirm).toBeDisabled();
-
-    const noteField = screen.getByLabelText(/reason for void/i);
-    fireEvent.change(noteField, { target: { value: "ok" } });
-
     expect(confirm).not.toBeDisabled();
+    expect(screen.queryByLabelText(/decline reason|reason for void|confirmation note/i)).toBeNull();
+
     fireEvent.click(confirm);
     await waitFor(() =>
       expect(api.patch).toHaveBeenCalledWith(
         "/orders/7/void-request",
-        { decision: "approve", note: "ok" },
+        { decision: "approve" },
       ),
     );
   });

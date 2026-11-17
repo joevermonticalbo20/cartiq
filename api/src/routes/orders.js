@@ -896,10 +896,10 @@ router.post("/orders/:id/void-request", requireAuth, async (req, res, next) => {
 });
 
 // PATCH /orders/:id/void-request (OWNER) — the final decision.
-//   { decision: "approve", note } -> performs the void (stock restored) and marks
-//   the request approved; { decision: "deny" } leaves the sale PAID.
-//   The note is mandatory for approve (same rules as a direct void); deny
-//   needs no note.
+//   { decision: "approve" } -> performs the void (stock restored) and marks
+//   the request approved (note-less); { decision: "deny", note } leaves the
+//   sale PAID and stores the owner's reason for the staff member.
+//   Approve is note-less; deny requires the note (same rules as the decline).
 // Either way the VOID_REQUEST alert is resolved so it leaves the bell.
 router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
@@ -922,14 +922,17 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
       }
     };
 
-    // Both decisions carry a reason now - approving a void and declining the
-    // request alike (min 2, max 100 letters/digits/space and , . - _, no
-    // three identical characters in a row).
-    const noteCheck = validateVoidNote(req.body?.note);
-    if (!noteCheck.ok) {
-      return res.status(400).json({ error: noteCheck.error });
+    // Approving is note-less (one tap). Declining carries the owner's reason
+    // to the staff member who filed the request (min 2, max 100
+    // letters/digits/space and , . - _, no three identical in a row).
+    let note = null;
+    if (decision === "deny") {
+      const noteCheck = validateVoidNote(req.body?.note);
+      if (!noteCheck.ok) {
+        return res.status(400).json({ error: noteCheck.error });
+      }
+      note = noteCheck.value;
     }
-    const note = noteCheck.value;
 
     if (decision === "deny") {
       const voidRequest = { ...(existing.voidRequest ?? {}), status: "denied", decidedBy: req.user.sub ?? null, decidedAt: new Date().toISOString(), note };
@@ -958,9 +961,9 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
       return res.json({ order, restored: [], warnings: [] });
     }
 
-    // Approving a void is a void.
-    const out = await performVoid({ existing, actorId: req.user.sub, reason: note });
-    const voidRequest = { ...(existing.voidRequest ?? {}), status: "approved", decidedBy: req.user.sub ?? null, decidedAt: new Date().toISOString(), note };
+    // Approving a void is a void - note-less.
+    const out = await performVoid({ existing, actorId: req.user.sub, reason: null });
+    const voidRequest = { ...(existing.voidRequest ?? {}), status: "approved", decidedBy: req.user.sub ?? null, decidedAt: new Date().toISOString() };
     const order = await prisma.order.update({
       where: { id: existing.id },
       data: { voidRequest },
@@ -973,7 +976,7 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
         data: {
           type: "VOID_DECISION",
           title: "Void approved",
-          message: `Order #${existing.id} was voided at your request.\nStock restored.\nReason: ${note}`,
+          message: `Order #${existing.id} was voided at your request.\nStock restored.`,
           userId: requesterId,
           locationId: existing.locationId ?? null,
           payload: JSON.stringify({ orderId: existing.id }),

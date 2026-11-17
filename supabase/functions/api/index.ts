@@ -2580,7 +2580,10 @@ async function handleOrderVoidRequest(req, orderId, user) {
   return { status: 201, body: { order: cleanDoc(order), alert: cleanDoc(alertDoc) } };
 }
 
-/** PATCH /orders/:id/void-request (OWNER) — final decision. */
+/** PATCH /orders/:id/void-request (OWNER) — final decision.
+ *  { decision: "approve" } — performs the void (stock restored), note-less.
+ *  { decision: "deny", note } — keeps the sale PAID and stores the owner's
+ *  reason for the staff member. */
 async function handleOrderVoidDecision(req, orderId, user) {
   const ownErr = requireOwner(user);
   if (ownErr) return ownErr;
@@ -2637,14 +2640,17 @@ async function handleOrderVoidDecision(req, orderId, user) {
       /* notification is best-effort */
     }
   };
-  // Both decisions carry a reason now - approving a void and declining the
-  // request alike (min 2, max 100 letters/digits/space and , . - _, no
-  // three identical characters in a row).
-  const noteCheck = validateVoidNote(body?.note);
-  if (!noteCheck.ok) {
-    return { status: 400, body: { error: noteCheck.error } };
+  // Approving is note-less (one tap). Declining carries the owner's reason
+  // to the staff member who filed the request (min 2, max 100
+  // letters/digits/space and , . - _, no three identical in a row).
+  let note = null;
+  if (decision === "deny") {
+    const noteCheck = validateVoidNote(body?.note);
+    if (!noteCheck.ok) {
+      return { status: 400, body: { error: noteCheck.error } };
+    }
+    note = noteCheck.value;
   }
-  const note = noteCheck.value;
 
   if (decision === "deny") {
     const voidRequest = {
@@ -2663,19 +2669,18 @@ async function handleOrderVoidDecision(req, orderId, user) {
     const order = await fsGet("orders", orderId);
     return { status: 200, body: { order: cleanDoc(order), restored: [], warnings: [] } };
   }
-  const outcome = await performVoidEdge({ orderId, actorId: user.id, reason: note });
+  const outcome = await performVoidEdge({ orderId, actorId: user.id, reason: null });
   const voidRequest = {
     ...(existing.voidRequest || {}),
     status: "approved",
     decidedBy: user.id ?? null,
     decidedAt: new Date().toISOString(),
-    note,
   };
   await fsPatch("orders", orderId, { voidRequest });
   await resolveAlert();
   await notifyRequester(
     "Void approved",
-    `Order #${orderId} was voided at your request.\nStock restored.\nReason: ${note}`,
+    `Order #${orderId} was voided at your request.\nStock restored.`,
   );
   const order = await fsGet("orders", orderId);
   return { status: 200, body: { order: cleanDoc(order), restored: outcome.restored, warnings: outcome.warnings } };
