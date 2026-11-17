@@ -1139,7 +1139,7 @@ export default function ProductsPage() {
                   },
                   {
                     key: "flavors",
-                    label: "Flavor/Variants",
+                    label: "Sizes",
                     width: "31%",
                     render: (p) => {
                       const flavors = p.flavors ?? [];
@@ -1384,7 +1384,7 @@ export default function ProductsPage() {
                 
                 <section className="product-modal-section">
                   <div className="product-modal-section-heading">
-                    <h4>Flavor/Variants</h4>
+                    <h4>Sizes</h4>
                     <span>Each size/flavor has its own recipe — the pouch, packs and powder are deducted only for that size.</span>
                   </div>
                   <div className="flex flex-col gap-3">
@@ -1608,7 +1608,7 @@ export default function ProductsPage() {
                 
                 <section className="product-modal-section">
                   <div className="product-modal-section-heading">
-                    <h4>Flavor/Variants</h4>
+                    <h4>Sizes</h4>
                     <span>Each size/flavor has its own recipe — the pouch, packs and powder are deducted only for that size.</span>
                   </div>
                   <div className="flex flex-col gap-3">

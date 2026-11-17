@@ -519,7 +519,7 @@ describe("ProductsPage best sellers + flat catalog", () => {
     });
     renderPage();
     const row = (await screen.findByText("Cheese Fries - Medium")).closest("tr");
-    expect(screen.getByRole("columnheader", { name: "Flavor/Variants" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Sizes" })).toBeInTheDocument();
     expect(within(row).getByText("Cheese")).toBeInTheDocument();
     fireEvent.click(within(row).getByTitle("Edit price and recipe"));
 

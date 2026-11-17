@@ -7564,7 +7564,7 @@ async function handleExport(origin, inUrl, dataset) {
       { header: "Time", key: "time", width: 10 },
       { header: "Cart", key: "cart", width: 10 },
       { header: "Product", key: "product", width: 18 },
-      { header: "Flavor", key: "flavor", width: 14 },
+      { header: "Sizes", key: "flavor", width: 14 },
       { header: "Qty", key: "qty", width: 6 },
       { header: "Unit Price", key: "unitPrice", width: 11 },
       { header: "Line Total", key: "lineTotal", width: 11 },
