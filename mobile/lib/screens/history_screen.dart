@@ -1324,13 +1324,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 },
               ),
               if (isPendingGcash)
-                TextButton.icon(
-                  style: TextButton.styleFrom(
-                    minimumSize: const Size(0, 44),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 46),
                     foregroundColor: AppColors.info,
+                    side: BorderSide(
+                      color: AppColors.info.withValues(alpha: 0.5),
+                    ),
                   ),
-                  icon: const Icon(Icons.upload_rounded, size: 18),
-                  label: const Text('Replace proof photo'),
+                  icon: const Icon(Icons.upload_file_outlined, size: 18),
+                  label: const Text('Upload / Retake GCash proof'),
                   onPressed: () {
                     Navigator.pop(sheetContext);
                     _replaceReceipt(order);

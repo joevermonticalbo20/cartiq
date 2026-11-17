@@ -53,26 +53,21 @@ describe("GcashApprovalsPage", () => {
     });
   });
 
-  it("renders the pending GCash order and confirms with an owner note", async () => {
+  it("renders the pending GCash order and confirms without a note", async () => {
     renderPage();
     expect(await screen.findByText("#9")).toBeInTheDocument();
     expect(screen.getByText("₱120.00")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
-    // The confirm dialog requires a note before it can be submitted.
+    // The confirm dialog asks no note - Void payment is enabled by default.
     const confirm = await screen.findByRole("button", { name: "Confirm payment" });
-    expect(confirm).toBeDisabled();
-
-    fireEvent.change(screen.getByLabelText(/confirmation note/i), {
-      target: { value: "same reference number, approved" },
-    });
     expect(confirm).not.toBeDisabled();
 
     fireEvent.click(confirm);
     await waitFor(() =>
       expect(api.patch).toHaveBeenCalledWith(
         "/orders/9/gcash-decision",
-        { decision: "confirm", note: "same reference number, approved" },
+        { decision: "confirm" },
       ),
     );
   });

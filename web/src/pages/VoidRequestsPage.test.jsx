@@ -68,38 +68,24 @@ describe("VoidRequestsPage approve flow", () => {
     });
   });
 
-  it("keeps the Void button disabled until the note is valid, then approves with the note", async () => {
+  it("approves without a note - the confirm dialog asks no note", async () => {
     renderPage();
-    // One pending request on screen.
     expect(await screen.findByText("#7")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
 
-    // The note dialog opens; Confirm starts disabled.
+    // The confirm dialog opens with the Void button ready - no note field.
     const confirm = await screen.findByRole("button", { name: "Void order" });
-    expect(confirm).toBeDisabled();
-
-    const noteField = screen.getByLabelText(/reason for void/i);
-    fireEvent.change(noteField, { target: { value: "Customer ordered wrong item, voiding per owner review" } });
-    expect(noteField.value).toBe("Customer ordered wrong item, voiding per owner review");
     expect(confirm).not.toBeDisabled();
+    expect(screen.queryByLabelText(/reason for void/i)).toBeNull();
 
     fireEvent.click(confirm);
     await waitFor(() =>
       expect(api.patch).toHaveBeenCalledWith(
         "/orders/7/void-request",
-        { decision: "approve", note: "Customer ordered wrong item, voiding per owner review" },
+        { decision: "approve" },
       ),
     );
-  });
-
-  it("blocks a third identical character at keystroke", async () => {
-    renderPage();
-    expect(await screen.findByText("#7")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-    const noteField = await screen.findByLabelText(/reason for void/i);
-    fireEvent.change(noteField, { target: { value: "typing 111 into the note" } });
-    expect(noteField.value).toBe("typing 11 into the note");
   });
 
   it("deny needs no note and sends decision deny", async () => {
@@ -109,6 +95,6 @@ describe("VoidRequestsPage approve flow", () => {
     await waitFor(() =>
       expect(api.patch).toHaveBeenCalledWith("/orders/7/void-request", { decision: "deny" }),
     );
-    expect(screen.queryByLabelText(/reason for void/i)).toBeNull();
+    expect(screen.queryByLabelText(/decline reason|reason for void|confirmation note/i)).toBeNull();
   });
 });

@@ -2379,8 +2379,8 @@ async function performVoidEdge({ orderId, actorId, reason }) {
 
 // Shared GCash confirm executor: flips the order to PAID (stock was already
 // reserved at creation) with the deciding owner recorded. The caller
-// verified the order is PENDING_GCASH and already holds the owner's note.
-async function performGcashConfirmEdge({ orderId, actorId, note }) {
+// verified the order is PENDING_GCASH.
+async function performGcashConfirmEdge({ orderId, actorId, note = null }) {
   return await withRetry(async () => {
     const fresh = await fsGet("orders", orderId);
     if (!fresh) {
@@ -2389,12 +2389,10 @@ async function performGcashConfirmEdge({ orderId, actorId, note }) {
     if (fresh.status !== "PENDING_GCASH") {
       throw Object.assign(new Error("Order is not awaiting a GCash decision"), { status: 409 });
     }
-    // The GCash confirmation note is stored on the order (example of what
-    // owners write: "same reference number, approved").
     const now = new Date();
     await fsCommit([updateWrite("orders", fresh.id, {
       status: "PAID",
-      gcash: { ...(fresh.gcash ?? {}), status: "confirmed", decidedBy: actorId, decidedAt: now.toISOString(), note: String(note ?? "").slice(0, 500) },
+      gcash: { ...(fresh.gcash ?? {}), status: "confirmed", decidedBy: actorId, decidedAt: now.toISOString(), note: note ? String(note).slice(0, 500) : null },
     }, fresh._updateTime)]);
     await announceChange("orders", { id: orderId, status: "PAID" }).catch(() => {});
     return { ok: true };
@@ -2639,16 +2637,8 @@ async function handleOrderVoidDecision(req, orderId, user) {
       /* notification is best-effort */
     }
   };
-  // Approving a void is a void: the owner must write the same note the
-  // direct-void flow requires. Deny stays note-less (no void happens).
-  let decisionNote = null;
-  if (decision === "approve") {
-    const check = validateVoidNote(body?.note);
-    if (!check.ok) {
-      return { status: 400, body: { error: check.error } };
-    }
-    decisionNote = check.value;
-  }
+  // Approving a void is a void. No note is requested any more - only the
+  // decline path may carry a reason (and it stays bare too).
 
   if (decision === "deny") {
     const voidRequest = {
@@ -2666,7 +2656,7 @@ async function handleOrderVoidDecision(req, orderId, user) {
     const order = await fsGet("orders", orderId);
     return { status: 200, body: { order: cleanDoc(order), restored: [], warnings: [] } };
   }
-  const outcome = await performVoidEdge({ orderId, actorId: user.id, reason: decisionNote });
+  const outcome = await performVoidEdge({ orderId, actorId: user.id, reason: null });
   const voidRequest = {
     ...(existing.voidRequest || {}),
     status: "approved",
@@ -2677,7 +2667,7 @@ async function handleOrderVoidDecision(req, orderId, user) {
   await resolveAlert();
   await notifyRequester(
     "Void approved",
-    `Order #${orderId} was voided at your request. Stock restored. Reason: ${decisionNote}`,
+    `Order #${orderId} was voided at your request. Stock restored.`,
   );
   const order = await fsGet("orders", orderId);
   return { status: 200, body: { order: cleanDoc(order), restored: outcome.restored, warnings: outcome.warnings } };
@@ -2720,9 +2710,8 @@ async function handlePendingGcash() {
 }
 
 /** PATCH /orders/:id/gcash-decision (OWNER) — the GCash confirmation decision.
- *  Both decisions require a note from the owner (void-note rules): { decision:
- *  "confirm", note } — the proof matches the owner's GCash account; the
- *  order becomes PAID and counts as a sale. { decision: "reject", note } —
+ *  { decision: "confirm" } — the proof matches the owner's GCash account; the
+ *  order becomes PAID and counts as a sale (note-less). { decision: "reject",
  *  the payment does not check out; GCASH_REJECTED, stock restored,
  *  note required. Either way the GCASH_CONFIRM alert is resolved. */
 async function handleGcashDecision(req, orderId, user) {
@@ -2783,18 +2772,13 @@ async function handleGcashDecision(req, orderId, user) {
     }
   };
 
-  // Both decisions require a note from the owner - the staff member sees it
-  // in the decision notification.
+  // Confirm is note-less; only the decline carries a reason.
   if (decision === "confirm") {
-    const confirmNote = validateVoidNote(body?.note);
-    if (!confirmNote.ok) {
-      return { status: 400, body: { error: confirmNote.error } };
-    }
-    await performGcashConfirmEdge({ orderId, actorId: user.id, note: confirmNote.value });
+    await performGcashConfirmEdge({ orderId, actorId: user.id });
     await resolveAlert();
     await notifyRequester(
       "GCash confirmed",
-      `Order #${orderId} was confirmed by the owner - it is now a paid sale. Note: ${confirmNote.value}`,
+      `Order #${orderId} was confirmed by the owner - it is now a paid sale.`,
     );
     const order = await fsGet("orders", orderId);
     return { status: 200, body: { order: cleanDoc(order) } };

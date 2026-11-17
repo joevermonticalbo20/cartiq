@@ -33,8 +33,9 @@ describe("validateVoidNote", () => {
     expect(validateVoidNote("   ").ok).toBe(false);
   });
 
-  it("rejects a note shorter than 20 characters", () => {
-    expect(validateVoidNote("short note").error).toBe("Note must be at least 20 characters.");
+  it("rejects a single-letter note, allows a normal two-letter minimum", () => {
+    expect(validateVoidNote("a").error).toBe("A single letter is not valid - the minimum is 2.");
+    expect(validateVoidNote("ok").ok).toBe(true);
   });
 
   it("rejects a note longer than 100 characters", () => {

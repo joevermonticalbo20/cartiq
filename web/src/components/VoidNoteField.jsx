@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { sanitizeVoidNoteTyping, validateVoidNote, VOID_NOTE_MAX, VOID_NOTE_MIN } from "../utils/voidNote.js";
+import { sanitizeVoidNoteTyping, validateVoidNote, VOID_NOTE_MAX } from "../utils/voidNote.js";
 
 /**
  * A note field for the owner's decision notes (void + GCash confirm/decline).
@@ -12,6 +12,13 @@ import { sanitizeVoidNoteTyping, validateVoidNote, VOID_NOTE_MAX, VOID_NOTE_MIN 
  */
 export default function VoidNoteField({ value, onChange, error, onErrorChange, autoFocus = false, label = "Reason for void", placeholder = "Why is this order being voided? (e.g. wrong item punched, customer allergy, duplicate entry)" }) {
   const ref = useRef(null);
+  // Live verdict for a single typed letter - shows before any blur/Set tap.
+  const trimmed = value.trim();
+  const liveError =
+    trimmed.length === 1
+      ? "A single letter is not valid - the minimum is 2."
+      : "";
+  const displayError = error || liveError;
 
   useEffect(() => {
     if (autoFocus) {
@@ -36,8 +43,8 @@ export default function VoidNoteField({ value, onChange, error, onErrorChange, a
         spellCheck={false}
         rows={3}
         maxLength={VOID_NOTE_MAX}
-        className={error ? "input-invalid" : undefined}
-        aria-invalid={error ? "true" : undefined}
+        className={displayError ? "input-invalid" : undefined}
+        aria-invalid={displayError ? "true" : undefined}
         aria-describedby="void-note-error"
         aria-label={label}
         placeholder={placeholder}
@@ -46,12 +53,9 @@ export default function VoidNoteField({ value, onChange, error, onErrorChange, a
         <span id="void-note-count" className="muted small">
           {value.length}/{VOID_NOTE_MAX}
         </span>
-        {value.length < VOID_NOTE_MIN && (
-          <span className="muted small">minimum {VOID_NOTE_MIN} characters</span>
-        )}
       </div>
-      {error && (
-        <p id="void-note-error" className="field-error" role="alert">{error}</p>
+      {displayError && (
+        <p id="void-note-error" className="field-error" role="alert">{displayError}</p>
       )}
     </label>
   );

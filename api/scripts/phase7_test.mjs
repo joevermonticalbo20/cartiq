@@ -211,18 +211,12 @@ async function main() {
     body: { decision: "reject" },
   });
   check("reject without a note is refused", noRejectNote.status === 400, `got ${noRejectNote.status}`);
-  const noConfirmNote = await req(`/orders/${gcashId}/gcash-decision`, {
+  const confirmed = await req(`/orders/${gcashId}/gcash-decision`, {
     method: "PATCH",
     token: tok,
     body: { decision: "confirm" },
   });
-  check("confirm without a note is refused", noConfirmNote.status === 400, `got ${noConfirmNote.status}`);
-  const confirmed = await req(`/orders/${gcashId}/gcash-decision`, {
-    method: "PATCH",
-    token: tok,
-    body: { decision: "confirm", note: "phase7 same reference number, approved" },
-  });
-  check("owner confirms the gcash sale",
+  check("confirm without a note is accepted",
         confirmed.status === 200 && confirmed.data?.order?.status === "PAID");
 
   // ---- payment method persistence ----

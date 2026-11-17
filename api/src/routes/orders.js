@@ -390,14 +390,14 @@ router.get("/orders/pending-gcash", requireAuth, requireRole("OWNER"), async (_r
 });
 
 // PATCH /orders/:id/gcash-decision (OWNER) — the GCash confirmation decision.
-//   { decision: "confirm", note } — the proof matches the owner's GCash account;
+//   { decision: "confirm" } — the proof matches the owner's GCash account;
 //     the order becomes PAID and counts as a sale.
 //   { decision: "reject", note } — the payment does not check out; the order
 //     becomes GCASH_REJECTED, the reserved stock is restored, and the note is
-//     required (same rules as the void note: 20-100 letters/digits/space and
-//     , . - _, no three identical characters in a row).
-// Both decisions require the owner's note - it is stored on the order and
-// sent to the staff member in the decision notification.
+//     required (min 2, max 100 letters/digits/space and , . - _, no three
+//     identical characters in a row).
+// Only the decline carries a note; it is stored on the order and sent to the
+// staff member in the decision notification.
 // Either way the GCASH_CONFIRM alert is resolved so it leaves the bell.
 router.patch("/orders/:id/gcash-decision", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
@@ -442,18 +442,13 @@ router.patch("/orders/:id/gcash-decision", requireAuth, requireRole("OWNER"), as
       }
     };
 
-    // Both decisions require a note from the owner - the staff member sees it
-    // in the decision notification.
+    // Confirm is note-less; only the decline carries a reason.
     if (decision === "confirm") {
-      const confirmNote = validateVoidNote(req.body?.note);
-      if (!confirmNote.ok) {
-        return res.status(400).json({ error: confirmNote.error });
-      }
-      const out = await performGcashConfirm({ existing, actorId: req.user.sub, note: confirmNote.value });
+      const out = await performGcashConfirm({ existing, actorId: req.user.sub });
       await resolveAlert();
       await notifyRequester(
         "GCash confirmed",
-        `Order #${existing.id} was confirmed by the owner - it is now a paid sale. Note: ${confirmNote.value}`,
+        `Order #${existing.id} was confirmed by the owner - it is now a paid sale.`,
       );
       return res.json(out);
     }
@@ -680,9 +675,9 @@ async function performVoid({ existing, actorId, reason }) {
 
 // Shared GCash confirm executor: flips the order to PAID (stock was already
 // reserved at creation) with the deciding owner recorded. The caller
-// verified the order is PENDING_GCASH and already holds the owner's note.
-async function performGcashConfirm({ existing, actorId, note }) {
-  const trimmedNote = String(note ?? "").slice(0, 500);
+// verified the order is PENDING_GCASH.
+async function performGcashConfirm({ existing, actorId, note = null }) {
+  const trimmedNote = note ? String(note).slice(0, 500) : null;
   await prisma.$transaction(async (tx) => {
     // Re-read inside the txn: two parallel decisions must not both win.
     const fresh = await tx.order.findUnique({ where: { id: existing.id } });
@@ -954,13 +949,9 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
       return res.json({ order, restored: [], warnings: [] });
     }
 
-    // Approving a void is a void: the owner must write the same note the
-    // direct-void flow requires. Deny stays note-less (no void happens).
-    const noteCheck = validateVoidNote(req.body?.note);
-    if (!noteCheck.ok) {
-      return res.status(400).json({ error: noteCheck.error });
-    }
-    const out = await performVoid({ existing, actorId: req.user.sub, reason: noteCheck.value });
+    // Approving a void is a void. No note is requested any more - only
+    // declining a request may carry a reason (the deny path stays bare too).
+    const out = await performVoid({ existing, actorId: req.user.sub, reason: null });
     const voidRequest = { ...(existing.voidRequest ?? {}), status: "approved", decidedBy: req.user.sub ?? null, decidedAt: new Date().toISOString() };
     const order = await prisma.order.update({
       where: { id: existing.id },
@@ -974,7 +965,7 @@ router.patch("/orders/:id/void-request", requireAuth, requireRole("OWNER"), asyn
         data: {
           type: "VOID_DECISION",
           title: "Void approved",
-          message: `Order #${existing.id} was voided at your request. Stock restored. Reason: ${noteCheck.value}`,
+          message: `Order #${existing.id} was voided at your request. Stock restored.`,
           userId: requesterId,
           locationId: existing.locationId ?? null,
           payload: JSON.stringify({ orderId: existing.id }),

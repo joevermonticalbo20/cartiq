@@ -1,11 +1,12 @@
-// Void-note rules (for the owner to write before an order is voided):
-//   required, min 20, max 100 characters
+// Note rules (used by the DECLINE/REJECT decision - approve and confirm are
+// note-less):
+//   required, min 2, max 100 characters
 //   letters/digits and the characters ` , . - _ ` plus single spaces
 //   single spaces between words (no runs)
 //   no run of three identical characters in a row (case-insensitive for letters)
 //   leading/trailing spaces are trimmed
 
-export const VOID_NOTE_MIN = 20;
+export const VOID_NOTE_MIN = 2;
 export const VOID_NOTE_MAX = 100;
 
 // Unicode letters + digits, space, comma, period, hyphen, underscore only —
@@ -55,7 +56,7 @@ export function validateVoidNote(raw) {
     return { ok: false, error: "Add a note explaining why the order is voided." };
   }
   if (value.length < VOID_NOTE_MIN) {
-    return { ok: false, error: `Note must be at least ${VOID_NOTE_MIN} characters.` };
+    return { ok: false, error: "A single letter is not valid - the minimum is 2." };
   }
   if (value.length > VOID_NOTE_MAX) {
     return { ok: false, error: `Note must not exceed ${VOID_NOTE_MAX} characters.` };

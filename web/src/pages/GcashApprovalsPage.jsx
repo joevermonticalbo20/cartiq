@@ -39,8 +39,6 @@ export default function GcashApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(null); // order being confirmed
-  const [confirmNote, setConfirmNote] = useState("");
-  const [confirmNoteError, setConfirmNoteError] = useState("");
   const [confirmPending, setConfirmPending] = useState(false);
   const [rejecting, setRejecting] = useState(null); // order being rejected
   const [rejectNote, setRejectNote] = useState("");
@@ -104,18 +102,11 @@ export default function GcashApprovalsPage() {
 
   async function doConfirm() {
     if (!confirming || confirmPending) return;
-    const check = validateVoidNote(confirmNote);
-    if (!check.ok) {
-      setConfirmNoteError(check.error);
-      return;
-    }
     setConfirmPending(true);
     try {
-      await api.patch(`/orders/${rowId(confirming)}/gcash-decision`, { decision: "confirm", note: check.value });
+      await api.patch(`/orders/${rowId(confirming)}/gcash-decision`, { decision: "confirm" });
       toast(`Order #${rowId(confirming)} confirmed - it is now a sale`, "success");
       setConfirming(null);
-      setConfirmNote("");
-      setConfirmNoteError("");
       await load();
     } catch (err) {
       toast(getFriendlyError(err, "Could not confirm the payment."), "error");
@@ -244,11 +235,7 @@ export default function GcashApprovalsPage() {
                             type="button"
                             className="small-btn"
                             disabled={anyBusy}
-                            onClick={() => {
-                              setConfirming(order);
-                              setConfirmNote("");
-                              setConfirmNoteError("");
-                            }}
+                            onClick={() => setConfirming(order)}
                           >
                             <Check size={13} aria-hidden="true" /> Confirm
                           </button>
@@ -321,30 +308,15 @@ export default function GcashApprovalsPage() {
           title="Confirm this GCash payment?"
           message={
             confirming
-              ? `Order #${rowId(confirming)} for ₱${Number(confirming.total ?? 0).toFixed(2)} will count as a sale. Check the photo against your own GCash transactions first, then write the note that goes with it.`
+              ? `Order #${rowId(confirming)} for ₱${Number(confirming.total ?? 0).toFixed(2)} will count as a sale. Check the photo against your own GCash transactions first.`
               : ""
           }
           confirmLabel="Confirm payment"
           pending={confirmPending}
           pendingLabel="Confirming..."
-          confirmDisabled={!validateVoidNote(confirmNote).ok}
           onConfirm={doConfirm}
-          onCancel={() => {
-            setConfirming(null);
-            setConfirmNote("");
-            setConfirmNoteError("");
-          }}
-        >
-          <VoidNoteField
-            value={confirmNote}
-            onChange={setConfirmNote}
-            error={confirmNoteError}
-            onErrorChange={setConfirmNoteError}
-            autoFocus
-            label="Confirmation note"
-            placeholder='e.g. "same reference number, approved"'
-          />
-        </ConfirmDialog>
+          onCancel={() => setConfirming(null)}
+        />
 
         {/* --- DECLINE PAYMENT --- */}
         <ConfirmDialog
