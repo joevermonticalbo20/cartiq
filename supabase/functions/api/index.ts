@@ -1392,9 +1392,10 @@ function claimView(claim, now = Date.now()) {
 
 // True when the cart's ESP32 node has heartbeated recently. The registration
 // dialog gates its countdown on this so a 90s window never burns down for an
-// offline reader. The firmware posts /devices/heartbeat every 30s, so 120s
-// allows 3 missed beats plus jitter. Mirrors api/src/routes/auth.js.
-const CLAIM_DEVICE_ONLINE_MS = 120 * 1000;
+// offline reader. The firmware posts /devices/heartbeat every 30s, so 45s
+// allows one missed beat plus jitter; a board that just unplugged reads
+// offline well inside the 90s claim window. Mirrors api/src/routes/auth.js.
+const CLAIM_DEVICE_ONLINE_MS = 45 * 1000;
 async function claimDeviceOnline(locationId) {
   const secs = await claimDeviceLastSeenSeconds(locationId);
   return secs != null && secs * 1000 < CLAIM_DEVICE_ONLINE_MS;
@@ -6771,7 +6772,9 @@ async function handleSelfShift(_req, user) {
 }
 
 /** GET /device-status — staff-safe cart reader connectivity for the tap UI. */
-const DEVICE_STATUS_ONLINE_MS = 120 * 1000;
+// Same cadence rule as the claim gate: firmware heartbeats every 30s, so
+// 45s = one missed beat plus jitter. Kept in step with CLAIM_DEVICE_ONLINE_MS.
+const DEVICE_STATUS_ONLINE_MS = 45 * 1000;
 async function handleDeviceStatus(_req, url, user) {
   let location = null;
   if (String(user?.role ?? "").toUpperCase() === "OWNER") {

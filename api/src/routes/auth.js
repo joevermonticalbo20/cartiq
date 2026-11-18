@@ -581,9 +581,9 @@ router.get("/my-rfid", requireAuth, async (req, res, next) => {
 // True when the cart's ESP32 node has heartbeated recently. The registration
 // dialog gates its countdown on this so the person never watches a 90s
 // window burn down for a reader that is offline. The firmware posts
-// /devices/heartbeat every 30s, so 120s allows up to 3 missed beats plus
-// jitter; a board that just unplugged reads offline promptly.
-const CLAIM_DEVICE_ONLINE_MS = 120 * 1000;
+// /devices/heartbeat every 30s, so 45s allows one missed beat plus jitter;
+// a board that just unplugged reads offline well inside the 90s claim window.
+const CLAIM_DEVICE_ONLINE_MS = 45 * 1000;
 async function deviceOnlineForLocation(locationId) {
   const secs = await deviceLastSeenForLocation(locationId);
   return secs != null && secs * 1000 < CLAIM_DEVICE_ONLINE_MS;
