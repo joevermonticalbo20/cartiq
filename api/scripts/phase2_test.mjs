@@ -86,22 +86,26 @@ async function main() {
   );
   check("LOW_STOCK alert fired once for LPG", lowAlerts.length === 1);
 
-  // 4. a tap nobody asked for leaves no trace
-  //    The reader posts every tap it sees. Only a tap that resolves an open
-  //    claim (the app asked for a clock-in or a card registration) is recorded.
-  const strayTap = await req("/shifts", {
+  // 4. a tap nobody asked for is now the bare clock: with no claim open the
+  //    reader still signs the person in/out (state-driven, IN if nothing this
+  //    morning, OUT if IN was already recorded), and the row is recorded as
+  //    method RFID. A refused claim still leaves no trace (see step 5/6).
+  const bareTap = await req("/shifts", {
     method: "POST",
     token: DEV_TOKEN,
     body: { events: [{ staff_uid: "04A2B3C4", event: "IN" }] },
   });
-  check("a tap with nothing pending records nothing",
-        strayTap.status === 201 &&
-        (strayTap.data.accepted ?? []).length === 0 &&
-        (strayTap.data.rejected ?? []).length === 0);
+  check("a bare tap signs the staff member in (state-driven)",
+        bareTap.status === 201 &&
+        bareTap.data.accepted?.length === 1 &&
+        bareTap.data.accepted[0]?.event === "IN" &&
+        bareTap.data.accepted[0]?.matched === "Stall Staff 1",
+        JSON.stringify(bareTap.data));
 
-  // 5. a deliberate tap - the app opened a claim - is the one that counts
-  // The staff member presses Time in, the app opens the claim on their own
-  // cart, and the reader's tap resolves it.
+  // 5. the app-requested event still wins the tap: the app opened a claim
+  //    (Time in), the reader's tap resolves it - and it is refused because
+  //    the bare clock already recorded IN this morning. The refusal reason
+  //    reaches the phone verbatim; the claim never lies.
   await req("/settings/timeclock", {
     method: "PUT",
     token: ownerTok,
@@ -133,11 +137,14 @@ async function main() {
     token: DEV_TOKEN,
     body: { events: [{ staff_uid: "04A2B3C4", event: "IN" }] },
   });
-  check("known UID matched to staff", tapIn.data.accepted[0]?.matched === "Stall Staff 1",
+  check("the duplicate is refused, the day stays as recorded",
+        tapIn.data.accepted?.length === 0 &&
+        (tapIn.data.rejected ?? [])[0]?.reason?.includes("already timed in"),
         JSON.stringify(tapIn.data));
   const claimAfter = await req(`/auth/my-rfid/claim/${claim.data?.claim?.claimId}`, { token: staffTok });
-  check("the claim says the shift was written",
-        claimAfter.data?.claim?.resolvedEvent === "IN",
+  check("the claim says nothing was written",
+        !claimAfter.data?.claim?.resolvedEvent &&
+        Boolean(claimAfter.data?.claim?.reason),
         JSON.stringify(claimAfter.data));
 
   // 6. an unknown card with a claim open is refused, and records nothing

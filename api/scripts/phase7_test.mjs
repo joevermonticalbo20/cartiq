@@ -118,9 +118,9 @@ async function main() {
         seen?.status === "VOID" && typeof seen?.total === "number");
 
   // ---- staff alert acknowledgement ----
-  // A tap nobody asked for records nothing, so the alert to acknowledge comes
-  // from a deliberate one: the owner opens a claim for a staff member, the
-  // card is tapped, and the shift lands in the notification center.
+  // The alert to acknowledge comes from a deliberate tap: the owner opens a
+  // claim for a staff member, the card is tapped, and the shift lands in the
+  // notification center.
   await req("/settings/timeclock", {
     method: "PUT",
     token: tok,
