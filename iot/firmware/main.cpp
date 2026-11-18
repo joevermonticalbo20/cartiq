@@ -97,16 +97,21 @@ void connectWifi() {
   // a marginal USB supply.
   WiFi.disconnect(false);
   Serial.println("[dbg] disconnect done");
-  delay(200);
+  delay(300);
+  // The MFRC522 antenna pulses RF constantly on this 3.3 V rail — the one
+  // moment the rail cannot afford it is the Wi-Fi bring-up (the recurring
+  // "E BOD" on CART-01). Turn the antenna off until the link is up; tag
+  // pulses can wait a second.
+  rfid.PCD_AntennaOff();
   WiFi.mode(WIFI_STA);
   Serial.println("[dbg] mode done");
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.println("[dbg] begin done");
   // Lower the TX power. The router sits right next to the cart (-40 dBm), so a
-  // full-power burst buys nothing - but it DOES pull the 3.3 V rail down on a
+  // full-power burst buys nothing — but it DOES pull the 3.3 V rail down on a
   // weak USB supply, and the brownout detector then reboots the node in the
-  // middle of a request ("E BOD: Brownout detector was triggered").
-  WiFi.setTxPower(WIFI_POWER_11dBm);
+  // middle of a request.
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
   Serial.printf("Connecting to Wi-Fi ssid=\"%s\"", WIFI_SSID);
 
   unsigned long start = millis();
@@ -345,7 +350,12 @@ void setup() {
   Serial.println("[dbg] configTime done");
   Serial.printf("[dbg] clock %ld\n", (long)time(nullptr));
 
-  if (WiFi.status() == WL_CONNECTED) checkDeviceAuth();
+  if (WiFi.status() == WL_CONNECTED) {
+    // The reader antenna was disabled for the radio bring-up; the node is
+    // online now, it can pulse RF again.
+    rfid.PCD_AntennaOn();
+    checkDeviceAuth();
+  }
 }
 
 void loop() {

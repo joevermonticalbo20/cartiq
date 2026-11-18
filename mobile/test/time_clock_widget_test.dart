@@ -253,7 +253,7 @@ void main() {
     expect(find.text(_clock12(inShift)), findsOneWidget);
     expect(find.text('On shift'), findsOneWidget);
     // The dynamic button now offers the next action.
-    expect(find.text('TIME OUT'), findsOneWidget);
+    expect(find.text('Time out'), findsWidgets);
   });
 
   testWidgets('already timed out: Time out disabled, 12h time and reason shown', (
