@@ -97,12 +97,14 @@ void connectWifi() {
   // a marginal USB supply.
   WiFi.disconnect(false);
   Serial.println("[dbg] disconnect done");
-  delay(300);
   // The MFRC522 antenna pulses RF constantly on this 3.3 V rail — the one
   // moment the rail cannot afford it is the Wi-Fi bring-up (the recurring
   // "E BOD" on CART-01). Turn the antenna off until the link is up; tag
   // pulses can wait a second.
   rfid.PCD_AntennaOff();
+  // Let the 3.3 V rail recover from the reader's SPI activity before the
+  // radio powers up — another margin on the brownout detector.
+  delay(1500);
   WiFi.mode(WIFI_STA);
   Serial.println("[dbg] mode done");
   WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -110,8 +112,8 @@ void connectWifi() {
   // Lower the TX power. The router sits right next to the cart (-40 dBm), so a
   // full-power burst buys nothing — but it DOES pull the 3.3 V rail down on a
   // weak USB supply, and the brownout detector then reboots the node in the
-  // middle of a request.
-  WiFi.setTxPower(WIFI_POWER_8_5dBm);
+  // middle of a request. 5 dBm is plenty for a next-to-the-cart router.
+  WiFi.setTxPower(WIFI_POWER_5dBm);
   Serial.printf("Connecting to Wi-Fi ssid=\"%s\"", WIFI_SSID);
 
   unsigned long start = millis();
