@@ -2224,14 +2224,14 @@ class _TimeRowState extends State<_TimeRow> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-                    ),
-                    if (statusLine != null) ...[
-                      const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                ),
+                if (statusLine != null) ...[
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
                       Tooltip(
                         message: statusLine,
                         child: Container(
@@ -2243,21 +2243,21 @@ class _TimeRowState extends State<_TimeRow> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 5),
-                      Flexible(
+                      const SizedBox(width: 6),
+                      Expanded(
                         child: Text(
                           statusLine,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: textTheme.bodySmall?.copyWith(
                             fontWeight: FontWeight.w700,
-                            fontSize: 11,
+                            fontSize: 11.5,
                           ),
                         ),
                       ),
                     ],
-                  ],
-                ),
+                  ),
+                ],
                 const SizedBox(height: 2),
                 Text(
                   instruction,
