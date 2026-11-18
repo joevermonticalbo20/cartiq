@@ -508,12 +508,43 @@ describe("SettingsPage cart/device confirmations", () => {
     expect(within(cartPanel).getByTitle("Activate the cart before renaming")).toBeDisabled();
   });
 
-  it("asks for confirmation before deleting a device", async () => {
+  it("requires deactivation before the device can be deleted", async () => {
+    let devices = [...seedDevices];
+    api.get.mockImplementation((url) => {
+      if (url === "/auth/me") {
+        return Promise.resolve({ data: { user: { name: "Owner", role: "OWNER" } } });
+      }
+      if (url === "/devices") return Promise.resolve({ data: { data: devices } });
+      if (url === "/auth/staff") return Promise.resolve({ data: { data: [] } });
+      if (url === "/locations") return Promise.resolve({ data: { data: seedCarts } });
+      return emptyOk(url);
+    });
+    api.patch.mockImplementation((url, body) => {
+      if (typeof body?.active === "boolean") {
+        devices = devices.map((d) =>
+          String(d.id) === url.split("/").pop() ? { ...d, active: body.active } : d,
+        );
+      }
+      return Promise.resolve({ data: {} });
+    });
     renderOwnerPage();
     await screen.findByText("ESP32-A1");
-    fireEvent.click(screen.getByTitle("Delete Device"));
-    expect(await screen.findByText("Delete IoT Device?")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Delete Device", { selector: "button" }));
+    // Scope every lookup to the IoT devices panel (carts section also has a Deactivate).
+    const deviceSection = screen.getByText("ESP32-A1").closest("section");
+    // Delete button is not offered while the device is active.
+    expect(within(deviceSection).queryByTitle("Delete this device for good")).toBeNull();
+    fireEvent.click(within(deviceSection).getByRole("button", { name: "Deactivate" }));
+    const toggleDialog = await screen.findByRole("dialog");
+    expect(within(toggleDialog).getByText("Deactivate ESP32-A1?")).toBeInTheDocument();
+    fireEvent.click(within(toggleDialog).getByRole("button", { name: "Deactivate" }));
+    expect(api.patch).toHaveBeenCalledWith("/devices/21", { active: false });
+    expect(await within(deviceSection).findByText("DISABLED")).toBeInTheDocument();
+    // After deactivating, Activate + Delete appear.
+    const del = await within(deviceSection).findByTitle("Delete this device for good");
+    fireEvent.click(del);
+    const deleteDialog = await screen.findByRole("dialog");
+    expect(within(deleteDialog).getByText("Delete IoT Device?")).toBeInTheDocument();
+    fireEvent.click(within(deleteDialog).getByRole("button", { name: "Delete Device" }));
     expect(api.del).toHaveBeenCalledWith("/devices/21");
     expect(await screen.findByText("Device ESP32-A1 deleted")).toBeInTheDocument();
   });

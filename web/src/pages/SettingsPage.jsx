@@ -366,6 +366,8 @@ export default function SettingsPage() {
   const [isDeviceEditing, setIsDeviceEditing] = useState(false);
 
   const [deviceDeleting, setDeviceDeleting] = useState(null);
+  const [deviceToggling, setDeviceToggling] = useState(null);
+  const [isDeviceToggling, setIsDeviceToggling] = useState(false);
   const [isDeviceDeleting, setIsDeviceDeleting] = useState(false);
 
   // -- CART STATES --
@@ -454,6 +456,7 @@ export default function SettingsPage() {
     deviceAddOpen || deviceAddClosing ||
     deviceEditing || deviceEditClosing ||
     Boolean(deviceDeleting) ||
+    Boolean(deviceToggling) ||
     cartAddOpen || cartAddClosing ||
     Boolean(cartToken) ||
     Boolean(deviceToken) ||
@@ -1377,6 +1380,22 @@ export default function SettingsPage() {
   const editingLocationOptions = editingCartOptions.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
   const editingDeviceLocationOptions = editingDeviceCartOptions.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
 
+  async function toggleDevice() {
+    if (!deviceToggling || isDeviceToggling) return;
+    setIsDeviceToggling(true);
+    const toInactive = deviceToggling.active !== false;
+    try {
+      await api.patch(`/devices/${deviceToggling.id}`, { active: !toInactive });
+      toast(`Device ${deviceToggling.device_id} ${toInactive ? "deactivated" : "reactivated"}`, "success");
+      reloadDevices();
+    } catch (err) {
+      toast(getFriendlyError(err, "Update failed."), "error");
+    } finally {
+      setIsDeviceToggling(false);
+      setDeviceToggling(null);
+    }
+  }
+
   async function handleEditDevice(e) {
     e.preventDefault();
     setDeviceError("");
@@ -2157,7 +2176,7 @@ export default function SettingsPage() {
                     </thead>
                     <tbody>
                       {safeDevices.map((d) => (
-                        <tr key={d.id}>
+                        <tr key={d.id} className={!d.active ? "row-disabled" : undefined}>
                           <td><strong>{d.device_id}</strong></td>
                           <td className="settings-hide-narrow"><Badge variant="info">{d.cart}</Badge></td>
                           <td className="settings-indicator-cell">
@@ -2175,17 +2194,27 @@ export default function SettingsPage() {
                               <button
                                 className="ghost small-btn"
                                 onClick={() => { setDeviceEditing(d); setDeviceError(""); }}
-                                title="Edit/Reassign Device"
+                                disabled={!d.active}
+                                title={d.active ? "Edit / Reassign Device" : "Activate the device before editing"}
                               >
                                 <Edit2 size={13} />
                               </button>
                               <button
-                                className="danger-ghost small-btn"
-                                onClick={() => setDeviceDeleting(d)}
-                                title="Delete Device"
+                                className={`small-btn ${d.active ? "danger-ghost" : "ghost"}`}
+                                onClick={() => setDeviceToggling(d)}
+                                title={d.active ? "Deactivate this device" : "Reactivate this device"}
                               >
-                                <Trash2 size={13} />
+                                {d.active ? "Deactivate" : "Activate"}
                               </button>
+                              {!d.active && (
+                                <button
+                                  className="ghost small-btn"
+                                  onClick={() => setDeviceDeleting(d)}
+                                  title="Delete this device for good"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -3633,6 +3662,21 @@ export default function SettingsPage() {
           pendingLabel="Updating..."
           onConfirm={toggleCart}
           onCancel={() => setCartToggling(null)}
+        />
+
+        {/* DEACTIVATE / REACTIVATE IOT DEVICE CONFIRMATION */}
+        <ConfirmDialog
+          open={Boolean(deviceToggling)}
+          title={deviceToggling?.active === false ? `Reactivate ${deviceToggling?.device_id}?` : `Deactivate ${deviceToggling?.device_id}?`}
+          message={deviceToggling?.active === false
+            ? `"${deviceToggling?.device_id}" will be allowed to sync again. Heartbeats and ESP32 readings will flow in.`
+            : `"${deviceToggling?.device_id}" will stop syncing data to the system immediately. Heartbeats and ESP32 readings are refused until reactivation. History is kept.`}
+          confirmLabel={deviceToggling?.active === false ? "Reactivate" : "Deactivate"}
+          danger={deviceToggling?.active !== false}
+          pending={isDeviceToggling}
+          pendingLabel="Updating..."
+          onConfirm={toggleDevice}
+          onCancel={() => setDeviceToggling(null)}
         />
 
         {/* DELETE IOT DEVICE CONFIRMATION */}
