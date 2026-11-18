@@ -87,20 +87,8 @@ test("on_time_pct divides on-time by classified clock-ins", () => {
   assert.equal(s1.on_time_pct, 50);
 });
 
-test("overtime minutes accrue from clock-outs past the scheduled end", () => {
-  const schedMap = new Map([[2, { days: EVERY_DAY_0600_1400 }]]);
-  const out = aggregateShiftReport({
-    shifts: [
-      { id: 1, staffId: 2, event: "OUT", ts: new Date(TODAY_MS + 14 * HOUR + 45 * MIN) },
-    ],
-    staffUsers: allUsers,
-    scheduleMap: schedMap,
-    days: 1,
-  });
-  assert.equal(out.staff[0].overtime_min, 45);
-  assert.equal(out.staff[0].overtime_hours, 0.8);
-  assert.equal(out.totals.overtime_hours, 0.8);
-});
+// NOTE: the overtime computation was removed by owner request - the badge for
+// a late clock-out is just "On time" and the report carries no OT columns.
 
 test("an IN without an OUT after the day ends is half day (scheduled/2 credited)", () => {
   const schedMap = new Map([[2, { days: EVERY_DAY_0600_1400 }]]);

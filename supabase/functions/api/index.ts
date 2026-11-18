@@ -3271,8 +3271,6 @@ function tapBadgeEdge(event, instant, entry) {
   }
   const early = end - t;
   if (early > 5) return { label: `Early out ${fmtMinutesEdge(early)}`, tone: "warn" };
-  const ot = t - end;
-  if (ot > 0) return { label: `OT +${fmtMinutesEdge(ot)}`, tone: "info" };
   return { label: "On time", tone: "ok" };
 }
 
@@ -6888,8 +6886,6 @@ function aggregateShiftReportEdge({ shifts, staffUsers, scheduleMap, days, now }
       on_time: 0,
       tardy: 0,
       early_out: 0,
-      overtime_min: 0,
-      overtime_hours: 0,
       absences: 0,
       hours_worked: 0,
       rosterAnchor,
@@ -6926,9 +6922,7 @@ function aggregateShiftReportEdge({ shifts, staffUsers, scheduleMap, days, now }
       if (!b.out_min.has(dayKey) || minute > b.out_min.get(dayKey)) b.out_min.set(dayKey, minute);
       if (entry) {
         const early = hmToMinutes(entry.end) - minute;
-        const ot = minute - hmToMinutes(entry.end);
         if (early > 5) b.early_out += 1;
-        else if (ot > 0) b.overtime_min += ot;
       }
     }
   }
@@ -6958,7 +6952,6 @@ function aggregateShiftReportEdge({ shifts, staffUsers, scheduleMap, days, now }
       if (entry) halfHours += (hmToMinutes(entry.end) - hmToMinutes(entry.start)) / 120;
     }
     b.hours_worked = Number((hours + halfHours).toFixed(1));
-    b.overtime_hours = Number((b.overtime_min / 60).toFixed(1));
     b.half_days = halfDays;
   }
 
@@ -6985,12 +6978,11 @@ function aggregateShiftReportEdge({ shifts, staffUsers, scheduleMap, days, now }
     })
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 
-  const totals = { clock_ins: 0, clock_outs: 0, on_time: 0, tardy: 0, early_out: 0, overtime_min: 0, overtime_hours: 0, absences: 0, hours_worked: 0, half_days: 0 };
+  const totals = { clock_ins: 0, clock_outs: 0, on_time: 0, tardy: 0, early_out: 0, absences: 0, hours_worked: 0, half_days: 0 };
   for (const b of staff) {
     for (const k of Object.keys(totals)) totals[k] += b[k] ?? 0;
   }
   totals.hours_worked = Number(totals.hours_worked.toFixed(1));
-  totals.overtime_hours = Number((totals.overtime_min / 60).toFixed(1));
   totals.on_time_pct = roundPct(totals.on_time, totals.on_time + totals.tardy);
 
   return {

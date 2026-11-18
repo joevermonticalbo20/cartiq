@@ -63,8 +63,6 @@ export function aggregateShiftReport({ shifts, staffUsers, scheduleMap, days, no
       on_time: 0,
       tardy: 0,
       early_out: 0,
-      overtime_min: 0,
-      overtime_hours: 0,
       absences: 0,
       hours_worked: 0,
       rosterAnchor,
@@ -112,8 +110,6 @@ export function aggregateShiftReport({ shifts, staffUsers, scheduleMap, days, no
         const end = hmToMinutes(entry.end);
         if (end - minute > 5) {
           b.early_out += 1;
-        } else if (minute - end > 0) {
-          b.overtime_min += minute - end;
         }
       }
     }
@@ -148,7 +144,6 @@ export function aggregateShiftReport({ shifts, staffUsers, scheduleMap, days, no
       }
     }
     b.hours_worked = Number((hours + halfHours).toFixed(1));
-    b.overtime_hours = Number((b.overtime_min / 60).toFixed(1));
     b.half_days = halfDays;
   }
 
@@ -181,14 +176,13 @@ export function aggregateShiftReport({ shifts, staffUsers, scheduleMap, days, no
 
   const totals = {
     clock_ins: 0, clock_outs: 0, on_time: 0, tardy: 0, early_out: 0,
-    overtime_min: 0, overtime_hours: 0, absences: 0, hours_worked: 0,
+    absences: 0, hours_worked: 0,
     half_days: 0,
   };
   for (const b of staff) {
     for (const k of Object.keys(totals)) totals[k] += b[k] ?? 0;
   }
   totals.hours_worked = Number(totals.hours_worked.toFixed(1));
-  totals.overtime_hours = Number((totals.overtime_min / 60).toFixed(1));
   totals.on_time_pct = roundPct(totals.on_time, totals.on_time + totals.tardy);
 
   return {

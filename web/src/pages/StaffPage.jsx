@@ -183,7 +183,7 @@ export default function StaffPage() {
     if (!report) return;
     const head = [
       "Name", "Username", "Cart", "Scheduled days", "Clock-ins", "Clock-outs",
-      "On-time", "Tardy", "Early out", "Overtime (min)", "Hours worked",
+      "On-time", "Tardy", "Early out", "Hours worked",
       "On-time %", "Half days", "Absences", "Status",
     ];
     const lines = [csvRow(head)];
@@ -191,7 +191,7 @@ export default function StaffPage() {
       lines.push(csvRow([
         s.name, s.username, s.locationCode ?? "", s.scheduled_days,
         s.clock_ins, s.clock_outs, s.on_time, s.tardy, s.early_out,
-        s.overtime_min, s.hours_worked, s.on_time_pct ?? "", s.half_days, s.absences,
+        s.hours_worked, s.on_time_pct ?? "", s.half_days, s.absences,
         s.active === false ? "inactive" : "active",
       ]));
     }
@@ -199,7 +199,7 @@ export default function StaffPage() {
     lines.push(csvRow([
       "TOTAL", "", "", "",
       t.clock_ins, t.clock_outs, t.on_time, t.tardy, t.early_out,
-      t.overtime_min, t.hours_worked, t.on_time_pct ?? "", t.half_days, t.absences, "",
+      t.hours_worked, t.on_time_pct ?? "", t.half_days, t.absences, "",
     ]));
     const blob = new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -705,7 +705,6 @@ export default function StaffPage() {
                       { label: "Clock-ins", value: report.totals.clock_ins },
                       { label: "Tardy", value: report.totals.tardy },
                       { label: "Early out", value: report.totals.early_out },
-                      { label: "Overtime", value: `${report.totals.overtime_hours}h` },
                       { label: "Half days", value: report.totals.half_days },
                       { label: "Absences", value: report.totals.absences },
                     ].map((kpi) => (
@@ -725,7 +724,6 @@ export default function StaffPage() {
                           <th className="t-right" title="Share of scheduled clock-ins that were on time">On-time %</th>
                           <th className="t-right">Tardy</th>
                           <th className="t-right">Early out</th>
-                          <th className="t-right">OT hrs</th>
                           <th className="t-right">Worked h</th>
                           <th className="t-right" title="A day with an IN but no OUT after the day ends (hours credited: half of the scheduled shift)">Half days</th>
                           <th className="t-right">Absent</th>
@@ -755,7 +753,6 @@ export default function StaffPage() {
                             </td>
                             <td className="t-right">{s.tardy}</td>
                             <td className="t-right">{s.early_out}</td>
-                            <td className="t-right">{s.overtime_hours}</td>
                             <td className="t-right">{s.hours_worked}</td>
                             <td className="t-right">{s.half_days}</td>
                             <td className="t-right">{s.absences}</td>

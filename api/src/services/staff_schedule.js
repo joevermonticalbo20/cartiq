@@ -155,7 +155,7 @@ export function fmtMinutes(m) {
  * Classify a single tap EVENT against the scheduled window (used by Shift
  * History, which lists IN and OUT taps as separate rows).
  *   IN : On time (within 5 min of start, incl. early arrival) | Tardy +Nm
- *   OUT: Early out Nm | OT +Nm | On time
+ *   OUT: Early out Nm | On time
  * Returns { label, tone } with tone one of ok|warn|info|neutral.
  */
 export function tapBadge({ event, instant, entry }) {
@@ -173,8 +173,6 @@ export function tapBadge({ event, instant, entry }) {
   // Time OUT
   const early = end - t;
   if (early > 5) return { label: `Early out ${fmtMinutes(early)}`, tone: "warn" };
-  const ot = t - end;
-  if (ot > 0) return { label: `OT +${fmtMinutes(ot)}`, tone: "info" };
   return { label: "On time", tone: "ok" };
 }
 

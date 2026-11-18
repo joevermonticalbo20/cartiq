@@ -97,10 +97,11 @@ test("tapBadge: a late clock-in reports how late", () => {
   assert.deepEqual(tapBadge({ event: "IN", instant: "2026-11-17T07:30:00+08:00", entry: TUESDAY_SHIFT }), { label: "Tardy +1h 30m", tone: "warn" });
 });
 
-test("tapBadge: early outs and overtime on a clock-out", () => {
+test("tapBadge: early outs and late clock-outs on a clock-out", () => {
   assert.deepEqual(tapBadge({ event: "OUT", instant: "2026-11-17T13:40:00+08:00", entry: TUESDAY_SHIFT }), { label: "Early out 20m", tone: "warn" });
   assert.deepEqual(tapBadge({ event: "OUT", instant: "2026-11-17T14:00:00+08:00", entry: TUESDAY_SHIFT }), { label: "On time", tone: "ok" });
-  assert.deepEqual(tapBadge({ event: "OUT", instant: "2026-11-17T14:35:00+08:00", entry: TUESDAY_SHIFT }), { label: "OT +35m", tone: "info" });
+  // Late clock-outs are recorded as an ordinary record, never as OT.
+  assert.deepEqual(tapBadge({ event: "OUT", instant: "2026-11-17T14:35:00+08:00", entry: TUESDAY_SHIFT }), { label: "On time", tone: "ok" });
 });
 
 test("tapBadge: no schedule or a scheduled day off", () => {
