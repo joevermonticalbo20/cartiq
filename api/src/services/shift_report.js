@@ -47,6 +47,9 @@ export function aggregateShiftReport({ shifts, staffUsers, scheduleMap, days, no
     const scheduledDays = sched
       ? keys.filter((k) => sched.days[manilaDowOfKey(k)]).length
       : 0;
+    // Absences only count from the day the roster was set (or last edited) —
+    // days before that never had a schedule to honor.
+    const rosterAnchor = raw?.updatedAt ? manilaDayKey(new Date(raw.updatedAt)) : null;
     buckets.set(id, {
       staff_id: id,
       name: u.name ?? `Staff ${id}`,
@@ -64,6 +67,7 @@ export function aggregateShiftReport({ shifts, staffUsers, scheduleMap, days, no
       overtime_hours: 0,
       absences: 0,
       hours_worked: 0,
+      rosterAnchor,
       in_days: new Set(),
       out_min: new Map(), // dayKey -> latest OUT minutes-of-day
       in_min: new Map(), // dayKey -> earliest IN minutes-of-day
@@ -137,6 +141,9 @@ export function aggregateShiftReport({ shifts, staffUsers, scheduleMap, days, no
     b.absences = 0;
     if (sched) {
       for (const key of keys) {
+        // Only days where the roster was in effect count as an absence —
+        // editing the roster restarts the absence window from the edit day.
+        if (b.rosterAnchor && key < b.rosterAnchor) continue;
         if (sched.days[manilaDowOfKey(key)] && !b.in_days.has(key)) b.absences += 1;
       }
     }
@@ -145,7 +152,7 @@ export function aggregateShiftReport({ shifts, staffUsers, scheduleMap, days, no
   const roundPct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : null);
   const staff = [...buckets.values()]
     .map((b) => {
-      const { in_days: _inDays, out_min: _outMin, in_min: _inMin, day_events: _dayEvents, events: _events, ...pub } = b;
+      const { in_days: _inDays, out_min: _outMin, in_min: _inMin, day_events: _dayEvents, events: _events, rosterAnchor: _rosterAnchor, ...pub } = b;
       const on_time_pct = roundPct(b.on_time, b.on_time + b.tardy);
       return {
         ...pub,

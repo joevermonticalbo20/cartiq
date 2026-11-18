@@ -6872,6 +6872,9 @@ function aggregateShiftReportEdge({ shifts, staffUsers, scheduleMap, days, now }
     const scheduledDays = sched
       ? keys.filter((k) => sched[manilaDowOfKey(k)]).length
       : 0;
+    // Absences only count from the day the roster was set (or last edited) —
+    // days before that never had a schedule to honor.
+    const rosterAnchor = raw?.updatedAt ? manilaDayKey(new Date(raw.updatedAt)) : null;
     buckets.set(id, {
       staff_id: id,
       name: u.name ?? `Staff ${id}`,
@@ -6889,6 +6892,7 @@ function aggregateShiftReportEdge({ shifts, staffUsers, scheduleMap, days, now }
       overtime_hours: 0,
       absences: 0,
       hours_worked: 0,
+      rosterAnchor,
       in_days: new Set(),
       out_min: new Map(),
       in_min: new Map(),
@@ -6949,6 +6953,7 @@ function aggregateShiftReportEdge({ shifts, staffUsers, scheduleMap, days, now }
     b.absences = 0;
     if (sched) {
       for (const key of keys) {
+        if (b.rosterAnchor && key < b.rosterAnchor) continue; // roster in effect from the edit day on
         if (sched[manilaDowOfKey(key)] && !b.in_days.has(key)) b.absences += 1;
       }
     }
@@ -6957,7 +6962,7 @@ function aggregateShiftReportEdge({ shifts, staffUsers, scheduleMap, days, now }
   const roundPct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : null);
   const staff = [...buckets.values()]
     .map((b) => {
-      const { in_days: _inDays, out_min: _outMin, in_min: _inMin, ...pub } = b;
+      const { in_days: _inDays, out_min: _outMin, in_min: _inMin, rosterAnchor: _rosterAnchor, ...pub } = b;
       return {
         ...pub,
         on_time_pct: roundPct(b.on_time, b.on_time + b.tardy),
