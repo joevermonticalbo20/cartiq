@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useOutletContext } from "react-router-dom";
-import { Trophy, Plus, Clock, Calendar, CalendarDays, Pencil, Copy, Eraser, CalendarCheck } from "lucide-react";
+import { Trophy, Plus, Clock, Calendar, CalendarDays, Pencil, Copy, Eraser, CalendarCheck, FileText, Download } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
@@ -29,6 +29,26 @@ function initials(name) {
   return name.split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("");
 }
 
+/** "06:00" -> "6:00 AM" (12-hour display). */
+function to12h(hhmm) {
+  if (!hhmm) return "Off";
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!m) return hhmm;
+  let h = Number(m[1]);
+  const min = m[2];
+  const period = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${h}:${min} ${period}`;
+}
+
+/** CSV escaping per RFC 4180 (quote when the value has separators/quotes/newlines). */
+function csvEscape(value) {
+  const s = value == null ? "" : String(value);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+const csvRow = (cols) => cols.map(csvEscape).join(",");
+
 export default function StaffPage() {
   const toast = useToast();
   const { user } = useOutletContext();
@@ -50,6 +70,13 @@ export default function StaffPage() {
   const [editSaving, setEditSaving] = useState(false);
   const [removeConfirm, setRemoveConfirm] = useState(false);
   const [removing, setRemoving] = useState(false);
+
+  // Attendance report in Shift History (OWNER): a summary + per-staff
+  // breakdown for the last N days, downloadable as CSV.
+  const [reportDays, setReportDays] = useState(28);
+  const [report, setReport] = useState(null);
+  const [reportLoading, setReportLoading] = useState(true);
+  const [reportError, setReportError] = useState("");
 
   // One shared, live copy of the staff accounts and of the carts. A new
   // account, a disabled account or a deactivated cart shows up here at once,
@@ -129,6 +156,60 @@ export default function StaffPage() {
       setSchedLoading(false);
     }
   }, []);
+
+  const fetchReport = useCallback(async () => {
+    setReportLoading(true);
+    setReportError("");
+    try {
+      const res = await api.get(`/shifts/report?days=${reportDays}`);
+      setReport(res.data ?? null);
+    } catch (err) {
+      setReport(null);
+      setReportError(getFriendlyError(err, "Could not load the attendance report."));
+    } finally {
+      setReportLoading(false);
+    }
+  }, [reportDays]);
+
+  useEffect(() => {
+    if (!isOwner) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial report load on mount/window change
+    fetchReport();
+  }, [isOwner, fetchReport]);
+
+  function downloadReportCsv() {
+    if (!report) return;
+    const head = [
+      "Name", "Username", "Cart", "Scheduled days", "Clock-ins", "Clock-outs",
+      "On-time", "Tardy", "Early out", "Overtime (min)", "Hours worked",
+      "On-time %", "Absences", "Status",
+    ];
+    const lines = [csvRow(head)];
+    for (const s of report.staff ?? []) {
+      lines.push(csvRow([
+        s.name, s.username, s.locationCode ?? "", s.scheduled_days,
+        s.clock_ins, s.clock_outs, s.on_time, s.tardy, s.early_out,
+        s.overtime_min, s.hours_worked, s.on_time_pct ?? "", s.absences,
+        s.active === false ? "inactive" : "active",
+      ]));
+    }
+    const t = report.totals ?? {};
+    lines.push(csvRow([
+      "TOTAL", "", "", "",
+      t.clock_ins, t.clock_outs, t.on_time, t.tardy, t.early_out,
+      t.overtime_min, t.hours_worked, t.on_time_pct ?? "", t.absences, "",
+    ]));
+    const blob = new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `attendance-report-last-${report.period_days}d.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast("Attendance report downloaded", "success");
+  }
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial top-data load on mount/filter change
@@ -490,60 +571,57 @@ export default function StaffPage() {
                 subtitle="Create staff accounts in Settings, then set their weekly roster here."
               />
             ) : (
-              <div className="table-wrap">
-                <table className="data table-fixed schedule-table">
-                  <thead>
-                    <tr>
-                      <th>Staff</th>
-                      <th style={{ width: 90 }}>Cart</th>
-                      <th className="t-center" style={{ width: 74 }}>Sun</th>
-                      <th className="t-center" style={{ width: 74 }}>Mon</th>
-                      <th className="t-center" style={{ width: 74 }}>Tue</th>
-                      <th className="t-center" style={{ width: 74 }}>Wed</th>
-                      <th className="t-center" style={{ width: 74 }}>Thu</th>
-                      <th className="t-center" style={{ width: 74 }}>Fri</th>
-                      <th className="t-center" style={{ width: 74 }}>Sat</th>
-                      <th style={{ width: 118 }}>Status</th>
-                      <th style={{ width: 90 }} aria-label="Edit"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {schedules.map((row) => (
-                      <tr key={row.id} className={row.active === false ? "schedule-row-inactive" : undefined}>
-                        <td>
-                          <div className="flex items-center gap-2">
-                            <span className="staff-avatar" style={{ width: 24, height: 24, fontSize: 10 }}>
-                              {initials(row.name)}
+              <div className="schedule-cards">
+                {schedules.map((row) => (
+                  <article
+                    key={row.id}
+                    className={`schedule-card${row.active === false ? " schedule-card-inactive" : ""}${row.schedule ? "" : " schedule-card-empty"}`}
+                  >
+                    <header className="schedule-card-head">
+                      <span className="staff-avatar schedule-avatar">{initials(row.name)}</span>
+                      <div className="flex flex-col" style={{ minWidth: 0 }}>
+                        <strong className="flex items-center gap-2">
+                          {row.name}
+                          {row.active === false && <Badge variant="danger">Inactive</Badge>}
+                        </strong>
+                        <span className="muted small">@{row.username}{row.locationCode ? ` · ${row.locationCode}` : ""}</span>
+                      </div>
+                      <span className="schedule-card-status">
+                        <Badge variant={row.schedule ? "ok" : "neutral"}>
+                          {row.schedule ? "Scheduled" : "No schedule"}
+                        </Badge>
+                      </span>
+                    </header>
+
+                    <div className="schedule-week" aria-label={`Weekly roster of ${row.name}`}>
+                      {(row.schedule?.days ?? new Array(7).fill(null)).map((d, i) => (
+                        <div key={i} className={`schedule-day${d ? "" : " off"}`}>
+                          <span className="schedule-day-label">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][i]}</span>
+                          {d ? (
+                            <span className="schedule-day-times">
+                              <span className="schedule-day-in">{to12h(d.start)}</span>
+                              <span className="schedule-day-dash">→</span>
+                              <span className="schedule-day-out">{to12h(d.end)}</span>
                             </span>
-                            <div className="flex flex-col">
-                              <strong className="flex items-center gap-2">
-                                {row.name}
-                                {row.active === false && <Badge variant="danger">Inactive</Badge>}
-                              </strong>
-                              <span className="muted small">@{row.username}</span>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="muted">{row.locationCode ?? "—"}</td>
-                        {(row.schedule?.days ?? new Array(7).fill(null)).map((d, i) => (
-                          <td key={i} className={`schedule-cell${d ? "" : " off"}`}>
-                            {d ? `${d.start}–${d.end}` : "Off"}
-                          </td>
-                        ))}
-                        <td>
-                          <Badge variant={row.schedule ? "ok" : "neutral"}>
-                            {row.schedule ? "Scheduled" : "No schedule"}
-                          </Badge>
-                        </td>
-                        <td>
-                          <button type="button" className="small-btn ghost" onClick={() => openScheduleEditor(row)}>
-                            <Pencil size={13} /> Edit
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                          ) : (
+                            <span className="schedule-day-off">Off</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    <footer className="schedule-card-foot">
+                      <span className="muted small schedule-audit">
+                        {row.schedule?.updatedByName
+                          ? `Edited by ${row.schedule.updatedByName}${row.schedule.updatedAt ? ` · ${new Date(row.schedule.updatedAt).toLocaleString([], { month: "short", day: "numeric" })}` : ""}`
+                          : "No changes yet"}
+                      </span>
+                      <button type="button" className="small-btn ghost" onClick={() => openScheduleEditor(row)}>
+                        <Pencil size={13} /> Edit
+                      </button>
+                    </footer>
+                  </article>
+                ))}
               </div>
             )}
           </section>
@@ -570,6 +648,122 @@ export default function StaffPage() {
               placeholder="All carts"
             />
           </div>
+
+          {/* 3a. ATTENDANCE REPORT (summary over the roster) */}
+          {isOwner && (
+            <div className="report-panel">
+              <div className="report-panel-head">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <FileText size={16} className="muted" />
+                  <strong>Attendance report</strong>
+                  <span className="muted small">
+                    vs the current weekly roster
+                    {report?.generated_at
+                      ? ` · generated ${new Date(report.generated_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+                      : ""}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Select
+                    value={String(reportDays)}
+                    onChange={(val) => setReportDays(Number(val))}
+                    options={[7, 14, 28, 90].map((d) => ({ value: String(d), label: `Last ${d} days` }))}
+                    ariaLabel="Report window"
+                  />
+                  <button
+                    type="button"
+                    className="small-btn ghost"
+                    onClick={downloadReportCsv}
+                    disabled={!report}
+                    title="Download the report as CSV"
+                  >
+                    <Download size={13} /> CSV
+                  </button>
+                </div>
+              </div>
+              {reportLoading ? (
+                <TableSkeleton
+                  ariaLabel="Loading attendance report"
+                  rows={3}
+                  fixedLayout
+                  columns={[
+                    { key: "staff", label: "Staff", skeletonWidth: "58%" },
+                    { key: "in", label: "Clock-ins", width: 100, skeletonType: "badge" },
+                    { key: "ontime", label: "On-time %", width: 100, skeletonType: "badge" },
+                    { key: "tardy", label: "Tardy", width: 80, skeletonType: "badge" },
+                    { key: "absence", label: "Absences", width: 100, skeletonType: "badge" },
+                  ]}
+                />
+              ) : reportError ? (
+                <ErrorBox message={reportError} onRetry={fetchReport} />
+              ) : !report ? null : (
+                <>
+                  <div className="report-kpis">
+                    {[
+                      { label: "On-time", value: report.totals.on_time_pct == null ? "—" : `${report.totals.on_time_pct}%` },
+                      { label: "Clock-ins", value: report.totals.clock_ins },
+                      { label: "Tardy", value: report.totals.tardy },
+                      { label: "Early out", value: report.totals.early_out },
+                      { label: "Overtime", value: `${report.totals.overtime_hours}h` },
+                      { label: "Absences", value: report.totals.absences },
+                    ].map((kpi) => (
+                      <div className="report-kpi" key={kpi.label}>
+                        <span className="report-kpi-label">{kpi.label}</span>
+                        <span className="report-kpi-value">{kpi.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="table-wrap">
+                    <table className="data table-fixed report-table">
+                      <thead>
+                        <tr>
+                          <th>Staff</th>
+                          <th className="t-right">Clock-ins</th>
+                          <th className="t-right">Clock-outs</th>
+                          <th className="t-right" title="Share of scheduled clock-ins that were on time">On-time %</th>
+                          <th className="t-right">Tardy</th>
+                          <th className="t-right">Early out</th>
+                          <th className="t-right">OT hrs</th>
+                          <th className="t-right">Worked h</th>
+                          <th className="t-right">Absent</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {report.staff.map((s) => (
+                          <tr key={s.staff_id} className={s.active === false ? "schedule-row-inactive" : undefined}>
+                            <td>
+                              <div className="flex items-center gap-2">
+                                <span className="staff-avatar" style={{ width: 22, height: 22, fontSize: 10 }}>
+                                  {initials(s.name)}
+                                </span>
+                                <strong>{s.name}</strong>
+                              </div>
+                            </td>
+                            <td className="t-right">{s.clock_ins}</td>
+                            <td className="t-right">{s.clock_outs}</td>
+                            <td className="t-right">
+                              {s.on_time_pct == null ? (
+                                <span className="muted">—</span>
+                              ) : (
+                                <Badge variant={s.on_time_pct >= 90 ? "ok" : s.on_time_pct >= 70 ? "warn" : "danger"}>
+                                  {s.on_time_pct}%
+                                </Badge>
+                              )}
+                            </td>
+                            <td className="t-right">{s.tardy}</td>
+                            <td className="t-right">{s.early_out}</td>
+                            <td className="t-right">{s.overtime_hours}</td>
+                            <td className="t-right">{s.hours_worked}</td>
+                            <td className="t-right">{s.absences}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {tableLoading ? (
             <TableSkeleton

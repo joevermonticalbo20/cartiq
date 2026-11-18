@@ -23,6 +23,7 @@ import {
 import { readTimeClock, timeClockVerdict } from "../services/time_clock.js";
 import { scheduleVerdict, tapBadge, entryForInstant } from "../services/staff_schedule.js";
 import { cleanEventId, resolveNextEvent, attendanceMethod } from "../services/attendance_core.js";
+import { aggregateShiftReport } from "../services/shift_report.js";
 import { loadScheduleMap } from "../services/staff_schedule_store.js";
 import { CLAIM_BOUND, resolveClaim } from "../services/rfid_claims.js";
 import { bindClaimedTag } from "../services/rfid_bind.js";
@@ -763,6 +764,32 @@ router.get("/staff/on-shift", requireAuth, async (_req, res, next) => {
       on_shift: onShift,
       recent_today: shifts.slice(-20).reverse(),
     });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// GET /api/shifts/report?days=28 — the Shift History report: attendance
+// discipline vs the weekly roster, aggregated server-side over the shifts
+// in the window (read-time, no schema change). OWNER only.
+router.get("/shifts/report", requireAuth, requireRole("OWNER"), async (req, res, next) => {
+  try {
+    const days = Math.min(Math.max(Number(req.query.days) || 28, 1), 90);
+    const since = manilaDayStart(days - 1);
+    const [shifts, users, scheduleMap] = await Promise.all([
+      prisma.shift.findMany({
+        where: { ts: { gte: since } },
+        include: { location: { select: { code: true } } },
+      }),
+      prisma.user.findMany({
+        where: { role: "STAFF" },
+        include: { location: { select: { code: true } } },
+      }),
+      loadScheduleMap(),
+    ]);
+    return res.json(
+      aggregateShiftReport({ shifts, staffUsers: users, scheduleMap, days }),
+    );
   } catch (err) {
     return next(err);
   }

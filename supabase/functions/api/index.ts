@@ -6845,6 +6845,171 @@ async function handleOnShift() {
   return { on_shift: onShift, recent_today: withLoc.slice(-20).reverse() };
 }
 
+// ---------- Shift History report (mirror of api/src/services/shift_report.js) ----------
+/** Inclusive list of Manila day keys from `days` ago through today. */
+function reportDayKeysEdge(days) {
+  const d = Math.max(1, Math.min(90, Math.floor(Number(days) || 28)));
+  const now = Date.now();
+  const keys = [];
+  for (let i = d - 1; i >= 0; i--) {
+    keys.push(manilaDayKey(new Date(now - i * 24 * 60 * 60 * 1000)));
+  }
+  return { days: d, keys };
+}
+
+/** Same aggregation as the Express copy — keep both in step. */
+function aggregateShiftReportEdge({ shifts, staffUsers, scheduleMap, days, now }) {
+  const { days: periodDays, keys } = reportDayKeysEdge(days);
+  const effectiveNow = Number(now) || Date.now();
+  const keySet = new Set(keys);
+
+  const buckets = new Map();
+  for (const u of staffUsers ?? []) {
+    const id = Number(u?.id);
+    if (!Number.isFinite(id)) continue;
+    const raw = scheduleMap?.get?.(id) ?? null;
+    const sched = raw && Array.isArray(raw.days) ? normalizeScheduleDays(raw.days) : null;
+    const scheduledDays = sched
+      ? keys.filter((k) => sched[manilaDowOfKey(k)]).length
+      : 0;
+    buckets.set(id, {
+      staff_id: id,
+      name: u.name ?? `Staff ${id}`,
+      username: u.username ?? "",
+      role: u.role ?? "STAFF",
+      active: u.active !== false,
+      locationCode: u.locationCode ?? null,
+      scheduled_days: scheduledDays,
+      clock_ins: 0,
+      clock_outs: 0,
+      on_time: 0,
+      tardy: 0,
+      early_out: 0,
+      overtime_min: 0,
+      overtime_hours: 0,
+      absences: 0,
+      hours_worked: 0,
+      in_days: new Set(),
+      out_min: new Map(),
+      in_min: new Map(),
+    });
+  }
+
+  for (const s of shifts ?? []) {
+    const staffId = Number(s?.staffId);
+    const b = buckets.get(staffId);
+    if (!b) continue;
+    const ts = new Date(s.ts);
+    if (!Number.isFinite(ts.getTime())) continue;
+    const dayKey = manilaDayKey(ts);
+    if (!keySet.has(dayKey)) continue;
+    const minute = manilaMinutesOfDay(ts.getTime());
+    const event = String(s.event ?? "").toUpperCase();
+    const raw = scheduleMap?.get?.(staffId) ?? null;
+    const daysArr = raw && Array.isArray(raw.days) ? normalizeScheduleDays(raw.days) : null;
+    const entry = daysArr ? daysArr[manilaDow(ts)] : null;
+
+    if (event === "IN") {
+      b.clock_ins += 1;
+      b.in_days.add(dayKey);
+      if (!b.in_min.has(dayKey) || minute < b.in_min.get(dayKey)) b.in_min.set(dayKey, minute);
+      if (entry) {
+        const late = minute - hmToMinutes(entry.start);
+        if (late > 5) b.tardy += 1; else b.on_time += 1;
+      }
+    } else if (event === "OUT") {
+      b.clock_outs += 1;
+      if (!b.out_min.has(dayKey) || minute > b.out_min.get(dayKey)) b.out_min.set(dayKey, minute);
+      if (entry) {
+        const early = hmToMinutes(entry.end) - minute;
+        const ot = minute - hmToMinutes(entry.end);
+        if (early > 5) b.early_out += 1;
+        else if (ot > 0) b.overtime_min += ot;
+      }
+    }
+  }
+
+  for (const b of buckets.values()) {
+    let hours = 0;
+    for (const dayKey of keys) {
+      const inMin = b.in_min.get(dayKey);
+      const outMin = b.out_min.get(dayKey);
+      if (inMin == null || outMin == null) continue;
+      const diff = outMin - inMin;
+      if (diff < 0 || diff > 16 * 60) continue;
+      hours += diff / 60;
+    }
+    b.hours_worked = Number(hours.toFixed(1));
+    b.overtime_hours = Number((b.overtime_min / 60).toFixed(1));
+  }
+
+  for (const [id, b] of buckets) {
+    const raw = scheduleMap?.get?.(id) ?? null;
+    const sched = raw && Array.isArray(raw.days) ? normalizeScheduleDays(raw.days) : null;
+    b.absences = 0;
+    if (sched) {
+      for (const key of keys) {
+        if (sched[manilaDowOfKey(key)] && !b.in_days.has(key)) b.absences += 1;
+      }
+    }
+  }
+
+  const roundPct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : null);
+  const staff = [...buckets.values()]
+    .map((b) => {
+      const { in_days, out_min, in_min, ...pub } = b;
+      return {
+        ...pub,
+        on_time_pct: roundPct(b.on_time, b.on_time + b.tardy),
+      };
+    })
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+  const totals = { clock_ins: 0, clock_outs: 0, on_time: 0, tardy: 0, early_out: 0, overtime_min: 0, overtime_hours: 0, absences: 0, hours_worked: 0 };
+  for (const b of staff) {
+    for (const k of Object.keys(totals)) totals[k] += b[k] ?? 0;
+  }
+  totals.hours_worked = Number(totals.hours_worked.toFixed(1));
+  totals.overtime_hours = Number((totals.overtime_min / 60).toFixed(1));
+  totals.on_time_pct = roundPct(totals.on_time, totals.on_time + totals.tardy);
+
+  return {
+    period_days: periodDays,
+    generated_at: new Date(effectiveNow).toISOString(),
+    totals,
+    staff,
+  };
+}
+
+async function handleShiftReport(url, user) {
+  if (!user || user.role !== "OWNER") {
+    return { status: 403, body: { error: "Forbidden: insufficient role" } };
+  }
+  const days = Math.min(Math.max(Number(url.searchParams.get("days")) || 28, 1), 90);
+  const since = manilaDayStart(days - 1);
+  const [shiftRows, userRows, scheduleMap, locations] = await Promise.all([
+    fsRunQuery("shifts", {
+      filters: [{ field: "ts", op: "GREATER_THAN_OR_EQUAL", value: since }],
+      orderBy: [{ field: "ts", dir: "ASCENDING" }],
+      limit: 5000,
+    }).catch(() => []),
+    fsListAll("users"),
+    loadScheduleMapEdge(),
+    fsListAll("locations"),
+  ]);
+  const locById = new Map(locations.map((l) => [l.id, l]));
+  const staff = userRows
+    .filter((u) => String(u?.role ?? "").toUpperCase() === "STAFF")
+    .map((u) => ({
+      ...u,
+      locationCode: u.locationId != null ? locById.get(Number(u.locationId))?.code ?? null : null,
+    }));
+  return {
+    status: 200,
+    body: aggregateShiftReportEdge({ shifts: shiftRows, staffUsers: staff, scheduleMap, days }),
+  };
+}
+
 async function handleShiftsHistory(url) {
   const params = url.searchParams;
   const code = params.get("code");
@@ -11572,6 +11737,9 @@ Deno.serve(async (req) => {
         else if (req.method === "GET" && path === "/staff/on-shift") out = { status: 200, body: await handleOnShift() };
         else if (req.method === "GET" && path === "/shifts/history") {
           out = await handleShiftsHistory(inUrl);
+        }
+        else if (req.method === "GET" && path === "/shifts/report") {
+          out = await handleShiftReport(inUrl, auth.user);
         }
         else if (req.method === "GET" && path === "/readings/recent") {
           out = await handleReadingsRecent(inUrl);

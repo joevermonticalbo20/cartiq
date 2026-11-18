@@ -85,6 +85,42 @@ function mockApi() {
         },
       });
     }
+    if (url.startsWith("/shifts/report")) {
+      return Promise.resolve({
+        data: {
+          period_days: 28,
+          generated_at: "2026-11-18T02:00:00Z",
+          totals: {
+            on_time_pct: 83,
+            clock_ins: 10,
+            clock_outs: 9,
+            on_time: 8,
+            tardy: 2,
+            early_out: 1,
+            overtime_min: 45,
+            overtime_hours: 0.8,
+            absences: 1,
+            hours_worked: 80.5,
+          },
+          staff: [
+            {
+              staff_id: 2, name: "Stall Staff 1", username: "staff01", role: "STAFF",
+              active: true, locationCode: "CART-01", scheduled_days: 24,
+              clock_ins: 8, clock_outs: 8, on_time: 7, tardy: 1, early_out: 1,
+              overtime_min: 45, overtime_hours: 0.8, hours_worked: 66.4,
+              absences: 0, on_time_pct: 88,
+            },
+            {
+              staff_id: 3, name: "Retired Staff", username: "retired", role: "STAFF",
+              active: false, locationCode: null, scheduled_days: 24,
+              clock_ins: 2, clock_outs: 1, on_time: 1, tardy: 1, early_out: 0,
+              overtime_min: 0, overtime_hours: 0, hours_worked: 14.1,
+              absences: 1, on_time_pct: 50,
+            },
+          ],
+        },
+      });
+    }
     if (url.startsWith("/shifts/history")) {
       return Promise.resolve({
         data: {
@@ -147,6 +183,13 @@ describe("StaffPage Shift History is read-only", () => {
     mockApi();
   });
 
+  it("shows the attendance report for the owner with KPIs and per-staff rows", async () => {
+    renderPage();
+    expect(await screen.findByText("Attendance report")).toBeInTheDocument();
+    expect(screen.getByText("83%")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /csv/i })).toBeEnabled();
+  });
+
   it("shows the append-only note and offers no edit or delete actions", async () => {
     renderPage();
     expect(await screen.findByText(/append-only/i)).toBeInTheDocument();
@@ -165,14 +208,16 @@ describe("StaffPage Staff Schedules", () => {
     api.put.mockResolvedValue({ data: { schedule: { days: new Array(7).fill(null) } } });
   });
 
-  const rosterRowFor = (username) =>
-    screen.getAllByRole("row").find((r) => r.textContent.includes(username));
+  const cardFor = (username) =>
+    screen.getAllByText(new RegExp(`@${username}`)).find((el) => el.closest?.("article"))?.closest("article");
 
-  it("shows the weekly roster with status pills", async () => {
+  it("shows the weekly roster cards with status pills", async () => {
     renderPage();
     expect(await screen.findByText("No schedule")).toBeInTheDocument();
     expect(screen.getByText("Scheduled")).toBeInTheDocument();
-    expect(screen.getByText("06:00–14:00")).toBeInTheDocument();
+    // Times are displayed in 12-hour format now.
+    expect(screen.getByText("6:00 AM")).toBeInTheDocument();
+    expect(screen.getByText("2:00 PM")).toBeInTheDocument();
     expect(
       screen.getByText((_, el) => el?.textContent?.trim() === "1 of 2 with a schedule"),
     ).toBeInTheDocument();
@@ -181,7 +226,7 @@ describe("StaffPage Staff Schedules", () => {
   it("saves the edited week through PUT /staff/:id/schedule", async () => {
     renderPage();
     await screen.findByText("Scheduled");
-    fireEvent.click(within(rosterRowFor("staff01")).getByRole("button", { name: /edit/i }));
+    fireEvent.click(within(cardFor("staff01")).getByRole("button", { name: /edit/i }));
     const dialog = document.body.querySelector(".modal");
     expect(dialog).not.toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: /save schedule/i }));
@@ -196,7 +241,7 @@ describe("StaffPage Staff Schedules", () => {
   it("refuses to save a day whose start is not before its end", async () => {
     renderPage();
     await screen.findByText("Scheduled");
-    fireEvent.click(within(rosterRowFor("staff01")).getByRole("button", { name: /edit/i }));
+    fireEvent.click(within(cardFor("staff01")).getByRole("button", { name: /edit/i }));
     const dialog = document.body.querySelector(".modal");
     fireEvent.click(within(dialog).getByLabelText("Sunday is off")); // turn Sunday on
     fireEvent.change(within(dialog).getByLabelText("Sunday start"), { target: { value: "14:00" } });
@@ -209,7 +254,7 @@ describe("StaffPage Staff Schedules", () => {
   it("clears the whole week with Clear week", async () => {
     renderPage();
     await screen.findByText("Scheduled");
-    fireEvent.click(within(rosterRowFor("staff01")).getByRole("button", { name: /edit/i }));
+    fireEvent.click(within(cardFor("staff01")).getByRole("button", { name: /edit/i }));
     const dialog = document.body.querySelector(".modal");
     fireEvent.click(within(dialog).getByRole("button", { name: /clear week/i }));
     fireEvent.click(within(dialog).getByRole("button", { name: /save schedule/i }));
@@ -221,7 +266,7 @@ describe("StaffPage Staff Schedules", () => {
     api.del.mockResolvedValue({ data: { deleted: true } });
     renderPage();
     await screen.findByText("Scheduled");
-    fireEvent.click(within(rosterRowFor("staff01")).getByRole("button", { name: /edit/i }));
+    fireEvent.click(within(cardFor("staff01")).getByRole("button", { name: /edit/i }));
     const dialog = document.body.querySelector(".modal");
     fireEvent.click(within(dialog).getByRole("button", { name: /remove schedule/i }));
     // The confirm dialog spells out the consequence before the delete runs.

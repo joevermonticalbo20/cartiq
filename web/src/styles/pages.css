@@ -1337,17 +1337,103 @@ button.sales-icon-btn.is-danger:hover:not(:disabled) {
 }
 
 /* ---------- Staff schedules (Staff Activity) ---------- */
-.schedule-table {
-  min-width: 980px;
+.schedule-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: var(--space-4, 16px);
 }
-.schedule-cell {
-  text-align: center !important;
+.schedule-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 18px);
+  background: var(--card);
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.schedule-card:hover {
+  box-shadow: 0 8px 28px rgba(15, 18, 25, 0.08);
+  transform: translateY(-1px);
+}
+.schedule-card-empty {
+  background: var(--surface-alt);
+}
+.schedule-card-inactive {
+  opacity: 0.55;
+}
+.schedule-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.schedule-avatar {
+  width: 38px;
+  height: 38px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.schedule-card-status {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.schedule-week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+.schedule-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 2px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  min-height: 60px;
+}
+.schedule-day.off {
+  background: transparent;
+  border-style: dashed;
+  opacity: 0.75;
+}
+.schedule-day-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.schedule-day-times {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
   font-variant-numeric: tabular-nums;
-  font-size: var(--fs-xs);
+}
+.schedule-day-in,
+.schedule-day-out {
+  font-size: 11px;
+  font-weight: 700;
   white-space: nowrap;
 }
-.schedule-cell.off {
+.schedule-day-dash {
+  font-size: 9px;
   color: var(--text-muted);
+  line-height: 1.2;
+}
+.schedule-day-off {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.schedule-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
 }
 .schedule-row-inactive td {
   opacity: 0.55;
@@ -1423,4 +1509,60 @@ button.sales-icon-btn.is-danger:hover:not(:disabled) {
 }
 .schedule-remove:hover:not(:disabled) {
   background: var(--danger-bg);
+}
+
+/* ---------- Shift history: attendance report ---------- */
+.report-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  margin-bottom: var(--space-4, 16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-alt);
+}
+.report-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.report-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 8px;
+}
+.report-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.report-kpi-label {
+  font-size: var(--fs-xs, 11px);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.report-kpi-value {
+  font-size: var(--fs-lg, 20px);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.report-table th,
+.report-table td {
+  font-size: var(--fs-xs);
+}
+@media (max-width: 720px) {
+  .schedule-cards {
+    grid-template-columns: 1fr;
+  }
 }
