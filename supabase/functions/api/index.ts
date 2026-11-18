@@ -6675,7 +6675,7 @@ async function handleManualShift(req) {
 }
 
 /** POST /shifts/self — STAFF "App Tap": own attendance, server-time, state-driven. */
-async function handleSelfShift(req, user) {
+async function handleSelfShift(_req, user) {
   if (!user || String(user.role).toUpperCase() !== "STAFF") {
     return { status: 403, body: { error: "Forbidden: staff accounts only" } };
   }
@@ -6773,7 +6773,7 @@ async function handleSelfShift(req, user) {
 
 /** GET /device-status — staff-safe cart reader connectivity for the tap UI. */
 const DEVICE_STATUS_ONLINE_MS = 120 * 1000;
-async function handleDeviceStatus(req, url, user) {
+async function handleDeviceStatus(_req, url, user) {
   let location = null;
   if (String(user?.role ?? "").toUpperCase() === "OWNER") {
     const code = String(url.searchParams.get("code") ?? "").trim().toUpperCase();
