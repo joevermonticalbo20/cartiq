@@ -173,6 +173,21 @@ async function main() {
   check("staff01 shown ON SHIFT", Boolean(staff1));
   check("an unknown card is not on shift", !ghost);
 
+  // 7a. the attendance report is owner-only and the cart filter scopes it
+  const reportAnon = await req("/shifts/report?days=28", {});
+  check("report refused without a session", reportAnon.status === 401);
+  const staffLoginReport = await req("/shifts/report?days=28", { token: staffTok });
+  check("report refused for STAFF", staffLoginReport.status === 403);
+  const reportAll = await req("/shifts/report?days=28", { token: ownerTok });
+  check("owner can read the report",
+        reportAll.status === 200 && Array.isArray(reportAll.data?.staff),
+        `status=${reportAll.status}`);
+  const reportCart = await req("/shifts/report?days=28&code=CART-01", { token: ownerTok });
+  check("cart filter scopes report to assigned staff",
+        reportCart.status === 200 &&
+        reportCart.data.staff.every((s) => (s.locationCode ?? "").toUpperCase() === "CART-01"),
+        JSON.stringify(reportCart.data?.staff ?? []));
+
   // 7. readings series endpoint
   const series = await req("/readings/recent?code=CART-01&channel=LPG_TANK", { token: ownerTok });
   check("readings series returned", series.data.readings.length >= 3);

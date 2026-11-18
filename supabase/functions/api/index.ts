@@ -6991,6 +6991,7 @@ async function handleShiftReport(url, user) {
     return { status: 403, body: { error: "Forbidden: insufficient role" } };
   }
   const days = Math.min(Math.max(Number(url.searchParams.get("days")) || 28, 1), 90);
+  const code = String(url.searchParams.get("code") ?? "").trim().toUpperCase();
   const since = manilaDayStart(days - 1);
   const [shiftRows, userRows, scheduleMap, locations] = await Promise.all([
     fsRunQuery("shifts", {
@@ -7008,7 +7009,8 @@ async function handleShiftReport(url, user) {
     .map((u) => ({
       ...u,
       locationCode: u.locationId != null ? locById.get(Number(u.locationId))?.code ?? null : null,
-    }));
+    }))
+    .filter((u) => !code || String(u.locationCode ?? "").toUpperCase() === code);
   return {
     status: 200,
     body: aggregateShiftReportEdge({ shifts: shiftRows, staffUsers: staff, scheduleMap, days }),

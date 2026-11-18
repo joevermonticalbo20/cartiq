@@ -775,6 +775,7 @@ router.get("/staff/on-shift", requireAuth, async (_req, res, next) => {
 router.get("/shifts/report", requireAuth, requireRole("OWNER"), async (req, res, next) => {
   try {
     const days = Math.min(Math.max(Number(req.query.days) || 28, 1), 90);
+    const code = String(req.query.code ?? "").trim().toUpperCase();
     const since = manilaDayStart(days - 1);
     const [shifts, users, scheduleMap] = await Promise.all([
       prisma.shift.findMany({
@@ -787,8 +788,13 @@ router.get("/shifts/report", requireAuth, requireRole("OWNER"), async (req, res,
       }),
       loadScheduleMap(),
     ]);
+    // Cart filter: show only staff assigned to that cart (the report still
+    // counts taps at any cart they work — assignment is the scope, not the tap).
+    const staff = code
+      ? users.filter((u) => String(u.location?.code ?? "").toUpperCase() === code)
+      : users;
     return res.json(
-      aggregateShiftReport({ shifts, staffUsers: users, scheduleMap, days }),
+      aggregateShiftReport({ shifts, staffUsers: staff, scheduleMap, days }),
     );
   } catch (err) {
     return next(err);

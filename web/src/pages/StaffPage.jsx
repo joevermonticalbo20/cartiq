@@ -161,7 +161,9 @@ export default function StaffPage() {
     setReportLoading(true);
     setReportError("");
     try {
-      const res = await api.get(`/shifts/report?days=${reportDays}`);
+      const res = await api.get(
+        `/shifts/report?days=${reportDays}${loc ? `&code=${encodeURIComponent(loc)}` : ""}`,
+      );
       setReport(res.data ?? null);
     } catch (err) {
       setReport(null);
@@ -169,7 +171,7 @@ export default function StaffPage() {
     } finally {
       setReportLoading(false);
     }
-  }, [reportDays]);
+  }, [reportDays, loc]);
 
   useEffect(() => {
     if (!isOwner) return;
@@ -600,7 +602,6 @@ export default function StaffPage() {
                           {d ? (
                             <span className="schedule-day-times">
                               <span className="schedule-day-in">{to12h(d.start)}</span>
-                              <span className="schedule-day-dash">→</span>
                               <span className="schedule-day-out">{to12h(d.end)}</span>
                             </span>
                           ) : (
@@ -657,7 +658,7 @@ export default function StaffPage() {
                   <FileText size={16} className="muted" />
                   <strong>Attendance report</strong>
                   <span className="muted small">
-                    vs the current weekly roster
+                    vs the current weekly roster{loc ? ` · assigned to ${loc}` : ""}
                     {report?.generated_at
                       ? ` · generated ${new Date(report.generated_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
                       : ""}
@@ -672,7 +673,7 @@ export default function StaffPage() {
                   />
                   <button
                     type="button"
-                    className="small-btn ghost"
+                    className="small-btn danger"
                     onClick={downloadReportCsv}
                     disabled={!report}
                     title="Download the report as CSV"
