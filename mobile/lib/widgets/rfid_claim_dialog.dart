@@ -86,6 +86,7 @@ class _RfidClaimDialogState extends State<RfidClaimDialog> {
   Timer? _autoDismissTimer;
   bool _readerOnline = false;
   int? _readerLastSeen; // seconds since the cart reader last heartbeated
+  bool _readerLost = false; // was online mid-wait, then dropped
   bool _escalated = false; // been stuck "connecting" for 45s+
   DateTime? _connectingSince; // when the reader went offline during this claim
   String? _resultText; // non-null once the claim resolved successfully
@@ -129,6 +130,7 @@ class _RfidClaimDialogState extends State<RfidClaimDialog> {
       _totalSeconds = null;
       _error = null;
       _readerOnline = false;
+      _readerLost = false;
       _escalated = false;
       _connectingSince = null;
       _resultText = null;
@@ -142,10 +144,24 @@ class _RfidClaimDialogState extends State<RfidClaimDialog> {
     setState(() {
       if (connected) {
         _readerOnline = true;
+        _readerLost = false;
         _connectingSince = null;
         _escalated = false;
         _escalationTimer?.cancel();
+        // Resume the local ticker (it had been paused while offline).
+        _startCountdown();
       } else {
+        // The countdown was already running - the reader had been online -
+        // so this is a mid-wait disconnect: surface it instead of letting
+        // the person keep watching a dead spinner behind the Wi-Fi icon.
+        if (_secondsLeft != null) {
+          _readerLost = true;
+          // Pause the local ticker so the number doesn't drain while the
+          // person is staring at the "lost connection" message. The server's
+          // expiry is the authoritative source on every reconnect tick.
+          _countdownTimer?.cancel();
+          _countdownTimer = null;
+        }
         _readerOnline = false;
         _connectingSince ??= now;
         _escalationTimer ??=
@@ -241,12 +257,15 @@ class _RfidClaimDialogState extends State<RfidClaimDialog> {
     final isClock = widget.event != null;
     final succeeded = _resultText != null;
     final failed = _error != null;
-    final connecting = !succeeded && !failed && !_readerOnline;
+    final readerLost = !succeeded && !failed && _readerLost;
+    final connecting = !succeeded && !failed && !_readerOnline && !readerLost;
     final urgent = (_secondsLeft ?? 99) <= 5;
 
     Widget body;
     if (succeeded) {
       body = _SuccessPane(text: _resultText!);
+    } else if (readerLost) {
+      body = _ReaderLostPane(lastSeenSeconds: _readerLastSeen);
     } else if (connecting) {
       body = _ConnectingPane(
         escalated: _escalated,
@@ -333,7 +352,7 @@ class _RfidClaimDialogState extends State<RfidClaimDialog> {
       actions: succeeded
           ? const []
           : [
-              if (_escalated || failed)
+              if (_escalated || failed || readerLost)
                 TextButton(
                   style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
                   onPressed: _retry,
@@ -461,6 +480,71 @@ class _SuccessPane extends StatelessWidget {
         const SizedBox(width: 12),
         Expanded(
           child: Text(text, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+        ),
+      ],
+    );
+  }
+}
+
+/// The reader was fine, then dropped Wi-Fi mid-window. The countdown is
+/// abandoned — attendance will not record while the node is offline — but
+/// the staff member is not stuck staring at a dead spinner: clear words,
+/// and a Retry the moment the node is healthy again.
+class _ReaderLostPane extends StatelessWidget {
+  const _ReaderLostPane({required this.lastSeenSeconds});
+
+  final int? lastSeenSeconds;
+
+  String _lastSeenLabel() {
+    if (lastSeenSeconds == null) return 'The reader has never been seen.';
+    if (lastSeenSeconds! < 90) return 'Last heartbeat only a moment ago.';
+    final minutes = (lastSeenSeconds! / 60).round();
+    return 'Last heartbeat about $minutes min ago.';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.cloud_off_rounded, color: scheme.error, size: 18),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'The reader lost its Wi-Fi connection',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: scheme.error,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.space2),
+        Text(
+          'Attendance will not record while the cart reader is offline. Keep the phone nearby — the tap window opens again as soon as the node is back, or tap Retry for a fresh window.',
+          style: textTheme.bodySmall,
+        ),
+        const SizedBox(height: AppSpacing.space2),
+        Row(
+          children: [
+            Icon(Icons.sensors_rounded, size: 14, color: scheme.onSurface.withValues(alpha: 0.6)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                _lastSeenLabel(),
+                style: textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurface.withValues(alpha: 0.65),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );
