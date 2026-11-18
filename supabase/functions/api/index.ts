@@ -6957,7 +6957,7 @@ function aggregateShiftReportEdge({ shifts, staffUsers, scheduleMap, days, now }
   const roundPct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : null);
   const staff = [...buckets.values()]
     .map((b) => {
-      const { in_days, out_min, in_min, ...pub } = b;
+      const { in_days: _inDays, out_min: _outMin, in_min: _inMin, ...pub } = b;
       return {
         ...pub,
         on_time_pct: roundPct(b.on_time, b.on_time + b.tardy),

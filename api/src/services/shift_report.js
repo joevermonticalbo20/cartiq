@@ -145,7 +145,7 @@ export function aggregateShiftReport({ shifts, staffUsers, scheduleMap, days, no
   const roundPct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : null);
   const staff = [...buckets.values()]
     .map((b) => {
-      const { in_days, out_min, in_min, day_events, events, ...pub } = b;
+      const { in_days: _inDays, out_min: _outMin, in_min: _inMin, day_events: _dayEvents, events: _events, ...pub } = b;
       const on_time_pct = roundPct(b.on_time, b.on_time + b.tardy);
       return {
         ...pub,
