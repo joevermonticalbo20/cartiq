@@ -62,7 +62,7 @@ router.delete("/devices/push-token", requireAuth, requireRole("STAFF"), async (r
 // POST /devices/heartbeat (device auth) — cheap liveness ping for
 // registration gating. requireDevice already bumps lastSeenAt on every
 // device request, so this handler only needs to acknowledge. The ESP32
-// posts every 30s while Wi-Fi is up, which keeps deviceOnline true for
+// posts every 10s while Wi-Fi is up, which keeps deviceOnline true for
 // carts whose load cells are disabled (no readings would otherwise keep
 // lastSeenAt fresh).
 router.post("/devices/heartbeat", requireDevice, async (req, res, next) => {

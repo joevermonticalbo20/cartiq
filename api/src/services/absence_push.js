@@ -16,7 +16,7 @@ import {
 } from "./staff_schedule.js";
 import { manilaDayStart } from "./timezone.js";
 
-// Heartbeats arrive every 30s per device; one memory-gated sweep per 10
+// Heartbeats arrive every 10s per device; one memory-gated sweep per 10
 // minutes is plenty (the 30-minute lateness window is coarse by design).
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 let lastSweepAt = 0;

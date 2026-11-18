@@ -384,11 +384,13 @@ void loop() {
     Serial.printf("[heartbeat] reader %s\n", readerOk ? "OK" : "MISSING");
   }
 
-  // Server liveness every 30s so the registration dialog can tell "reader
+  // Server liveness every 10s so the registration dialog can tell "reader
   // offline" from "waiting for your tap" (load cells disabled means no
   // readings would otherwise keep lastSeenAt fresh). Starts at boot because
-  // lastServerHeartbeat is 0.
-  if (millis() - lastServerHeartbeat > 30000 && WiFi.status() == WL_CONNECTED) {
+  // lastServerHeartbeat is 0. 10s is the fastest cadence that stays cheap:
+  // each beat is one Firestore write, so the server-side claim gate treats
+  // anything older than 15s as offline.
+  if (millis() - lastServerHeartbeat > 10000 && WiFi.status() == WL_CONNECTED) {
     lastServerHeartbeat = millis();
     postBatch("/devices/heartbeat", "{}");
   }
