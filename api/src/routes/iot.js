@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { requireDevice } from "../middleware/device.js";
-import { manilaDayRange, manilaDayStart } from "../services/timezone.js";
+import { manilaDayRange, manilaDayStart, manilaDayKey } from "../services/timezone.js";
 import {
   duplicateShiftReason,
   manilaDayKeyOf,
@@ -827,12 +827,39 @@ router.get("/shifts/history", requireAuth, async (req, res, next) => {
       }),
       loadScheduleMap(),
     ]);
+    // Half-day rule (IN without OUT, once the Manila day ends): any IN row
+    // on a prior Manila day whose staff never tapped OUT shows "Half day".
+    // The OUT itself may live on another page of this same history, so load
+    // the day taps for the staff visible on this page to detect it.
+    const todayKey = manilaDayKey(new Date());
+    const halfDayCandidates = shifts.filter(
+      (s) => s.event === "IN" && manilaDayKey(new Date(s.ts)) < todayKey,
+    );
+    const dayWindowStart = halfDayCandidates.length
+      ? Math.min(...halfDayCandidates.map((s) => new Date(s.ts).getTime()))
+      : null;
+    const pageOutKeys = new Set();
+    if (dayWindowStart != null) {
+      const probe = await prisma.shift.findMany({
+        where: { ts: { gte: new Date(dayWindowStart - 24 * 60 * 60 * 1000), lt: new Date(Date.now()) } },
+        select: { staffId: true, ts: true, event: true },
+      });
+      for (const p of probe) {
+        if (p.event === "OUT") pageOutKeys.add(`${Number(p.staffId)}:${manilaDayKey(new Date(p.ts))}`);
+      }
+    }
     const data = shifts.map((s) => {
       const raw = s.staffId != null ? scheduleMap.get(Number(s.staffId)) ?? null : null;
       // No schedule doc -> "No schedule" badge; scheduled day off -> "Not scheduled".
       const sched = raw ? entryForInstant(raw, s.ts) : undefined;
       let punctuality;
-      if (sched === undefined) punctuality = { label: "No schedule", tone: "neutral" };
+      if (
+        s.event === "IN" &&
+        manilaDayKey(new Date(s.ts)) < todayKey &&
+        !pageOutKeys.has(`${Number(s.staffId)}:${manilaDayKey(new Date(s.ts))}`)
+      ) {
+        punctuality = { label: "Half day", tone: "warn" };
+      } else if (sched === undefined) punctuality = { label: "No schedule", tone: "neutral" };
       else if (sched === null) punctuality = { label: "Not scheduled", tone: "neutral" };
       else punctuality = tapBadge({ event: s.event, instant: s.ts, entry: sched });
       return { ...s, punctuality, method: attendanceMethod(s) };

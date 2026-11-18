@@ -102,7 +102,41 @@ test("overtime minutes accrue from clock-outs past the scheduled end", () => {
   assert.equal(out.totals.overtime_hours, 0.8);
 });
 
-test("hours stay paired within a day; a day with only an IN counts 0", () => {
+test("an IN without an OUT after the day ends is half day (scheduled/2 credited)", () => {
+  const schedMap = new Map([[2, { days: EVERY_DAY_0600_1400 }]]);
+  const out = aggregateShiftReport({
+    shifts: [
+      // Yesterday: IN, never OUT — half day once the day fully elapsed.
+      { id: 1, staffId: 2, event: "IN", ts: new Date(YESTERDAY_MS + 6 * HOUR) },
+    ],
+    staffUsers: allUsers,
+    scheduleMap: schedMap,
+    days: 2, // yesterday (elapsed) + today (open, not yet half day)
+    now: Date.now(),
+  });
+  const s1 = out.staff.find((s) => s.staff_id === 2);
+  assert.equal(s1.half_days, 1);
+  assert.equal(s1.hours_worked, 4); // half of 06:00-14:00
+  assert.equal(s1.absences, 1);     // today: scheduled, no tap at all
+  assert.equal(out.totals.half_days, 1);
+});
+
+test("today's open IN is NOT a half day yet", () => {
+  const schedMap = new Map([[2, { days: EVERY_DAY_0600_1400 }]]);
+  const out = aggregateShiftReport({
+    shifts: [
+      { id: 1, staffId: 2, event: "IN", ts: new Date(TODAY_MS + 6 * HOUR) },
+    ],
+    staffUsers: allUsers,
+    scheduleMap: schedMap,
+    days: 1,
+    now: Date.now(),
+  });
+  const s1 = out.staff.find((s) => s.staff_id === 2);
+  assert.equal(s1.half_days, 0);
+});
+
+test("an IN-only yesterday (no OUT) counts half-day hours under the new rule", () => {
   const schedMap = new Map([[2, { days: EVERY_DAY_0600_1400 }]]);
   const out = aggregateShiftReport({
     shifts: [
@@ -112,8 +146,10 @@ test("hours stay paired within a day; a day with only an IN counts 0", () => {
     staffUsers: allUsers,
     scheduleMap: schedMap,
     days: 2,
+    now: Date.now(),
   });
   const s1 = out.staff.find((s) => s.staff_id === 2);
-  assert.equal(s1.hours_worked, 0);
-  assert.equal(s1.absences, 1); // today: scheduled day with no IN tap
+  assert.equal(s1.half_days, 1);   // yesterday IN with no OUT, day elapsed
+  assert.equal(s1.hours_worked, 4); // half of 06:00-14:00 credited
+  assert.equal(s1.absences, 1);     // today: scheduled day with no IN tap
 });

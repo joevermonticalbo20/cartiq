@@ -6933,18 +6933,33 @@ function aggregateShiftReportEdge({ shifts, staffUsers, scheduleMap, days, now }
     }
   }
 
+  // A day with an IN and no OUT after the Manila day ends counts as HALF DAY
+  // - hours credited are half the scheduled shift (zero without a roster entry).
+  const todayKey = manilaDayKey(new Date(effectiveNow));
   for (const b of buckets.values()) {
+    const raw = scheduleMap?.get?.(b.staff_id) ?? null;
+    const sched = raw && Array.isArray(raw.days) ? normalizeScheduleDays(raw.days) : null;
     let hours = 0;
+    let halfDays = 0;
+    let halfHours = 0;
     for (const dayKey of keys) {
       const inMin = b.in_min.get(dayKey);
       const outMin = b.out_min.get(dayKey);
-      if (inMin == null || outMin == null) continue;
-      const diff = outMin - inMin;
-      if (diff < 0 || diff > 16 * 60) continue;
-      hours += diff / 60;
+      if (inMin == null) continue;
+      if (outMin != null) {
+        const diff = outMin - inMin;
+        if (diff < 0 || diff > 16 * 60) continue;
+        hours += diff / 60;
+        continue;
+      }
+      if (dayKey >= todayKey) continue;
+      halfDays += 1;
+      const entry = sched ? sched[manilaDowOfKey(dayKey)] : null;
+      if (entry) halfHours += (hmToMinutes(entry.end) - hmToMinutes(entry.start)) / 120;
     }
-    b.hours_worked = Number(hours.toFixed(1));
+    b.hours_worked = Number((hours + halfHours).toFixed(1));
     b.overtime_hours = Number((b.overtime_min / 60).toFixed(1));
+    b.half_days = halfDays;
   }
 
   for (const [id, b] of buckets) {
@@ -6970,7 +6985,7 @@ function aggregateShiftReportEdge({ shifts, staffUsers, scheduleMap, days, now }
     })
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 
-  const totals = { clock_ins: 0, clock_outs: 0, on_time: 0, tardy: 0, early_out: 0, overtime_min: 0, overtime_hours: 0, absences: 0, hours_worked: 0 };
+  const totals = { clock_ins: 0, clock_outs: 0, on_time: 0, tardy: 0, early_out: 0, overtime_min: 0, overtime_hours: 0, absences: 0, hours_worked: 0, half_days: 0 };
   for (const b of staff) {
     for (const k of Object.keys(totals)) totals[k] += b[k] ?? 0;
   }
@@ -7044,18 +7059,51 @@ async function handleShiftsHistory(url) {
   const locations = await fsListAll("locations");
   const locById = new Map(locations.map((l) => [l.id, l]));
   const scheduleMap = await loadScheduleMapEdge();
+  // Half-day rule (IN without OUT, once the Manila day ends): the OUT can be
+  // on another page of this same history, so read the day taps for the staff
+  // visible on this page to detect it.
+  const todayKey = manilaDayKey(new Date());
+  const halfDayCandidates = slice.filter(
+    (s) => s.event === "IN" && manilaDayKey(new Date(s.ts)) < todayKey,
+  );
+  const pageOutKeys = new Set();
+  if (halfDayCandidates.length) {
+    const earliest = halfDayCandidates.reduce(
+      (min, s) => Math.min(min, new Date(s.ts).getTime()),
+      Infinity,
+    );
+    const probe = await fsRunQuery("shifts", {
+      filters: [
+        { field: "ts", op: "GREATER_THAN_OR_EQUAL", value: new Date(earliest - 24 * 60 * 60 * 1000) },
+        { field: "ts", op: "LESS_THAN", value: new Date() },
+      ],
+      orderBy: [{ field: "ts", dir: "ASCENDING" }],
+      limit: 500,
+    }).catch(() => []);
+    for (const p of probe) {
+      if (String(p?.event ?? "").toUpperCase() === "OUT") {
+        pageOutKeys.add(`${Number(p.staffId)}:${manilaDayKey(new Date(p.ts))}`);
+      }
+    }
+  }
   const data = slice.map((s) => {
     const c = cleanDoc(s);
     const loc = locById.get(s.locationId);
     c.location = loc ? { code: loc.code, name: loc.name } : null;
     const raw = s.staffId != null ? scheduleMap.get(Number(s.staffId)) ?? null : null;
     const entry = scheduleEntryForInstant(raw, s.ts);
+    const sDayKey = manilaDayKey(new Date(s.ts));
     // No schedule doc -> "No schedule"; scheduled day off -> "Not scheduled".
-    c.punctuality = entry === undefined
-      ? { label: "No schedule", tone: "neutral" }
-      : entry === null
-        ? { label: "Not scheduled", tone: "neutral" }
-        : tapBadgeEdge(s.event, s.ts, entry);
+    c.punctuality =
+      s.event === "IN" &&
+      sDayKey < todayKey &&
+      !pageOutKeys.has(`${Number(s.staffId)}:${sDayKey}`)
+        ? { label: "Half day", tone: "warn" }
+        : entry === undefined
+          ? { label: "No schedule", tone: "neutral" }
+          : entry === null
+            ? { label: "Not scheduled", tone: "neutral" }
+            : tapBadgeEdge(s.event, s.ts, entry);
     c.method = attendanceMethodEdge(c);
     return c;
   });

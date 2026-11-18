@@ -119,19 +119,37 @@ export function aggregateShiftReport({ shifts, staffUsers, scheduleMap, days, no
     }
   }
 
-  // Worked hours: IN→OUT pair per staff per day.
+  // Worked hours: IN→OUT pair per staff per day; a day with an IN and no OUT
+  // after the Manila day ends counts as HALF DAY - hours credited are half
+  // the scheduled shift (zero when the weekday has no roster entry).
+  const todayKey = manilaDayKey(new Date(effectiveNow));
   for (const b of buckets.values()) {
+    const raw = scheduleMap?.get?.(b.staff_id) ?? null;
+    const sched = raw ? scheduleDocValue(raw) : null;
     let hours = 0;
+    let halfDays = 0;
+    let halfHours = 0;
     for (const dayKey of keys) {
       const inMin = b.in_min.get(dayKey);
       const outMin = b.out_min.get(dayKey);
-      if (inMin == null || outMin == null) continue;
-      let diff = outMin - inMin;
-      if (diff < 0 || diff > 16 * 60) continue; // corrupt pair — ignore, not counted
-      hours += diff / 60;
+      if (inMin == null) continue;
+      if (outMin != null) {
+        let diff = outMin - inMin;
+        if (diff < 0 || diff > 16 * 60) continue; // corrupt pair — ignore, not counted
+        hours += diff / 60;
+        continue;
+      }
+      // IN without an OUT, only once the day is fully over (not today).
+      if (dayKey >= todayKey) continue;
+      halfDays += 1;
+      const entry = sched ? sched.days[manilaDowOfKey(dayKey)] : null;
+      if (entry) {
+        halfHours += (hmToMinutes(entry.end) - hmToMinutes(entry.start)) / 120;
+      }
     }
-    b.hours_worked = Number(hours.toFixed(1));
+    b.hours_worked = Number((hours + halfHours).toFixed(1));
     b.overtime_hours = Number((b.overtime_min / 60).toFixed(1));
+    b.half_days = halfDays;
   }
 
   // Absences: a scheduled day with no IN tap.
@@ -164,6 +182,7 @@ export function aggregateShiftReport({ shifts, staffUsers, scheduleMap, days, no
   const totals = {
     clock_ins: 0, clock_outs: 0, on_time: 0, tardy: 0, early_out: 0,
     overtime_min: 0, overtime_hours: 0, absences: 0, hours_worked: 0,
+    half_days: 0,
   };
   for (const b of staff) {
     for (const k of Object.keys(totals)) totals[k] += b[k] ?? 0;

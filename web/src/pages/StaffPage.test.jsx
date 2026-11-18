@@ -100,6 +100,7 @@ function mockApi() {
             overtime_min: 45,
             overtime_hours: 0.8,
             absences: 1,
+            half_days: 1,
             hours_worked: 80.5,
           },
           staff: [
@@ -107,15 +108,15 @@ function mockApi() {
               staff_id: 2, name: "Stall Staff 1", username: "staff01", role: "STAFF",
               active: true, locationCode: "CART-01", scheduled_days: 24,
               clock_ins: 8, clock_outs: 8, on_time: 7, tardy: 1, early_out: 1,
-              overtime_min: 45, overtime_hours: 0.8, hours_worked: 66.4,
-              absences: 0, on_time_pct: 88,
+              overtime_min: 45, overtime_hours: 0.8, hours_worked: 70.4,
+              absences: 0, half_days: 1, on_time_pct: 88,
             },
             {
               staff_id: 3, name: "Retired Staff", username: "retired", role: "STAFF",
               active: false, locationCode: null, scheduled_days: 24,
               clock_ins: 2, clock_outs: 1, on_time: 1, tardy: 1, early_out: 0,
-              overtime_min: 0, overtime_hours: 0, hours_worked: 14.1,
-              absences: 1, on_time_pct: 50,
+              overtime_min: 0, overtime_hours: 0, hours_worked: 10.1,
+              absences: 1, half_days: 0, on_time_pct: 50,
             },
           ],
         },
@@ -187,6 +188,8 @@ describe("StaffPage Shift History is read-only", () => {
     renderPage();
     expect(await screen.findByText("Attendance report")).toBeInTheDocument();
     expect(screen.getByText("83%")).toBeInTheDocument();
+    // Half-day rule: the column shows for the half-day day.
+    expect(screen.getAllByText("Half days").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByRole("button", { name: /csv/i })).toBeEnabled();
   });
 
