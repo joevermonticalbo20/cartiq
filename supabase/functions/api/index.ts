@@ -1410,11 +1410,12 @@ async function claimDeviceLastSeenSeconds(locationId) {
     for (const d of candidates) {
       if (d?.active === false) continue;
       if (!Number.isFinite(wanted) || Number(d?.locationId) !== wanted) continue;
-      const t = d?.lastSeenAt instanceof Date ? d.lastSeenAt.getTime() : new Date(d?.lastSeenAt).getTime();
-      if (Number.isFinite(t)) {
-        const secs = Math.round((Date.now() - t) / 1000);
-        if (best === null || secs < best) best = secs;
-      }
+      const seen = d?.lastSeenAt;
+      if (!seen) continue; // never seen — not "seen at 1970"
+      const t = seen instanceof Date ? seen.getTime() : new Date(seen).getTime();
+      if (!Number.isFinite(t) || t <= 0) continue;
+      const secs = Math.round((Date.now() - t) / 1000);
+      if (best === null || secs < best) best = secs;
     }
     return best;
   } catch {
