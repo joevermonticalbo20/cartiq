@@ -9,7 +9,7 @@ void main() {
   final tuesdayWeek = [null, null, Map<String, String>.from(shift), null, null, null, null];
   final schedule = StaffScheduleConfig(days: tuesdayWeek);
 
-  DateTime mnl(String iso) => DateTime.parse('${iso}+08:00');
+  DateTime mnl(String iso) => DateTime.parse('$iso+08:00');
 
   group('fromJson / toJson', () {
     test('parses a weekly template and canonicalizes times', () {

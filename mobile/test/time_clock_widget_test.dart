@@ -36,6 +36,17 @@ class _FakeApi extends ApiClient {
   /// Scripted /shifts/history payload; the refreshMyShifts path consumes it.
   Map<String, dynamic> historyResponse = const {'data': []};
 
+  /// Scripted /device-status payload for the reader card row.
+  Map<String, dynamic> deviceStatusResponse = const {
+    'cart': 'CART-01',
+    'status': 'connected',
+    'lastSeenSeconds': 5,
+  };
+
+  /// Scripted /shifts/self outcome for the App Tap button.
+  Map<String, dynamic> appTapResponse = const {'event': 'IN'};
+  int appTapCalls = 0;
+
   @override
   Future<Map<String, dynamic>> shiftsHistory(
     String token, {
@@ -43,6 +54,16 @@ class _FakeApi extends ApiClient {
     required String date,
     int pageSize = 100,
   }) async => historyResponse;
+
+  @override
+  Future<Map<String, dynamic>> deviceStatus(String token, {String? code}) async =>
+      deviceStatusResponse;
+
+  @override
+  Future<Map<String, dynamic>> appTap(String token) async {
+    appTapCalls++;
+    return appTapResponse;
+  }
 }
 
 class _FakeQueue implements OfflineQueue {
@@ -100,13 +121,15 @@ Map<String, dynamic> _shiftRow(String event, DateTime when) => {
   'locationId': 1,
 };
 
-/// The tappable part of one attendance tile.
-InkWell _clockTile(WidgetTester tester, String key) => tester.widget<InkWell>(
-  find.descendant(
-    of: find.byKey(ValueKey(key)),
-    matching: find.byType(InkWell),
-  ),
-);
+/// True when the attendance action button (found by key) is enabled.
+bool _actionEnabled(WidgetTester tester, String key) =>
+    tester.widget<FilledButton>(
+      find.descendant(
+        of: find.byKey(ValueKey(key)),
+        matching: find.byType(FilledButton),
+      ),
+    ).onPressed !=
+    null;
 
 String _clock12(Map<String, dynamic> shift) =>
     ManilaTime.formatClock12(ManilaTime.parse(shift['ts'])!);
@@ -131,14 +154,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      _clockTile(tester, 'attendance-time-in').onTap,
-      isNull,
-      reason: 'Time in must be disabled now',
+      _actionEnabled(tester, 'attendance-rfid-action'),
+      isFalse,
+      reason: 'RFID tap must be disabled now',
     );
     expect(
-      _clockTile(tester, 'attendance-time-out').onTap,
-      isNull,
-      reason: 'Time out must be disabled now',
+      _actionEnabled(tester, 'attendance-app-action'),
+      isFalse,
+      reason: 'App Tap must be disabled now',
     );
     expect(find.textContaining('Time in opens 7:00 AM'), findsOneWidget);
     expect(find.textContaining('Time out opens 5:00 PM'), findsOneWidget);
@@ -158,14 +181,21 @@ void main() {
     );
     // Manila 08:00 (00:00 UTC) — inside the IN window, outside OUT.
     auth.clockNow = () => DateTime.utc(2026, 11, 6);
+    auth.token = 'tok';
 
     await tester.pumpWidget(_settingsHarness(auth));
     await tester.pumpAndSettle();
 
-    final timeIn = _clockTile(tester, 'attendance-time-in');
-    final timeOut = _clockTile(tester, 'attendance-time-out');
-    expect(timeIn.onTap, isNotNull, reason: 'Time in window is open');
-    expect(timeOut.onTap, isNull, reason: 'Time out window is closed');
+    expect(
+      _actionEnabled(tester, 'attendance-rfid-action'),
+      isTrue,
+      reason: 'Time in window is open',
+    );
+    expect(
+      _actionEnabled(tester, 'attendance-app-action'),
+      isTrue,
+      reason: 'Time in window is open',
+    );
     expect(find.textContaining('Time in opens'), findsNothing);
     expect(find.textContaining('Time out opens 5:00 PM'), findsOneWidget);
   });
@@ -190,10 +220,8 @@ void main() {
     await tester.pumpWidget(_settingsHarness(auth));
     await tester.pumpAndSettle();
 
-    final timeIn = _clockTile(tester, 'attendance-time-in');
-    final timeOut = _clockTile(tester, 'attendance-time-out');
-    expect(timeIn.onTap, isNull);
-    expect(timeOut.onTap, isNull);
+    expect(_actionEnabled(tester, 'attendance-rfid-action'), isFalse);
+    expect(_actionEnabled(tester, 'attendance-app-action'), isFalse);
     expect(find.text('Closed today - no selling day.'), findsOneWidget);
   });
 
@@ -213,18 +241,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      _clockTile(tester, 'attendance-time-in').onTap,
-      isNull,
-      reason: 'already timed in — cannot do it twice today',
+      _actionEnabled(tester, 'attendance-rfid-action'),
+      isTrue,
+      reason: 'Time out must stay tappable',
     );
     expect(
-      _clockTile(tester, 'attendance-time-out').onTap,
-      isNotNull,
+      _actionEnabled(tester, 'attendance-app-action'),
+      isTrue,
       reason: 'Time out must stay tappable',
     );
     expect(find.text(_clock12(inShift)), findsOneWidget);
-    expect(find.text('Recorded'), findsOneWidget);
     expect(find.text('On shift'), findsOneWidget);
+    // The dynamic button now offers the next action.
+    expect(find.text('TIME OUT'), findsOneWidget);
   });
 
   testWidgets('already timed out: Time out disabled, 12h time and reason shown', (
@@ -249,14 +278,12 @@ void main() {
     await tester.pumpWidget(_settingsHarness(auth));
     await tester.pumpAndSettle();
 
-    final timeIn = _clockTile(tester, 'attendance-time-in');
-    final timeOut = _clockTile(tester, 'attendance-time-out');
-    expect(timeIn.onTap, isNull, reason: 'already timed in today');
-    expect(timeOut.onTap, isNull, reason: 'already timed out today');
+    expect(_actionEnabled(tester, 'attendance-rfid-action'), isFalse, reason: 'already timed in today');
+    expect(_actionEnabled(tester, 'attendance-app-action'), isFalse, reason: 'already timed out today');
     expect(find.text('Shift complete for today'), findsOneWidget);
     expect(find.text(_clock12(inShift)), findsOneWidget);
     expect(find.text(_clock12(outShift)), findsOneWidget);
-    expect(find.text('Complete'), findsOneWidget);
+    expect(find.text('Complete'), findsWidgets);
   });
 
   testWidgets('unrestricted windows keep both buttons tappable', (
@@ -266,15 +293,13 @@ void main() {
     final auth = _staffAuth(store);
     // No timeClock set: feature unconfigured must behave exactly as before.
     auth.clockNow = () => DateTime.utc(2026, 11, 5, 16); // Manila midnight
+    auth.token = 'tok';
 
     await tester.pumpWidget(_settingsHarness(auth));
     await tester.pumpAndSettle();
 
-    final timeIn = _clockTile(tester, 'attendance-time-in');
-    final timeOut = _clockTile(tester, 'attendance-time-out');
-    expect(timeIn.onTap, isNotNull);
-    expect(timeOut.onTap, isNotNull);
-    expect(find.text('Tap card'), findsNWidgets(2));
+    expect(_actionEnabled(tester, 'attendance-rfid-action'), isTrue);
+    expect(_actionEnabled(tester, 'attendance-app-action'), isTrue);
     expect(find.textContaining('opens'), findsNothing);
   });
 
@@ -300,14 +325,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      _clockTile(tester, 'attendance-time-in').onTap,
-      isNull,
-      reason: 'after the scheduled end, Time in is locked',
+      _actionEnabled(tester, 'attendance-rfid-action'),
+      isFalse,
+      reason: 'after the scheduled end, RFID tap is locked',
     );
     expect(
-      _clockTile(tester, 'attendance-time-out').onTap,
-      isNull,
-      reason: 'beyond the overtime window, Time out is locked',
+      _actionEnabled(tester, 'attendance-app-action'),
+      isFalse,
+      reason: 'beyond the overtime window, App Tap is locked',
     );
     expect(
       find.textContaining('Your scheduled shift today ended at 2:00 PM'),
@@ -328,8 +353,8 @@ void main() {
     await tester.pumpWidget(_settingsHarness(auth));
     await tester.pumpAndSettle();
 
-    expect(_clockTile(tester, 'attendance-time-in').onTap, isNull);
-    expect(_clockTile(tester, 'attendance-time-out').onTap, isNull);
+    expect(_actionEnabled(tester, 'attendance-rfid-action'), isFalse);
+    expect(_actionEnabled(tester, 'attendance-app-action'), isFalse);
     expect(find.textContaining('scheduled day off'), findsWidgets);
     expect(find.text('Day off'), findsOneWidget);
   });
@@ -349,12 +374,61 @@ void main() {
       null,
     ]);
     auth.clockNow = () => DateTime.utc(2026, 11, 4, 0); // Manila 08:00 Wed
+    auth.token = 'tok';
 
     await tester.pumpWidget(_settingsHarness(auth));
     await tester.pumpAndSettle();
 
-    expect(_clockTile(tester, 'attendance-time-in').onTap, isNotNull);
-    expect(_clockTile(tester, 'attendance-time-out').onTap, isNotNull);
+    expect(_actionEnabled(tester, 'attendance-rfid-action'), isTrue);
+    expect(_actionEnabled(tester, 'attendance-app-action'), isTrue);
     expect(find.text('Today: 6:00 AM – 2:00 PM'), findsOneWidget);
+  });
+
+  testWidgets('App Tap records attendance via the server and confirms', (
+    tester,
+  ) async {
+    final store = _FakeStore();
+    final auth = _staffAuth(store);
+    auth.token = 'tok';
+    auth.clockNow = () => DateTime.utc(2026, 11, 5, 16); // Manila midnight
+
+    await tester.pumpWidget(_settingsHarness(auth));
+    await tester.pumpAndSettle();
+
+    // Tapping the App Tap button calls /shifts/self exactly once.
+    await tester.tap(find.byKey(const ValueKey('attendance-app-action')));
+    await tester.pumpAndSettle();
+
+    final api = auth.api as _FakeApi;
+    expect(api.appTapCalls, 1);
+    expect(find.text('Time in recorded'), findsOneWidget);
+    expect(find.text('RFID Tap'), findsOneWidget);
+    expect(find.text('App Tap'), findsOneWidget);
+    // Let the toast's auto-dismiss timer fire before tearing down.
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump(const Duration(milliseconds: 300));
+  });
+
+  testWidgets('App Tap without connectivity is blocked with a clear message', (
+    tester,
+  ) async {
+    final store = _FakeStore();
+    final auth = _staffAuth(store);
+    auth.offlineMode = true; // signed-out-ish state used by the queue flows
+    auth.clockNow = () => DateTime.utc(2026, 11, 5, 16);
+
+    await tester.pumpWidget(_settingsHarness(auth));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('Internet connection is required'),
+      findsWidgets,
+    );
+    expect(
+      _actionEnabled(tester, 'attendance-app-action'),
+      isFalse,
+      reason: 'App Tap must be disabled offline',
+    );
+    // RFID-style card tap stays offered (it has its own online handling).
   });
 }

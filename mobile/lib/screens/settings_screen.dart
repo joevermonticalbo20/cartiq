@@ -1135,7 +1135,7 @@ class SettingsScreenState extends State<SettingsScreen> {
           // Attendance gets its own card rather than sitting in the middle of
           // the Session list: it is the staff member's main daily action, and
           // the two clock states need room to read at a glance.
-          if (auth.hasRfidCard) ...[
+          if (auth.user?['role'] == 'STAFF') ...[
             const SectionHeader(title: 'Attendance', eyebrow: 'Time clock'),
             const SizedBox(height: AppSpacing.space3),
             _TimeRow(
@@ -2090,18 +2090,25 @@ class _SyncSection extends StatelessWidget {
   }
 }
 
-/// The Time in / Time out pair. Sits directly under the card tile because the
-/// two are one task: register once, then clock in every day.
-///
-/// The cart-wide clock windows (web dashboard → Settings → Time clock) can
-/// grey either button out until its window opens. The state is computed live
-/// from the owner-configured config, so the 30s sync in [AuthState] opens the
-/// buttons on time without a manual refresh.
-class _TimeRow extends StatelessWidget {
+/// The attendance pair: RFID Tap (the cart reader) and App Tap (direct,
+/// server-validated, straight from the app). Both record through the same
+/// backend rules, so an IN from one method is visible to the other, and a
+/// card tap and an app tap can never produce two sessions on the same day.
+class _TimeRow extends StatefulWidget {
   const _TimeRow({required this.auth, required this.onPressed});
 
   final AuthState auth;
+
+  /// Action requested for the RFID Tap method ("IN"/"OUT") — the same claim
+  /// dialog the card enrolment uses.
   final void Function(String event) onPressed;
+
+  @override
+  State<_TimeRow> createState() => _TimeRowState();
+}
+
+class _TimeRowState extends State<_TimeRow> {
+  bool _appTapBusy = false;
 
   static const _weekdays = [
     'Monday',
@@ -2112,6 +2119,7 @@ class _TimeRow extends StatelessWidget {
     'Saturday',
     'Sunday',
   ];
+
   static const _months = [
     'January',
     'February',
@@ -2132,14 +2140,103 @@ class _TimeRow extends StatelessWidget {
     return '${_weekdays[now.weekday - 1]}, ${_months[now.month - 1]} ${now.day}';
   }
 
+  /// "App Tap": the account itself records the next action. The server picks
+  /// IN or OUT from the attendance state — the app never sends an event —
+  /// and answers only after it has actually written the row.
+  Future<void> _appTap() async {
+    final auth = widget.auth;
+    if (_appTapBusy) return;
+    if (auth.offlineMode || auth.token == null) {
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Internet connection is required to record attendance.',
+        isSuccess: false,
+      );
+      return;
+    }
+    setState(() => _appTapBusy = true);
+    try {
+      final res = await auth.api.appTap(auth.token!);
+      final ev = (res['event'] ?? '').toString();
+      if (!mounted) return;
+      AppMessenger.showGlassToast(
+        context: context,
+        message: ev == 'OUT' ? 'Time out recorded' : 'Time in recorded',
+        isSuccess: true,
+      );
+      unawaited(Haptics.success());
+      await auth.refreshMyShifts();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      AppMessenger.showGlassToast(
+        context: context,
+        message: e.message,
+        isSuccess: false,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      AppMessenger.showGlassToast(
+        context: context,
+        message: 'Could not reach the server. Check your connection.',
+        isSuccess: false,
+      );
+    } finally {
+      if (mounted) setState(() => _appTapBusy = false);
+    }
+  }
+
+  String _methodOf(Map<String, dynamic> row) {
+    final m = (row['method'] ?? '').toString().toUpperCase();
+    if (m == 'APP' || m == 'MANUAL' || m == 'RFID') return m;
+    return (row['deviceId'] ?? '').toString() == 'MANUAL' ? 'MANUAL' : 'RFID';
+  }
+
+  Widget _methodCard({
+    required IconData icon,
+    required Color accent,
+    required String title,
+    required List<Widget> children,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      key: Key('attendance-${title.toLowerCase().replaceAll(' ', '-')}'),
+      decoration: BoxDecoration(
+        color: scheme.onSurface.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(AppRadius.l),
+        border: Border.all(color: scheme.onSurface.withValues(alpha: 0.07)),
+      ),
+      padding: const EdgeInsets.all(AppSpacing.space3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 19, color: accent),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.space2),
+          ...children,
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final auth = widget.auth;
     final inAt = auth.myInAtToday;
     final outAt = auth.myOutAtToday;
     final inDone = inAt != null;
     final outDone = outAt != null;
+    final nextEvent = !inDone ? 'IN' : (!outDone ? 'OUT' : null);
     final canIn = auth.clockInOpen && auth.scheduleInOpen && !inDone;
     final canOut = auth.clockOutOpen && auth.scheduleOutOpen && !outDone;
+    final nextOpen = nextEvent == 'IN' ? canIn : nextEvent == 'OUT' ? canOut : false;
     final dayOpen = auth.timeClockDayOpen;
     final caption = auth.timeClockCaption();
     final scheme = Theme.of(context).colorScheme;
@@ -2147,6 +2244,7 @@ class _TimeRow extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final okColor = isDark ? const Color(0xFF4ADE80) : AppColors.ok;
     final dangerColor = isDark ? const Color(0xFFF87171) : AppColors.danger;
+    final online = auth.token != null && !auth.offlineMode;
 
     final String badge;
     final AppBadgeVariant badgeVariant;
@@ -2169,6 +2267,68 @@ class _TimeRow extends StatelessWidget {
     } else {
       badge = 'Not clocked in';
       badgeVariant = AppBadgeVariant.neutral;
+    }
+
+    final deviceStatus = auth.deviceStatus?['status']?.toString();
+    final deviceDot = deviceStatus == 'connected'
+        ? AppColors.ok
+        : deviceStatus == 'offline'
+            ? AppColors.danger
+            : AppColors.muted;
+    final String deviceLine;
+    final String deviceDetail;
+    switch (deviceStatus) {
+      case 'connected':
+        deviceLine = 'Reader connected';
+        deviceDetail = 'Tap your card on the device';
+        break;
+      case 'offline':
+        deviceLine = 'Reader offline';
+        deviceDetail = 'Check the cart has power and Wi-Fi';
+        break;
+      case 'unavailable':
+        deviceLine = 'Reader not set up';
+        deviceDetail = 'Ask the owner to set up the reader';
+        break;
+      default:
+        deviceLine = 'Checking reader…';
+        deviceDetail = 'Contacting the cart reader';
+    }
+
+    final recent = auth.myShiftsToday.reversed.take(3).toList();
+
+    Widget clockButton({
+      required Key key,
+      required String label,
+      required IconData icon,
+      required Color accent,
+      required bool enabled,
+      required VoidCallback? onTap,
+      bool busy = false,
+    }) {
+      return SizedBox(
+        key: key,
+        width: double.infinity,
+        height: 46,
+        child: FilledButton.icon(
+          onPressed: enabled ? onTap : null,
+          style: FilledButton.styleFrom(
+            backgroundColor: accent,
+            foregroundColor: Colors.white,
+            disabledBackgroundColor: scheme.onSurface.withValues(alpha: 0.08),
+            disabledForegroundColor: scheme.onSurface.withValues(alpha: 0.45),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.m)),
+          ),
+          icon: busy
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : Icon(icon, size: 18),
+          label: Text(busy ? 'Recording…' : label),
+        ),
+      );
     }
 
     return Container(
@@ -2213,7 +2373,7 @@ class _TimeRow extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Tap your card on the reader',
+                          'Two ways to record attendance',
                           style: textTheme.bodySmall,
                         ),
                       ],
@@ -2223,7 +2383,7 @@ class _TimeRow extends StatelessWidget {
                   AppBadge(label: badge, variant: badgeVariant),
                 ],
               ),
-              const SizedBox(height: AppSpacing.space4),
+              const SizedBox(height: AppSpacing.space3),
               if (scheduleLabel != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: AppSpacing.space3),
@@ -2248,31 +2408,159 @@ class _TimeRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Expanded(
-                      child: _ClockTile(
-                        key: const Key('attendance-time-in'),
-                        label: 'Time in',
-                        icon: Icons.login_rounded,
-                        accent: okColor,
-                        done: inDone,
-                        at: inAt,
-                        onTap: canIn ? () => onPressed('IN') : null,
+                      child: _methodCard(
+                        icon: Icons.contactless_rounded,
+                        accent: AppColors.info,
+                        title: 'RFID Tap',
+                        children: [
+                          Text(
+                            'Tap your registered card on the cart reader.',
+                            style: textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: AppSpacing.space2),
+                          Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  color: deviceDot,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  deviceLine,
+                                  style: textTheme.bodySmall?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            deviceDetail,
+                            style: textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurface.withValues(alpha: 0.6),
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.space3),
+                          const Spacer(),
+                          clockButton(
+                            key: const Key('attendance-rfid-action'),
+                            label: inDone && outDone
+                                ? 'Complete'
+                                : (nextEvent == 'OUT' ? 'Tap to time out' : 'Tap to time in'),
+                            icon: nextEvent == 'OUT' ? Icons.logout_rounded : Icons.login_rounded,
+                            accent: okColor,
+                            enabled: nextOpen,
+                            onTap: nextOpen && nextEvent != null ? () => widget.onPressed(nextEvent) : null,
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(width: AppSpacing.space2),
                     Expanded(
-                      child: _ClockTile(
-                        key: const Key('attendance-time-out'),
-                        label: 'Time out',
-                        icon: Icons.logout_rounded,
-                        accent: dangerColor,
-                        done: outDone,
-                        at: outAt,
-                        onTap: canOut ? () => onPressed('OUT') : null,
+                      child: _methodCard(
+                        icon: Icons.fingerprint_rounded,
+                        accent: AppColors.primary,
+                        title: 'App Tap',
+                        children: [
+                          Text(
+                            'Record attendance directly on this phone.',
+                            style: textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: AppSpacing.space2),
+                          if (online)
+                            Text(
+                              'Works with your signed-in account',
+                              style: textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            )
+                          else
+                            Text(
+                              'Internet connection is required',
+                              style: textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.warn,
+                              ),
+                            ),
+                          Text(
+                            online
+                                ? 'The server records the exact time'
+                                : 'Connect to Wi-Fi or data first',
+                            style: textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurface.withValues(alpha: 0.6),
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.space3),
+                          const Spacer(),
+                          clockButton(
+                            key: const Key('attendance-app-action'),
+                            label: inDone && outDone
+                                ? 'Complete'
+                                : (nextEvent == 'OUT' ? 'TIME OUT' : 'TIME IN'),
+                            icon: nextEvent == 'OUT' ? Icons.logout_rounded : Icons.login_rounded,
+                            accent: AppColors.primary,
+                            enabled: online && nextOpen && !_appTapBusy,
+                            busy: _appTapBusy,
+                            onTap: (online && nextOpen && !_appTapBusy) ? _appTap : null,
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
               ),
+              if (recent.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.space3),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Recent activity',
+                    style: textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                ...recent.map((s) {
+                  final dt = ManilaTime.parse(s['ts']);
+                  final isIn = (s['event'] ?? '').toString().toUpperCase() == 'IN';
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 72,
+                          child: Text(
+                            dt == null ? '--:--' : ManilaTime.formatClock12(dt),
+                            style: textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 34,
+                          child: Text(
+                            isIn ? 'IN' : 'OUT',
+                            style: textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: isIn ? okColor : dangerColor,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            'Recorded via ${_methodOf(s)}',
+                            style: textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurface.withValues(alpha: 0.6),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
               if (inDone && outDone)
                 Padding(
                   padding: const EdgeInsets.only(top: AppSpacing.space3),
@@ -2298,133 +2586,6 @@ class _TimeRow extends StatelessWidget {
     );
   }
 }
-
-/// One half of the attendance card: a tappable clock state with the recorded
-/// time at display size. Locked and recorded states are visibly distinct, so
-/// staff can tell at a glance whether the action is still available.
-class _ClockTile extends StatelessWidget {
-  const _ClockTile({
-    super.key,
-    required this.label,
-    required this.icon,
-    required this.accent,
-    required this.done,
-    required this.at,
-    required this.onTap,
-  });
-
-  final String label;
-  final IconData icon;
-  final Color accent;
-  final bool done;
-  final DateTime? at;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    final active = onTap != null;
-    final accentColor = done || active ? accent : AppColors.muted;
-    final background = done
-        ? accent.withValues(alpha: 0.09)
-        : active
-        ? accent.withValues(alpha: 0.07)
-        : scheme.onSurface.withValues(alpha: 0.045);
-    final border = done
-        ? accent.withValues(alpha: 0.28)
-        : active
-        ? accent.withValues(alpha: 0.32)
-        : scheme.onSurface.withValues(alpha: 0.12);
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadius.l),
-        child: Container(
-          padding: const EdgeInsets.all(AppSpacing.space3),
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius: BorderRadius.circular(AppRadius.l),
-            border: Border.all(color: border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(icon, size: 15, color: accentColor),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      label.toUpperCase(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: textTheme.labelSmall?.copyWith(
-                        color: accentColor,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                  ),
-                  if (done)
-                    Icon(Icons.check_circle_rounded, size: 16, color: accent),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.space2),
-              Text(
-                done ? ManilaTime.formatClock12(at!) : '—',
-                maxLines: 1,
-                style: textTheme.headlineSmall?.copyWith(
-                  fontSize: 23,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.4,
-                  height: 1.05,
-                  color: done
-                      ? null
-                      : AppColors.muted.withValues(alpha: 0.55),
-                ),
-              ),
-              const SizedBox(height: 3),
-              Row(
-                children: [
-                  Icon(
-                    done
-                        ? Icons.check_rounded
-                        : active
-                        ? Icons.contactless_rounded
-                        : Icons.lock_clock_rounded,
-                    size: 13,
-                    color: done || active ? accent : AppColors.muted,
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      done
-                          ? 'Recorded'
-                          : active
-                          ? 'Tap card'
-                          : 'Locked',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: textTheme.labelSmall?.copyWith(
-                        color: done || active ? accent : AppColors.muted,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 11.5,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// Full-width footer used for "shift complete" and the closed-window hint.
 class _StatusStrip extends StatelessWidget {
   const _StatusStrip({

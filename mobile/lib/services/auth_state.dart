@@ -1062,6 +1062,38 @@ class AuthState extends ChangeNotifier {
     }
   }
 
+  /// Cart reader connectivity for the tap UI:
+  /// `{cart: String?, status: "connected"|"offline"|"unavailable",
+  ///  lastSeenSeconds: int?}` — never "connected" just because a card is enrolled.
+  Map<String, dynamic>? deviceStatus;
+  DateTime? _deviceStatusFetchedAt;
+
+  /// Pull the reader's connectivity (best-effort; ~1 minute cache).
+  Future<void> refreshDeviceStatus() async {
+    if (token == null || offlineMode) return;
+    try {
+      deviceStatus = await api.deviceStatus(token!);
+      _deviceStatusFetchedAt = DateTime.now();
+      notifyListeners();
+    } catch (_) {
+      // keep the last known status — the card says what it last knew
+    }
+  }
+
+  String? get deviceStatusLabel {
+    final s = deviceStatus?['status']?.toString();
+    switch (s) {
+      case 'connected':
+        return 'Reader connected';
+      case 'offline':
+        return 'Reader offline';
+      case 'unavailable':
+        return 'Reader not set up';
+      default:
+        return null;
+    }
+  }
+
   /// Pull the windows from the server. Silent on failure — the UI keeps the
   /// last known state. Never throws.
   Future<void> refreshTimeClock() async {
@@ -1102,6 +1134,7 @@ class AuthState extends ChangeNotifier {
     // already reflect the owner's window when the screen opens.
     unawaited(refreshTimeClock());
     unawaited(refreshMySchedule());
+    unawaited(refreshDeviceStatus());
     unawaited(refreshMyShifts());
     _timeClockTimer = Timer.periodic(
       const Duration(seconds: 30),
@@ -1142,6 +1175,12 @@ class AuthState extends ChangeNotifier {
         DateTime.now().difference(schedFetched) > const Duration(minutes: 5)) {
       await refreshMySchedule();
     }
+    // Reader connectivity: refresh about once a minute while the app is up.
+    final deviceFetched = _deviceStatusFetchedAt;
+    if (deviceFetched == null ||
+        DateTime.now().difference(deviceFetched) > const Duration(seconds: 60)) {
+      await refreshDeviceStatus();
+    }
   }
 
   void _stopTimeClockSync() {
@@ -1154,7 +1193,9 @@ class AuthState extends ChangeNotifier {
     _myShiftsToday = const [];
     _myShiftsFetchedAt = null;
     _myScheduleFetchedAt = null;
+    _deviceStatusFetchedAt = null;
     staffSchedule = null;
+    deviceStatus = null;
   }
 
   // -----------------------------------------------------------------------

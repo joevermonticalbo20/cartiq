@@ -118,11 +118,15 @@ class RfidRegistrationService {
   ///
   /// [onTick] fires on every poll with the seconds left, so the dialog can show
   /// a countdown instead of an open-ended spinner.
+  /// [onReaderStatus] fires on every pending poll with the reader
+  /// connectivity and its last-seen age in seconds (null when never seen),
+  /// so the dialog can show the "reader is connecting to Wi-Fi" state.
   Future<RfidClaimResult> register({
     required String token,
     String? locationCode,
     String? event,
     void Function(int secondsLeft)? onTick,
+    void Function(bool connected, int? lastSeenSeconds)? onReaderStatus,
   }) async {
     // The token can lapse while the person is walking to the reader. The claim
     // lives on the server, so refreshing and continuing is correct — never a
@@ -241,6 +245,10 @@ class RfidRegistrationService {
           if (left.isNegative) return const RfidExpired();
           onTick?.call(left.inSeconds);
         }
+        onReaderStatus?.call(
+          view['deviceOnline'] != false,
+          (view['readerLastSeenSeconds'] as num?)?.toInt(),
+        );
       }
     } on ApiException catch (e) {
       return RfidFailed(e.message);

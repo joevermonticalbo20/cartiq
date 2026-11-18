@@ -557,6 +557,33 @@ class ApiClient {
     return (body['order'] as Map<String, dynamic>?) ?? const {};
   }
 
+  /// "App Tap": the signed-in staff account records its own attendance.
+  /// The server picks the action (TIME IN / TIME OUT) from the state of the
+  /// day — never from the caller. Returns `{ shift, event, method }` on
+  /// success; throws [ApiException] with a readable message otherwise.
+  Future<Map<String, dynamic>> appTap(String token) async {
+    final res = await _send(
+      () => _http.post(
+        _uri('/shifts/self'),
+        headers: _headers(token: token),
+        body: jsonEncode(const {}),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  /// The cart reader's connectivity for the tap UI:
+  /// `{ cart, status: "connected"|"offline"|"unavailable", lastSeenSeconds }`.
+  Future<Map<String, dynamic>> deviceStatus(String token, {String? code}) async {
+    final res = await _send(
+      () => _http.get(
+        _uri('/device-status${code != null ? '?code=${Uri.encodeQueryComponent(code)}' : ''}'),
+        headers: _headers(token: token),
+      ),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
   /// Remove this account's own card. Throws when offline.
   Future<Map<String, dynamic>> unbindRfid(String token) async {
     final res = await _send(

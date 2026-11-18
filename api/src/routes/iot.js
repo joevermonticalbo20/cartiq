@@ -22,6 +22,7 @@ import {
 } from "../services/rfid.js";
 import { readTimeClock, timeClockVerdict } from "../services/time_clock.js";
 import { scheduleVerdict, tapBadge, entryForInstant } from "../services/staff_schedule.js";
+import { cleanEventId, resolveNextEvent, attendanceMethod } from "../services/attendance_core.js";
 import { loadScheduleMap } from "../services/staff_schedule_store.js";
 import { CLAIM_BOUND, resolveClaim } from "../services/rfid_claims.js";
 import { bindClaimedTag } from "../services/rfid_bind.js";
@@ -237,13 +238,13 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
       const bound = await bindClaimedTag({ rawUid: uid, locationId: location.id });
       const intent = classifyTap(bound);
       if (intent.kind === TAP_IGNORED) {
-        // Either nobody was waiting for this tap (no phone asked to clock in,
-        // clock out or register a card) or the claim was refused (the card
-        // belongs to somebody else, to another cart, or to nobody at all).
-        // Either way the tap records NOTHING: no shift row, no alert, no toast
-        // and no push. The app that opened the claim explains a refusal
-        // itself, and a stray tap is not news.
-        e._ignore = true;
+        // No claim pending at all: the reader can also be used as a bare clock
+        // ("state-driven" attendance, the same next action the app would pick),
+        // so a plain card tap signs the person in/out without opening the app.
+        // A REFUSED claim still records nothing - that intent failed in the app,
+        // the tap cannot undo it.
+        if (!bound) e._bare = true;
+        else e._ignore = true;
         if (bound) registrations.push(bound);
         continue;
       }
@@ -277,6 +278,18 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
         tx.alert.findMany({ where: { type: "UNKNOWN_CARD", isRead: false } }),
         tx.alert.findMany({ where: { type: "TIMECLOCK_WINDOW", isRead: false } }),
       ]);
+      // Idempotency guard for the reader's sync: a buffered offline tap that
+      // is re-posted after a 4xx/5xx/retry must never write a second shift.
+      const eventIdsInBatch = new Set();
+      for (const e of rows) {
+        const id = cleanEventId(e?.eventId ?? e?.event_id ?? "");
+        if (id) eventIdsInBatch.add(id);
+      }
+      const alreadyProcessed = new Set();
+      for (const id of eventIdsInBatch) {
+        const guard = await tx.getDoc("shiftEvents", id).catch(() => null);
+        if (guard) alreadyProcessed.add(id);
+      }
       const unreadAlerts = [...unreadCardAlerts, ...unreadTimeClockAlerts];
       // Both sides of the comparison are normalized. A row stored before the
       // normalization fix (lowercase, or with separators a human pasted in)
@@ -304,18 +317,48 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
       });
       for (const e of rows) {
         const uid = String(e.staff_uid ?? "").trim();
-        // A tap nobody asked for, or one whose claim was refused: it records
-        // nothing. Only a deliberate tap (a claim the person opened in the app)
-        // can become a shift.
         if (e._ignore || e._registrationOnly) continue;
-        const event = String(e.event ?? "").toUpperCase();
-        if (!uid || uid.length > 64 || !EVENTS.includes(event)) {
-          rejected.push({ staff_uid: uid || null, event, reason: "invalid uid or event" });
+        const bare = e._bare === true;
+        const eventId = cleanEventId(e.eventId ?? e.event_id ?? "");
+        // The reader re-sends buffered offline taps until it gets a 2xx.
+        // A tap whose eventId was already processed is a no-op success.
+        if (eventId && alreadyProcessed.has(eventId)) {
+          accepted.push({ staff_uid: uid || null, event: String(e.event ?? "").toUpperCase() || "IN", matched: null, duplicate: true });
+          continue;
+        }
+        let event = String(e.event ?? "").toUpperCase();
+        if (!uid || uid.length > 64) {
+          rejected.push({ staff_uid: uid || null, event: bare ? "AUTO" : event, reason: "invalid uid" });
           continue;
         }
         const ts = e.ts ? new Date(e.ts) : new Date();
         if (!Number.isFinite(ts.getTime())) {
           rejected.push({ staff_uid: uid || null, event, reason: "invalid ts" });
+          continue;
+        }
+        if (bare) {
+          // State-driven: the method never decides IN vs OUT, the day does.
+          const probeUser = byUid.get(lookupUid(uid)) ?? null;
+          if (probeUser) {
+            const next = resolveNextEvent(
+              shiftsOfPersonOnDay(recentShifts, {
+                staffId: probeUser.id,
+                staffUid: uid,
+                dayKey: manilaDayKeyOf(ts),
+              }),
+            );
+            if (!next.action) {
+              rejected.push({ staff_uid: uid, event: "AUTO", reason: next.reason });
+              continue;
+            }
+            event = next.action;
+          } else {
+            // Unknown card: travel through the normal UNKNOWN_CARD path as IN.
+            event = "IN";
+          }
+        }
+        if (!EVENTS.includes(event)) {
+          rejected.push({ staff_uid: uid || null, event, reason: "invalid uid or event" });
           continue;
         }
         // Server-side backstop for the "Time in / Time out is greyed out in
@@ -356,6 +399,29 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
           continue;
         }
         const user = byUid.get(lookupUid(uid)) ?? null;
+        // A deactivated account is not bookable — a tap cannot revive it.
+        if (user && user.active === false) {
+          rejected.push({ staff_uid: uid, event, reason: "Staff account is deactivated." });
+          const dedupeKey = `inactive:${location.id}:${user.id}`;
+          const dup =
+            createdNeedles.has(dedupeKey) ||
+            unreadAlerts.some((a) => {
+              try {
+                return JSON.parse(a.payload ?? "{}")?.dedupeKey === dedupeKey;
+              } catch {
+                return false;
+              }
+            });
+          if (!dup) {
+            createdNeedles.add(dedupeKey);
+            newAlerts.push({
+              type: "TIMECLOCK_WINDOW",
+              message: `${event} blocked at ${location.code}: ${user.name}'s account is deactivated - no shift logged`,
+              payload: JSON.stringify({ dedupeKey, event, staffId: user.id, locationId: location.id, locationCode: location.code }),
+            });
+          }
+          continue;
+        }
         // A card belongs to the cart where it was enrolled: each cart has its
         // own team, so a card enrolled at CART-01 does not clock in at
         // CART-02. The tap is refused and no shift is written.
@@ -416,7 +482,7 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
             continue;
           }
         }
-        plans.push({ uid, event, ts, user });
+        plans.push({ uid, event, ts, user, eventId, method: "RFID" });
         if (!user) {
           const dedupeKey = `unknown:${location.id}:${uid}`;
           const dup =
@@ -447,6 +513,7 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
               staffId: user.id,
               staffUid: uid,
               event,
+              method: "RFID",
               locationId: location.id,
               locationCode: location.code,
               ts: ts.toISOString(),
@@ -478,8 +545,21 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
             event: plan.event,
             ts: plan.ts,
             deviceId: req.device.deviceId,
+            method: plan.method,
+            receivedAt: new Date(),
           },
         });
+        // Mark this buffered tap as processed so a re-sync is a no-op.
+        if (plan.eventId) {
+          tx.setDoc("shiftEvents", plan.eventId, {
+            eventId: plan.eventId,
+            deviceId: req.device.deviceId,
+            locationId: location.id,
+            staffId: plan.user?.id ?? null,
+            event: plan.event,
+            at: new Date(),
+          });
+        }
       }
       for (const [i, a] of newAlerts.entries()) {
         a.id = shiftAlertIds[i];
@@ -638,6 +718,8 @@ router.post("/shifts/manual", requireAuth, requireRole("OWNER"), async (req, res
         event: ev,
         ts: at,
         deviceId: "MANUAL",
+        method: "MANUAL",
+        receivedAt: new Date(),
       },
     });
     return res.status(201).json({ shift });
@@ -720,7 +802,7 @@ router.get("/shifts/history", requireAuth, async (req, res, next) => {
       if (sched === undefined) punctuality = { label: "No schedule", tone: "neutral" };
       else if (sched === null) punctuality = { label: "Not scheduled", tone: "neutral" };
       else punctuality = tapBadge({ event: s.event, instant: s.ts, entry: sched });
-      return { ...s, punctuality };
+      return { ...s, punctuality, method: attendanceMethod(s) };
     });
     return res.json({
       data,
@@ -743,6 +825,141 @@ router.get("/readings/recent", requireAuth, async (req, res, next) => {
       take: Math.min(Number(limit) || 40, 200),
     });
     return res.json({ readings: readings.reverse() });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /api/shifts/self (STAFF, user JWT) — "App Tap": the authenticated staff
+// member records their own attendance from the app, no card needed. Same
+// gates as the reader tap: session = identity, server stamps the time, the
+// next action comes from their attendance state today (never from the
+// caller). One IN and one OUT per Manila day per cart.
+router.post("/shifts/self", requireAuth, requireRole("STAFF"), async (req, res, next) => {
+  try {
+    const staffId = Number(req.user.sub);
+    const user = await prisma.user.findUnique({ where: { id: staffId } });
+    if (!user) return res.status(404).json({ error: "Staff not found" });
+    if (user.active === false) {
+      return res.status(403).json({ error: "Staff account is deactivated." });
+    }
+    const location = user.locationId
+      ? await prisma.location.findUnique({ where: { id: user.locationId } })
+      : null;
+    if (!location) {
+      return res.status(403).json({ error: "No cart assigned yet - ask the owner to assign one." });
+    }
+    if (location.status === "INACTIVE") {
+      return res.status(400).json({ error: "Cart is deactivated. Pick an active cart." });
+    }
+    const now = new Date();
+    const todays = await prisma.shift.findMany({
+      where: { locationId: location.id, ts: { gte: manilaDayStart(0) } },
+    });
+    const mine = shiftsOfPersonOnDay(todays, {
+      staffId: user.id,
+      staffUid: user.rfidUid ?? `APP-${user.id}`,
+      dayKey: manilaDayKeyOf(now),
+    });
+    const next = resolveNextEvent(mine);
+    if (!next.action) {
+      return res.status(409).json({ error: next.reason });
+    }
+    const event = next.action;
+    const clock = await readTimeClock();
+    const verdict = timeClockVerdict(clock, event, Date.now());
+    if (verdict) {
+      return res.status(403).json({ error: verdict, code: "TIMECLOCK_LOCKED" });
+    }
+    const scheduleMap = await loadScheduleMap();
+    const sVerdict = scheduleVerdict(scheduleMap.get(user.id) ?? null, Date.now(), event);
+    if (sVerdict.scheduled && sVerdict.ok === false) {
+      return res.status(403).json({ error: sVerdict.reason, code: "SCHEDULE_LOCKED" });
+    }
+    const [id] = await prisma.shift.nextIds(1);
+    const shift = await prisma.shift.create({
+      data: {
+        id,
+        staffUid: user.rfidUid ?? `APP-${user.id}`,
+        staffId: user.id,
+        staffName: user.name,
+        locationId: location.id,
+        event,
+        ts: now,
+        deviceId: "APP",
+        method: "APP",
+        receivedAt: now,
+      },
+    });
+    // Same notification-center record as a reader tap, tagged APP.
+    try {
+      const alert = await prisma.alert.create({
+        data: {
+          type: "SHIFT",
+          message: `${user.name} ${event === "OUT" ? "timed out" : "timed in"} at ${location.code}`,
+          payload: JSON.stringify({
+            staffId: user.id,
+            staffUid: user.rfidUid ?? `APP-${user.id}`,
+            event,
+            method: "APP",
+            locationId: location.id,
+            locationCode: location.code,
+            ts: now.toISOString(),
+          }),
+          locationId: location.id,
+          locationCode: location.code,
+        },
+      });
+      emit("alert:new", {
+        id: alert.id,
+        type: alert.type,
+        userId: null,
+        title: null,
+        message: alert.message,
+        isRead: false,
+        createdAt: alert.createdAt,
+        locationId: location.id,
+      });
+    } catch {
+      // best-effort only
+    }
+    return res.status(201).json({ shift, event, method: "APP" });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// GET /api/device-status - the cart reader's connectivity for the app's tap
+// UI (the staff-safe subset of the OWNER /devices registry). Staff see their
+// own cart; OWNER may pass ?code=CART-01 (defaults to the first active cart).
+const DEVICE_ONLINE_MS = 120 * 1000;
+router.get("/device-status", requireAuth, async (req, res, next) => {
+  try {
+    let location = null;
+    if (req.user?.role === "OWNER") {
+      const code = String(req.query.code ?? "").trim().toUpperCase();
+      location = code
+        ? await prisma.location.findUnique({ where: { code } })
+        : (await prisma.location.findMany({ where: { status: "ACTIVE" } }))[0] ?? null;
+      if (!location) return res.status(404).json({ error: "Cart not found" });
+    } else {
+      const locationId = req.user?.locationId;
+      if (!locationId) return res.json({ cart: null, status: "unavailable", lastSeenSeconds: null });
+      location = await prisma.location.findUnique({ where: { id: locationId } });
+    }
+    const device = await prisma.device.findFirst({
+      where: { locationId: location.id, active: true },
+      orderBy: { lastSeenAt: "desc" },
+    });
+    if (!device?.lastSeenAt) {
+      return res.json({ cart: location.code, status: "unavailable", lastSeenSeconds: null });
+    }
+    const secs = Math.round((Date.now() - new Date(device.lastSeenAt).getTime()) / 1000);
+    return res.json({
+      cart: location.code,
+      status: secs * 1000 < DEVICE_ONLINE_MS ? "connected" : "offline",
+      lastSeenSeconds: secs,
+    });
   } catch (err) {
     return next(err);
   }

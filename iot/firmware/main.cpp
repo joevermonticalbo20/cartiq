@@ -49,7 +49,11 @@ struct Reading { String channel; float kg; unsigned long epoch; };
 Reading readingBuf[BUF_SIZE];
 int readingCount = 0;
 
-struct ShiftEvent { String uid; String event; unsigned long epoch; };
+struct ShiftEvent {
+  String uid;
+  time_t capturedAt;  // 0 when the clock was never synced (rare, cold boot offline)
+  String eventId;     // sync idempotency key; the server never writes the same tap twice
+};
 ShiftEvent shiftBuf[BUF_SIZE];
 int shiftCount = 0;
 unsigned long droppedReadings = 0;
@@ -185,14 +189,23 @@ void queueReading(const char* channel, float kg) {
 void flushShifts();
 
 void queueShift(const String& uid) {
-  static bool isOpen = false;
   if (uid == lastUid && millis() - lastTapMs < 30000) return;  // debounce
   lastUid = uid;
   lastTapMs = millis();
-  isOpen = !isOpen;
+
+  // Capture the wall clock at tap time, not at flush time, so an offline
+  // tap keeps its true occurrence once Wi-Fi returns.
+  const time_t captured = time(nullptr);
+  // Sync idempotency key: the server never writes the same tap twice, no
+  // matter how often a buffered event is re-posted.
+  unsigned char randBytes[8];
+  esp_fill_random(randBytes, sizeof(randBytes));
+  char hex[17];
+  for (int i = 0; i < 8; i++) sprintf(hex + i * 2, "%02x", randBytes[i]);
+  String eventId = String(DEVICE_ID) + "-" + String((unsigned int)captured, HEX) + "-" + String(hex);
 
   if (shiftCount < BUF_SIZE) {
-    shiftBuf[shiftCount++] = {uid, isOpen ? "IN" : "OUT", millis()};
+    shiftBuf[shiftCount++] = {uid, captured, eventId};
   } else {
     droppedShifts++;
     Serial.printf("shift buffer full - dropped %lu total\n", droppedShifts);
@@ -200,9 +213,9 @@ void queueShift(const String& uid) {
   digitalWrite(LED_PIN, HIGH);
   delay(80);
   digitalWrite(LED_PIN, LOW);
-  Serial.printf("Shift %s queued for %s\n", isOpen ? "IN" : "OUT", uid.c_str());
+  Serial.printf("Tap queued for %s (eventId %s)\n", uid.c_str(), eventId.c_str());
   // Push the tap to the server immediately instead of waiting for the flush
-  // interval, so the app's claim resolves within a couple of seconds.
+  // interval, so the phone the person is holding hears back at once.
   if (WiFi.status() == WL_CONNECTED) flushShifts();
 }
 
@@ -214,12 +227,21 @@ void flushShifts() {
     doc["device_id"] = DEVICE_ID;
     JsonArray events = doc["events"].to<JsonArray>();
     int n = shiftCount < BATCH ? shiftCount : BATCH;
-    String ts = nowIso();
     for (int i = 0; i < n; i++) {
       JsonObject e = events.add<JsonObject>();
       e["staff_uid"] = shiftBuf[i].uid;
-      e["event"] = shiftBuf[i].event;
-      if (ts.length() > 0) e["ts"] = ts;
+      e["event"] = "next";  // the server decides IN vs OUT from attendance state
+      e["eventId"] = shiftBuf[i].eventId;
+      // Only send a timestamp when the clock was actually synced at tap time.
+      // The server treats a missing ts as "arrival = receipt time" rather
+      // than inventing an occurrence the phone never captured.
+      if (shiftBuf[i].capturedAt >= 1700000000) {
+        char buf[32];
+        struct tm t;
+        localtime_r(&shiftBuf[i].capturedAt, &t);
+        strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S%z", &t);
+        e["ts"] = String(buf);
+      }
     }
     String body;
     serializeJson(doc, body);
@@ -228,7 +250,15 @@ void flushShifts() {
       Serial.printf("AUTH FAILED %d on /shifts - check API_DEVICE_TOKEN\n", code);
       return;  // keep buffer, don't burn radio retrying a bad token
     }
-    if (code < 200 || code >= 300) return;  // server down: retry later
+    if (code >= 400 && code < 500) {
+      // The server refuses these taps permanently (bad payload, deactivated
+      // account...). Keeping them would repost them forever.
+      Serial.printf("Permanent rejection %d on /shifts - dropped %d events\n", code, n);
+      for (int i = n; i < shiftCount; i++) shiftBuf[i - n] = shiftBuf[i];
+      shiftCount -= n;
+      continue;
+    }
+    if (code < 200 || code >= 300) return;  // server down or 5xx: retry later
     for (int i = n; i < shiftCount; i++) shiftBuf[i - n] = shiftBuf[i];
     shiftCount -= n;
   }

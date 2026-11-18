@@ -28,9 +28,18 @@ restarts and are never duplicated when they sync (each sale carries a unique ID)
 3. Check the fields, pick the cart, then **Save expense (OCR)**.
 4. No camera on this device? Fill the form and use **Save as manual entry**.
 
-## Shift logging (RFID)
-Tap your RFID card on the white node box when you start and end your shift.
-The owner sees duty hours per cart automatically - no notebook needed.
+## Shift logging (two ways, one log)
+1. **RFID Tap** - tap your registered RFID card on the white node box when you
+   start and end your shift. With no card pending on the reader, the server
+   reads your attendance for today and records the right action (Time in if you
+   have not clocked in, Time out if you have, or a clear refusal when the
+   shift is already complete).
+2. **App Tap** - in Settings > Attendance, tap the **App Tap** button. Your
+   signed-in account records the attendance and the server stamps the time;
+   works only online.
+The owner sees duty hours per cart automatically - no notebook needed. Rows
+show how each tap was recorded (RFID, APP, or MANUAL). A tap while clocked in
+books your time out - the two methods can never create a double session.
 
 ## Stock checks
 Ask the owner for dashboard access, or check the stock screen on the POS -

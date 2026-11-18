@@ -585,15 +585,21 @@ router.get("/my-rfid", requireAuth, async (req, res, next) => {
 // jitter; a board that just unplugged reads offline promptly.
 const CLAIM_DEVICE_ONLINE_MS = 120 * 1000;
 async function deviceOnlineForLocation(locationId) {
+  const secs = await deviceLastSeenForLocation(locationId);
+  return secs != null && secs * 1000 < CLAIM_DEVICE_ONLINE_MS;
+}
+
+/** Seconds since the cart's reader last heartbeated, or null when never seen. */
+async function deviceLastSeenForLocation(locationId) {
   try {
     const device = await prisma.device.findFirst({
       where: { locationId, active: true },
       orderBy: { lastSeenAt: "desc" },
     });
-    if (!device?.lastSeenAt) return false;
-    return Date.now() - new Date(device.lastSeenAt).getTime() < CLAIM_DEVICE_ONLINE_MS;
+    if (!device?.lastSeenAt) return null;
+    return Math.round((Date.now() - new Date(device.lastSeenAt).getTime()) / 1000);
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -698,7 +704,8 @@ router.get("/my-rfid/claim/:claimId", requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: "Claim not found" });
     }
     const deviceOnline = await deviceOnlineForLocation(claim.locationId);
-    return res.json({ claim: { ...claimView(claim), deviceOnline } });
+    const lastSeen = await deviceLastSeenForLocation(claim.locationId);
+    return res.json({ claim: { ...claimView(claim), deviceOnline, readerLastSeenSeconds: lastSeen } });
   } catch (err) {
     return next(err);
   }

@@ -581,7 +581,7 @@ export default function StaffPage() {
                 { key: "staff", label: "Staff", skeletonWidth: "58%" },
                 { key: "cart", label: "Cart", width: 120, skeletonType: "badge" },
                 { key: "event", label: "Event", width: 100, skeletonType: "badge" },
-                { key: "source", label: "Source", width: 100, skeletonType: "badge" },
+                { key: "source", label: "Method", width: 100, skeletonType: "badge" },
                 { key: "punctuality", label: "Punctuality", width: 150, skeletonType: "badge" },
               ]}
             />
@@ -641,16 +641,16 @@ export default function StaffPage() {
                 },
                 {
                   key: "source",
-                  label: "Source",
+                  label: "Method",
                   width: 100,
                   render: (s) => {
-                    // The API never wrote a `source` field: a reader tap stores
-                    // the device id (e.g. esp32-cart-01) in deviceId, a manual
-                    // log stores "MANUAL". Derive the audit label from either.
-                    const isManual = (s.source ?? s.deviceId) === "MANUAL";
+                    // Server attaches `method` (RFID/APP/MANUAL); legacy rows
+                    // derive from the old deviceId heuristic.
+                    const method = s.method
+                      ?? ((s.source ?? s.deviceId) === "MANUAL" ? "MANUAL" : "RFID");
                     return (
-                      <Badge variant={isManual ? "danger" : "neutral"}>
-                        {isManual ? "MANUAL" : "RFID"}
+                      <Badge variant={method === "MANUAL" ? "danger" : method === "APP" ? "info" : "neutral"}>
+                        {method}
                       </Badge>
                     );
                   },

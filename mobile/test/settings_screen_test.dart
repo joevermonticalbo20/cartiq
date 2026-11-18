@@ -101,6 +101,16 @@ void main() {
     testWidgets('shows account, PIN, appearance, session sections', (
       tester,
     ) async {
+      // The attendance section pushes the session section below the fold of
+      // a phone-sized list — give the test a tall viewport so every section
+      // is built regardless of scroll position.
+      final previousSize = tester.view.physicalSize;
+      tester.view.physicalSize = const Size(800, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.physicalSize = previousSize;
+      });
+
       final store = _FakeStore();
       final auth = AuthState(
         apiClient: _FakeApi(store: store),

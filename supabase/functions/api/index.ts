@@ -1396,22 +1396,29 @@ function claimView(claim, now = Date.now()) {
 // allows 3 missed beats plus jitter. Mirrors api/src/routes/auth.js.
 const CLAIM_DEVICE_ONLINE_MS = 120 * 1000;
 async function claimDeviceOnline(locationId) {
+  const secs = await claimDeviceLastSeenSeconds(locationId);
+  return secs != null && secs * 1000 < CLAIM_DEVICE_ONLINE_MS;
+}
+
+/** Seconds since the cart's reader last heartbeated, or null when never seen. */
+async function claimDeviceLastSeenSeconds(locationId) {
   try {
-    // Query by locationId, then filter with Number() comparison so a
-    // string/number id mismatch can never read as offline.
     const rows = await fsQueryEqual("devices", "locationId", locationId, 5).catch(() => []);
     const wanted = Number(locationId);
     const candidates = rows.length ? rows : await fsListAll("devices").catch(() => []);
-    let fresh = false;
+    let best = null;
     for (const d of candidates) {
       if (d?.active === false) continue;
       if (!Number.isFinite(wanted) || Number(d?.locationId) !== wanted) continue;
       const t = d?.lastSeenAt instanceof Date ? d.lastSeenAt.getTime() : new Date(d?.lastSeenAt).getTime();
-      if (Number.isFinite(t) && Date.now() - t < CLAIM_DEVICE_ONLINE_MS) fresh = true;
+      if (Number.isFinite(t)) {
+        const secs = Math.round((Date.now() - t) / 1000);
+        if (best === null || secs < best) best = secs;
+      }
     }
-    return fresh;
+    return best;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -3282,6 +3289,42 @@ async function loadScheduleMapEdge() {
     // no schedules yet (or a transient read failure) — everyone unrestricted
   }
   return map;
+}
+
+// ---------- dual attendance (device tap, app tap, manual log) ----------
+// Mirror of api/src/services/attendance_core.js. One rule set for every
+// attendance entry point; both copies keep them in step.
+
+/**
+ * The next action from the person's attendance state today:
+ *   no IN yet          -> "IN";  IN without OUT -> "OUT";  both -> null.
+ */
+function resolveNextEventEdge(todays) {
+  let hasIn = false;
+  let hasOut = false;
+  for (const s of todays ?? []) {
+    if (s?.event === "IN") hasIn = true;
+    else if (s?.event === "OUT") hasOut = true;
+  }
+  if (hasIn && hasOut) {
+    return { action: null, reason: "Shift already complete for today." };
+  }
+  return { action: hasIn ? "OUT" : "IN" };
+}
+
+/** Method stored on rows (RFID/APP/MANUAL), with a legacy fallback. */
+function attendanceMethodEdge(row) {
+  const m = String(row?.method ?? "").toUpperCase();
+  if (m === "MANUAL" || m === "APP" || m === "RFID") return m;
+  return row?.deviceId === "MANUAL" ? "MANUAL" : "RFID";
+}
+
+/** Sanitize an idempotency key from the reader/sync layer (<=64 safe chars). */
+function cleanEventIdEdge(raw) {
+  const v = String(raw ?? "").trim();
+  if (!v || v.length > 64) return null;
+  if (!/^[A-Za-z0-9_.:-]+$/.test(v)) return null;
+  return v;
 }
 
 /** GET /staff/schedules — OWNER roster: every STAFF account + its schedule. */
@@ -6159,13 +6202,13 @@ async function handleDeviceShifts(req, _origin, device) {
     const bound = await bindClaimedTag({ rawUid: uid, locationId: location.id });
     const intent = classifyTap(bound);
     if (intent.kind === TAP_IGNORED) {
-      // Either nobody was waiting for this tap (no phone asked to clock in,
-      // clock out or register a card) or the claim was refused (the card
-      // belongs to somebody else, to another cart, or to nobody at all).
-      // Either way the tap records NOTHING: no shift row, no alert, no toast
-      // and no push. The app that opened the claim explains a refusal itself,
-      // and a stray tap is not news.
-      e._ignore = true;
+      // No claim pending at all: the reader can also be used as a bare clock
+      // ("state-driven" attendance, the same next action the app would pick),
+      // so a plain card tap signs the person in/out without opening the app.
+      // A REFUSED claim still records nothing - that intent failed in the app,
+      // the tap cannot undo it.
+      if (!bound) e._bare = true;
+      else e._ignore = true;
       if (bound) registrations.push(bound);
       continue;
     }
@@ -6188,6 +6231,18 @@ async function handleDeviceShifts(req, _origin, device) {
   const outcome = await withRetry(async () => {
     const accepted = [];
     const rejected = [];
+    // Idempotency guard for the reader's sync: a buffered offline tap that
+    // is re-posted after a 4xx/5xx/retry must never write a second shift.
+    const eventIdsInBatch = new Set();
+    for (const e of rows) {
+      const id = cleanEventIdEdge(e?.eventId ?? e?.event_id);
+      if (id) eventIdsInBatch.add(id);
+    }
+    const alreadyProcessed = new Set();
+    for (const id of eventIdsInBatch) {
+      const guard = await fsGet("shiftEvents", id).catch(() => null);
+      if (guard) alreadyProcessed.add(id);
+    }
     const [users, unknownAlerts, timeclockAlerts, recentShifts] = await Promise.all([
       fsListAll("users"),
       // Only recent unread alerts matter for the dedupe checks below.
@@ -6219,17 +6274,50 @@ async function handleDeviceShifts(req, _origin, device) {
     for (const e of rows) {
       const uid = String(e.staff_uid ?? "").trim();
       // A tap nobody asked for, or one whose claim was refused: it records
-      // nothing. Only a deliberate tap (a claim the person opened in the app)
-      // can become a shift.
+      // Nothing is skipped here: a bare tap (no claim) becomes state-driven
+      // attendance; a refused claim records nothing.
       if (e._ignore || e._registrationOnly) continue;
-      const event = String(e.event ?? "").toUpperCase();
-      if (!uid || uid.length > 64 || !SHIFT_EVENTS.includes(event)) {
-        rejected.push({ staff_uid: uid || null, event, reason: "invalid uid or event" });
+      const bare = e._bare === true;
+      const eventId = cleanEventIdEdge(e.eventId ?? e.event_id);
+      // The reader re-sends buffered offline taps until it gets a 2xx. A tap
+      // whose eventId was already processed is a no-op success.
+      if (eventId && alreadyProcessed.has(eventId)) {
+        accepted.push({ staff_uid: uid || null, event: String(e.event ?? "").toUpperCase() || "IN", matched: null, duplicate: true });
+        continue;
+      }
+      let event = String(e.event ?? "").toUpperCase();
+      if (!uid || uid.length > 64) {
+        rejected.push({ staff_uid: uid || null, event: bare ? "AUTO" : event, reason: "invalid uid" });
         continue;
       }
       const ts = e.ts ? new Date(e.ts) : new Date();
       if (!Number.isFinite(ts.getTime())) {
         rejected.push({ staff_uid: uid || null, event, reason: "invalid ts" });
+        continue;
+      }
+      if (bare) {
+        // State-driven: the method never decides IN vs OUT, the day does.
+        const probeUser = byUid.get(lookupUid(uid)) ?? null;
+        if (probeUser) {
+          const next = resolveNextEventEdge(
+            shiftsOfPersonOnDay(recentShifts, {
+              staffId: probeUser.id,
+              staffUid: uid,
+              dayKey: manilaDayKeyOf(ts),
+            }),
+          );
+          if (!next.action) {
+            rejected.push({ staff_uid: uid, event: "AUTO", reason: next.reason });
+            continue;
+          }
+          event = next.action;
+        } else {
+          // Unknown card: travel through the normal UNKNOWN_CARD path as IN.
+          event = "IN";
+        }
+      }
+      if (!SHIFT_EVENTS.includes(event)) {
+        rejected.push({ staff_uid: uid || null, event, reason: "invalid uid or event" });
         continue;
       }
       // Server-side backstop for the "Time in / Time out is greyed out in the
@@ -6268,6 +6356,28 @@ async function handleDeviceShifts(req, _origin, device) {
         continue;
       }
       const user = byUid.get(lookupUid(uid)) ?? null;
+      // A deactivated account is not bookable — a tap cannot revive it.
+      if (user && user.active === false) {
+        rejected.push({ staff_uid: uid, event, reason: "Staff account is deactivated." });
+        const dedupeKey = `inactive:${location.id}:${user.id}`;
+        const dup =
+          createdNeedles.has(dedupeKey) ||
+          unreadAlerts.some((a) => {
+            try {
+              return JSON.parse(a.payload ?? "{}")?.dedupeKey === dedupeKey;
+            } catch { /* fall through */ }
+            return false;
+          });
+        if (!dup) {
+          createdNeedles.add(dedupeKey);
+          newAlerts.push({
+            type: "TIMECLOCK_WINDOW",
+            message: `${event} blocked at ${location.code}: ${user.name}'s account is deactivated - no shift logged`,
+            payload: JSON.stringify({ dedupeKey, event, staffId: user.id, locationId: location.id, locationCode: location.code }),
+          });
+        }
+        continue;
+      }
       // A card belongs to the cart where it was enrolled: each cart has its
       // own team, so a card enrolled at CART-01 does not clock in at CART-02.
       // The tap is refused and no shift is written.
@@ -6328,7 +6438,7 @@ async function handleDeviceShifts(req, _origin, device) {
           continue;
         }
       }
-      plans.push({ uid, event, ts, user });
+      plans.push({ uid, event, ts, user, eventId, method: "RFID" });
       if (!user) {
         const dedupeKey = `unknown:${location.id}:${uid}`;
         const dup =
@@ -6360,6 +6470,7 @@ async function handleDeviceShifts(req, _origin, device) {
             staffId: user.id,
             staffUid: uid,
             event,
+            method: "RFID",
             locationId: location.id,
             locationCode: location.code,
             ts: ts.toISOString(),
@@ -6386,8 +6497,21 @@ async function handleDeviceShifts(req, _origin, device) {
         event: plan.event,
         ts: plan.ts,
         deviceId: device.deviceId,
+        method: plan.method,
+        receivedAt: now,
         uploadedAt: now,
       }));
+      // Mark this buffered tap as processed so a re-sync is a no-op.
+      if (plan.eventId) {
+        writes.push(createWrite("shiftEvents", plan.eventId, {
+          eventId: plan.eventId,
+          deviceId: device.deviceId,
+          locationId: location.id,
+          staffId: plan.user?.id ?? null,
+          event: plan.event,
+          at: now,
+        }));
+      }
     }
     newAlerts.forEach((a, i) => {
       a.id = ids.alerts[i];
@@ -6539,6 +6663,8 @@ async function handleManualShift(req) {
       event: ev,
       ts: at,
       deviceId: "MANUAL",
+      method: "MANUAL",
+      receivedAt: new Date(),
       uploadedAt: new Date(),
     };
     writes.push(createWrite("shifts", doc.id, doc));
@@ -6546,6 +6672,139 @@ async function handleManualShift(req) {
     return doc;
   }, 4);
   return { status: 201, body: { shift: cleanDoc(shift) } };
+}
+
+/** POST /shifts/self — STAFF "App Tap": own attendance, server-time, state-driven. */
+async function handleSelfShift(req, user) {
+  if (!user || String(user.role).toUpperCase() !== "STAFF") {
+    return { status: 403, body: { error: "Forbidden: staff accounts only" } };
+  }
+  if (user.active === false) {
+    return { status: 403, body: { error: "Staff account is deactivated." } };
+  }
+  const location = user.locationId ? await fsGet("locations", user.locationId).catch(() => null) : null;
+  if (!location) {
+    return { status: 403, body: { error: "No cart assigned yet - ask the owner to assign one." } };
+  }
+  if (String(location.status ?? "").toUpperCase() === "INACTIVE") {
+    return { status: 400, body: { error: "Cart is deactivated. Pick an active cart." } };
+  }
+  const now = new Date();
+  const recentShifts = await fsRunQuery("shifts", {
+    filters: [{ field: "ts", op: "GREATER_THAN_OR_EQUAL", value: manilaDayStart(0) }],
+    limit: 500,
+  }).catch(() => []);
+  const mine = shiftsOfPersonOnDay(
+    (recentShifts ?? []).filter((s) => Number(s.locationId) === Number(location.id)),
+    {
+      staffId: user.id,
+      staffUid: user.rfidUid ?? `APP-${user.id}`,
+      dayKey: manilaDayKeyOf(now),
+    },
+  );
+  const next = resolveNextEventEdge(mine);
+  if (!next.action) {
+    return { status: 409, body: { error: next.reason } };
+  }
+  const event = next.action;
+  const clock = await getTimeClock();
+  const verdict = timeClockVerdict(clock, event, now.getTime());
+  if (verdict) {
+    return { status: 403, body: { error: verdict, code: "TIMECLOCK_LOCKED" } };
+  }
+  const scheduleMap = await loadScheduleMapEdge();
+  const sVerdict = staffScheduleVerdict(scheduleMap.get(Number(user.id)) ?? null, now.getTime(), event);
+  if (sVerdict.scheduled && sVerdict.ok === false) {
+    return { status: 403, body: { error: sVerdict.reason, code: "SCHEDULE_LOCKED" } };
+  }
+  const result = await withRetry(async () => {
+    const counters = await readCounters(["shifts", "alerts"]);
+    const { ids, writes } = counterWritesFor(counters, { shifts: 1, alerts: 1 });
+    const ts = new Date();
+    const doc = {
+      id: ids.shifts[0],
+      staffUid: user.rfidUid ?? `APP-${user.id}`,
+      staffId: user.id,
+      staffName: user.name ?? null,
+      locationId: location.id,
+      event,
+      ts,
+      deviceId: "APP",
+      method: "APP",
+      receivedAt: ts,
+      uploadedAt: ts,
+    };
+    writes.push(createWrite("shifts", doc.id, doc));
+    const alertDoc = {
+      id: ids.alerts[0],
+      type: "SHIFT",
+      message: `${user.name} ${event === "OUT" ? "timed out" : "timed in"} at ${location.code}`,
+      payload: JSON.stringify({
+        staffId: user.id,
+        staffUid: user.rfidUid ?? `APP-${user.id}`,
+        event,
+        method: "APP",
+        locationId: location.id,
+        locationCode: location.code,
+        ts: ts.toISOString(),
+      }),
+      locationId: location.id,
+      locationCode: location.code,
+      isRead: false,
+      createdAt: ts,
+    };
+    writes.push(createWrite("alerts", alertDoc.id, alertDoc));
+    await fsCommit(writes);
+    // The attendance change also shows up live on the dashboard.
+    await broadcastEvent("alert:new", {
+      id: alertDoc.id,
+      type: alertDoc.type,
+      userId: null,
+      title: null,
+      message: alertDoc.message,
+      isRead: false,
+      createdAt: ts.toISOString(),
+      locationId: location.id,
+    }).catch(() => {});
+    return { shift: cleanDoc(doc), event, method: "APP" };
+  }, 4);
+  return { status: 201, body: result };
+}
+
+/** GET /device-status — staff-safe cart reader connectivity for the tap UI. */
+const DEVICE_STATUS_ONLINE_MS = 120 * 1000;
+async function handleDeviceStatus(req, url, user) {
+  let location = null;
+  if (String(user?.role ?? "").toUpperCase() === "OWNER") {
+    const code = String(url.searchParams.get("code") ?? "").trim().toUpperCase();
+    if (code) {
+      location = await fsQueryEqual("locations", "code", code, 1).then((r) => r[0] ?? null);
+    } else {
+      location = (await fsQueryEqual("locations", "status", "ACTIVE", 1).catch(() => []))[0] ?? null;
+    }
+    if (!location) return { status: 404, body: { error: "Cart not found" } };
+  } else {
+    const locationId = user?.locationId ?? null;
+    if (locationId == null) {
+      return { status: 200, body: { cart: null, status: "unavailable", lastSeenSeconds: null } };
+    }
+    location = await fsGet("locations", locationId).catch(() => null);
+  }
+  if (!location) return { status: 404, body: { error: "Cart not found" } };
+  const [device] = await fsQueryEqual("devices", "locationId", location.id, 1).catch(() => []);
+  const activeDevice = device && device.active === false ? null : device;
+  if (!activeDevice || !activeDevice.lastSeenAt) {
+    return { status: 200, body: { cart: location.code ?? null, status: "unavailable", lastSeenSeconds: null } };
+  }
+  const secs = Math.round((Date.now() - new Date(activeDevice.lastSeenAt).getTime()) / 1000);
+  return {
+    status: 200,
+    body: {
+      cart: location.code ?? null,
+      status: secs * 1000 < DEVICE_STATUS_ONLINE_MS ? "connected" : "offline",
+      lastSeenSeconds: secs,
+    },
+  };
 }
 
 // Shift logs are an append-only audit trail: the callers that used to edit or
@@ -6624,6 +6883,7 @@ async function handleShiftsHistory(url) {
       : entry === null
         ? { label: "Not scheduled", tone: "neutral" }
         : tapBadgeEdge(s.event, s.ts, entry);
+    c.method = attendanceMethodEdge(c);
     return c;
   });
   const _last = slice[slice.length - 1];
@@ -10651,7 +10911,8 @@ async function handleRfidClaimStatus(_req, origin, user, path) {
     return jsonRes(origin, { error: "Claim not found" }, 404);
   }
   const deviceOnline = await claimDeviceOnline(claim.locationId);
-  return jsonRes(origin, { claim: { ...claimView(claim), deviceOnline } });
+  const readerLastSeenSeconds = await claimDeviceLastSeenSeconds(claim.locationId);
+  return jsonRes(origin, { claim: { ...claimView(claim), deviceOnline, readerLastSeenSeconds } });
 }
 
 // ---------- events: ticket + poll stream (mirror api/src/routes/events.js) ----------
@@ -11287,6 +11548,7 @@ Deno.serve(async (req) => {
       if (path === "/shifts/manual" || path.startsWith("/shifts/") ||
           path === "/staff/on-shift" || path === "/readings/recent" ||
           path === "/staff/schedules" || path === "/staff/my-schedule" ||
+          path === "/device-status" ||
           /^\/staff\/\d+\/schedule$/.test(path)) {
         const auth = await authUser(req);
         if (!auth.user) return jsonRes(origin, auth.error.body, auth.error.status);
@@ -11295,6 +11557,12 @@ Deno.serve(async (req) => {
           const ownErr = requireOwner(auth.user);
           if (ownErr) return jsonRes(origin, ownErr.body, ownErr.status);
           out = await handleManualShift(req);
+        }
+        else if (req.method === "POST" && path === "/shifts/self") {
+          out = await handleSelfShift(req, auth.user);
+        }
+        else if (req.method === "GET" && path === "/device-status") {
+          out = await handleDeviceStatus(req, inUrl, auth.user);
         }
         else if ((req.method === "PATCH" || req.method === "DELETE") && /^\/shifts\/\d+$/.test(path)) {
           // Shift logs are append-only: refuse outright, for every role.
