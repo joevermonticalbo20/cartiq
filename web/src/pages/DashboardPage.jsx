@@ -30,6 +30,7 @@ import {
 
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
+import { addCartBreakdowns } from "../utils/analytics.js";
 import { useLiveList } from "../state/liveData.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
@@ -107,7 +108,10 @@ export default function DashboardPage() {
   const [sectionErrors, setSectionErrors] = useState({});
 
   const { data: cartList } = useLiveList("carts");
-  const locations = Array.isArray(cartList) ? cartList : [];
+  const locations = useMemo(
+    () => (Array.isArray(cartList) ? cartList : []),
+    [cartList]
+  );
   const [dateFilter, setDateFilter] = useState("");
   const [cartFilter, setCartFilter] = useState("");
 
@@ -151,19 +155,46 @@ export default function DashboardPage() {
       return base.includes("?") ? `${base}&${query}` : `${base}?${query}`;
     };
 
+    // The chart shows "All carts" by stacking one series per cart. The API
+    // returns per-cart keys only when asked for that cart, so fetch each active
+    // cart in parallel and merge the weekday series onto the aggregate.
+    const trendsRequest = cartFilter
+      ? api.get(buildQ("/analytics/trends?days=7", [cQ]))
+      : Promise.all([
+          api.get("/analytics/trends?days=7").catch(() => ({ data: null })),
+          ...locations
+            .filter((loc) => loc.status !== "INACTIVE" && loc.code)
+            .map(async (loc) => {
+              try {
+                const { data } = await api.get(`/analytics/trends?days=7&code=${encodeURIComponent(loc.code)}`);
+                if (data.location !== loc.code) {
+                  throw new Error(`Cart "${loc.code}" was not found.`);
+                }
+                return { code: loc.code, data };
+              } catch {
+                return { code: loc.code, data: null };
+              }
+            }),
+        ]).then(([aggregate, ...cartResults]) => ({
+          data: addCartBreakdowns(
+            aggregate.data,
+            cartResults.filter((result) => result.data)
+          ),
+        }));
+
     await Promise.all([
       settle("report", api.get(buildQ("/reports/daily", [dQ, cQ])), (r) => setReport(r.data)),
       settle("inventory", api.get("/inventory"), (r) => setInventory(r.data?.locations ?? [])),
       settle("staff", api.get("/staff/on-shift"), (r) => setOnShift(r.data?.on_shift ?? [])),
       settle("sales", api.get(buildQ("/orders?page=1&pageSize=5", [dQ, lQ])), (r) => setLatestSales(r.data?.data ?? [])),
-      settle("trends", api.get(buildQ("/analytics/trends?days=7", [cQ])).catch(() => ({ data: null })), (r) => setTrends(r.data)),
+      settle("trends", trendsRequest.catch(() => ({ data: null })), (r) => setTrends(r.data)),
       settle("prev", api.get(buildQ("/reports/daily", [prevQ, cQ])).catch(() => ({ data: null })), (r) => setPrev(r.data)),
     ]);
 
     setSectionErrors(errs);
     setLoading(false);
     schedule();
-  }, [dateFilter, cartFilter]);
+  }, [dateFilter, cartFilter, locations]);
 
   useEffect(() => {
     const timer = setTimeout(refresh, 0);
@@ -241,11 +272,14 @@ export default function DashboardPage() {
 
   // Map Weekly Sales Trend data for Recharts using real API data only
   const weeklyChartData = trends?.by_weekday || [];
-  
-  // Check if any cart has actual revenue breakdown in the returned weekday array
-  const hasCartBreakdown = !cartFilter && activeInventory.some((loc) => 
-    weeklyChartData.some((d) => d[loc.code] !== undefined)
-  );
+
+  // One stacked series per cart that actually returned a weekday series.
+  const breakdownCarts = cartFilter
+    ? []
+    : activeInventory.filter((loc) =>
+        weeklyChartData.some((d) => d[loc.code] !== undefined)
+      );
+  const hasCartBreakdown = breakdownCarts.length > 0;
 
   return (
     <PageErrorBoundary>
@@ -498,13 +532,16 @@ export default function DashboardPage() {
                         />
                         
                         {hasCartBreakdown ? (
-                          activeInventory.map((loc, idx) => (
+                          breakdownCarts.map((loc, idx) => (
                             <Bar 
                               key={loc.code} 
                               dataKey={loc.code} 
+                              name={loc.code}
                               stackId="a" 
                               fill={CHART_COLORS[idx % CHART_COLORS.length]}
-                              radius={idx === activeInventory.length - 1 ? [99, 99, 0, 0] : [0, 0, 0, 0]}
+                              stroke="var(--surface)"
+                              strokeWidth={2}
+                              radius={idx === breakdownCarts.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
                             />
                           ))
                         ) : (

@@ -273,6 +273,72 @@ describe("DashboardPage partial failure", () => {
   });
 });
 
+describe("DashboardPage weekly per-cart breakdown", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetLiveData();
+  });
+
+  it("fetches the weekly trend for every active cart when All carts is selected", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/locations") {
+        return Promise.resolve({
+          data: {
+            data: [
+              { id: 1, code: "CART-01", name: "One", status: "ACTIVE" },
+              { id: 2, code: "CART-02", name: "Two", status: "ACTIVE" },
+              { id: 3, code: "CART-03", name: "Old", status: "INACTIVE" },
+            ],
+          },
+        });
+      }
+      if (url.startsWith("/inventory")) {
+        return Promise.resolve({
+          data: {
+            locations: [
+              { id: 1, code: "CART-01", name: "One", items: [] },
+              { id: 2, code: "CART-02", name: "Two", items: [] },
+            ],
+          },
+        });
+      }
+      if (url.startsWith("/staff/on-shift")) return Promise.resolve({ data: { on_shift: [] } });
+      if (url.startsWith("/orders")) return Promise.resolve({ data: { data: [] } });
+      if (url.startsWith("/reports/daily")) {
+        return Promise.resolve({ data: { total_sales: 0, orders: 0 } });
+      }
+      if (url.includes("/analytics/trends")) {
+        const code = /code=([^&]+)/.exec(url)?.[1];
+        if (code) {
+          return Promise.resolve({
+            data: {
+              location: decodeURIComponent(code),
+              by_weekday: [{ dow: 0, label: "Sun", total_sales: 10 }],
+            },
+          });
+        }
+        return Promise.resolve({
+          data: {
+            total_sales: 20,
+            by_weekday: [{ dow: 0, label: "Sun", total_sales: 20 }],
+          },
+        });
+      }
+      return Promise.resolve({ data: null });
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      const urls = api.get.mock.calls.map((c) => String(c[0]));
+      expect(urls).toContain("/analytics/trends?days=7&code=CART-01");
+      expect(urls).toContain("/analytics/trends?days=7&code=CART-02");
+      // Deactivated carts must not be queried.
+      expect(urls.some((u) => u.includes("code=CART-03"))).toBe(false);
+    });
+  });
+});
+
 // Regression: the API honours `date` first and ignores `daysAgo`, so asking
 // for "yesterday" while also sending the selected date returned the SAME day.
 // Every "% vs prior" card then read 0.0% whenever a date filter was on.

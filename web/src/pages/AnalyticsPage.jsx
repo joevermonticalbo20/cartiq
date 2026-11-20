@@ -10,6 +10,7 @@ import {
 import { useNavigate, useOutletContext } from "react-router-dom";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
+import { addCartBreakdowns } from "../utils/analytics.js";
 import { useLiveList } from "../state/liveData.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
@@ -177,27 +178,6 @@ function analyticsQuery(dateWindow, code) {
   });
   if (code) params.set("code", code);
   return params.toString();
-}
-
-function addCartBreakdowns(aggregate, cartResults) {
-  if (!aggregate || cartResults.length === 0) return aggregate;
-  const dailyByCode = new Map();
-  const weekdaysByCode = new Map();
-  for (const { code, data } of cartResults) {
-    dailyByCode.set(code, new Map((data.daily_series ?? []).map((day) => [day.date, day.total_sales])));
-    weekdaysByCode.set(code, new Map((data.by_weekday ?? []).map((day) => [day.dow, day.total_sales])));
-  }
-  return {
-    ...aggregate,
-    daily_series: (aggregate.daily_series ?? []).map((day) => ({
-      ...day,
-      ...Object.fromEntries([...dailyByCode].map(([code, series]) => [code, series.get(day.date) ?? 0])),
-    })),
-    by_weekday: (aggregate.by_weekday ?? []).map((day) => ({
-      ...day,
-      ...Object.fromEntries([...weekdaysByCode].map(([code, series]) => [code, series.get(day.dow) ?? 0])),
-    })),
-  };
 }
 
 export default function AnalyticsPage() {
