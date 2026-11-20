@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import api, { readSessionToken, readRefreshToken, clearSession } from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
+import { prefetchDashboard, clearDashboardCache } from "../state/dashboardCache.js";
 import ConfirmDialog from "./ConfirmDialog.jsx";
 import { useLiveStream } from "../hooks/useLiveStream.js";
 import { useOrderNotifications } from "../hooks/useOrderNotifications.js";
@@ -117,6 +118,20 @@ export default function Layout() {
     loadProfile();
   }, [loadProfile]);
 
+  // Warm the Dashboard while the owner is still on another screen, so the
+  // page is already populated the moment they open it.
+  useEffect(() => {
+    if (!user) return undefined;
+    const run = () => prefetchDashboard();
+    const idle = typeof window.requestIdleCallback === "function"
+      ? window.requestIdleCallback(run, { timeout: 2000 })
+      : window.setTimeout(run, 1000);
+    return () => {
+      if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(idle);
+      else window.clearTimeout(idle);
+    };
+  }, [user]);
+
   useLayoutEffect(() => {
     setTimeout(() => setMobileOpen(false), 0);
   }, [location.pathname]);
@@ -159,6 +174,7 @@ export default function Layout() {
       }
     }
     clearSession();
+    clearDashboardCache();
     setConfirmingLogout(false);
     navigate("/login");
   }
@@ -200,6 +216,8 @@ export default function Layout() {
                   end
                   className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
                   title={label}
+                  onMouseEnter={to === "/dashboard" ? prefetchDashboard : undefined}
+                  onFocus={to === "/dashboard" ? prefetchDashboard : undefined}
                 >
                   <Icon size={19} strokeWidth={2.2} />
                   {showLabels && <span>{label}</span>}

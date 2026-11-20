@@ -32,6 +32,13 @@ import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import { addCartBreakdowns } from "../utils/analytics.js";
 import { useLiveList } from "../state/liveData.js";
+import {
+  getCachedTrends,
+  getCachedSnapshot,
+  cacheTrends,
+  cacheSnapshot,
+  hasCachedDashboardView,
+} from "../state/dashboardCache.js";
 import Badge from "../components/Badge.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
@@ -97,14 +104,18 @@ export default function DashboardPage() {
   const { user } = useOutletContext();
   const firstName = user?.name ? user.name.split(" ")[0] : "there";
 
-  const [report, setReport] = useState(null);
+  const [dateFilter, setDateFilter] = useState("");
+  const [cartFilter, setCartFilter] = useState("");
+  // Paint warmed data on the first render too — the shell may have prefetched
+  // this view before the user even opened the page.
+  const [report, setReport] = useState(() => getCachedSnapshot("", "")?.report ?? null);
   const [inventory, setInventory] = useState([]);
   const [onShift, setOnShift] = useState([]);
-  const [latestSales, setLatestSales] = useState([]);
+  const [latestSales, setLatestSales] = useState(() => getCachedSnapshot("", "")?.sales ?? []);
   const [, setAlerts] = useState([]);
-  const [trends, setTrends] = useState(null);
-  const [prev, setPrev] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [trends, setTrends] = useState(() => getCachedTrends(""));
+  const [prev, setPrev] = useState(() => getCachedSnapshot("", "")?.prev ?? null);
+  const [loading, setLoading] = useState(() => !hasCachedDashboardView("", ""));
   const [sectionErrors, setSectionErrors] = useState({});
 
   const { data: cartList } = useLiveList("carts");
@@ -112,8 +123,6 @@ export default function DashboardPage() {
     () => (Array.isArray(cartList) ? cartList : []),
     [cartList]
   );
-  const [dateFilter, setDateFilter] = useState("");
-  const [cartFilter, setCartFilter] = useState("");
 
   const sectionLabels = {
     report: "Sales",
@@ -127,11 +136,6 @@ export default function DashboardPage() {
   const [sseStatus, setSseStatus] = useState("connecting");
   const [livePulse, setLivePulse] = useState(0);
 
-  // Per-cart trend responses (and the merged All-carts view) so a filter
-  // switch paints the cached chart immediately, then revalidates in the
-  // background. The snapshot cache covers the cart-scoped KPIs and orders.
-  const trendsCache = useRef(new Map());
-  const snapshotCache = useRef(new Map());
   // Only the newest refresh may write state; a slow "All carts" response must
   // not land after a newer single-cart response.
   const requestSeq = useRef(0);
@@ -172,10 +176,9 @@ export default function DashboardPage() {
 
     // Paint the cached view for this filter before the network answers, so
     // All carts -> single cart (and back) switches instantly.
-    const cachedTrends = trendsCache.current.get(cartFilter);
+    const cachedTrends = getCachedTrends(cartFilter);
     if (cachedTrends) setTrends(cachedTrends);
-    const cacheKey = `${dateFilter}|${cartFilter}`;
-    const cachedSnapshot = snapshotCache.current.get(cacheKey);
+    const cachedSnapshot = getCachedSnapshot(dateFilter, cartFilter);
     if (cachedSnapshot) {
       if (cachedSnapshot.report !== undefined) setReport(cachedSnapshot.report);
       if (cachedSnapshot.prev !== undefined) setPrev(cachedSnapshot.prev);
@@ -198,7 +201,7 @@ export default function DashboardPage() {
                   throw new Error(`Cart "${loc.code}" was not found.`);
                 }
                 // Warm the single-cart cache while the All-carts view loads.
-                trendsCache.current.set(loc.code, data);
+                cacheTrends(loc.code, data);
                 return { code: loc.code, data };
               } catch {
                 return { code: loc.code, data: null };
@@ -209,7 +212,7 @@ export default function DashboardPage() {
             aggregate.data,
             cartResults.filter((result) => result.data)
           );
-          if (data) trendsCache.current.set("", data);
+          if (data) cacheTrends("", data);
           return { data };
         });
 
@@ -221,7 +224,7 @@ export default function DashboardPage() {
       settle("trends", trendsRequest.catch(() => ({ data: null })), (r) => {
         if (!r.data) return;
         setTrends(r.data);
-        trendsCache.current.set(cartFilter, r.data);
+        cacheTrends(cartFilter, r.data);
       }),
       settle("prev", api.get(buildQ("/reports/daily", [prevQ, cQ])).catch(() => ({ data: null })), (r) => setPrev(r.data)),
     ]);
@@ -229,11 +232,10 @@ export default function DashboardPage() {
     if (seq !== requestSeq.current) return;
 
     // Remember this filter's KPI payload so the next switch back is instant.
-    const previous = snapshotCache.current.get(cacheKey) ?? {};
-    snapshotCache.current.set(cacheKey, {
-      report: reportResult ? reportResult.data : previous.report,
-      prev: prevResult ? prevResult.data : previous.prev,
-      sales: salesResult ? salesResult.data?.data : previous.sales,
+    cacheSnapshot(dateFilter, cartFilter, {
+      report: reportResult ? reportResult.data : undefined,
+      prev: prevResult ? prevResult.data : undefined,
+      sales: salesResult ? salesResult.data?.data : undefined,
     });
 
     setSectionErrors(errs);
@@ -242,9 +244,9 @@ export default function DashboardPage() {
   }, [dateFilter, cartFilter, locations]);
 
   const applyCachedView = useCallback((nextDate, nextCart) => {
-    const cachedTrends = trendsCache.current.get(nextCart);
+    const cachedTrends = getCachedTrends(nextCart);
     if (cachedTrends) setTrends(cachedTrends);
-    const cachedSnapshot = snapshotCache.current.get(`${nextDate}|${nextCart}`);
+    const cachedSnapshot = getCachedSnapshot(nextDate, nextCart);
     if (cachedSnapshot) {
       if (cachedSnapshot.report !== undefined) setReport(cachedSnapshot.report);
       if (cachedSnapshot.prev !== undefined) setPrev(cachedSnapshot.prev);

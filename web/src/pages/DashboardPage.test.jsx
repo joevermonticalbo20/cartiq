@@ -18,6 +18,7 @@ vi.mock("../hooks/useSSE.js", () => ({
 
 import api from "../api.js";
 import { __resetLiveData } from "../state/liveData.js";
+import { __resetDashboardCache, cacheTrends, cacheSnapshot } from "../state/dashboardCache.js";
 import DashboardPage from "./DashboardPage.jsx";
 
 function renderPage() {
@@ -70,6 +71,7 @@ describe("DashboardPage Cart Status", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     __resetLiveData();
+    __resetDashboardCache();
   });
 
   it("hides a deactivated cart from the Cart Status section", async () => {
@@ -126,6 +128,7 @@ describe("DashboardPage partial failure", () => {
     // The live store is a module singleton (one fetch, shared by every
     // screen): each test starts from a clean slate.
     __resetLiveData();
+    __resetDashboardCache();
   });
 
   it("shows KPIs with no banner when everything succeeds", async () => {
@@ -277,6 +280,7 @@ describe("DashboardPage weekly per-cart breakdown", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     __resetLiveData();
+    __resetDashboardCache();
   });
 
   it("switches from All carts to a single cart from cached trends without waiting for the network", async () => {
@@ -345,6 +349,29 @@ describe("DashboardPage weekly per-cart breakdown", () => {
   });
 });
 
+describe("DashboardPage warm start", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetLiveData();
+    __resetDashboardCache();
+  });
+
+  it("paints warmed data on the first render without the loading skeleton", () => {
+    cacheTrends("", { location: "ALL", total_sales: 777, by_weekday: [] });
+    cacheSnapshot("", "", {
+      report: { total_sales: 777, orders: 9 },
+      prev: { total_sales: 700, orders: 8 },
+      sales: [],
+    });
+    api.get.mockImplementation(() => new Promise(() => {}));
+
+    renderPage();
+
+    expect(screen.queryByText("Syncing data...")).toBeNull();
+    expect(screen.getAllByText("P777").length).toBeGreaterThan(0);
+  });
+});
+
 // Regression: the API honours `date` first and ignores `daysAgo`, so asking
 // for "yesterday" while also sending the selected date returned the SAME day.
 // Every "% vs prior" card then read 0.0% whenever a date filter was on.
@@ -352,6 +379,7 @@ describe("DashboardPage previous period with a date filter", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     __resetLiveData();
+    __resetDashboardCache();
   });
 
   it("asks for the previous DAY, not the same day with daysAgo", async () => {
