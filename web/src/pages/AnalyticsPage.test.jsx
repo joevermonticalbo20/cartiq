@@ -191,6 +191,26 @@ describe("AnalyticsPage loading/error states", () => {
       expect(urls).toContain("/analytics/forecast?code=CART-01");
     });
   });
+  it("requests a sales forecast per cart and renders the cart comparison table", async () => {
+    mockApiAllOk();
+    renderPage();
+    await screen.findByText("Quick Summary");
+
+    await waitFor(() => {
+      expect(
+        calledUrls().some(
+          (u) => u.includes("/analytics/sales-forecast") && u.includes("code=CART-01")
+        )
+      ).toBe(true);
+    });
+
+    const section = document.querySelector("#section-revenue-fc");
+    expect(section).toBeTruthy();
+    expect(within(section).getByText("Next 7 days")).toBeInTheDocument();
+    expect(within(section).getByText("Previous 7 days")).toBeInTheDocument();
+    expect(within(section).getByText("CART-01")).toBeInTheDocument();
+    expect(within(section).getByText("All carts")).toBeInTheDocument();
+  });
 });
 
 describe("AnalyticsPage forecast honesty guards", () => {

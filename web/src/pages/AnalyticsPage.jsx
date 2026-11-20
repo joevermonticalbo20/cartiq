@@ -218,6 +218,8 @@ export default function AnalyticsPage() {
   const [profit, setProfit] = useState(null);
   const [hourly, setHourly] = useState(null);
   const [salesFc, setSalesFc] = useState(null);
+  // Per-cart expected-sales forecasts, for the All-carts comparison.
+  const [salesFcCarts, setSalesFcCarts] = useState([]);
 
   const [error, setError] = useState("");
   const [sectionErrors, setSectionErrors] = useState([]);
@@ -267,6 +269,23 @@ export default function AnalyticsPage() {
       .catch((requestError) => ({ data: null, error: requestError }));
     const hourlyRequest = optionalRequest(api.get(`/analytics/hourly?${currentQuery}`));
     const salesForecastRequest = optionalRequest(api.get(`/analytics/sales-forecast?${currentQuery}`));
+    // The chart needs each cart's own expected series so the All-carts view can
+    // compare carts instead of showing one aggregate line.
+    const salesForecastCartsRequest = !cartCode
+      ? Promise.all(
+          carts
+            .filter((cart) => cart.status !== "INACTIVE")
+            .map(async (cart) => {
+              try {
+                const query = analyticsQuery(dateWindow, cart.code);
+                const { data } = await api.get(`/analytics/sales-forecast?${query}`);
+                return { code: cart.code, data };
+              } catch (requestError) {
+                return { code: cart.code, error: requestError };
+              }
+            })
+        )
+      : Promise.resolve([]);
     const profitRequest = isOwner
       ? optionalRequest(api.get(`/analytics/profit?${currentQuery}`))
       : Promise.resolve({ data: null });
@@ -300,10 +319,11 @@ export default function AnalyticsPage() {
       previousTrendsRequest,
       hourlyRequest,
       salesForecastRequest,
+      salesForecastCartsRequest,
       profitRequest,
       cartTrendsRequest,
       forecastsRequest,
-    ]).then(([currentResponse, previousResponse, hourlyResult, salesForecastResult, profitResult, cartTrendResults, forecastResults]) => {
+    ]).then(([currentResponse, previousResponse, hourlyResult, salesForecastResult, salesForecastCartResults, profitResult, cartTrendResults, forecastResults]) => {
       if (!alive) return;
       setLoading(false);
       const currentData = currentResponse.data;
@@ -342,6 +362,7 @@ export default function AnalyticsPage() {
       setProfit(profitResult.data);
       setHourly(hourlyResult.data);
       setSalesFc(salesForecastResult.data);
+      setSalesFcCarts(salesForecastCartResults.filter((result) => !result.error));
       setSectionErrors(failedSections);
       setError("");
     }).catch((requestError) => {
@@ -353,6 +374,7 @@ export default function AnalyticsPage() {
       setProfit(null);
       setHourly(null);
       setSalesFc(null);
+      setSalesFcCarts([]);
       setSectionErrors([]);
       setError(getFriendlyError(requestError, "Unable to load analytics. Please try again."));
     });
@@ -467,19 +489,81 @@ export default function AnalyticsPage() {
     dowData.some((d) => d[loc.code] !== undefined)
   );
 
+  const forecastHorizon = Number(salesFc?.horizon_days) || 7;
   const isFcReady = salesFc && salesFc.data_sufficient && salesFc.forecast?.length > 0;
-  const forecastSeriesData = isFcReady ? salesFc.forecast : [];
-  const hasCartBreakdown_Forecast = !cartCode && activeInventory.some((loc) => 
-    forecastSeriesData.some((d) => d[loc.code] !== undefined)
-  );
+
+  // One row per cart for the All-carts comparison: expected total for the next
+  // horizon, matched against the last horizon days of actuals.
+  const forecastCartRows = useMemo(() => {
+    if (cartCode) return [];
+    return salesFcCarts
+      .map(({ code, data }) => ({
+        code,
+        sufficient: Boolean(data?.data_sufficient),
+        total: (data?.forecast ?? []).reduce(
+          (sum, row) => sum + (Number(row.expected_use) || 0),
+          0
+        ),
+      }))
+      .filter((row) => row.sufficient);
+  }, [salesFcCarts, cartCode]);
+
+  // Merge the per-cart expected series onto the aggregate dates so the chart can
+  // draw one dashed line per cart.
+  const forecastSeriesData = useMemo(() => {
+    if (!isFcReady) return [];
+    const byDate = new Map();
+    for (const row of salesFc.forecast) {
+      byDate.set(row.date, { date: row.date, expected_use: row.expected_use });
+    }
+    for (const { code, data } of salesFcCarts) {
+      if (!data?.data_sufficient) continue;
+      for (const row of data.forecast ?? []) {
+        const entry = byDate.get(row.date) ?? { date: row.date };
+        entry[code] = row.expected_use;
+        byDate.set(row.date, entry);
+      }
+    }
+    return [...byDate.values()];
+  }, [isFcReady, salesFc, salesFcCarts]);
+
+  const hasCartBreakdown_Forecast = !cartCode && forecastCartRows.length > 0;
 
   const totalExpectedSales = useMemo(() => {
     if (!isFcReady) return 0;
     return salesFc.forecast.reduce((sum, item) => sum + (Number(item.expected_use) || 0), 0);
   }, [isFcReady, salesFc]);
 
-  const expectedVariance = totalExpectedSales - totalRevenue;
-  const expectedVariancePct = totalRevenue > 0 ? (expectedVariance / totalRevenue) * 100 : 0;
+  // Actual revenue for the same length of time immediately before the forecast,
+  // per cart and in total. This keeps "vs past" apples-to-apples.
+  const pastWindowByCart = useMemo(() => {
+    const series = trends?.daily_series ?? [];
+    const window = series.slice(-Math.min(forecastHorizon, series.length));
+    const map = {};
+    for (const cart of activeInventory) {
+      map[cart.code] = window.reduce(
+        (sum, day) => sum + (Number(day[cart.code]) || 0),
+        0
+      );
+    }
+    return map;
+  }, [trends, activeInventory, forecastHorizon]);
+
+  const pastWindowTotal = useMemo(
+    () =>
+      (trends?.daily_series ?? [])
+        .slice(-Math.min(forecastHorizon, (trends?.daily_series ?? []).length))
+        .reduce((sum, day) => sum + (Number(day.total_sales) || 0), 0),
+    [trends, forecastHorizon]
+  );
+
+  const comparisonForecastTotal = forecastCartRows.length > 0
+    ? forecastCartRows.reduce((sum, row) => sum + row.total, 0)
+    : totalExpectedSales;
+  const expectedVariance = comparisonForecastTotal - pastWindowTotal;
+  const expectedVariancePct = pastWindowTotal > 0
+    ? (expectedVariance / pastWindowTotal) * 100
+    : null;
   const isVarianceUp = expectedVariance >= 0;
 
   const locationOptions = [
@@ -1229,18 +1313,23 @@ export default function AnalyticsPage() {
               <div className="analytics-section-header">
                 <div>
                   <h2 className="analytics-section-title"><span className="section-num" aria-hidden="true">5</span> Expected Sales</h2>
-                  <p className="analytics-section-sub">Expected daily revenue, next {salesFc?.horizon_days ?? 7} days</p>
+                  <p className="analytics-section-sub">Expected daily revenue, next {salesFc?.horizon_days ?? 7} days{!cartCode ? " · per cart" : ""}</p>
                 </div>
                 
                 {/* EXPECTED SALES VARIANCE CALCULATOR (Displayed only when All Carts is active) */}
                 {!cartCode && isFcReady && (
                   <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
                     <div style={{ fontSize: "var(--fs-lg)", fontWeight: "var(--fw-extrabold)", color: "var(--text)", lineHeight: 1 }}>
-                      P{totalExpectedSales.toLocaleString()}
+                      P{Math.round(comparisonForecastTotal).toLocaleString()}
                     </div>
-                    <Badge variant={isVarianceUp ? "ok" : "warn"}>
-                      {isVarianceUp ? "+" : ""}P{Math.abs(expectedVariance).toLocaleString()} ({isVarianceUp ? "+" : ""}{expectedVariancePct.toFixed(1)}%) vs Past
-                    </Badge>
+                    {expectedVariancePct != null && (
+                      <Badge variant={isVarianceUp ? "ok" : "warn"}>
+                        {isVarianceUp ? "+" : ""}P{Math.abs(Math.round(expectedVariance)).toLocaleString()} ({isVarianceUp ? "+" : ""}{expectedVariancePct.toFixed(1)}%) vs prev {forecastHorizon}d
+                      </Badge>
+                    )}
+                    <span className="muted small">
+                      Prev {forecastHorizon}d actual: P{Math.round(pastWindowTotal).toLocaleString()}
+                    </span>
                   </div>
                 )}
               </div>
@@ -1275,7 +1364,7 @@ export default function AnalyticsPage() {
                     <div
                       className="chart-container"
                       role="img"
-                      aria-label={`Area chart of forecast daily revenue for the next ${salesFc?.horizon_days ?? 7} days.`}
+                      aria-label={`Chart of forecast daily revenue per cart for the next ${salesFc?.horizon_days ?? 7} days.`}
                       style={{ opacity: isFcReady ? 1 : 0.4, pointerEvents: isFcReady ? "auto" : "none" }}
                     >
                       <ResponsiveContainer width="100%" height="100%">
@@ -1305,22 +1394,23 @@ export default function AnalyticsPage() {
                           <Tooltip content={isFcReady ? <CustomTooltip /> : null} />
                           
                           {hasCartBreakdown_Forecast ? (
-                            activeInventory.map((loc, idx) => (
-                              <Area
-                                key={loc.code}
-                                type="monotone"
-                                dataKey={loc.code}
-                                name={loc.code}
-                                stackId="1"
-                                stroke={CHART_COLORS[idx % CHART_COLORS.length]}
-                                strokeWidth={2}
-                                strokeDasharray="6 3"
-                                fill={CHART_COLORS[idx % CHART_COLORS.length]}
-                                fillOpacity={0.6}
-                                dot={false}
-                                activeDot={{ r: 4, fill: CHART_COLORS[idx % CHART_COLORS.length] }}
-                              />
-                            ))
+                            activeInventory
+                              .filter((loc) => forecastSeriesData.some((d) => d[loc.code] !== undefined))
+                              .map((loc, idx) => (
+                                <Area
+                                  key={loc.code}
+                                  type="monotone"
+                                  dataKey={loc.code}
+                                  name={loc.code}
+                                  stroke={CHART_COLORS[idx % CHART_COLORS.length]}
+                                  strokeWidth={2}
+                                  strokeDasharray="6 3"
+                                  fill={CHART_COLORS[idx % CHART_COLORS.length]}
+                                  fillOpacity={0.06}
+                                  dot={false}
+                                  activeDot={{ r: 4, fill: CHART_COLORS[idx % CHART_COLORS.length] }}
+                                />
+                              ))
                           ) : (
                             <Area
                               type="monotone"
@@ -1337,6 +1427,57 @@ export default function AnalyticsPage() {
                         </AreaChart>
                       </ResponsiveContainer>
                     </div>
+
+                    {hasCartBreakdown_Forecast && (
+                      <div className="table-wrap" style={{ marginTop: "var(--space-3)" }}>
+                        <table className="data compact">
+                          <thead>
+                            <tr>
+                              <th>Cart</th>
+                              <th className="t-right">Next {forecastHorizon} days</th>
+                              <th className="t-right">Previous {forecastHorizon} days</th>
+                              <th className="t-right">Change</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {forecastCartRows.map((row) => {
+                              const prev = pastWindowByCart[row.code] ?? 0;
+                              const pct = prev > 0 ? ((row.total - prev) / prev) * 100 : null;
+                              return (
+                                <tr key={row.code}>
+                                  <td><strong>{row.code}</strong></td>
+                                  <td className="t-right">P{Math.round(row.total).toLocaleString()}</td>
+                                  <td className="t-right">{prev > 0 ? `P${Math.round(prev).toLocaleString()}` : "—"}</td>
+                                  <td className="t-right">
+                                    {pct == null ? (
+                                      <span className="muted">—</span>
+                                    ) : (
+                                      <Badge variant={pct >= 0 ? "ok" : "danger"}>
+                                        {pct >= 0 ? "+" : ""}{pct.toFixed(1)}%
+                                      </Badge>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                            <tr>
+                              <td><strong>All carts</strong></td>
+                              <td className="t-right"><strong>P{Math.round(comparisonForecastTotal).toLocaleString()}</strong></td>
+                              <td className="t-right"><strong>{pastWindowTotal > 0 ? `P${Math.round(pastWindowTotal).toLocaleString()}` : "—"}</strong></td>
+                              <td className="t-right">
+                                {expectedVariancePct == null ? (
+                                  <span className="muted">—</span>
+                                ) : (
+                                  <Badge variant={isVarianceUp ? "ok" : "danger"}>
+                                    {isVarianceUp ? "+" : ""}{expectedVariancePct.toFixed(1)}%
+                                  </Badge>
+                                )}
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 );
               })()}
