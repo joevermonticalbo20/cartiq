@@ -1358,7 +1358,7 @@ export default function AnalyticsPage() {
                         <span> • excludes {salesFc.event_days_excluded.length} marked event day(s)</span>
                       )}
                       <span aria-hidden="true">-</span>
-                      <span>dashed line = forecast, not history.</span>
+                      <span>{hasCartBreakdown_Forecast ? "shaded areas = forecast, not history" : "dashed line = forecast, not history"}.</span>
                     </p>
                     
                     <div
@@ -1402,11 +1402,11 @@ export default function AnalyticsPage() {
                                   type="monotone"
                                   dataKey={loc.code}
                                   name={loc.code}
+                                  stackId="1"
                                   stroke={CHART_COLORS[idx % CHART_COLORS.length]}
-                                  strokeWidth={2}
-                                  strokeDasharray="6 3"
+                                  strokeWidth={1.5}
                                   fill={CHART_COLORS[idx % CHART_COLORS.length]}
-                                  fillOpacity={0.06}
+                                  fillOpacity={0.6}
                                   dot={false}
                                   activeDot={{ r: 4, fill: CHART_COLORS[idx % CHART_COLORS.length] }}
                                 />
