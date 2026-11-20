@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import {
   AlertTriangle,
@@ -127,8 +127,18 @@ export default function DashboardPage() {
   const [sseStatus, setSseStatus] = useState("connecting");
   const [livePulse, setLivePulse] = useState(0);
 
+  // Per-cart trend responses (and the merged All-carts view) so a filter
+  // switch paints the cached chart immediately, then revalidates in the
+  // background. The snapshot cache covers the cart-scoped KPIs and orders.
+  const trendsCache = useRef(new Map());
+  const snapshotCache = useRef(new Map());
+  // Only the newest refresh may write state; a slow "All carts" response must
+  // not land after a newer single-cart response.
+  const requestSeq = useRef(0);
+
   const refresh = useCallback(async () => {
     const startedAt = performance.now();
+    const seq = ++requestSeq.current;
     const schedule = () => {
       if (import.meta.env.DEV) {
         console.debug(`[perf] Dashboard refresh completed in ${Math.round(performance.now() - startedAt)}ms`);
@@ -138,9 +148,14 @@ export default function DashboardPage() {
     const errs = {};
     const settle = async (key, promise, apply) => {
       try {
-        apply(await promise);
+        const result = await promise;
+        if (seq === requestSeq.current) apply(result);
+        return result;
       } catch (err) {
-        errs[key] = getFriendlyError(err, "Couldn't load this section.");
+        if (seq === requestSeq.current) {
+          errs[key] = getFriendlyError(err, "Couldn't load this section.");
+        }
+        return undefined;
       }
     };
 
@@ -154,6 +169,18 @@ export default function DashboardPage() {
       if (!query) return base;
       return base.includes("?") ? `${base}&${query}` : `${base}?${query}`;
     };
+
+    // Paint the cached view for this filter before the network answers, so
+    // All carts -> single cart (and back) switches instantly.
+    const cachedTrends = trendsCache.current.get(cartFilter);
+    if (cachedTrends) setTrends(cachedTrends);
+    const cacheKey = `${dateFilter}|${cartFilter}`;
+    const cachedSnapshot = snapshotCache.current.get(cacheKey);
+    if (cachedSnapshot) {
+      if (cachedSnapshot.report !== undefined) setReport(cachedSnapshot.report);
+      if (cachedSnapshot.prev !== undefined) setPrev(cachedSnapshot.prev);
+      if (cachedSnapshot.sales !== undefined) setLatestSales(cachedSnapshot.sales);
+    }
 
     // The chart shows "All carts" by stacking one series per cart. The API
     // returns per-cart keys only when asked for that cart, so fetch each active
@@ -170,31 +197,70 @@ export default function DashboardPage() {
                 if (data.location !== loc.code) {
                   throw new Error(`Cart "${loc.code}" was not found.`);
                 }
+                // Warm the single-cart cache while the All-carts view loads.
+                trendsCache.current.set(loc.code, data);
                 return { code: loc.code, data };
               } catch {
                 return { code: loc.code, data: null };
               }
             }),
-        ]).then(([aggregate, ...cartResults]) => ({
-          data: addCartBreakdowns(
+        ]).then(([aggregate, ...cartResults]) => {
+          const data = addCartBreakdowns(
             aggregate.data,
             cartResults.filter((result) => result.data)
-          ),
-        }));
+          );
+          if (data) trendsCache.current.set("", data);
+          return { data };
+        });
 
-    await Promise.all([
+    const [reportResult, , , salesResult, , prevResult] = await Promise.all([
       settle("report", api.get(buildQ("/reports/daily", [dQ, cQ])), (r) => setReport(r.data)),
       settle("inventory", api.get("/inventory"), (r) => setInventory(r.data?.locations ?? [])),
       settle("staff", api.get("/staff/on-shift"), (r) => setOnShift(r.data?.on_shift ?? [])),
       settle("sales", api.get(buildQ("/orders?page=1&pageSize=5", [dQ, lQ])), (r) => setLatestSales(r.data?.data ?? [])),
-      settle("trends", trendsRequest.catch(() => ({ data: null })), (r) => setTrends(r.data)),
+      settle("trends", trendsRequest.catch(() => ({ data: null })), (r) => {
+        if (!r.data) return;
+        setTrends(r.data);
+        trendsCache.current.set(cartFilter, r.data);
+      }),
       settle("prev", api.get(buildQ("/reports/daily", [prevQ, cQ])).catch(() => ({ data: null })), (r) => setPrev(r.data)),
     ]);
+
+    if (seq !== requestSeq.current) return;
+
+    // Remember this filter's KPI payload so the next switch back is instant.
+    const previous = snapshotCache.current.get(cacheKey) ?? {};
+    snapshotCache.current.set(cacheKey, {
+      report: reportResult ? reportResult.data : previous.report,
+      prev: prevResult ? prevResult.data : previous.prev,
+      sales: salesResult ? salesResult.data?.data : previous.sales,
+    });
 
     setSectionErrors(errs);
     setLoading(false);
     schedule();
   }, [dateFilter, cartFilter, locations]);
+
+  const applyCachedView = useCallback((nextDate, nextCart) => {
+    const cachedTrends = trendsCache.current.get(nextCart);
+    if (cachedTrends) setTrends(cachedTrends);
+    const cachedSnapshot = snapshotCache.current.get(`${nextDate}|${nextCart}`);
+    if (cachedSnapshot) {
+      if (cachedSnapshot.report !== undefined) setReport(cachedSnapshot.report);
+      if (cachedSnapshot.prev !== undefined) setPrev(cachedSnapshot.prev);
+      if (cachedSnapshot.sales !== undefined) setLatestSales(cachedSnapshot.sales);
+    }
+  }, []);
+
+  const handleCartChange = useCallback((next) => {
+    applyCachedView(dateFilter, next);
+    setCartFilter(next);
+  }, [applyCachedView, dateFilter]);
+
+  const handleDateChange = useCallback((next) => {
+    applyCachedView(next, cartFilter);
+    setDateFilter(next);
+  }, [applyCachedView, cartFilter]);
 
   useEffect(() => {
     const timer = setTimeout(refresh, 0);
@@ -322,15 +388,15 @@ export default function DashboardPage() {
           </div>
           
           <div className="page-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
-            <Select value={cartFilter} onChange={setCartFilter} options={locationOptions} placeholder="All carts" />
+            <Select value={cartFilter} onChange={handleCartChange} options={locationOptions} placeholder="All carts" />
             <input
               type="date"
               value={dateFilter}
-              onChange={e => setDateFilter(e.target.value)}
+              onChange={e => handleDateChange(e.target.value)}
               style={{ height: '48px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', padding: '0 12px', background: 'var(--surface-alt)', color: 'var(--text)' }}
             />
             {(dateFilter || cartFilter) && (
-               <button className="danger-ghost small-btn" onClick={() => { setDateFilter(""); setCartFilter(""); }}>
+               <button className="danger-ghost small-btn" onClick={() => { applyCachedView("", ""); setDateFilter(""); setCartFilter(""); }}>
                   <X size={14} /> Clear
                </button>
             )}
@@ -542,6 +608,7 @@ export default function DashboardPage() {
                               stroke="var(--surface)"
                               strokeWidth={2}
                               radius={idx === breakdownCarts.length - 1 ? [99, 99, 0, 0] : [0, 0, 0, 0]}
+                              animationDuration={300}
                             />
                           ))
                         ) : (
@@ -549,6 +616,7 @@ export default function DashboardPage() {
                             dataKey="total_sales" 
                             fill="var(--primary)" 
                             radius={[99, 99, 0, 0]} 
+                            animationDuration={300}
                           />
                         )}
                       </BarChart>

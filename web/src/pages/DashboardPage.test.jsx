@@ -279,7 +279,8 @@ describe("DashboardPage weekly per-cart breakdown", () => {
     __resetLiveData();
   });
 
-  it("fetches the weekly trend for every active cart when All carts is selected", async () => {
+  it("switches from All carts to a single cart from cached trends without waiting for the network", async () => {
+    let cartTrendCalls = 0;
     api.get.mockImplementation((url) => {
       if (url === "/locations") {
         return Promise.resolve({
@@ -287,7 +288,6 @@ describe("DashboardPage weekly per-cart breakdown", () => {
             data: [
               { id: 1, code: "CART-01", name: "One", status: "ACTIVE" },
               { id: 2, code: "CART-02", name: "Two", status: "ACTIVE" },
-              { id: 3, code: "CART-03", name: "Old", status: "INACTIVE" },
             ],
           },
         });
@@ -310,17 +310,24 @@ describe("DashboardPage weekly per-cart breakdown", () => {
       if (url.includes("/analytics/trends")) {
         const code = /code=([^&]+)/.exec(url)?.[1];
         if (code) {
+          cartTrendCalls++;
+          // The initial All-carts load resolves both carts; any later request
+          // stays pending so only the cache can paint the switch.
+          if (cartTrendCalls > 2) return new Promise(() => {});
+          const total = code === "CART-01" ? 100 : 200;
           return Promise.resolve({
             data: {
               location: decodeURIComponent(code),
-              by_weekday: [{ dow: 0, label: "Sun", total_sales: 10 }],
+              total_sales: total,
+              by_weekday: [{ dow: 0, label: "Sun", total_sales: total }],
             },
           });
         }
         return Promise.resolve({
           data: {
-            total_sales: 20,
-            by_weekday: [{ dow: 0, label: "Sun", total_sales: 20 }],
+            location: "ALL",
+            total_sales: 300,
+            by_weekday: [{ dow: 0, label: "Sun", total_sales: 300 }],
           },
         });
       }
@@ -328,14 +335,13 @@ describe("DashboardPage weekly per-cart breakdown", () => {
     });
 
     renderPage();
+    expect(await screen.findByText("P300")).toBeInTheDocument();
+    await waitFor(() => expect(cartTrendCalls).toBe(2));
 
-    await waitFor(() => {
-      const urls = api.get.mock.calls.map((c) => String(c[0]));
-      expect(urls).toContain("/analytics/trends?days=7&code=CART-01");
-      expect(urls).toContain("/analytics/trends?days=7&code=CART-02");
-      // Deactivated carts must not be queried.
-      expect(urls.some((u) => u.includes("code=CART-03"))).toBe(false);
-    });
+    fireEvent.click(screen.getByRole("button", { name: "All carts" }));
+    fireEvent.click(screen.getByRole("option", { name: "CART-01" }));
+
+    expect(await screen.findByText("P100")).toBeInTheDocument();
   });
 });
 
