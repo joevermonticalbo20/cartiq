@@ -541,7 +541,7 @@ export default function DashboardPage() {
                               fill={CHART_COLORS[idx % CHART_COLORS.length]}
                               stroke="var(--surface)"
                               strokeWidth={2}
-                              radius={idx === breakdownCarts.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                              radius={idx === breakdownCarts.length - 1 ? [99, 99, 0, 0] : [0, 0, 0, 0]}
                             />
                           ))
                         ) : (
