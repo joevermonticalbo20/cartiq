@@ -72,7 +72,13 @@ describe("GcashApprovalsPage", () => {
     );
   });
 
-  it("decline requires a valid note and sends decision reject with it", async () => {
+  it("shows a table skeleton while approvals are loading", () => {
+    api.get.mockReturnValue(new Promise(() => {}));
+    renderPage();
+    expect(screen.getByRole("region", { name: "Loading GCash approvals" })).toBeInTheDocument();
+  });
+
+  it("decline allows choosing a preset reason", async () => {
     renderPage();
     expect(await screen.findByText("#9")).toBeInTheDocument();
 
@@ -80,8 +86,28 @@ describe("GcashApprovalsPage", () => {
     const confirm = await screen.findByRole("button", { name: "Decline payment" });
     expect(confirm).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText(/decline reason/i), {
-      target: { value: "GCash transaction not found in my app, declining" },
+    fireEvent.click(screen.getByRole("radio", { name: "Transaction not found in GCash account" }));
+    expect(confirm).not.toBeDisabled();
+
+    fireEvent.click(confirm);
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith(
+        "/orders/9/gcash-decision",
+        { decision: "reject", note: "Transaction not found in GCash account" },
+      ),
+    );
+  });
+
+  it("allows entering a specific GCash decline reason", async () => {
+    renderPage();
+    expect(await screen.findByText("#9")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Decline$/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "Other / type a specific reason" }));
+
+    const confirm = await screen.findByRole("button", { name: "Decline payment" });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(screen.getByRole("textbox", { name: "Specific reason" }), {
+      target: { value: "Transaction reference does not match" },
     });
     expect(confirm).not.toBeDisabled();
 
@@ -89,7 +115,7 @@ describe("GcashApprovalsPage", () => {
     await waitFor(() =>
       expect(api.patch).toHaveBeenCalledWith(
         "/orders/9/gcash-decision",
-        { decision: "reject", note: "GCash transaction not found in my app, declining" },
+        { decision: "reject", note: "Transaction reference does not match" },
       ),
     );
   });
@@ -98,5 +124,23 @@ describe("GcashApprovalsPage", () => {
     api.get.mockResolvedValue({ data: { data: [], meta: { total: 0 } } });
     renderPage();
     expect(await screen.findByText("No GCash payments waiting")).toBeInTheDocument();
+  });
+
+  it("bulk confirms selected GCash payments below the table", async () => {
+    renderPage();
+    expect(await screen.findByText("#9")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select GCash payment for order 9" }));
+    expect(screen.getByText("1 of 1 selected")).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Confirm selected" })[0]);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Confirm selected" })).at(-1));
+
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith(
+        "/orders/9/gcash-decision",
+        { decision: "confirm" },
+      ),
+    );
   });
 });

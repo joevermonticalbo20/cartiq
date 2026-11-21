@@ -1,3 +1,4 @@
+import CharacterCountInput from "../components/CharacterCountInput.jsx";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import {
@@ -1715,7 +1716,7 @@ export default function SettingsPage() {
                       </label>
                       <div className="settings-pw-input">
                         <Lock size={16} className="settings-pw-input-icon" aria-hidden="true" />
-                        <input
+                        <CharacterCountInput
                           id="settings-pw-current"
                           type={showPw.current ? "text" : "password"}
                           value={pw.current}
@@ -1756,7 +1757,7 @@ export default function SettingsPage() {
                         </button>
                       </div>
                       <div className="settings-pw-input settings-pw-code-input">
-                        <input
+                        <CharacterCountInput
                           id="settings-pw-code"
                           value={pw.code}
                           onChange={(e) => {
@@ -1837,7 +1838,7 @@ export default function SettingsPage() {
                       </label>
                       <div className="settings-pw-input">
                         <KeyRound size={16} className="settings-pw-input-icon" aria-hidden="true" />
-                        <input
+                        <CharacterCountInput
                           id="settings-pw-next"
                           type={showPw.next ? "text" : "password"}
                           value={pw.next}
@@ -1873,7 +1874,7 @@ export default function SettingsPage() {
                       </label>
                       <div className="settings-pw-input">
                         <KeyRound size={16} className="settings-pw-input-icon" aria-hidden="true" />
-                        <input
+                        <CharacterCountInput
                           id="settings-pw-confirm"
                           type={showPw.confirm ? "text" : "password"}
                           value={pw.confirm}
@@ -2631,7 +2632,7 @@ export default function SettingsPage() {
               <form onSubmit={saveEmail} className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
                 <label className="field">
                   Email address
-                  <input
+                  <CharacterCountInput
                     type="email"
                     required
                     autoComplete="email"
@@ -2648,7 +2649,7 @@ export default function SettingsPage() {
                 <label className="field">
                   Verification code
                   <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                    <input
+                    <CharacterCountInput
                       required
                       value={emailForm.code}
                       onChange={(e) => {
@@ -2706,7 +2707,7 @@ export default function SettingsPage() {
                 <label className="field">
                   Current password
                   <div style={{ position: "relative" }}>
-                    <input
+                    <CharacterCountInput
                       type={showEmailPw ? "text" : "password"}
                       required
                       autoComplete="current-password"
@@ -2749,7 +2750,7 @@ export default function SettingsPage() {
               <form onSubmit={createStaff} noValidate className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
                 <label className="field">
                   Full name *
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     required
                     ref={staffNameRef}
                     value={newStaff.name}
@@ -2773,7 +2774,7 @@ export default function SettingsPage() {
                 </label>
                 <label className="field">
                   Username *
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     required
                     ref={staffUsernameRef}
                     value={newStaff.username}
@@ -2799,7 +2800,7 @@ export default function SettingsPage() {
                 <label className="field">
                   Password * (min 8)
                   <div style={{ position: "relative" }}>
-                    <input spellCheck={false} 
+                    <CharacterCountInput spellCheck={false}
                       required
                       minLength={8}
                       type={showNewStaffPw ? "text" : "password"}
@@ -2830,7 +2831,7 @@ export default function SettingsPage() {
                   />
                 </label>                <label className="field">
                   RFID UID (optional)
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     placeholder="e.g. 04A2B3C4"
                     value={newStaff.rfidUid}
                     onChange={(e) => setNewStaff({ ...newStaff, rfidUid: e.target.value })}
@@ -2839,7 +2840,7 @@ export default function SettingsPage() {
                 </label>
                 <label className="field">
                   Recovery email (optional - enables password reset)
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     type="email"
                     placeholder="staff@example.com"
                     value={newStaff.email}
@@ -2891,7 +2892,7 @@ export default function SettingsPage() {
               <form onSubmit={createAdmin} noValidate className="flex flex-col gap-3">
                 <label className="field">
                   Full name *
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     required
                     ref={adminNameRef}
                     value={newAdmin.name}
@@ -2916,7 +2917,7 @@ export default function SettingsPage() {
                 </label>
                 <label className="field">
                   Username *
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     required
                     ref={adminUsernameRef}
                     value={newAdmin.username}
@@ -2942,7 +2943,7 @@ export default function SettingsPage() {
                 <label className="field">
                   Password * (min 8)
                   <div style={{ position: "relative" }}>
-                    <input spellCheck={false} 
+                    <CharacterCountInput spellCheck={false}
                       required
                       minLength={8}
                       type={showNewAdminPw ? "text" : "password"}
@@ -2964,7 +2965,7 @@ export default function SettingsPage() {
                 </label>
                 <label className="field">
                   Recovery email (optional — lets them reset their own password)
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     type="email"
                     placeholder="owner@example.com"
                     value={newAdmin.email}
@@ -3012,7 +3013,7 @@ export default function SettingsPage() {
               <form onSubmit={handleEditAdmin} noValidate className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
                 <label className="field">
                   Full name *
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     required
                     ref={editAdminNameRef}
                     value={adminEditing?.name || ""}
@@ -3037,7 +3038,7 @@ export default function SettingsPage() {
                 </label>
                 <label className="field">
                   Username *
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     required
                     ref={editAdminUsernameRef}
                     value={adminEditing?.username || ""}
@@ -3062,7 +3063,7 @@ export default function SettingsPage() {
                 </label>
                 <label className="field">
                   Recovery email (optional — lets them reset their own password)
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     type="email"
                     placeholder={`${adminEditing?.username || "admin"}@cartiq.local`}
                     value={adminEditing?.email || ""}
@@ -3110,7 +3111,7 @@ export default function SettingsPage() {
               <form onSubmit={handleEditStaff} noValidate className="flex flex-col gap-3" style={{ marginTop: "var(--space-3)" }}>
                 <label className="field">
                   Full name *
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     required
                     ref={editStaffNameRef}
                     value={staffEditing?.name || ""}
@@ -3153,7 +3154,7 @@ export default function SettingsPage() {
                 </label>
                 <label className="field">
                   RFID UID (optional)
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     placeholder="e.g. 04A2B3C4"
                     value={staffEditing?.rfidUid || ""}
                     onChange={(e) => setStaffEditing({ ...staffEditing, rfidUid: e.target.value })}
@@ -3169,7 +3170,7 @@ export default function SettingsPage() {
                 </label>
                 <label className="field">
                   Recovery email (optional - enables password reset)
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     type="email"
                     placeholder={`${staffEditing?.username ?? "staff"}@cartiq.local`}
                     value={staffEditing?.email || ""}
@@ -3276,7 +3277,7 @@ export default function SettingsPage() {
               <label className="field" style={{ marginTop: "var(--space-3)" }}>
                 New temporary password
                 <div style={{ position: "relative" }}>
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     autoFocus
                     type={showResetPw ? "text" : "password"}
                     value={resetPw}
@@ -3360,7 +3361,7 @@ export default function SettingsPage() {
               <form onSubmit={handleAddDevice} className="flex flex-col gap-3">
                 <label className="field">
                   Device ID (e.g. ESP32-A1B2) *
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     required
                     value={newDevice.deviceId}
                     onChange={(e) => setNewDevice({ ...newDevice, deviceId: e.target.value })}
@@ -3444,7 +3445,7 @@ export default function SettingsPage() {
               <form onSubmit={createCart} className="flex flex-col gap-4">
                 <label className="field">
                   Cart Code
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     type="text"
                     required
                     minLength={3}
@@ -3459,7 +3460,7 @@ export default function SettingsPage() {
                 
                 <label className="field">
                   Cart Name
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     type="text"
                     required
                     minLength={2}
@@ -3483,7 +3484,7 @@ export default function SettingsPage() {
 
                 <label className="field">
                   Address (Optional)
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     type="text"
                     maxLength={CART_ADDRESS_MAX}
                     placeholder="e.g. Sta. Cruz, Laguna"
@@ -3595,7 +3596,7 @@ export default function SettingsPage() {
               <form onSubmit={handleEditCart} className="flex flex-col gap-4" style={{ marginTop: "var(--space-3)" }}>
                 <label className="field">
                   Cart Name
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     type="text"
                     required
                     minLength={2}
@@ -3619,7 +3620,7 @@ export default function SettingsPage() {
 
                 <label className="field">
                   Address (Optional)
-                  <input spellCheck={false} 
+                  <CharacterCountInput spellCheck={false}
                     type="text"
                     maxLength={CART_ADDRESS_MAX}
                     placeholder="e.g. Sta. Cruz, Laguna"

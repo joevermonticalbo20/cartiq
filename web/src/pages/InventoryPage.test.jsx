@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, within, act } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route, Outlet } from "react-router-dom";
 import { ToastProvider } from "../components/Toast.jsx";
 import { LIVE_EVENTS, __emitLiveEvent } from "../hooks/useLiveStream.js";
@@ -73,6 +74,17 @@ describe("Add Item modal - numeric fields", () => {
     expect(dialog?.textContent).toContain("Add Item");
     return dialog;
   }
+
+  it("limits the Add Item name to 30 characters", async () => {
+    const dialog = await openAddItemModal();
+    const name = dialog.querySelector('input[placeholder="e.g. Cheese Powder"]');
+
+    expect(name).toHaveAttribute("maxLength", "30");
+    await userEvent.type(name, "a".repeat(31));
+
+    expect(name).toHaveValue("a".repeat(30));
+    expect(within(dialog).getByText("30/30")).toBeInTheDocument();
+  });
 
   it("refuses letters, including e and E, in Initial Stock", async () => {
     const dialog = await openAddItemModal();

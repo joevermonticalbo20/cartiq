@@ -1,6 +1,7 @@
+import CharacterCountInput from "../components/CharacterCountInput.jsx";
 import { useEffect, useState, useCallback } from "react";
 import { useOutletContext } from "react-router-dom";
-import { Trophy, Plus, Clock, Calendar, CalendarDays, Pencil, Copy, Eraser, CalendarCheck, FileText, Download } from "lucide-react";
+import { Trophy, Plus, Clock, Calendar, CalendarDays, Pencil, Copy, Eraser, CalendarCheck, FileText, Download, Search, ChevronDown } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
 import Badge from "../components/Badge.jsx";
@@ -8,6 +9,7 @@ import { usePagedData } from "../hooks/usePagedData.js";
 import { LIVE_EVENTS, useLiveEvent } from "../hooks/useLiveStream.js";
 import { useLiveList } from "../state/liveData.js";
 import DataTable from "../components/DataTable.jsx";
+import Pagination from "../components/Pagination.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
 import { TableSkeleton } from "../components/Skeleton.jsx";
@@ -48,6 +50,7 @@ function csvEscape(value) {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 const csvRow = (cols) => cols.map(csvEscape).join(",");
+const SCHEDULES_PER_PAGE = 6;
 
 export default function StaffPage() {
   const toast = useToast();
@@ -61,6 +64,9 @@ export default function StaffPage() {
 
   // Weekly staff schedules (OWNER): the roster the time clock honors.
   const [schedules, setSchedules] = useState(null);
+  const [scheduleSearch, setScheduleSearch] = useState("");
+  const [schedulePage, setSchedulePage] = useState(1);
+  const [expandedSchedules, setExpandedSchedules] = useState(() => new Set());
   const [schedLoading, setSchedLoading] = useState(true);
   const [schedError, setSchedError] = useState("");
   const [editStaff, setEditStaff] = useState(null); // staff row being edited, or null
@@ -90,6 +96,27 @@ export default function StaffPage() {
   const staffList = Array.isArray(staffAll)
     ? staffAll.filter((s) => s.role !== "OWNER" && s.active)
     : [];
+  const scheduleRows = Array.isArray(schedules) ? schedules : [];
+  const normalizedScheduleSearch = scheduleSearch.trim().toLowerCase();
+  const filteredScheduleRows = scheduleRows.filter((row) =>
+    `${row.name ?? ""} ${row.username ?? ""} ${row.locationCode ?? ""}`
+      .toLowerCase()
+      .includes(normalizedScheduleSearch)
+  );
+  const schedulePageCount = Math.max(1, Math.ceil(filteredScheduleRows.length / SCHEDULES_PER_PAGE));
+  const currentSchedulePage = Math.min(schedulePage, schedulePageCount);
+  const visibleScheduleRows = filteredScheduleRows.slice(
+    (currentSchedulePage - 1) * SCHEDULES_PER_PAGE,
+    currentSchedulePage * SCHEDULES_PER_PAGE
+  );
+  const toggleSchedule = (staffId) => {
+    setExpandedSchedules((previous) => {
+      const next = new Set(previous);
+      if (next.has(staffId)) next.delete(staffId);
+      else next.add(staffId);
+      return next;
+    });
+  };
 
   // --- NEW STATES FOR MANUAL ENTRY & EDIT ---
   const [addOpen, setAddOpen] = useState(false);
@@ -541,7 +568,7 @@ export default function StaffPage() {
                   <CalendarDays size={20} className="muted" /> Staff Schedules
                 </h3>
                 <p className="muted small" style={{ margin: "4px 0 0" }}>
-                  The weekly roster the time clock and the card reader honor — time in/out is refused outside it.
+                  The time clock and card reader follow these weekly rosters.
                 </p>
               </div>
               {!schedLoading && !schedError && Array.isArray(schedules) && (
@@ -573,57 +600,119 @@ export default function StaffPage() {
                 subtitle="Create staff accounts in Settings, then set their weekly roster here."
               />
             ) : (
-              <div className="schedule-cards">
-                {schedules.map((row) => (
-                  <article
-                    key={row.id}
-                    className={`schedule-card${row.active === false ? " schedule-card-inactive" : ""}${row.schedule ? "" : " schedule-card-empty"}`}
-                  >
-                    <header className="schedule-card-head">
-                      <span className="staff-avatar schedule-avatar">{initials(row.name)}</span>
-                      <div className="flex flex-col" style={{ minWidth: 0 }}>
-                        <strong className="flex items-center gap-2">
-                          {row.name}
-                          {row.active === false && <Badge variant="danger">Inactive</Badge>}
-                        </strong>
-                        <span className="muted small">@{row.username}{row.locationCode ? ` · ${row.locationCode}` : ""}</span>
-                      </div>
-                      <span className="schedule-card-status">
-                        <Badge variant={row.schedule ? "ok" : "neutral"}>
-                          {row.schedule ? "Scheduled" : "No schedule"}
-                        </Badge>
-                      </span>
-                    </header>
+              <>
+                {scheduleRows.length > SCHEDULES_PER_PAGE && (
+                  <label className="schedule-search">
+                    <Search size={16} aria-hidden="true" />
+                    <CharacterCountInput
+                      type="search"
+                      aria-label="Search staff schedules"
+                      placeholder="Search name, username, or cart"
+                      value={scheduleSearch}
+                      onChange={(event) => {
+                        setScheduleSearch(event.target.value);
+                        setSchedulePage(1);
+                      }}
+                    />
+                  </label>
+                )}
+                {filteredScheduleRows.length === 0 ? (
+                  <EmptyState
+                    icon={Search}
+                    title="No staff match that search."
+                    subtitle="Try a different name, username, or cart."
+                  />
+                ) : (
+                  <>
+                    <div className="schedule-cards">
+                      {visibleScheduleRows.map((row) => {
+                        const isExpanded = expandedSchedules.has(row.id);
+                        const scheduleDetailsId = `schedule-week-${row.id}`;
+                        return (
+                          <article
+                            key={row.id}
+                            className={`schedule-card${row.active === false ? " schedule-card-inactive" : ""}${row.schedule ? "" : " schedule-card-empty"}`}
+                          >
+                            <header className="schedule-card-head">
+                              <span className="staff-avatar schedule-avatar">{initials(row.name)}</span>
+                              <div className="flex flex-col schedule-card-person">
+                                <strong className="flex items-center gap-2">
+                                  {row.name}
+                                  {row.active === false && <Badge variant="danger">Inactive</Badge>}
+                                </strong>
+                                <span className="muted small">@{row.username}{row.locationCode ? ` · ${row.locationCode}` : ""}</span>
+                              </div>
+                              <span className="schedule-card-status">
+                                <Badge variant={row.schedule ? "ok" : "neutral"}>
+                                  {row.schedule ? "Scheduled" : "No schedule"}
+                                </Badge>
+                              </span>
+                              <div className="schedule-card-actions">
+                                <button
+                                  type="button"
+                                  className="small-btn ghost schedule-expand"
+                                  aria-expanded={isExpanded}
+                                  aria-controls={scheduleDetailsId}
+                                  onClick={() => toggleSchedule(row.id)}
+                                >
+                                  {isExpanded ? "Hide week" : "View week"}
+                                  <ChevronDown size={14} className={isExpanded ? "is-open" : ""} />
+                                </button>
+                                <button type="button" className="small-btn ghost" onClick={() => openScheduleEditor(row)}>
+                                  <Pencil size={13} /> Edit
+                                </button>
+                              </div>
+                            </header>
 
-                    <div className="schedule-week" aria-label={`Weekly roster of ${row.name}`}>
-                      {(row.schedule?.days ?? new Array(7).fill(null)).map((d, i) => (
-                        <div key={i} className={`schedule-day${d ? "" : " off"}`}>
-                          <span className="schedule-day-label">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][i]}</span>
-                          {d ? (
-                            <span className="schedule-day-times">
-                              <span className="schedule-day-in">{to12h(d.start)}</span>
-                              <span className="schedule-day-out">{to12h(d.end)}</span>
-                            </span>
-                          ) : (
-                            <span className="schedule-day-off">Off</span>
-                          )}
-                        </div>
-                      ))}
+                            {isExpanded && (
+                              <div className="schedule-card-details" id={scheduleDetailsId}>
+                                <div className="schedule-week" aria-label={`Weekly roster of ${row.name}`}>
+                                  {(row.schedule?.days ?? new Array(7).fill(null)).map((d, i) => (
+                                    <div key={i} className={`schedule-day${d ? "" : " off"}`}>
+                                      <span className="schedule-day-label">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][i]}</span>
+                                      {d ? (
+                                        <span className="schedule-day-times">
+                                          <span className="schedule-day-in">
+                                            <span className="schedule-day-time-label">IN</span>
+                                            {to12h(d.start)}
+                                          </span>
+                                          <span className="schedule-day-out">
+                                            <span className="schedule-day-time-label">OUT</span>
+                                            {to12h(d.end)}
+                                          </span>
+                                        </span>
+                                      ) : (
+                                        <span className="schedule-day-off">Off</span>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                                <footer className="schedule-card-foot">
+                                  <span className="muted small schedule-audit">
+                                    {row.schedule?.updatedByName
+                                      ? `Edited by ${row.schedule.updatedByName}${row.schedule.updatedAt ? ` · ${new Date(row.schedule.updatedAt).toLocaleString([], { month: "short", day: "numeric" })}` : ""}`
+                                      : "No changes yet"}
+                                  </span>
+                                </footer>
+                              </div>
+                            )}
+                          </article>
+                        );
+                      })}
                     </div>
-
-                    <footer className="schedule-card-foot">
-                      <span className="muted small schedule-audit">
-                        {row.schedule?.updatedByName
-                          ? `Edited by ${row.schedule.updatedByName}${row.schedule.updatedAt ? ` · ${new Date(row.schedule.updatedAt).toLocaleString([], { month: "short", day: "numeric" })}` : ""}`
-                          : "No changes yet"}
-                      </span>
-                      <button type="button" className="small-btn ghost" onClick={() => openScheduleEditor(row)}>
-                        <Pencil size={13} /> Edit
-                      </button>
-                    </footer>
-                  </article>
-                ))}
-              </div>
+                    {schedulePageCount > 1 && (
+                      <Pagination
+                        meta={{
+                          page: currentSchedulePage,
+                          totalPages: schedulePageCount,
+                          total: filteredScheduleRows.length,
+                        }}
+                        onPage={setSchedulePage}
+                      />
+                    )}
+                  </>
+                )}
+              </>
             )}
           </section>
         )}

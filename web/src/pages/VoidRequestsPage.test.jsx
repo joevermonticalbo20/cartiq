@@ -41,6 +41,12 @@ describe("VoidRequestsPage header", () => {
     expect(screen.getByText("Operations")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
   });
+
+  it("shows a table skeleton while requests are loading", () => {
+    api.get.mockReturnValue(new Promise(() => {}));
+    renderPage();
+    expect(screen.getByRole("region", { name: "Loading void requests" })).toBeInTheDocument();
+  });
 });
 
 describe("VoidRequestsPage approve flow", () => {
@@ -96,7 +102,25 @@ describe("VoidRequestsPage approve flow", () => {
     const confirm = await screen.findByRole("button", { name: "Deny request" });
     expect(confirm).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText(/decline reason/i), {
+    fireEvent.click(screen.getByRole("radio", { name: "Duplicate order" }));
+    expect(confirm).not.toBeDisabled();
+
+    fireEvent.click(confirm);
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith("/orders/7/void-request", { decision: "deny", note: "Duplicate order" }),
+    );
+  });
+
+  it("allows a specific decline reason", async () => {
+    renderPage();
+    expect(await screen.findByText("#7")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Deny" }));
+
+    fireEvent.click(screen.getByRole("radio", { name: "Other / type a specific reason" }));
+    const confirm = await screen.findByRole("button", { name: "Deny request" });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Specific reason" }), {
       target: { value: "requested in error" },
     });
     expect(confirm).not.toBeDisabled();
@@ -104,6 +128,24 @@ describe("VoidRequestsPage approve flow", () => {
     fireEvent.click(confirm);
     await waitFor(() =>
       expect(api.patch).toHaveBeenCalledWith("/orders/7/void-request", { decision: "deny", note: "requested in error" }),
+    );
+  });
+
+  it("bulk voids selected rows from the toolbar below the table", async () => {
+    renderPage();
+    expect(await screen.findByText("#7")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select void request for order 7" }));
+    expect(screen.getByText("1 of 1 selected")).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Void selected" })[0]);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Void selected" })).at(-1));
+
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith(
+        "/orders/7/void-request",
+        { decision: "approve" },
+      ),
     );
   });
 });

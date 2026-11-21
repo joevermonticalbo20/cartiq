@@ -46,4 +46,20 @@ describe("Pagination", () => {
     expect(screen.getByRole("navigation", { name: "Table pages" })).toBeInTheDocument();
     expect(screen.getByLabelText("Page 2")).toHaveAttribute("aria-current", "page");
   });
+
+  it("jumps directly to an entered page", () => {
+    const onPage = vi.fn();
+    render(<Pagination meta={{ total: 500, page: 1, totalPages: 10 }} onPage={onPage} />);
+    fireEvent.change(screen.getByLabelText("Page number"), { target: { value: "8" } });
+    fireEvent.click(screen.getByRole("button", { name: "Go" }));
+    expect(onPage).toHaveBeenCalledWith(8);
+  });
+
+  it("clamps entered pages to the valid range", () => {
+    const onPage = vi.fn();
+    render(<Pagination meta={{ total: 500, page: 5, totalPages: 10 }} onPage={onPage} />);
+    fireEvent.change(screen.getByLabelText("Page number"), { target: { value: "999" } });
+    fireEvent.click(screen.getByRole("button", { name: "Go" }));
+    expect(onPage).toHaveBeenCalledWith(10);
+  });
 });

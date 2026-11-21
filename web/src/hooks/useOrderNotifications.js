@@ -150,7 +150,11 @@ export function useOrderNotifications({ onOrder, playSound, user } = {}) {
     }
     const notice = formatOrderNotice(data);
     const cart = data?.locationCode ?? "";
-    const link = cart ? `/sales?cart=${encodeURIComponent(cart)}` : "/sales";
+    const params = new URLSearchParams();
+    if (cart) params.set("cart", cart);
+    if (id != null) params.set("orderId", id);
+    const query = params.toString();
+    const link = query ? `/sales?${query}` : "/sales";
 
     // Audible first: on a busy counter the operator may be looking away from
     // the monitor, and a sound is what they actually notice.

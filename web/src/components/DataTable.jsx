@@ -9,6 +9,7 @@ export default function DataTable({
   data,
   onRowClick,
   rowClassName,
+  rowProps,
   emptyMessage = "Nothing to display here",
   loading = false,
   onSort,
@@ -18,14 +19,20 @@ export default function DataTable({
 }) {
   const [sortKey, setSortKey] = useState(null);
   const [sortDir, setSortDir] = useState("asc");
+  const paginationControl = pagination ? (
+    <Pagination meta={pagination} onPage={pagination.onPageChange} />
+  ) : null;
 
   if (loading) {
     return (
-      <TableSkeleton
-        columns={columns}
-        compact={compact}
-        fixedLayout={fixedLayout}
-      />
+      <>
+        <TableSkeleton
+          columns={columns}
+          compact={compact}
+          fixedLayout={fixedLayout}
+        />
+        {paginationControl}
+      </>
     );
   }
 
@@ -114,6 +121,7 @@ export default function DataTable({
             {data.map((row, i) => (
               <tr
                 key={row.id ?? i}
+                {...(rowProps?.(row) ?? {})}
                 className={rowClassName?.(row) || undefined}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
                 onKeyDown={onRowClick ? (e) => handleRowKey(e, row) : undefined}
@@ -143,9 +151,7 @@ export default function DataTable({
           </tbody>
         </table>
       </div>
-      {pagination && (
-        <Pagination meta={pagination} onPage={pagination.onPageChange} />
-      )}
+      {paginationControl}
     </>
   );
 }

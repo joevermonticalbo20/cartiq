@@ -186,6 +186,7 @@
 }
 
 .product-modal-section .field > div > input,
+.product-modal-section .field > div > .character-count-input > input,
 .product-modal-section .field > div > select {
   width: auto;
 }

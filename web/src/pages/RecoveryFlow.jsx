@@ -1,3 +1,4 @@
+import CharacterCountInput from "../components/CharacterCountInput.jsx";
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Eye, EyeOff, Mail, ShieldCheck, Lock } from "lucide-react";
 import api from "../api.js";
@@ -205,7 +206,7 @@ export default function RecoveryFlow({ onExitToLogin }) {
               <label htmlFor="recovery-email" className="field-label">Email Address</label>
               <div className="input-wrapper">
                 <Mail size={20} className="input-icon" />
-                <input
+                <CharacterCountInput
                   id="recovery-email"
                   type="email"
                   required
@@ -244,7 +245,7 @@ export default function RecoveryFlow({ onExitToLogin }) {
               aria-label="6-digit verification code"
             >
               {Array.from({ length: CODE_LEN }, (_, i) => (
-                <input
+                <CharacterCountInput
                   key={i}
                   ref={(el) => (boxRefs.current[i] = el)}
                   className="recovery-codebox"
@@ -302,7 +303,7 @@ export default function RecoveryFlow({ onExitToLogin }) {
               <label htmlFor="recovery-pw" className="field-label">Create New Password</label>
               <div className="input-wrapper">
                 <Lock size={20} className="input-icon" />
-                <input
+                <CharacterCountInput
                   id="recovery-pw"
                   type={showPw ? "text" : "password"}
                   required
@@ -328,7 +329,7 @@ export default function RecoveryFlow({ onExitToLogin }) {
               <label htmlFor="recovery-pw2" className="field-label">Confirm New Password</label>
               <div className="input-wrapper">
                 <Lock size={20} className="input-icon" />
-                <input
+                <CharacterCountInput
                   id="recovery-pw2"
                   type={showPw2 ? "text" : "password"}
                   required

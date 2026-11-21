@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useOutletContext, useSearchParams } from "react-router-dom";
 import { Hourglass, Check, Ban, Square, CheckSquare } from "lucide-react";
 
 import api from "../api.js";
@@ -8,12 +8,14 @@ import { fetchAllVoidRequests } from "../utils/voidRequests.js";
 import { useLiveEvent } from "../hooks/useLiveStream.js";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import VoidNoteField from "../components/VoidNoteField.jsx";
+import { TableSkeleton } from "../components/Skeleton.jsx";
 import { validateVoidNote } from "../utils/voidNote.js";
 import EmptyState from "../components/EmptyState.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import { useToast } from "../components/Toast.jsx";
+import useNotificationHighlight from "../hooks/useNotificationHighlight.js";
 
 function orderIdOf(request) {
   let orderId = request?.orderId ?? null;
@@ -29,6 +31,8 @@ export default function VoidRequestsPage() {
   const toast = useToast();
   const { user } = useOutletContext();
   const isOwner = user?.role === "OWNER";
+  const [searchParams] = useSearchParams();
+  const notificationOrderId = searchParams.get("orderId");
 
   const [voidRequests, setVoidRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +47,10 @@ export default function VoidRequestsPage() {
   const [decisionPending, setDecisionPending] = useState(false);
   const [bulkNote, setBulkNote] = useState("");
   const [bulkNoteError, setBulkNoteError] = useState("");
+  const activeHighlight = useNotificationHighlight(
+    notificationOrderId ? `order:${notificationOrderId}` : null,
+    !loading && !error,
+  );
 
   const load = useCallback(async () => {
     if (!isOwner) return;
@@ -213,50 +221,22 @@ export default function VoidRequestsPage() {
         />
 
         <section className="panel void-requests-panel">
-          {!error && !loading && voidRequests.length > 0 && (
-              <div className="void-requests-toolbar">
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    className="ghost small-btn"
-                    onClick={toggleAll}
-                    disabled={bulkPending}
-                    aria-label="Toggle select all"
-                  >
-                    {allSelected ? <CheckSquare size={16} aria-hidden="true" /> : <Square size={16} aria-hidden="true" />}
-                    {allSelected ? " Deselect all" : " Select all"}
-                  </button>
-                  <span className="muted small">{selected.size} of {voidRequests.length} selected</span>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    className="danger-ghost small-btn"
-                    disabled={!someSelected || bulkPending}
-                    onClick={() => {
-                      setConfirmBulk("deny");
-                      setBulkNote("");
-                      setBulkNoteError("");
-                    }}
-                  >
-                    <Ban size={13} aria-hidden="true" /> Deny selected
-                  </button>
-                  <button
-                    type="button"
-                    className="small-btn"
-                    disabled={!someSelected || bulkPending}
-                    onClick={() => {
-                      setConfirmBulk("approve");
-                      setBulkNote("");
-                      setBulkNoteError("");
-                    }}
-                  >
-                    <Check size={13} aria-hidden="true" /> Void selected
-                  </button>
-                </div>
-              </div>
-          )}
-
+          {loading && !error ? (
+            <TableSkeleton
+              ariaLabel="Loading void requests"
+              className="void-requests-table-wrap"
+              tableClassName="table-fixed void-requests-table"
+              fixedLayout
+              columns={[
+                { key: "select", label: "", width: 40, skeletonType: "checkbox", className: "void-requests-select-col" },
+                { key: "order", label: "Order", className: "t-left", skeletonWidth: "55%" },
+                { key: "requester", label: "Requester", className: "void-requests-hide-narrow t-left", skeletonWidth: "64%" },
+                { key: "reason", label: "Reason", className: "void-requests-hide-narrow t-left", skeletonWidth: "72%" },
+                { key: "requested", label: "Requested", className: "void-requests-hide-narrow t-left", skeletonWidth: "68%" },
+                { key: "actions", label: "", align: "right", skeletonType: "actions" },
+              ]}
+            />
+          ) : (
           <div
             className={`table-wrap void-requests-table-wrap${!error && !loading && voidRequests.length === 0 ? " is-empty" : ""}`}
           >
@@ -274,8 +254,6 @@ export default function VoidRequestsPage() {
               <tbody>
                 {error ? (
                   <tr><td colSpan={6}><ErrorBox message={error} onRetry={load} /></td></tr>
-                ) : loading ? (
-                  <tr><td colSpan={6} className="muted small" role="status">Loading void requests...</td></tr>
                 ) : voidRequests.length === 0 ? (
                   <tr className="void-requests-empty-row">
                     <td colSpan={6} className="void-requests-empty-cell">
@@ -290,7 +268,14 @@ export default function VoidRequestsPage() {
                   const orderId = orderIdOf(req);
                   const busy = deciding === req.id;
                   return (
-                    <tr key={req.id} className={selected.has(req.id) ? "row-selected" : undefined}>
+                    <tr
+                      key={req.id}
+                      data-notification-target={`order:${orderId}`}
+                      className={[
+                        selected.has(req.id) ? "row-selected" : "",
+                        activeHighlight === `order:${orderId}` ? "notification-target-highlight" : "",
+                      ].filter(Boolean).join(" ") || undefined}
+                    >
                       <td>
                         <input
                           type="checkbox"
@@ -334,6 +319,51 @@ export default function VoidRequestsPage() {
               </tbody>
             </table>
           </div>
+          )}
+
+          {!error && !loading && voidRequests.length > 0 && (
+            <div className="void-requests-toolbar">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className="ghost small-btn"
+                  onClick={toggleAll}
+                  disabled={bulkPending}
+                  aria-label="Toggle select all"
+                >
+                  {allSelected ? <CheckSquare size={16} aria-hidden="true" /> : <Square size={16} aria-hidden="true" />}
+                  {allSelected ? " Deselect all" : " Select all"}
+                </button>
+                <span className="muted small">{selected.size} of {voidRequests.length} selected</span>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="danger-ghost small-btn"
+                  disabled={!someSelected || bulkPending}
+                  onClick={() => {
+                    setConfirmBulk("deny");
+                    setBulkNote("");
+                    setBulkNoteError("");
+                  }}
+                >
+                  <Ban size={13} aria-hidden="true" /> Deny selected
+                </button>
+                <button
+                  type="button"
+                  className="small-btn"
+                  disabled={!someSelected || bulkPending}
+                  onClick={() => {
+                    setConfirmBulk("approve");
+                    setBulkNote("");
+                    setBulkNoteError("");
+                  }}
+                >
+                  <Check size={13} aria-hidden="true" /> Void selected
+                </button>
+              </div>
+            </div>
+          )}
         </section>
 
         <ConfirmDialog

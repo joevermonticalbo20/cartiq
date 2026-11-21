@@ -1,6 +1,10 @@
+import { useId, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export default function Pagination({ meta, onPage }) {
+  const [jumpValue, setJumpValue] = useState(() => meta?.page ? String(meta.page) : "");
+  const jumpInputId = useId();
+
   if (!meta || meta.totalPages <= 1) {
     return meta?.total > 0 ? (
       <div className="pagination">
@@ -31,56 +35,89 @@ export default function Pagination({ meta, onPage }) {
   };
 
   const numbers = getPageNumbers();
+  const goToPage = (target) => {
+    setJumpValue(String(target));
+    if (target !== page) onPage(target);
+  };
+  const jumpToPage = (event) => {
+    event.preventDefault();
+    const target = Number.parseInt(jumpValue, 10);
+    if (!Number.isFinite(target)) return;
+    const safeTarget = Math.min(Math.max(target, 1), totalPages);
+    goToPage(safeTarget);
+  };
 
   return (
     <nav className="pagination" aria-label="Table pages">
-      <span>
-        {total} record{total === 1 ? "" : "s"} · page {page} of {totalPages}
-      </span>
-      <div className="page-btns">
-        <button
-          className="page-btn"
-          disabled={page <= 1}
-          onClick={() => onPage(page - 1)}
-          aria-label="Previous page"
-          style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "0 14px" }}
-        >
-          <ChevronLeft size={16} /> Prev
-        </button>
-        
-        {numbers.map((p, i) => (
-          p === '...' ? (
-            <span 
-              key={`ellipsis-${i}`} 
-              className="muted" 
-              style={{ display: "flex", alignItems: "center", padding: "0 4px", userSelect: "none" }}
-              aria-hidden="true"
-            >
-              &hellip;
-            </span>
-          ) : (
-            <button
-              key={p}
-              className={`page-btn ${p === page ? "current" : ""}`}
-              onClick={() => onPage(p)}
-              aria-label={`Page ${p}`}
-              aria-current={p === page ? "page" : undefined}
-            >
-              {p}
-            </button>
-          )
-        ))}
-
-        <button
-          className="page-btn"
-          disabled={page >= totalPages}
-          onClick={() => onPage(page + 1)}
-          aria-label="Next page"
-          style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "0 14px" }}
-        >
-          Next <ChevronRight size={16} />
-        </button>
+      <div className="pagination-summary">
+        <strong>{total.toLocaleString()}</strong>
+        <span>record{total === 1 ? "" : "s"}</span>
       </div>
+      <div className="pagination-center">
+        <div className="page-btns" aria-label="Pagination controls">
+          <button
+            className="page-btn page-btn-direction"
+            disabled={page <= 1}
+            onClick={() => goToPage(page - 1)}
+            aria-label="Previous page"
+            title="Previous page"
+          >
+            <ChevronLeft size={17} />
+            <span>Prev</span>
+          </button>
+
+          {numbers.map((p, i) => (
+            p === '...' ? (
+              <span
+                key={`ellipsis-${i}`}
+                className="page-ellipsis"
+                aria-hidden="true"
+              >
+                &hellip;
+              </span>
+            ) : (
+              <button
+                key={p}
+                className={`page-btn ${p === page ? "current" : ""}`}
+                onClick={() => goToPage(p)}
+                aria-label={`Page ${p}`}
+                aria-current={p === page ? "page" : undefined}
+              >
+                {p}
+              </button>
+            )
+          ))}
+
+          <button
+            className="page-btn page-btn-direction"
+            disabled={page >= totalPages}
+            onClick={() => goToPage(page + 1)}
+            aria-label="Next page"
+            title="Next page"
+          >
+            <span>Next</span>
+            <ChevronRight size={17} />
+          </button>
+        </div>
+      </div>
+      <form className="page-jump" onSubmit={jumpToPage} noValidate>
+        <label htmlFor={jumpInputId} className="page-jump-label">Jump to</label>
+        <div className="page-jump-field">
+          <input
+            id={jumpInputId}
+            className="page-jump-input"
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={totalPages}
+            value={jumpValue}
+            onChange={(event) => setJumpValue(event.target.value)}
+            aria-label="Page number"
+          />
+          <span className="page-jump-total">/ {totalPages}</span>
+        </div>
+        <button type="submit" className="page-jump-go">Go</button>
+      </form>
     </nav>
   );
 }

@@ -6,13 +6,69 @@
  */
 export function alertLink(alert) {
   const t = String(alert?.type ?? "").toLowerCase();
-  if (t === "sale" || t === "sales") return "/sales";
-  if (t === "void_request" || t === "void_decision") return "/sales/void-requests";
-  if (t === "gcash_confirm" || t === "gcash_decision") return "/sales/gcash-approvals";
-  if (t === "restock_request" || t === "restock") return "/inventory";
-  if (t === "low_stock" || t === "critical" || t === "inventory") return "/inventory";
+  const payload = readPayload(alert?.payload);
+  const params = new URLSearchParams();
+  const orderId = alert?.orderId ?? payload.orderId ?? payload.order_id;
+  const locationCode =
+    alert?.locationCode ?? payload.locationCode ?? locationFromMessage(alert?.message);
+  const itemName =
+    alert?.ingredientName ??
+    alert?.itemName ??
+    payload.ingredientName ??
+    payload.itemName ??
+    itemFromMessage(alert?.message);
+
+  if (t === "sale" || t === "sales") {
+    if (locationCode) params.set("cart", locationCode);
+    if (orderId != null) params.set("orderId", orderId);
+    return withParams("/sales", params);
+  }
+  if (t === "void_request" || t === "void_decision") {
+    if (orderId != null) params.set("orderId", orderId);
+    return withParams("/sales/void-requests", params);
+  }
+  if (t === "gcash_confirm" || t === "gcash_decision") {
+    if (orderId != null) params.set("orderId", orderId);
+    return withParams("/sales/gcash-approvals", params);
+  }
+  if (t === "restock_request" || t === "restock") {
+    if (locationCode) params.set("cart", locationCode);
+    if (alert?.id != null) params.set("requestId", alert.id);
+    if (itemName) params.set("itemName", itemName);
+    return withParams("/inventory", params);
+  }
+  if (t === "low_stock" || t === "critical" || t === "inventory") {
+    if (locationCode) params.set("cart", locationCode);
+    if (itemName) params.set("itemName", itemName);
+    return withParams("/inventory", params);
+  }
   if (t === "absence") return "/staff";
   return "/notifications";
+}
+
+function readPayload(payload) {
+  if (payload && typeof payload === "object") return payload;
+  if (typeof payload !== "string") return {};
+  try {
+    const parsed = JSON.parse(payload);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function locationFromMessage(message) {
+  return String(message ?? "").match(/@\s*([A-Z0-9-]+)/i)?.[1] ?? null;
+}
+
+function itemFromMessage(message) {
+  const match = String(message ?? "").match(/^\s*(.+?)\s*@\s*[A-Z0-9-]+/i);
+  return match?.[1]?.trim() || null;
+}
+
+function withParams(path, params) {
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
 }
 
 export const toastedAlertIds = new Set();

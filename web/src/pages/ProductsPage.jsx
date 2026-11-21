@@ -1,3 +1,4 @@
+import CharacterCountInput from "../components/CharacterCountInput.jsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { Plus, Edit2, Trash2, X, Tag, AlertTriangle, Archive, ArchiveRestore, Star, ImagePlus } from "lucide-react";
@@ -376,7 +377,7 @@ export default function ProductsPage() {
           return (
             <div key={line.key}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 84px 78px 32px", gap: "8px" }}>
-                <input
+                <CharacterCountInput
                   type="text"
                   maxLength={30}
                   placeholder="Ingredient item (e.g. Cheese Powder)"
@@ -1294,7 +1295,7 @@ export default function ProductsPage() {
                 <div className="product-modal-fields product-modal-fields--two">
                   <label className="field">
                     Product Name
-                    <input
+                    <CharacterCountInput
                       type="text"
                       required
                       minLength={2}
@@ -1308,7 +1309,7 @@ export default function ProductsPage() {
                   </label>
                   <label className="field">
                     Category
-                    <input
+                    <CharacterCountInput
                       type="text"
                       maxLength={30}
                       placeholder="e.g. Fries"
@@ -1410,7 +1411,7 @@ export default function ProductsPage() {
                         >
                           <label className="field">
                             Flavor name
-                            <input
+                            <CharacterCountInput
                               type="text"
                               maxLength={20}
                               placeholder="e.g. Cheese"
@@ -1533,7 +1534,7 @@ export default function ProductsPage() {
                   <div className="product-modal-fields product-modal-fields--two">
                     <label className="field">
                       Category
-                      <input
+                      <CharacterCountInput
                         type="text"
                         maxLength={30}
                         placeholder="e.g. Fries"
@@ -1627,7 +1628,7 @@ export default function ProductsPage() {
                         <div style={{ display: "grid", gridTemplateColumns: "minmax(120px, 1fr) auto auto", alignItems: "end", gap: 8 }}>
                           <label className="field">
                             Flavor name
-                            <input
+                            <CharacterCountInput
                               type="text"
                               maxLength={20}
                               placeholder="e.g. Cheese"
@@ -1771,7 +1772,7 @@ export default function ProductsPage() {
               <form onSubmit={handleRename} className="flex flex-col gap-4">
                 <label className="field">
                   Product Name
-                  <input
+                  <CharacterCountInput
                     type="text"
                     required
                     minLength={2}

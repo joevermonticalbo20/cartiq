@@ -317,6 +317,8 @@ router.post("/orders", requireAuth, async (req, res, next) => {
         isRead: alert.isRead === true,
         createdAt: alert.createdAt,
         locationId: alert.locationId ?? null,
+        orderId: result.order.id,
+        locationCode: location.code,
       });
     } catch {
       // best-effort only
@@ -909,6 +911,7 @@ router.post("/orders/:id/void-request", requireAuth, async (req, res, next) => {
       isRead: alert.isRead === true,
       createdAt: alert.createdAt,
       locationId: alert.locationId ?? null,
+      orderId: existing.id,
     });
     return res.status(201).json({ order, alert });
   } catch (err) {

@@ -216,12 +216,45 @@ describe("StaffPage Staff Schedules", () => {
     renderPage();
     expect(await screen.findByText("No schedule")).toBeInTheDocument();
     expect(screen.getByText("Scheduled")).toBeInTheDocument();
-    // Times are displayed in 12-hour format now.
+    const card = cardFor("staff01");
+    expect(within(card).queryByText("6:00 AM")).toBeNull();
+    fireEvent.click(within(card).getByRole("button", { name: /view week/i }));
+    // Times are displayed in 12-hour format after opening a roster.
     expect(screen.getByText("6:00 AM")).toBeInTheDocument();
     expect(screen.getByText("2:00 PM")).toBeInTheDocument();
     expect(
       screen.getByText((_, el) => el?.textContent?.trim() === "1 of 2 with a schedule"),
     ).toBeInTheDocument();
+  });
+
+  it("paginates larger staff lists and searches across pages", async () => {
+    const getMock = api.get.getMockImplementation();
+    const scheduleRows = Array.from({ length: 9 }, (_, index) => ({
+      id: index + 10,
+      name: `Staff ${index + 1}`,
+      username: `staff${String(index + 1).padStart(2, "0")}`,
+      role: "STAFF",
+      active: true,
+      locationCode: `CART-${String(index + 1).padStart(2, "0")}`,
+      schedule: null,
+    }));
+    api.get.mockImplementation((url, ...args) =>
+      url === "/staff/schedules"
+        ? Promise.resolve({ data: { data: scheduleRows } })
+        : getMock(url, ...args),
+    );
+
+    renderPage();
+    expect(await screen.findByText(/@staff01/)).toBeInTheDocument();
+    expect(screen.queryByText(/@staff07/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Page 2" }));
+    expect(await screen.findByText(/@staff07/)).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search staff schedules" }), {
+      target: { value: "staff09" },
+    });
+    expect(await screen.findByText(/@staff09/)).toBeInTheDocument();
+    expect(screen.queryByText(/@staff01/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Page 2" })).toBeNull();
   });
 
   it("saves the edited week through PUT /staff/:id/schedule", async () => {

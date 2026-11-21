@@ -972,7 +972,7 @@ button.settings-pw-submit:disabled {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--space-3);
-  margin-bottom: var(--space-4);
+  margin-top: var(--space-4);
 }
 .void-requests-table-wrap {
   height: min(500px, 52dvh);
@@ -1025,11 +1025,12 @@ button.settings-pw-submit:disabled {
 /* GCash approvals table: its own column widths, and the order cell never
    overflows into the staff column (it used to clip under the fixed 48px
    first column, which also broke the header into "OR DER"). */
-.gcash-approvals-table th:nth-child(1) { width: 126px; }
-.gcash-approvals-table th:nth-child(2) { width: 150px; }
-.gcash-approvals-table th:nth-child(4) { width: 110px; }
-.gcash-approvals-table th:nth-child(5) { width: 190px; }
-.gcash-approvals-table th:nth-child(6) { width: 236px; }
+.gcash-approvals-table th:nth-child(1) { width: 44px; }
+.gcash-approvals-table th:nth-child(2) { width: 126px; }
+.gcash-approvals-table th:nth-child(3) { width: 150px; }
+.gcash-approvals-table th:nth-child(5) { width: 110px; }
+.gcash-approvals-table th:nth-child(6) { width: 190px; }
+.gcash-approvals-table th:nth-child(7) { width: 236px; }
 .gcash-approvals-table .gcash-approvals-order-cell { white-space: nowrap; }
 .gcash-approvals-table .gcash-approvals-staff-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 760px) {
@@ -1037,6 +1038,8 @@ button.settings-pw-submit:disabled {
   .void-requests-table th:nth-child(1) { width: 44px; }
   .void-requests-table th:nth-child(2) { width: 80px; }
   .void-requests-table th:nth-child(6) { width: 240px; }
+  .gcash-approvals-table th:nth-child(2) { width: 90px; }
+  .gcash-approvals-table th:nth-child(7) { width: 240px; }
   .void-requests-actions { gap: var(--space-1); }
   .void-requests-actions > button { padding: 5px 8px; }
 }
@@ -1339,33 +1342,44 @@ button.sales-icon-btn.is-danger:hover:not(:disabled) {
 /* ---------- Staff schedules (Staff Activity) ---------- */
 .schedule-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: var(--space-4, 16px);
+  grid-template-columns: 1fr;
+  gap: 12px;
 }
 .schedule-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px 16px;
+  gap: 0;
+  padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg, 18px);
   background: var(--card);
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .schedule-card:hover {
   box-shadow: 0 8px 28px rgba(15, 18, 25, 0.08);
-  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
 }
 .schedule-card-empty {
   background: var(--surface-alt);
 }
 .schedule-card-inactive {
-  opacity: 0.55;
+  border-style: dashed;
 }
 .schedule-card-head {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+}
+.schedule-card-person {
+  flex: 1;
+  min-width: 0;
+}
+.schedule-card-person strong,
+.schedule-card-person > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .schedule-avatar {
   width: 38px;
@@ -1374,27 +1388,56 @@ button.sales-icon-btn.is-danger:hover:not(:disabled) {
   flex-shrink: 0;
 }
 .schedule-card-status {
-  margin-left: auto;
   flex-shrink: 0;
+}
+.schedule-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.schedule-expand svg {
+  transition: transform 0.15s ease;
+}
+.schedule-expand svg.is-open {
+  transform: rotate(180deg);
+}
+.schedule-card-details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 .schedule-week {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
+  grid-template-columns: repeat(7, minmax(84px, 1fr));
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
 }
 .schedule-day {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 10px 4px;
+  gap: 7px;
+  padding: 10px 6px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--surface-alt);
-  min-height: 58px;
+  min-height: 68px;
   min-width: 0;
   overflow: hidden;
+}
+.schedule-day:not(.off) {
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--border));
+  background: color-mix(in srgb, var(--primary-soft) 45%, var(--surface));
 }
 .schedule-day.off {
   background: transparent;
@@ -1411,17 +1454,28 @@ button.sales-icon-btn.is-danger:hover:not(:disabled) {
 .schedule-day-times {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 1px;
-  line-height: 1.2;
+  align-items: stretch;
+  gap: 3px;
+  width: 100%;
+  line-height: 1.25;
   font-variant-numeric: tabular-nums;
 }
 .schedule-day-in,
 .schedule-day-out {
-  font-size: 9.5px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+  font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
   letter-spacing: 0.01em;
+}
+.schedule-day-time-label {
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
 }
 .schedule-day-off {
   font-size: 11px;
@@ -1563,5 +1617,56 @@ button.sales-icon-btn.is-danger:hover:not(:disabled) {
 @media (max-width: 720px) {
   .schedule-cards {
     grid-template-columns: 1fr;
+  }
+  .schedule-card {
+    padding: 10px;
+  }
+  .schedule-card-head {
+    flex-wrap: wrap;
+  }
+  .schedule-card-person {
+    flex-basis: calc(100% - 60px);
+  }
+  .schedule-card-status {
+    margin-left: 48px;
+  }
+  .schedule-card-actions {
+    margin-left: auto;
+  }
+}
+.schedule-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(100%, 360px);
+  margin: 0 0 12px;
+  padding: 0 12px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-alt);
+}
+.schedule-search:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+.schedule-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.schedule-search input:focus {
+  border: 0;
+  box-shadow: none;
+}
+@media (max-width: 460px) {
+  .schedule-card-actions .small-btn {
+    padding-inline: 8px;
+  }
+  .schedule-card-status {
+    margin-left: 0;
   }
 }

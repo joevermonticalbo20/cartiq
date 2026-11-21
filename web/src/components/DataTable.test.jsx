@@ -104,6 +104,32 @@ describe("DataTable", () => {
     expect(document.querySelectorAll(".skel")).toHaveLength(0);
   });
 
+  it("keeps pagination mounted while loading another page", () => {
+    const pagination = {
+      total: 50,
+      page: 1,
+      totalPages: 5,
+      onPageChange: vi.fn(),
+    };
+    const { rerender } = render(
+      <DataTable columns={columns} data={sample} pagination={pagination} />
+    );
+    const nextPageButton = screen.getByLabelText("Next page");
+    nextPageButton.focus();
+
+    rerender(
+      <DataTable
+        columns={columns}
+        data={sample}
+        loading
+        pagination={{ ...pagination, page: 2 }}
+      />
+    );
+
+    expect(screen.getByLabelText("Next page")).toBe(nextPageButton);
+    expect(nextPageButton).toHaveFocus();
+  });
+
   it("calls onSort with key and asc when sortable header is clicked", () => {
     const handleSort = vi.fn();
     render(

@@ -18,6 +18,34 @@ describe("alertLink", () => {
     }
   });
 
+  it("carries a specific order or inventory target through the notification link", () => {
+    expect(alertLink({
+      type: "SALE",
+      payload: JSON.stringify({ orderId: 42, locationCode: "CART-01" }),
+    })).toBe("/sales?cart=CART-01&orderId=42");
+    expect(alertLink({
+      type: "VOID_REQUEST",
+      payload: { orderId: 15 },
+    })).toBe("/sales/void-requests?orderId=15");
+    expect(alertLink({
+      type: "GCASH_CONFIRM",
+      payload: '{"orderId":19}',
+    })).toBe("/sales/gcash-approvals?orderId=19");
+    expect(alertLink({
+      id: 33,
+      type: "RESTOCK_REQUEST",
+      ingredientName: "Cheese Powder",
+      locationCode: "CART-02",
+    })).toBe("/inventory?cart=CART-02&requestId=33&itemName=Cheese+Powder");
+  });
+
+  it("extracts the stock item and cart from legacy low-stock alert messages", () => {
+    expect(alertLink({
+      type: "LOW_STOCK",
+      message: "Cheese Powder @ CART-03 dropped below threshold",
+    })).toBe("/inventory?cart=CART-03&itemName=Cheese+Powder");
+  });
+
   it("falls back to the notifications list for unknown types", () => {
     expect(alertLink({ type: "UNKNOWN_CARD" })).toBe("/notifications");
     expect(alertLink({ type: "something-new" })).toBe("/notifications");

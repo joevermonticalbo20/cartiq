@@ -1,5 +1,6 @@
+import CharacterCountInput from "../components/CharacterCountInput.jsx";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useOutletContext, useLocation } from "react-router-dom";
+import { useOutletContext, useLocation, useSearchParams } from "react-router-dom";
 import { CheckSquare, SlidersHorizontal, Square, Boxes, Plus, PackagePlus, Edit2, Trash2 } from "lucide-react";
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
@@ -26,6 +27,7 @@ import {
 } from "../utils/inventory.js";
 import { LIVE_EVENTS, useLiveEvent } from "../hooks/useLiveStream.js";
 import { useCatalogVersion } from "../hooks/useCatalogVersion.js";
+import useNotificationHighlight from "../hooks/useNotificationHighlight.js";
 
 const STATUS_LABEL = STOCK_STATUS_LABEL;
 
@@ -88,10 +90,13 @@ export default function InventoryPage() {
   const toast = useToast();
   const { user } = useOutletContext();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const isOwner = user?.role === "OWNER";
 
   const [locations, setLocations] = useState([]);
-  const [selected, setSelected] = useState(location.state?.cartCode || ""); // Kukunin ang pinasang cartCode
+  const [selected, setSelected] = useState(
+    searchParams.get("cart") || location.state?.cartCode || "",
+  );
   
   const [loading, setLoading] = useState(true);
   const [adjusting, setAdjusting] = useState(null);
@@ -143,6 +148,12 @@ export default function InventoryPage() {
 
   const [prep, setPrep] = useState(null);
   const [applyingId, setApplyingId] = useState(null);
+  const targetItemName = searchParams.get("itemName");
+  const targetRequestId = searchParams.get("requestId");
+  const activeHighlight = useNotificationHighlight(
+    targetRequestId ? `request:${targetRequestId}` : targetItemName ? `item:${targetItemName}` : null,
+    !loading && !loadError,
+  );
 
 
   function closeAddModal() {
@@ -704,7 +715,14 @@ export default function InventoryPage() {
                     const usedBy = usageByItem.get(item.name) ?? [];
 
                     return (
-                      <tr key={item.id} className={isSelected ? "row-selected" : undefined}>
+                      <tr
+                        key={item.id}
+                        data-notification-target={`item:${item.name}`}
+                        className={[
+                          isSelected ? "row-selected" : "",
+                          activeHighlight === `item:${item.name}` ? "notification-target-highlight" : "",
+                        ].filter(Boolean).join(" ") || undefined}
+                      >
                         <td style={{ paddingLeft: 12 }}>
                           <button
                             className={`table-checkbox ${isSelected ? "checked" : ""}`}
@@ -837,7 +855,11 @@ export default function InventoryPage() {
                 </thead>
                 <tbody>
                   {restockRequests.map((request) => (
-                    <tr key={request.id}>
+                    <tr
+                      key={request.id}
+                      data-notification-target={`request:${request.id}`}
+                      className={activeHighlight === `request:${request.id}` ? "notification-target-highlight" : undefined}
+                    >
                       <td><strong>{request.ingredientName ?? request.message}</strong></td>
                       <td>{request.locationCode ?? request.locationId}</td>
                       <td>
@@ -1045,13 +1067,13 @@ export default function InventoryPage() {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
                   <label className="field">
                     Item Name
-                    <input
+                    <CharacterCountInput
                       type="text"
                       required
                       minLength={2}
-                      maxLength={100}
+                      maxLength={30}
                       placeholder="e.g. Cheese Powder"
-                      title="2-100 characters, letters, numbers, spaces, hyphens, parentheses, periods, commas, percent"
+                      title="2-30 characters, letters, numbers, spaces, hyphens, parentheses, periods, commas, percent"
                       ref={nameInputRef}
                       value={newItem.name}
                       onChange={(e) => {
@@ -1103,7 +1125,7 @@ export default function InventoryPage() {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
                   <label className="field">
                     Initial Stock
-                    <input
+                    <CharacterCountInput
                       type="text"
                       inputMode="decimal"
                       maxLength={8}
@@ -1133,7 +1155,7 @@ export default function InventoryPage() {
 
                   <label className="field">
                     Low Threshold
-                    <input
+                    <CharacterCountInput
                       type="text"
                       inputMode="decimal"
                       maxLength={8}
@@ -1197,7 +1219,7 @@ export default function InventoryPage() {
               <form onSubmit={handleEditItem} className="flex flex-col gap-4">
                 <label className="field">
                   Low Threshold
-                  <input
+                  <CharacterCountInput
                     type="text"
                     inputMode="decimal"
                     maxLength={8}
@@ -1234,7 +1256,7 @@ export default function InventoryPage() {
 
               <label className="field">
                 New stock count ({adjusting?.unit})
-                <input
+                <CharacterCountInput
                   type="text"
                   inputMode="decimal"
                   maxLength={8}

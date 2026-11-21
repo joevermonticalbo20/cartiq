@@ -572,7 +572,7 @@ export default function DashboardPage() {
             {/* ROW 2: TRENDS & COMBINED CART STATUS */}
             <div className="dashboard-middle-row">
               {trends && trends.by_weekday ? (
-                <section className="panel dashboard-trend-panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+                <section className="panel dashboard-trend-panel">
                   <div className="panel-head">
                     <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", margin: 0, padding: 0 }}>
                       Weekly sales trend
@@ -580,7 +580,7 @@ export default function DashboardPage() {
                     <Badge variant="brand">P{Number(trends.total_sales).toLocaleString()}</Badge>
                   </div>
                   
-                  <div className="trend-bars mt-2" style={{ flex: 1, minHeight: 180, width: "100%" }}>
+                  <div className="trend-bars mt-2">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={weeklyChartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }} maxBarSize={36}>
                         <XAxis 
@@ -626,7 +626,7 @@ export default function DashboardPage() {
                   </div>
                 </section>
               ) : (
-                <div className="panel dashboard-trend-panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+                <div className="panel dashboard-trend-panel">
                   <EmptyState icon={TrendingUp} title="No trend data" compact />
                 </div>
               )}
@@ -710,8 +710,8 @@ export default function DashboardPage() {
             </div>
 
             {/* ROW 3: RECENT ORDERS & ON-SHIFT STAFF */}
-            <div className="dashboard-middle-row">
-              <section className="panel widget-orders" aria-live="polite">
+            <div className="dashboard-middle-row dashboard-activity-row">
+              <section className="panel widget-orders dashboard-activity-panel" aria-live="polite">
                 <div className="panel-head">
                   <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
                     Recent orders
@@ -724,7 +724,7 @@ export default function DashboardPage() {
                 {safeLatestSales.length === 0 ? (
                   <EmptyState icon={ShoppingBag} title="No sales found" compact />
                 ) : (
-                  <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+                  <div className="dashboard-activity-content">
                     <div className="table-wrap">
                       <table className="data">
                         <thead>
@@ -767,7 +767,7 @@ export default function DashboardPage() {
                 )}
               </section>
 
-              <section className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+              <section className="panel dashboard-activity-panel">
                 <div className="panel-head" style={{ marginBottom: "12px" }}>
                   <h3 className="section-title flex items-center gap-2" style={{ borderBottom: "none", padding: 0, margin: 0 }}>
                     On-shift staff
@@ -778,7 +778,7 @@ export default function DashboardPage() {
                 {activeOnShift.length === 0 ? (
                   <EmptyState icon={Clock} title="No one on shift" compact />
                 ) : (
-                  <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+                  <div className="dashboard-activity-content">
                     <div className="flex flex-col gap-2">
                       {activeOnShift.slice(0, 5).map((s) => (
                         <div key={`${s.name}-${s.location_code}`} className="cart-status-item" style={{ borderBottom: "none" }}>

@@ -129,6 +129,25 @@ label.field {
   color: var(--text);
 }
 
+.character-count-input {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+}
+.character-count-input > input {
+  width: 100%;
+  min-width: 0;
+}
+.character-count {
+  align-self: flex-end;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-normal);
+  line-height: 1;
+}
+
 /* ----- Base: field-level error under an input ----- */
 .field-error {
   color: var(--danger);
@@ -145,6 +164,50 @@ textarea.input-invalid {
   justify-content: space-between;
   gap: 8px;
   margin-top: 2px;
+}
+.void-note-choices {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.void-note-choices legend {
+  margin-bottom: 8px;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--text);
+}
+.void-note-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-alt);
+  color: var(--text);
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.void-note-choice.is-selected {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+.void-note-choice input[type="radio"] {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--primary);
+}
+.void-note-specific {
+  margin-top: 8px;
 }
 /* The input itself, when its field is invalid. Same danger ring as the OTP
    verdict fields so the highlight reads the same everywhere. */
@@ -175,10 +238,27 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
 /* ============================================================
  * GLOBAL SCROLLBAR (Smart Auto-Hide)
  * ============================================================ */
+* {
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+}
+*:hover {
+  scrollbar-color: var(--border-strong) transparent;
+}
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
   background-color: transparent;
+}
+::-webkit-scrollbar-button,
+::-webkit-scrollbar-button:single-button,
+::-webkit-scrollbar-button:vertical:decrement,
+::-webkit-scrollbar-button:vertical:increment,
+::-webkit-scrollbar-button:horizontal:decrement,
+::-webkit-scrollbar-button:horizontal:increment {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 ::-webkit-scrollbar-track {
   background-color: transparent;

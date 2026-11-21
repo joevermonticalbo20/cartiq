@@ -1,3 +1,4 @@
+import CharacterCountInput from "../components/CharacterCountInput.jsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { Trash2, ReceiptText, X, Plus, Edit2, Wallet } from "lucide-react";
@@ -583,7 +584,7 @@ export default function ExpensesPage() {
                 
                 <label className="field">
                   Vendor / Supplier
-                  <input
+                  <CharacterCountInput
                     type="text"
                     required
                     minLength={3}
@@ -616,7 +617,7 @@ export default function ExpensesPage() {
 
                 <label className="field">
                   Note (Optional)
-                  <input
+                  <CharacterCountInput
                     type="text"
                     maxLength={40}
                     placeholder="Brief description of the purchase"
@@ -677,7 +678,7 @@ export default function ExpensesPage() {
                 
                 <label className="field">
                   Vendor / Supplier
-                  <input
+                  <CharacterCountInput
                     type="text"
                     required
                     minLength={3}
@@ -709,7 +710,7 @@ export default function ExpensesPage() {
 
                 <label className="field">
                   Note (Optional)
-                  <input
+                  <CharacterCountInput
                     type="text"
                     maxLength={40}
                     title="Max 40 characters, single spaces only"

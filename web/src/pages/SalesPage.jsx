@@ -18,6 +18,7 @@ import Select from "../components/Select.jsx";
 import VoidNoteField from "../components/VoidNoteField.jsx";
 import { validateVoidNote } from "../utils/voidNote.js";
 import { useToast } from "../components/Toast.jsx";
+import useNotificationHighlight from "../hooks/useNotificationHighlight.js";
 
 export default function SalesPage() {
   const toast = useToast();
@@ -35,6 +36,7 @@ export default function SalesPage() {
   // filtered (no flash of unfiltered rows, and no cascading setState). `loc`
   // stays the single source of truth for the query below.
   const [loc, setLoc] = useState(() => searchParams.get("cart") ?? "");
+  const notificationOrderId = searchParams.get("orderId");
   const [date, setDate] = useState("");
   const [confirming, setConfirming] = useState(null);
   const [voidNote, setVoidNote] = useState("");
@@ -61,6 +63,10 @@ export default function SalesPage() {
       (loc ? `&location_code=${loc}` : "") +
       (date ? `&date=${date}` : ""),
     [loc, date]
+  );
+  const activeHighlight = useNotificationHighlight(
+    notificationOrderId ? `order:${notificationOrderId}` : null,
+    !loading && !error,
   );
 
   // --- FETCH TOTAL INCOME SUMMARY ---
@@ -309,6 +315,12 @@ export default function SalesPage() {
               )}
               <DataTable
                 loading={loading}
+                rowProps={(order) => ({
+                  "data-notification-target": `order:${order.id}`,
+                })}
+                rowClassName={(order) =>
+                  activeHighlight === `order:${order.id}` ? "notification-target-highlight" : undefined
+                }
               fixedLayout={true}
               emptyMessage="No sales found - adjust the filters or record sales from the POS app."
               columns={[
