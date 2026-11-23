@@ -355,7 +355,9 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
             }
             event = next.action;
           } else {
-            // Unknown card: travel through the normal UNKNOWN_CARD path as IN.
+            // Unknown card: no user will be found, so the UNKNOWN_CARD path
+            // below rejects the event without writing a shift. Use IN so the
+            // rejection names a real event.
             event = "IN";
           }
         }
@@ -401,6 +403,33 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
           continue;
         }
         const user = byUid.get(lookupUid(uid)) ?? null;
+        // Unregistered cards never produce an attendance record. They only
+        // raise the owner-facing UNKNOWN_CARD alert (once per card/day).
+        if (!user) {
+          const dedupeKey = `unknown:${location.id}:${uid}`;
+          const dup =
+            createdNeedles.has(dedupeKey) ||
+            unreadAlerts.some((a) => {
+              try {
+                return JSON.parse(a.payload ?? "{}")?.dedupeKey === dedupeKey;
+              } catch {}
+              return (a.message ?? "").includes(`Unknown RFID card ${uid}`);
+            });
+          if (!dup) {
+            createdNeedles.add(dedupeKey);
+            newAlerts.push({
+              type: "UNKNOWN_CARD",
+              message: `Unknown RFID card ${uid} tapped at ${location.code} - register this card`,
+              payload: JSON.stringify({ dedupeKey, uid, locationId: location.id, locationCode: location.code }),
+            });
+          }
+          rejected.push({
+            staff_uid: uid,
+            event: String(event || "IN").toUpperCase(),
+            reason: "Unregistered RFID card - no shift recorded",
+          });
+          continue;
+        }
         // A deactivated account is not bookable — a tap cannot revive it.
         if (user && user.active === false) {
           rejected.push({ staff_uid: uid, event, reason: "Staff account is deactivated." });
@@ -487,26 +516,7 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
         plans.push({ uid, event, ts, user, eventId, method: "RFID" });
         // Let later events in this same batch see the shift we just accepted.
         rememberPlannedShift(recentShifts, { uid, event, ts, user });
-        if (!user) {
-          const dedupeKey = `unknown:${location.id}:${uid}`;
-          const dup =
-            createdNeedles.has(dedupeKey) ||
-            unreadAlerts.some((a) => {
-              try {
-                if (JSON.parse(a.payload ?? "{}")?.dedupeKey === dedupeKey) return true;
-              } catch {}
-              return (a.message ?? "").includes(`Unknown RFID card ${uid}`);
-            });
-          if (!dup) {
-            createdNeedles.add(dedupeKey);
-            newAlerts.push({
-              type: "UNKNOWN_CARD",
-              message: `Unknown RFID card ${uid} tapped at ${location.code} - register this card`,
-              payload: JSON.stringify({ dedupeKey, uid, locationId: location.id, locationCode: location.code }),
-            });
-          }
-        }
-        accepted.push({ staff_uid: uid, event, matched: user ? user.name : null });
+        accepted.push({ staff_uid: uid, event, matched: user.name });
         // The owner wants a record when a real person clocks in or out at their
         // cart: a SHIFT alert lands in the notification center.
         if (user) {
@@ -749,23 +759,24 @@ router.get("/staff/on-shift", requireAuth, async (_req, res, next) => {
       include: { location: { select: { code: true, name: true } } },
       orderBy: { ts: "asc" },
     });
+    const registered = shifts.filter((s) => Boolean(s.staffName));
     const latestByPerson = new Map();
-    for (const s of shifts) {
+    for (const s of registered) {
       const key = `${s.staffUid}|${s.locationId}`;
       latestByPerson.set(key, s); // ascending order keeps the newest last
     }
     const onShift = [...latestByPerson.values()]
       .filter((s) => s.event === "IN")
       .map((s) => ({
-        name: s.staffName ?? `Unregistered card ${s.staffUid}`,
-        registered: Boolean(s.staffName),
+        name: s.staffName,
+        registered: true,
         since: s.ts,
         location_code: s.location.code,
         location_name: s.location.name,
       }));
     return res.json({
       on_shift: onShift,
-      recent_today: shifts.slice(-20).reverse(),
+      recent_today: registered.slice(-20).reverse(),
     });
   } catch (err) {
     return next(err);
