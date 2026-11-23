@@ -13,6 +13,8 @@
 #include <MFRC522.h>
 #include <HX711.h>
 #include <time.h>
+#include <Preferences.h>
+#include "soc/rtc_cntl_reg.h"
 
 #include "config.h"   // copy config.example.h -> config.h and fill in
 
@@ -29,6 +31,11 @@
 #ifndef USE_LOAD_CELLS
 #define USE_LOAD_CELLS 1
 #endif
+
+// Offline queue: NVS survives power loss, RAM does not. Kept small so a full
+// serialized queue fits comfortably in the default NVS partition.
+#define QUEUE_MAX        24
+#define SHIFT_TTL_SEC    (12UL * 60UL * 60UL)
 
 // How long to wait before re-associating after the link drops.
 #ifndef WIFI_RETRY_INTERVAL_MS
@@ -51,13 +58,19 @@ int readingCount = 0;
 
 struct ShiftEvent {
   String uid;
-  time_t capturedAt;  // 0 when the clock was never synced (rare, cold boot offline)
+  time_t capturedAt;  // tap time; estimated when the clock was not NTP-synced
   String eventId;     // sync idempotency key; the server never writes the same tap twice
+  bool approx;        // true when capturedAt came from the NVS clock estimate
 };
-ShiftEvent shiftBuf[BUF_SIZE];
+ShiftEvent shiftBuf[QUEUE_MAX];
 int shiftCount = 0;
 unsigned long droppedReadings = 0;
 unsigned long droppedShifts = 0;
+
+Preferences prefs;
+time_t lastSyncEpoch = 0;
+unsigned long lastSyncMillis = 0;
+bool clockTrusted = false;
 
 unsigned long lastSample = 0;
 unsigned long lastFlush = 0;
@@ -81,7 +94,10 @@ bool initReader() {
   readerOk = (ver == 0x91 || ver == 0x92);
   Serial.printf("MFRC522 version: 0x%02X %s\n", ver,
                 readerOk ? "(reader OK)" : "(no answer)");
-  if (!readerOk) rfid.PCD_AntennaOff();
+  // Keep the RF field off until Wi-Fi is up. The antenna pulses pull the
+  // marginal 3.3 V rail down and trip the brownout detector during the radio
+  // bring-up. setup() turns it back on only after WiFi connects.
+  rfid.PCD_AntennaOff();
   return readerOk;
 }
 
@@ -90,6 +106,11 @@ void connectWifi() {
   wifiAttemptStarted = millis();
   Serial.println("[dbg] connectWifi start");
 
+  // Turn the antenna off BEFORE touching the Wi-Fi driver. On a weak supply
+  // the RF pulses are what trip the brownout detector ("E BOD") right here.
+  rfid.PCD_AntennaOff();
+  delay(3000); // let the 3.3 V rail recover before the radio powers up
+
   // Drop any in-flight attempt first. Calling begin() while the driver is still
   // associating is rejected with "wifi:sta is connecting, cannot set config".
   // Keep the stored config (no erase): erasing it makes the radio rescan,
@@ -97,14 +118,6 @@ void connectWifi() {
   // a marginal USB supply.
   WiFi.disconnect(false);
   Serial.println("[dbg] disconnect done");
-  // The MFRC522 antenna pulses RF constantly on this 3.3 V rail — the one
-  // moment the rail cannot afford it is the Wi-Fi bring-up (the recurring
-  // "E BOD" on CART-01). Turn the antenna off until the link is up; tag
-  // pulses can wait a second.
-  rfid.PCD_AntennaOff();
-  // Let the 3.3 V rail recover from the reader's SPI activity before the
-  // radio powers up — another margin on the brownout detector.
-  delay(1500);
   WiFi.mode(WIFI_STA);
   Serial.println("[dbg] mode done");
   WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -134,10 +147,8 @@ void connectWifi() {
     Serial.printf("\nWi-Fi OK  ip=%s  rssi=%d dBm  gateway=%s\n",
                   WiFi.localIP().toString().c_str(), WiFi.RSSI(),
                   WiFi.gatewayIP().toString().c_str());
-    digitalWrite(LED_PIN, HIGH);
   } else {
     Serial.printf("\nWi-Fi unavailable (status %d) - buffering offline\n", (int)WiFi.status());
-    digitalWrite(LED_PIN, LOW);
   }
 }
 
@@ -193,7 +204,75 @@ void queueReading(const char* channel, float kg) {
   }
 }
 
-void flushShifts();
+bool flushShifts();
+
+// --- NVS-backed offline queue ------------------------------------------------
+static void saveQueue() {
+  prefs.putUInt("count", (unsigned int)shiftCount);
+  for (int i = 0; i < shiftCount; i++) {
+    prefs.putString((String("u") + i).c_str(), shiftBuf[i].uid);
+    prefs.putULong((String("t") + i).c_str(), (unsigned long)shiftBuf[i].capturedAt);
+    prefs.putString((String("e") + i).c_str(), shiftBuf[i].eventId);
+    prefs.putBool((String("a") + i).c_str(), shiftBuf[i].approx);
+  }
+}
+
+static void loadQueue() {
+  shiftCount = (int)prefs.getUInt("count", 0);
+  if (shiftCount < 0 || shiftCount > QUEUE_MAX) shiftCount = 0;
+  for (int i = 0; i < shiftCount; i++) {
+    shiftBuf[i].uid = prefs.getString((String("u") + i).c_str(), "");
+    shiftBuf[i].capturedAt = (time_t)prefs.getULong((String("t") + i).c_str(), 0);
+    shiftBuf[i].eventId = prefs.getString((String("e") + i).c_str(), "");
+    shiftBuf[i].approx = prefs.getBool((String("a") + i).c_str(), false);
+    if (shiftBuf[i].uid.length() == 0 || shiftBuf[i].eventId.length() == 0) {
+      Serial.printf("[nvs] corrupt entry %d, queue truncated\n", i);
+      shiftCount = i;
+      break;
+    }
+  }
+}
+
+static void removeQueued(int n) {
+  if (n <= 0) return;
+  for (int i = n; i < shiftCount; i++) shiftBuf[i - n] = shiftBuf[i];
+  shiftCount -= n;
+  saveQueue();
+}
+
+// Wall clock at tap time. NTP is authoritative; between syncs (and across a
+// power loss) we extrapolate from the last synced epoch plus uptime. The user
+// accepts that this estimate is approximate — the `approx` flag records it.
+static time_t estimatedEpoch() {
+  if (clockTrusted) {
+    time_t t = time(nullptr);
+    if (t >= 1700000000) return t;
+  }
+  if (lastSyncEpoch < 1700000000) return 0;
+  unsigned long up = millis();
+  long long delta = (long long)up - (long long)lastSyncMillis;
+  if (delta < 0) delta = up;  // millis() restarted after reboot
+  return (time_t)(lastSyncEpoch + delta / 1000LL);
+}
+
+static void dropExpired() {
+  time_t now = estimatedEpoch();
+  if (now < 1700000000) return;  // no usable clock yet
+  time_t cutoff = now - (time_t)SHIFT_TTL_SEC;
+  int keep = 0;
+  for (int i = 0; i < shiftCount; i++) {
+    if (shiftBuf[i].capturedAt >= cutoff) {
+      shiftBuf[keep++] = shiftBuf[i];
+    } else {
+      droppedShifts++;
+      Serial.printf("Dropped expired tap %s\n", shiftBuf[i].eventId.c_str());
+    }
+  }
+  if (keep != shiftCount) {
+    shiftCount = keep;
+    saveQueue();
+  }
+}
 
 void queueShift(const String& uid) {
   if (uid == lastUid && millis() - lastTapMs < 30000) return;  // debounce
@@ -202,7 +281,8 @@ void queueShift(const String& uid) {
 
   // Capture the wall clock at tap time, not at flush time, so an offline
   // tap keeps its true occurrence once Wi-Fi returns.
-  const time_t captured = time(nullptr);
+  const time_t captured = estimatedEpoch();
+  const bool approxTap = !clockTrusted;
   // Sync idempotency key: the server never writes the same tap twice, no
   // matter how often a buffered event is re-posted.
   unsigned char randBytes[8];
@@ -211,23 +291,32 @@ void queueShift(const String& uid) {
   for (int i = 0; i < 8; i++) sprintf(hex + i * 2, "%02x", randBytes[i]);
   String eventId = String(DEVICE_ID) + "-" + String((unsigned int)captured, HEX) + "-" + String(hex);
 
-  if (shiftCount < BUF_SIZE) {
-    shiftBuf[shiftCount++] = {uid, captured, eventId};
-  } else {
+  dropExpired();
+  if (shiftCount >= QUEUE_MAX) {
+    // Drop the oldest so a full queue never blocks a new tap.
+    for (int i = 1; i < shiftCount; i++) shiftBuf[i - 1] = shiftBuf[i];
+    shiftCount--;
     droppedShifts++;
-    Serial.printf("shift buffer full - dropped %lu total\n", droppedShifts);
+    Serial.println("Queue full - dropped oldest tap");
   }
-  digitalWrite(LED_PIN, HIGH);
-  delay(80);
+  if (shiftCount < QUEUE_MAX) {
+    shiftBuf[shiftCount++] = {uid, captured, eventId, approxTap};
+    saveQueue();  // power-loss safe BEFORE the LED goes dark
+  }
+  // Blue LED goes OFF while the tap is being handed to the web. It only
+  // comes back on steady once the server accepted every buffered event.
   digitalWrite(LED_PIN, LOW);
   Serial.printf("Tap queued for %s (eventId %s)\n", uid.c_str(), eventId.c_str());
   // Push the tap to the server immediately instead of waiting for the flush
   // interval, so the phone the person is holding hears back at once.
-  if (WiFi.status() == WL_CONNECTED) flushShifts();
+  if (WiFi.status() == WL_CONNECTED && flushShifts()) {
+    digitalWrite(LED_PIN, HIGH);
+  }
 }
 
-void flushShifts() {
+bool flushShifts() {
   const int BATCH = 10;
+  dropExpired();
   while (shiftCount > 0) {
     JsonDocument doc;
     doc["cart_id"] = DEVICE_CART_ID;
@@ -255,20 +344,19 @@ void flushShifts() {
     int code = postBatch("/shifts", body);
     if (code == 401 || code == 403) {
       Serial.printf("AUTH FAILED %d on /shifts - check API_DEVICE_TOKEN\n", code);
-      return;  // keep buffer, don't burn radio retrying a bad token
+      return false;  // keep buffer, don't burn radio retrying a bad token
     }
     if (code >= 400 && code < 500) {
       // The server refuses these taps permanently (bad payload, deactivated
       // account...). Keeping them would repost them forever.
       Serial.printf("Permanent rejection %d on /shifts - dropped %d events\n", code, n);
-      for (int i = n; i < shiftCount; i++) shiftBuf[i - n] = shiftBuf[i];
-      shiftCount -= n;
+      removeQueued(n);
       continue;
     }
-    if (code < 200 || code >= 300) return;  // server down or 5xx: retry later
-    for (int i = n; i < shiftCount; i++) shiftBuf[i - n] = shiftBuf[i];
-    shiftCount -= n;
+    if (code < 200 || code >= 300) return false;  // server down or 5xx: retry later
+    removeQueued(n);
   }
+  return shiftCount == 0;
 }
 
 void flushReadings() {
@@ -300,11 +388,25 @@ void flushReadings() {
 }
 
 void setup() {
+  // This cart's USB supply dips below the brownout threshold the instant the
+  // Wi-Fi radio powers up, which rebooted the node before it ever connected.
+  // Keep the radio running; the proper fix is a beefier 5 V supply / a bulk
+  // capacitor on the 3.3 V rail (see hardware notes in README).
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+
   Serial.begin(115200);
   delay(1500);   // let the USB-UART bridge settle before printing
   Serial.printf("CartIQ node %s (cart %s)\n", DEVICE_ID, DEVICE_CART_ID);
   Serial.printf("API base: %s\n", API_BASE_URL);
   pinMode(LED_PIN, OUTPUT);
+
+  // Restore the offline queue saved in NVS (survives power loss).
+  prefs.begin("cartiq", false);
+  lastSyncEpoch = (time_t)prefs.getULong("syncEpoch", 0);
+  lastSyncMillis = prefs.getULong("syncMillis", 0);
+  loadQueue();
+  Serial.printf("[nvs] restored %d queued tap(s), last sync epoch %ld\n",
+                shiftCount, (long)lastSyncEpoch);
 
   // The cart's USB port is marginal: with the RFID reader on the 3.3 V rail
   // the Wi-Fi start-up dip trips the brownout detector and the node reboots
@@ -350,7 +452,19 @@ void setup() {
     delay(500);
   }
   Serial.println("[dbg] configTime done");
-  Serial.printf("[dbg] clock %ld\n", (long)time(nullptr));
+  time_t synced = time(nullptr);
+  Serial.printf("[dbg] clock %ld\n", (long)synced);
+  if (synced >= 1700000000) {
+    clockTrusted = true;
+    lastSyncEpoch = synced;
+    lastSyncMillis = millis();
+    prefs.putULong("syncEpoch", (unsigned long)lastSyncEpoch);
+    prefs.putULong("syncMillis", lastSyncMillis);
+    Serial.println("Clock synced - timestamps are exact");
+  } else {
+    clockTrusted = false;
+    Serial.println("Clock NOT synced - offline taps will be flagged approximate");
+  }
 
   if (WiFi.status() == WL_CONNECTED) {
     // The reader antenna was disabled for the radio bring-up; the node is
@@ -361,6 +475,16 @@ void setup() {
 }
 
 void loop() {
+  // Blue LED: steady when online and nothing pending, slow blink while the
+  // queue still has taps to deliver, OFF when offline with an empty queue.
+  if (shiftCount > 0) {
+    digitalWrite(LED_PIN, (millis() % 1500UL) < 150UL ? HIGH : LOW);
+  } else if (WiFi.status() == WL_CONNECTED) {
+    digitalWrite(LED_PIN, HIGH);
+  } else {
+    digitalWrite(LED_PIN, LOW);
+  }
+
   if (!readerOk) {
     if (millis() - lastReaderCheck > 5000) {
       lastReaderCheck = millis();

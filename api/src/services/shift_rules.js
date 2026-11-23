@@ -80,3 +80,22 @@ export function duplicateShiftReason(todayShifts, event) {
   const at = same.ts ? ` at ${formatManilaClock12(same.ts)}` : "";
   return `You already timed ${label} today${at}.`;
 }
+
+/**
+ * Remember an event that was just accepted in this batch so later events for
+ * the same person see it. The DB read for `recentShifts` happens once per
+ * request; without this, two buffered offline taps (IN then OUT) would both be
+ * matched against the pre-batch state and resolve to IN.
+ */
+export function rememberPlannedShift(recentShifts, { uid, event, ts, user }) {
+  if (!Array.isArray(recentShifts)) return recentShifts;
+  recentShifts.push({
+    id: `planned-${recentShifts.length}`,
+    staffId: user?.id ?? null,
+    staffUid: uid,
+    event: String(event ?? "").toUpperCase(),
+    ts,
+    locationId: null,
+  });
+  return recentShifts;
+}

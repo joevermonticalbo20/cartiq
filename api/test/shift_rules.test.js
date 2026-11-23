@@ -13,9 +13,38 @@ import {
   duplicateShiftReason,
   formatManilaClock12,
   manilaDayKeyOf,
+  rememberPlannedShift,
   shiftsOfPersonOnDay,
 } from "../src/services/shift_rules.js";
+import { resolveNextEvent } from "../src/services/attendance_core.js";
 import { timeClockScheduleError } from "../src/services/time_clock.js";
+
+// An offline batch arrives as several events for one person. The DB read is
+// done once, so each accepted event must be added to the local list before the
+// next one is resolved — otherwise both become IN.
+test("a batch remembers each accepted shift so the next offline tap resolves OUT", () => {
+  const recent = [];
+  const dayKey = "2026-11-23";
+  const firstTs = new Date("2026-11-22T23:10:00Z"); // 07:10 Manila
+  const secondTs = new Date("2026-11-23T09:05:00Z"); // 17:05 Manila
+
+  assert.equal(resolveNextEvent(shiftsOfPersonOnDay(recent, { staffId: 2, staffUid: "3A20704F", dayKey })).action, "IN");
+  rememberPlannedShift(recent, { uid: "3A20704F", event: "IN", ts: firstTs, user: { id: 2 } });
+  assert.equal(resolveNextEvent(shiftsOfPersonOnDay(recent, { staffId: 2, staffUid: "3A20704F", dayKey })).action, "OUT");
+  rememberPlannedShift(recent, { uid: "3A20704F", event: "OUT", ts: secondTs, user: { id: 2 } });
+  assert.equal(resolveNextEvent(shiftsOfPersonOnDay(recent, { staffId: 2, staffUid: "3A20704F", dayKey })).action, null);
+  assert.equal(
+    duplicateShiftReason(shiftsOfPersonOnDay(recent, { staffId: 2, staffUid: "3A20704F", dayKey }), "IN") !== null,
+    true,
+  );
+});
+
+test("a planned shift is keyed by staff id when known, by card uid otherwise", () => {
+  const recent = [];
+  rememberPlannedShift(recent, { uid: "ABCD1234", event: "IN", ts: new Date("2026-11-23T01:00:00Z"), user: null });
+  assert.equal(recent[0].staffId, null);
+  assert.equal(recent[0].staffUid, "ABCD1234");
+});
 
 // 2026-11-13 17:23 Manila = 09:23 UTC.
 const inShift = {

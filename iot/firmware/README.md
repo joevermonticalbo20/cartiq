@@ -54,10 +54,21 @@ ESP32 board support: install **esp32 by Espressif Systems** via Boards Manager.
 
 ## Offline behavior
 
-Events/readings buffer in RAM (`BUF_SIZE` slots) in chronological (FIFO) order.
-Phase 2 upgrades buffering to Preferences/NVS so records survive power loss,
-then uploads in batches with original timestamps whenever Wi-Fi is reachable.
-Until then, power loss drops the RAM buffer — refill/reset and re-tap after outages.
+RFID taps are queued in **Preferences/NVS** (24 slots, FIFO) together with the
+tap time and an idempotency key, so they survive power loss. They are uploaded
+in batches (10 per POST) as soon as the configured Wi-Fi returns; the server
+re-runs every rule using the original tap time and resolves the staff name from
+the card UID. Events older than **12 hours** are discarded.
+
+There is no battery-backed RTC, so when a tap happens after a power loss and
+before NTP sync, the timestamp is an estimate and is marked `approx` in the
+queue. Once Wi-Fi returns and NTP syncs, later taps use exact time.
+
+Blue LED: **steady** when online with an empty queue, **slow blink** while taps
+are pending, **off** when offline with nothing queued. It goes dark while a tap
+is being uploaded.
+
+Readings still buffer in RAM only and are lost on power cycling.
 
 ## Hardware ops (pilot)
 

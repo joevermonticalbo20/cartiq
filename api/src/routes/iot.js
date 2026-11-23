@@ -6,6 +6,7 @@ import { manilaDayRange, manilaDayStart, manilaDayKey } from "../services/timezo
 import {
   duplicateShiftReason,
   manilaDayKeyOf,
+  rememberPlannedShift,
   shiftsOfPersonOnDay,
 } from "../services/shift_rules.js";
 import { lowStockDedupeKey, shouldOpenLowStockAlert } from "../services/low_stock_alert.js";
@@ -484,6 +485,8 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
           }
         }
         plans.push({ uid, event, ts, user, eventId, method: "RFID" });
+        // Let later events in this same batch see the shift we just accepted.
+        rememberPlannedShift(recentShifts, { uid, event, ts, user });
         if (!user) {
           const dedupeKey = `unknown:${location.id}:${uid}`;
           const dup =

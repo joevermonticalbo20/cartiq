@@ -3320,6 +3320,23 @@ function resolveNextEventEdge(todays) {
   return { action: hasIn ? "OUT" : "IN" };
 }
 
+/**
+ * Mirror of rememberPlannedShift(): the DB read is once per batch, so an
+ * accepted event must be added to the local shift list before the next event
+ * is resolved. Otherwise an offline IN+OUT batch would write two INs.
+ */
+function rememberPlannedShiftEdge(recentShifts, { uid, event, ts, user }) {
+  if (!Array.isArray(recentShifts)) return;
+  recentShifts.push({
+    id: `planned-${recentShifts.length}`,
+    staffId: user?.id ?? null,
+    staffUid: uid,
+    event: String(event ?? "").toUpperCase(),
+    ts,
+    locationId: null,
+  });
+}
+
 /** Method stored on rows (RFID/APP/MANUAL), with a legacy fallback. */
 function attendanceMethodEdge(row) {
   const m = String(row?.method ?? "").toUpperCase();
@@ -6447,6 +6464,8 @@ async function handleDeviceShifts(req, _origin, device) {
         }
       }
       plans.push({ uid, event, ts, user, eventId, method: "RFID" });
+      // Later events in this batch must see the shift we just accepted.
+      rememberPlannedShiftEdge(recentShifts, { uid, event, ts, user });
       if (!user) {
         const dedupeKey = `unknown:${location.id}:${uid}`;
         const dup =
