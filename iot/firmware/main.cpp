@@ -63,6 +63,7 @@ struct ShiftEvent {
   time_t capturedAt;  // tap time; estimated when the clock was not NTP-synced
   String eventId;     // sync idempotency key; the server never writes the same tap twice
   bool approx;        // true when capturedAt came from the NVS clock estimate
+  unsigned long tapMillis;  // uptime at tap, used to correct the stamp after NTP sync
 };
 ShiftEvent shiftBuf[QUEUE_MAX];
 int shiftCount = 0;
@@ -70,8 +71,8 @@ unsigned long droppedReadings = 0;
 unsigned long droppedShifts = 0;
 
 Preferences prefs;
-time_t lastSyncEpoch = 0;
-unsigned long lastSyncMillis = 0;
+time_t epochAnchor = 0;        // wall clock at anchorMillis
+unsigned long anchorMillis = 0;
 bool clockTrusted = false;
 
 unsigned long lastSample = 0;
@@ -82,6 +83,7 @@ String lastUid = "";
 unsigned long lastTapMs = 0;
 unsigned long lastHeartbeat = 0;
 unsigned long lastReaderCheck = 0;
+unsigned long lastAnchorSave = 0;
 unsigned long tapFlashUntil = 0;   // brief confirmation blink after a queued tap
 bool readerOk = false;
 
@@ -224,6 +226,7 @@ static void saveQueue() {
     prefs.putULong((String("t") + i).c_str(), (unsigned long)shiftBuf[i].capturedAt);
     prefs.putString((String("e") + i).c_str(), shiftBuf[i].eventId);
     prefs.putBool((String("a") + i).c_str(), shiftBuf[i].approx);
+    prefs.putULong((String("m") + i).c_str(), shiftBuf[i].tapMillis);
   }
 }
 
@@ -235,6 +238,7 @@ static void loadQueue() {
     shiftBuf[i].capturedAt = (time_t)prefs.getULong((String("t") + i).c_str(), 0);
     shiftBuf[i].eventId = prefs.getString((String("e") + i).c_str(), "");
     shiftBuf[i].approx = prefs.getBool((String("a") + i).c_str(), false);
+    shiftBuf[i].tapMillis = prefs.getULong((String("m") + i).c_str(), 0);
     if (shiftBuf[i].uid.length() == 0 || shiftBuf[i].eventId.length() == 0) {
       Serial.printf("[nvs] corrupt entry %d, queue truncated\n", i);
       shiftCount = i;
@@ -258,11 +262,11 @@ static time_t estimatedEpoch() {
     time_t t = time(nullptr);
     if (t >= 1700000000) return t;
   }
-  if (lastSyncEpoch < 1700000000) return 0;
+  if (epochAnchor < 1700000000) return 0;
   unsigned long up = millis();
-  long long delta = (long long)up - (long long)lastSyncMillis;
-  if (delta < 0) delta = up;  // millis() restarted after reboot
-  return (time_t)(lastSyncEpoch + delta / 1000LL);
+  long long delta = (long long)up - (long long)anchorMillis;
+  if (delta < 0) delta = up;
+  return (time_t)(epochAnchor + delta / 1000LL);
 }
 
 static void dropExpired() {
@@ -310,7 +314,7 @@ void queueShift(const String& uid) {
     Serial.println("Queue full - dropped oldest tap");
   }
   if (shiftCount < QUEUE_MAX) {
-    shiftBuf[shiftCount++] = {uid, captured, eventId, approxTap};
+    shiftBuf[shiftCount++] = {uid, captured, eventId, approxTap, millis()};
     saveQueue();  // power-loss safe BEFORE the LED goes dark
   }
   // Confirm locally that the tap was recorded — no WiFi needed.
@@ -340,9 +344,20 @@ bool flushShifts() {
       e["staff_uid"] = shiftBuf[i].uid;
       e["event"] = "next";  // the server decides IN vs OUT from attendance state
       e["eventId"] = shiftBuf[i].eventId;
-      // Only send a timestamp when the clock was actually synced at tap time.
-      // The server treats a missing ts as "arrival = receipt time" rather
-      // than inventing an occurrence the phone never captured.
+      // A tap recorded before NTP sync used an estimated wall clock. Now that
+      // we are synced, rebuild the exact time from the current NTP clock minus
+      // the uptime elapsed since the tap — no need for extra hardware.
+      if (shiftBuf[i].approx && clockTrusted &&
+          shiftBuf[i].tapMillis > 0 && shiftBuf[i].tapMillis <= millis()) {
+        time_t corrected = time(nullptr) -
+          (long)((millis() - shiftBuf[i].tapMillis) / 1000UL);
+        if (corrected >= 1700000000) {
+          shiftBuf[i].capturedAt = corrected;
+          shiftBuf[i].approx = false;
+        }
+      }
+      e["time_approx"] = shiftBuf[i].approx;
+      // Only send a timestamp when we have a plausible wall clock.
       if (shiftBuf[i].capturedAt >= 1700000000) {
         char buf[32];
         struct tm t;
@@ -414,11 +429,11 @@ void setup() {
 
   // Restore the offline queue saved in NVS (survives power loss).
   prefs.begin("cartiq", false);
-  lastSyncEpoch = (time_t)prefs.getULong("syncEpoch", 0);
-  lastSyncMillis = prefs.getULong("syncMillis", 0);
+  epochAnchor = (time_t)prefs.getULong("anchorEpoch", 0);
+  anchorMillis = 0;  // the anchor is the wall clock at boot time
   loadQueue();
-  Serial.printf("[nvs] restored %d queued tap(s), last sync epoch %ld\n",
-                shiftCount, (long)lastSyncEpoch);
+  Serial.printf("[nvs] restored %d queued tap(s), clock anchor %ld\n",
+                shiftCount, (long)epochAnchor);
 
   // The cart's USB port is marginal: with the RFID reader on the 3.3 V rail
   // the Wi-Fi start-up dip trips the brownout detector and the node reboots
@@ -468,10 +483,9 @@ void setup() {
   Serial.printf("[dbg] clock %ld\n", (long)synced);
   if (synced >= 1700000000) {
     clockTrusted = true;
-    lastSyncEpoch = synced;
-    lastSyncMillis = millis();
-    prefs.putULong("syncEpoch", (unsigned long)lastSyncEpoch);
-    prefs.putULong("syncMillis", lastSyncMillis);
+    epochAnchor = synced;
+    anchorMillis = millis();
+    prefs.putULong("anchorEpoch", (unsigned long)epochAnchor);
     Serial.println("Clock synced - timestamps are exact");
   } else {
     clockTrusted = false;
@@ -526,6 +540,16 @@ void loop() {
     byte tx = rfid.PCD_ReadRegister(MFRC522::TxControlReg);
     Serial.printf("[heartbeat] reader %s antenna=%02X (bits03=%u)\n",
                   readerOk ? "OK" : "MISSING", tx, (unsigned)(tx & 0x03));
+  }
+
+  // Keep the wall-clock anchor fresh so a power loss never rewinds the
+  // estimate by hours. Saved every minute while running offline.
+  if (!clockTrusted && epochAnchor >= 1700000000 &&
+      millis() - lastAnchorSave > 60000UL) {
+    lastAnchorSave = millis();
+    epochAnchor = estimatedEpoch();
+    anchorMillis = millis();
+    prefs.putULong("anchorEpoch", (unsigned long)epochAnchor);
   }
 
   // Server liveness every 10s so the registration dialog can tell "reader
