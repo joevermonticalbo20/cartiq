@@ -129,6 +129,9 @@ void connectWifi() {
   // middle of a request. 5 dBm is plenty for a next-to-the-cart router.
   WiFi.setTxPower(WIFI_POWER_5dBm);
   Serial.printf("Connecting to Wi-Fi ssid=\"%s\"", WIFI_SSID);
+  // Radio is up now. Re-enable the reader immediately so an offline node can
+  // still read taps while association is being retried.
+  if (readerOk) rfid.PCD_AntennaOn();
 
   unsigned long start = millis();
   int lastStatus = (int)WiFi.status();
