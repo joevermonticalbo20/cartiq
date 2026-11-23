@@ -66,8 +66,15 @@ before NTP sync, the timestamp is an estimate and is marked `approx` in the
 queue. Once Wi-Fi returns and NTP syncs, later taps use exact time.
 
 Blue LED: **steady** when online with an empty queue, **slow blink** while taps
-are pending, **off** when offline with nothing queued. It goes dark while a tap
-is being uploaded.
+are pending, **off** when offline with nothing queued. It flashes twice on a
+tap and goes dark while a tap is being uploaded.
+
+If a live Wi-Fi link drops, the node waits **30 seconds** for the AP to return;
+if it does not, it enters offline-use mode. From then on taps queue in NVS and
+are only uploaded after the node is replugged (a fresh 30s boot attempt).
+
+Heartbeats are posted every 3s so the web/app flags a power or Wi-Fi loss
+within ~5s (the server marks a reader offline after 6s).
 
 Readings still buffer in RAM only and are lost on power cycling.
 
