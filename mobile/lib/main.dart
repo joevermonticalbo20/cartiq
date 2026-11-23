@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -27,6 +29,18 @@ import 'widgets/offline_lock_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Release mode has no red error screen: a single await that hangs here (App
+  // Check attestation, Firebase, a locked database) leaves the operator with a
+  // blank white window. Every startup step gets a hard timeout so the UI
+  // always appears — degraded, with a visible warning, never blank.
+  Future<T?> bounded<T>(Future<T> work, Duration limit) async {
+    try {
+      return await work.timeout(limit);
+    } catch (_) {
+      return null;
+    }
+  }
+
   // Everything below runs BEFORE runApp(). In release there is no red error
   // screen, so any uncaught throw here leaves the operator staring at a blank
   // white window with no way out - which is exactly the symptom reported
@@ -40,7 +54,7 @@ Future<void> main() async {
   final startupWarnings = <String>[];
 
   try {
-    await PersistedOfflineQueue.instance.open();
+    await bounded(PersistedOfflineQueue.instance.open(), const Duration(seconds: 8));
     if (PersistedOfflineQueue.instance.isDegraded) {
       startupWarnings.add(
         'Offline storage unavailable - unsynced sales will not survive '
@@ -53,11 +67,12 @@ Future<void> main() async {
 
   // Push notifications must never blank the POS.
   try {
-    await Firebase.initializeApp();
+    await bounded(Firebase.initializeApp(), const Duration(seconds: 8));
     // App Check proves the POS app is genuine; it is best-effort and never
     // blocks startup. The server only enforces it when the owner turns
-    // APP_CHECK_ENFORCE=true.
-    await AppCheckService.startBestEffort();
+    // APP_CHECK_ENFORCE=true. Play Integrity attestation can hang for tens of
+    // seconds with poor Google Play connectivity — bounded above.
+    await bounded(AppCheckService.startBestEffort(), const Duration(seconds: 8));
   } catch (e) {
     startupWarnings.add('Push notifications unavailable ($e).');
   }
@@ -95,7 +110,7 @@ Future<void> main() async {
   // MultiProvider sits inside a build method and `create` would hand each tab
   // a different instance.
   try {
-    await themeController.load();
+    await bounded(themeController.load(), const Duration(seconds: 5));
   } catch (e) {
     startupWarnings.add('Saved preferences unavailable ($e).');
   }
@@ -108,8 +123,8 @@ Future<void> main() async {
     const SecureStoreAdapter(FlutterSecureStorage()),
   );
   try {
-    final draft = await cartDraft.load();
-    if (draft.isNotEmpty) cart.restoreFromDraft(draft);
+    final draft = await bounded(cartDraft.load(), const Duration(seconds: 5));
+    if (draft != null && draft.isNotEmpty) cart.restoreFromDraft(draft);
   } catch (e) {
     startupWarnings.add('Saved order could not be restored ($e).');
   }
