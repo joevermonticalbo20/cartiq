@@ -43,7 +43,7 @@ class FakeApi extends ApiClient {
   int statusCalls = 0;
 
   /// How far in the future the fake claim expires. Tests that exercise the
-  /// timeout set this low so they wait ~2s instead of the production 90s.
+  /// timeout set this low so they wait ~2s instead of the production 30s.
   Duration claimTtl = const Duration(seconds: 60);
 
   @override

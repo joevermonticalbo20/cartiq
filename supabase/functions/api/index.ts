@@ -1256,7 +1256,7 @@ function refusalAlert({ outcome, rfidUid, locationCode, cardLocationCode, holder
   return null;
 }
 
-const RFID_CLAIM_TTL_MS = 90 * 1000;
+const RFID_CLAIM_TTL_MS = 30 * 1000;
 const RFID_CLAIM_MAX = 200;
 
 // Claims live in Firestore, not in module memory.
@@ -1401,10 +1401,10 @@ function claimView(claim, now = Date.now()) {
 }
 
 // True when the cart's ESP32 node has heartbeated recently. The registration
-// dialog gates its countdown on this so a 90s window never burns down for an
+// dialog gates its countdown on this so a 30s window never burns down for an
 // offline reader. The firmware posts /devices/heartbeat every 10s, so 15s
 // allows one missed beat plus jitter; a board that just unplugged reads
-// offline well inside the 90s claim window. Mirrors api/src/routes/auth.js.
+// offline well inside the 30s claim window. Mirrors api/src/routes/auth.js.
 const CLAIM_DEVICE_ONLINE_MS = 15 * 1000;
 async function claimDeviceOnline(locationId) {
   const secs = await claimDeviceLastSeenSeconds(locationId);

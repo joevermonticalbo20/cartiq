@@ -4,7 +4,7 @@
 // the tag UID. A claim bridges the two: the app opens one scoped to its cart,
 // the reader's next tap resolves it, and the app polls for the result.
 //
-// In-memory on purpose. A claim lives 90 seconds and only matters while one
+// In-memory on purpose. A claim lives 30 seconds and only matters while one
 // person is standing at the cart holding a card, so surviving an API restart
 // buys nothing - and keeping it out of Firestore costs zero reads against a
 // quota that is already the project's binding constraint.

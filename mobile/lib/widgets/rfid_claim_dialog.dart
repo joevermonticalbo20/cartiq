@@ -165,7 +165,7 @@ class _RfidClaimDialogState extends State<RfidClaimDialog> {
         _readerOnline = false;
         _connectingSince ??= now;
         _escalationTimer ??=
-            Timer(const Duration(seconds: 45), () {
+            Timer(const Duration(seconds: 15), () {
           if (mounted) setState(() => _escalated = true);
         });
       }
@@ -275,9 +275,9 @@ class _RfidClaimDialogState extends State<RfidClaimDialog> {
     } else if (failed) {
       body = _FailurePane(message: _error!);
     } else {
-      // The reader is online and the 90s server window is ticking.
+      // The reader is online and the 30s server window is ticking.
       final left = _secondsLeft ?? 0;
-      final total = _totalSeconds ?? (left > 0 ? left : 90);
+      final total = _totalSeconds ?? (left > 0 ? left : 30);
       body = Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,

@@ -62,7 +62,7 @@ export function lookupUid(value) {
 // The app opens a claim scoped to its cart, the reader reports a tap, and the
 // tap resolves the claim. Short TTL: this only has to survive a person walking
 // over to the cart with a card in hand.
-export const RFID_CLAIM_TTL_MS = 90 * 1000;
+export const RFID_CLAIM_TTL_MS = 30 * 1000;
 // Cap concurrent claims so a misbehaving client cannot grow the map without
 // bound; oldest is evicted first (see evictOverflow in routes/events.js).
 export const RFID_CLAIM_MAX = 200;

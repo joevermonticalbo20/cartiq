@@ -48,7 +48,7 @@ class _FakeApi extends ApiClient {
         'locationCode': locationCode ?? 'CART-01',
         'event': event,
         'expiresAt': DateTime.now()
-            .add(const Duration(seconds: 90))
+            .add(const Duration(seconds: 30))
             .toIso8601String(),
       };
 
