@@ -81,6 +81,23 @@ export function duplicateShiftReason(todayShifts, event) {
   return `You already timed ${label} today${at}.`;
 }
 
+/** Two taps of the same card inside this window are one attendance action. */
+export const DUP_TAP_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * True when the person already has a tap within `windowMs` of `ts`. Used to
+ * absorb a double tap at the reader: the first tap wins, the second is a no-op
+ * instead of an immediate OUT. `todays` comes from shiftsOfPersonOnDay().
+ */
+export function recentTapWithin(todays, ts, windowMs = DUP_TAP_WINDOW_MS) {
+  const t = new Date(ts).getTime();
+  if (!Number.isFinite(t)) return false;
+  return (todays ?? []).some((s) => {
+    const st = new Date(s?.ts).getTime();
+    return Number.isFinite(st) && Math.abs(st - t) <= windowMs;
+  });
+}
+
 /**
  * Remember an event that was just accepted in this batch so later events for
  * the same person see it. The DB read for `recentShifts` happens once per

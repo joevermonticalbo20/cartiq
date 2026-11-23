@@ -6,6 +6,7 @@ import { manilaDayRange, manilaDayStart, manilaDayKey } from "../services/timezo
 import {
   duplicateShiftReason,
   manilaDayKeyOf,
+  recentTapWithin,
   rememberPlannedShift,
   shiftsOfPersonOnDay,
 } from "../services/shift_rules.js";
@@ -512,6 +513,12 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
             rejected.push({ staff_uid: uid, event, reason: duplicate });
             continue;
           }
+          // Double tap: the first tap within 5 minutes wins. A second tap is
+          // swallowed (no OUT) so a nervous tap cannot end the shift instantly.
+          if (recentTapWithin(todays, ts)) {
+            accepted.push({ staff_uid: uid, event, matched: user.name, duplicate: true });
+            continue;
+          }
         }
         plans.push({ uid, event, ts, user, eventId, method: "RFID" });
         // Let later events in this same batch see the shift we just accepted.
@@ -821,7 +828,7 @@ router.get("/shifts/history", requireAuth, async (req, res, next) => {
     const { code, date } = req.query;
     const page = Math.max(1, Number(req.query.page) || 1);
     const pageSize = Math.min(Number(req.query.pageSize) || 10, 100);
-    const where = {};
+    const where = { staffId: { not: null } }; // unregistered cards never appear in history
     if (code) where.location = { code: String(code) };
     if (date) {
       const range = manilaDayRange(String(date));

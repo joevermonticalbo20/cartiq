@@ -13,11 +13,19 @@ import {
   duplicateShiftReason,
   formatManilaClock12,
   manilaDayKeyOf,
+  recentTapWithin,
   rememberPlannedShift,
   shiftsOfPersonOnDay,
 } from "../src/services/shift_rules.js";
 import { resolveNextEvent } from "../src/services/attendance_core.js";
 import { timeClockScheduleError } from "../src/services/time_clock.js";
+
+test("recentTapWithin absorbs a double tap but not a real second session", () => {
+  const todays = [{ event: "IN", ts: new Date("2026-11-23T23:00:00Z") }];
+  assert.equal(recentTapWithin(todays, new Date("2026-11-23T23:05:00Z")), true);
+  assert.equal(recentTapWithin(todays, new Date("2026-11-23T23:06:00Z")), false);
+  assert.equal(recentTapWithin([], new Date("2026-11-23T23:05:00Z")), false);
+});
 
 // An offline batch arrives as several events for one person. The DB read is
 // done once, so each accepted event must be added to the local list before the

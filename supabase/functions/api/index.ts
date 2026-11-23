@@ -369,19 +369,29 @@ async function fsCount(collection, filters) {
  * code. Exact while a scope stays under 2000 docs (pilot scale by far).
  */
 async function pagedList(collection, opts) {
-  const { eqFilters, dateField, range, orderBy, page, pageSize, cursor } = opts;
+  const { eqFilters, dateField, range, orderBy, page, pageSize, cursor, filter } = opts;
+  const keep = (d) => (filter ? filter(d) : true);
+  const pageSlice = (rows) => rows.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
   if (range && eqFilters.length > 0) {
     const rows = await fsRunQuery(collection, { filters: eqFilters, orderBy, limit: 2000 });
     const kept = rows.filter((d) =>
-      d[dateField] instanceof Date && d[dateField] >= range.start && d[dateField] < range.end);
+      keep(d) && d[dateField] instanceof Date && d[dateField] >= range.start && d[dateField] < range.end);
     const total = kept.length;
-    const data = kept.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
+    const data = pageSlice(kept);
     return { total, data };
   }
   const filters = [...eqFilters];
   if (range) {
     filters.push({ field: dateField, op: "GREATER_THAN_OR_EQUAL", value: range.start });
     filters.push({ field: dateField, op: "LESS_THAN", value: range.end });
+  }
+  if (filter) {
+    // Post-filtered list (e.g. registered staff only): count after filtering.
+    const rows = await fsRunQuery(collection, { filters, orderBy, limit: 2000 });
+    const kept = rows.filter(keep);
+    const data = pageSlice(kept);
+    const last = data[data.length - 1];
+    return { total: kept.length, data, nextCursor: last ? encodeCursor(last, dateField) : undefined };
   }
   const total = await fsCount(collection, filters);
   const decoded = cursor ? decodeCursor(cursor) : null;
@@ -3318,6 +3328,17 @@ function resolveNextEventEdge(todays) {
     return { action: null, reason: "Shift already complete for today." };
   }
   return { action: hasIn ? "OUT" : "IN" };
+}
+
+/** A second tap within 5 minutes of an existing one is a double tap. */
+const DUP_TAP_WINDOW_MS_EDGE = 5 * 60 * 1000;
+function recentTapWithinEdge(todays, ts) {
+  const t = new Date(ts).getTime();
+  if (!Number.isFinite(t)) return false;
+  return (todays ?? []).some((s) => {
+    const st = new Date(s?.ts).getTime();
+    return Number.isFinite(st) && Math.abs(st - t) <= DUP_TAP_WINDOW_MS_EDGE;
+  });
 }
 
 /**
@@ -6489,6 +6510,11 @@ async function handleDeviceShifts(req, _origin, device) {
           rejected.push({ staff_uid: uid, event, reason: duplicate });
           continue;
         }
+        // Double tap: first tap within 5 minutes wins, second is a no-op.
+        if (recentTapWithinEdge(todays, ts)) {
+          accepted.push({ staff_uid: uid, event, matched: user.name, duplicate: true });
+          continue;
+        }
       }
       plans.push({ uid, event, ts, user, eventId, method: "RFID" });
       // Later events in this batch must see the shift we just accepted.
@@ -7086,6 +7112,9 @@ async function handleShiftsHistory(url) {
   const orderBy = [{ field: "ts", dir: "DESCENDING" }];
   const { total, data: slice, nextCursor } = await pagedList("shifts", {
     eqFilters: filters, dateField: "ts", range, orderBy, page, pageSize, cursor,
+    // Shift history is for real staff only — unregistered card taps are
+    // rejected at write time, but older rows must stay hidden too.
+    filter: (s) => s.staffId != null || Boolean(s.staffName),
   });
   const locations = await fsListAll("locations");
   const locById = new Map(locations.map((l) => [l.id, l]));
