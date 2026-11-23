@@ -73,6 +73,7 @@ unsigned long droppedShifts = 0;
 Preferences prefs;
 time_t epochAnchor = 0;        // wall clock at anchorMillis
 unsigned long anchorMillis = 0;
+time_t clockDriftSec = 0;      // stale-anchor offset learned at NTP sync
 bool clockTrusted = false;
 
 unsigned long lastSample = 0;
@@ -348,17 +349,12 @@ bool flushShifts() {
       e["event"] = "next";  // the server decides IN vs OUT from attendance state
       e["eventId"] = shiftBuf[i].eventId;
       e["offline"] = shiftBuf[i].offline;
-      // A tap recorded before NTP sync used an estimated wall clock. Now that
-      // we are synced, rebuild the exact time from the current NTP clock minus
-      // the uptime elapsed since the tap — no need for extra hardware.
-      if (shiftBuf[i].approx && clockTrusted &&
-          shiftBuf[i].tapMillis > 0 && shiftBuf[i].tapMillis <= millis()) {
-        time_t corrected = time(nullptr) -
-          (long)((millis() - shiftBuf[i].tapMillis) / 1000UL);
-        if (corrected >= 1700000000) {
-          shiftBuf[i].capturedAt = corrected;
-          shiftBuf[i].approx = false;
-        }
+      // Offline taps used the stale NVS clock, which can be off by the entire
+      // unplugged duration. Apply the NTP-learned drift to land on the real
+      // wall-clock time of the tap — even across a reboot (millis() resets).
+      if (shiftBuf[i].approx && clockDriftSec != 0) {
+        shiftBuf[i].capturedAt += clockDriftSec;
+        shiftBuf[i].approx = false;
       }
       e["time_approx"] = shiftBuf[i].approx;
       // Only send a timestamp when we have a plausible wall clock.
@@ -434,6 +430,7 @@ void setup() {
   // Restore the offline queue saved in NVS (survives power loss).
   prefs.begin("cartiq", false);
   epochAnchor = (time_t)prefs.getULong("anchorEpoch", 0);
+  clockDriftSec = (time_t)prefs.getLong("clockDrift", 0);
   anchorMillis = 0;  // the anchor is the wall clock at boot time
   loadQueue();
   Serial.printf("[nvs] restored %d queued tap(s), clock anchor %ld\n",
@@ -486,6 +483,16 @@ void setup() {
   time_t synced = time(nullptr);
   Serial.printf("[dbg] clock %ld\n", (long)synced);
   if (synced >= 1700000000) {
+    // Apply the NTP truth to taps recorded before this sync. Those taps used
+    // the stale NVS anchor (off by however long the board was unplugged), so
+    // shift them by the difference between the real clock and our estimate.
+    time_t estimated = estimatedEpoch();
+    if (estimated >= 1700000000) {
+      clockDriftSec = synced - estimated;
+      prefs.putLong("clockDrift", (long)clockDriftSec);
+      Serial.printf("[clock] drift %+lds corrected on queued offline taps\n",
+                    (long)clockDriftSec);
+    }
     clockTrusted = true;
     epochAnchor = synced;
     anchorMillis = millis();
