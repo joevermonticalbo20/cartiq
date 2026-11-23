@@ -1,8 +1,17 @@
+// A bare tap is only a real attendance event when it was captured offline.
+test("online bare taps need an app claim; offline bare taps do not", () => {
+  assert.equal(bareTapNeedsClaim({ _bare: true }), true);
+  assert.equal(bareTapNeedsClaim({ _bare: true, offline: false }), true);
+  assert.equal(bareTapNeedsClaim({ _bare: true, offline: true }), false);
+  assert.equal(bareTapNeedsClaim({ offline: false }), false);
+});
+
 // RFID registration policy: UID normalization and the claim lifecycle.
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  bareTapNeedsClaim,
   classifyTap,
   cleanRfidUid,
   isClaimActive,

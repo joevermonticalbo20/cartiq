@@ -62,6 +62,15 @@ export function lookupUid(value) {
 // The app opens a claim scoped to its cart, the reader reports a tap, and the
 // tap resolves the claim. Short TTL: this only has to survive a person walking
 // over to the cart with a card in hand.
+/**
+ * A tap made while the reader is online must be backed by an app claim (the
+ * phone's RFID Tap button chose IN or OUT). Only a tap captured while the
+ * reader was offline may fall back to the state-driven next action.
+ */
+export function bareTapNeedsClaim(event) {
+  return event?._bare === true && event?.offline !== true;
+}
+
 export const RFID_CLAIM_TTL_MS = 30 * 1000;
 // Cap concurrent claims so a misbehaving client cannot grow the map without
 // bound; oldest is evicted first (see evictOverflow in routes/events.js).

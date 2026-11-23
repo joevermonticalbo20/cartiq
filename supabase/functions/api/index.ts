@@ -6223,6 +6223,11 @@ async function bindClaimedTag({ rawUid, locationId }) {
   };
 }
 
+/** Online bare taps need an app claim; offline taps may auto-resolve IN/OUT. */
+function bareTapNeedsClaimEdge(event) {
+  return event?._bare === true && event?.offline !== true;
+}
+
 async function handleDeviceShifts(req, _origin, device) {
   const body = await req.json().catch(() => null);
   const rows = asArray(body, "events");
@@ -6324,6 +6329,17 @@ async function handleDeviceShifts(req, _origin, device) {
       // attendance; a refused claim records nothing.
       if (e._ignore || e._registrationOnly) continue;
       const bare = e._bare === true;
+      // Online taps are only real when the app opened a claim and picked the
+      // event. A bare tap with no claim would auto-log an OUT after an offline
+      // IN — require the phone's RFID Tap button instead.
+      if (bareTapNeedsClaimEdge(e)) {
+        rejected.push({
+          staff_uid: uid,
+          event: "AUTO",
+          reason: "Open RFID Tap in the app before tapping while the reader is online",
+        });
+        continue;
+      }
       const eventId = cleanEventIdEdge(e.eventId ?? e.event_id);
       // The reader re-sends buffered offline taps until it gets a 2xx. A tap
       // whose eventId was already processed is a no-op success.

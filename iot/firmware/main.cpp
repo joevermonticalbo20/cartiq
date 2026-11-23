@@ -59,6 +59,7 @@ struct ShiftEvent {
   String eventId;     // sync idempotency key; the server never writes the same tap twice
   bool approx;        // true when capturedAt came from the NVS clock estimate
   unsigned long tapMillis;  // uptime at tap, used to correct the stamp after NTP sync
+  bool offline;       // WiFi was down at the moment of the tap
 };
 ShiftEvent shiftBuf[QUEUE_MAX];
 int shiftCount = 0;
@@ -219,6 +220,7 @@ static void saveQueue() {
     prefs.putString((String("e") + i).c_str(), shiftBuf[i].eventId);
     prefs.putBool((String("a") + i).c_str(), shiftBuf[i].approx);
     prefs.putULong((String("m") + i).c_str(), shiftBuf[i].tapMillis);
+    prefs.putBool((String("o") + i).c_str(), shiftBuf[i].offline);
   }
 }
 
@@ -231,6 +233,7 @@ static void loadQueue() {
     shiftBuf[i].eventId = prefs.getString((String("e") + i).c_str(), "");
     shiftBuf[i].approx = prefs.getBool((String("a") + i).c_str(), false);
     shiftBuf[i].tapMillis = prefs.getULong((String("m") + i).c_str(), 0);
+    shiftBuf[i].offline = prefs.getBool((String("o") + i).c_str(), true);
     if (shiftBuf[i].uid.length() == 0 || shiftBuf[i].eventId.length() == 0) {
       Serial.printf("[nvs] corrupt entry %d, queue truncated\n", i);
       shiftCount = i;
@@ -289,6 +292,7 @@ void queueShift(const String& uid) {
   // tap keeps its true occurrence once Wi-Fi returns.
   const time_t captured = estimatedEpoch();
   const bool approxTap = !clockTrusted;
+  const bool offlineTap = WiFi.status() != WL_CONNECTED;
   // Sync idempotency key: the server never writes the same tap twice, no
   // matter how often a buffered event is re-posted.
   unsigned char randBytes[8];
@@ -306,7 +310,7 @@ void queueShift(const String& uid) {
     Serial.println("Queue full - dropped oldest tap");
   }
   if (shiftCount < QUEUE_MAX) {
-    shiftBuf[shiftCount++] = {uid, captured, eventId, approxTap, millis()};
+    shiftBuf[shiftCount++] = {uid, captured, eventId, approxTap, millis(), offlineTap};
     saveQueue();  // power-loss safe BEFORE the LED goes dark
   }
   // Confirm locally that the tap was recorded — no WiFi needed.
@@ -336,6 +340,7 @@ bool flushShifts() {
       e["staff_uid"] = shiftBuf[i].uid;
       e["event"] = "next";  // the server decides IN vs OUT from attendance state
       e["eventId"] = shiftBuf[i].eventId;
+      e["offline"] = shiftBuf[i].offline;
       // A tap recorded before NTP sync used an estimated wall clock. Now that
       // we are synced, rebuild the exact time from the current NTP clock minus
       // the uptime elapsed since the tap — no need for extra hardware.

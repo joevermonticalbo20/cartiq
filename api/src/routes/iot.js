@@ -17,6 +17,7 @@ import {
   cardBelongsToAnotherCart,
   cardLocationCode,
   classifyTap,
+  bareTapNeedsClaim,
   lookupUid,
   normalizeRfidUid,
   wrongCartMessage,
@@ -323,6 +324,17 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
         const uid = String(e.staff_uid ?? "").trim();
         if (e._ignore || e._registrationOnly) continue;
         const bare = e._bare === true;
+        // Online taps are only real when the app opened a claim and chose the
+        // event. A bare tap with no claim (the old auto-toggle behavior) would
+        // silently log an OUT after an offline IN — require the app instead.
+        if (bareTapNeedsClaim(e)) {
+          rejected.push({
+            staff_uid: uid,
+            event: "AUTO",
+            reason: "Open RFID Tap in the app before tapping while the reader is online",
+          });
+          continue;
+        }
         const eventId = cleanEventId(e.eventId ?? e.event_id ?? "");
         // The reader re-sends buffered offline taps until it gets a 2xx.
         // A tap whose eventId was already processed is a no-op success.
