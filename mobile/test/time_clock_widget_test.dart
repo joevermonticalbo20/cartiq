@@ -431,4 +431,24 @@ void main() {
     );
     // RFID-style card tap stays offered (it has its own online handling).
   });
+
+  testWidgets('RFID Tap is hidden when the staff has no card bound', (
+    tester,
+  ) async {
+    final store = _FakeStore();
+    final auth = _staffAuth(store);
+    auth.user = {...?auth.user, 'rfidUid': null};
+    auth.clockNow = () => DateTime.utc(2026, 11, 5, 4); // 12pm Manila
+
+    await tester.pumpWidget(_settingsHarness(auth));
+    await tester.pumpAndSettle();
+
+    expect(find.text('RFID Tap'), findsNothing);
+    expect(find.byKey(const ValueKey('attendance-rfid-action')), findsNothing);
+    expect(find.text('App Tap'), findsOneWidget);
+    expect(
+      find.textContaining('No RFID card registered'),
+      findsOneWidget,
+    );
+  });
 }

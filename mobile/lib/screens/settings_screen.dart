@@ -2475,29 +2475,40 @@ class _TimeRowState extends State<_TimeRow> {
                 ),
                 child: Column(
                   children: [
-                    _methodRow(
-                      icon: Icons.contactless_rounded,
-                      accent: AppColors.info,
-                      title: 'RFID Tap',
-                      instruction: 'Tap your registered card on the cart reader.',
-                      statusLine: deviceLine,
-                      statusDot: deviceDot,
-                      statusDetail: deviceStatus == 'connected' ? null : deviceDetail,
-                      button: clockButton(
-                        key: const Key('attendance-rfid-action'),
-                        label: inDone && outDone
-                            ? 'Complete'
-                            : (nextEvent == 'OUT' ? 'Time out' : 'Time in'),
-                        accent: okColor,
-                        enabled: nextOpen,
-                        onTap: nextOpen && nextEvent != null ? () => widget.onPressed(nextEvent) : null,
+                    if (auth.hasRfidCard) ...[
+                      _methodRow(
+                        icon: Icons.contactless_rounded,
+                        accent: AppColors.info,
+                        title: 'RFID Tap',
+                        instruction: 'Tap your registered card on the cart reader.',
+                        statusLine: deviceLine,
+                        statusDot: deviceDot,
+                        statusDetail: deviceStatus == 'connected' ? null : deviceDetail,
+                        button: clockButton(
+                          key: const Key('attendance-rfid-action'),
+                          label: inDone && outDone
+                              ? 'Complete'
+                              : (nextEvent == 'OUT' ? 'Time out' : 'Time in'),
+                          accent: okColor,
+                          enabled: nextOpen,
+                          onTap: nextOpen && nextEvent != null ? () => widget.onPressed(nextEvent!) : null,
+                        ),
                       ),
-                    ),
-                    Container(
-                      height: 1,
-                      margin: const EdgeInsets.symmetric(horizontal: AppSpacing.space3),
-                      color: scheme.onSurface.withValues(alpha: 0.08),
-                    ),
+                      Container(
+                        height: 1,
+                        margin: const EdgeInsets.symmetric(horizontal: AppSpacing.space3),
+                        color: scheme.onSurface.withValues(alpha: 0.08),
+                      ),
+                    ] else
+                      Padding(
+                        padding: const EdgeInsets.all(AppSpacing.space3),
+                        child: Text(
+                          'No RFID card registered. Use App Tap, or register a card in Settings.',
+                          style: textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurface.withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ),
                     _methodRow(
                       icon: Icons.fingerprint_rounded,
                       accent: AppColors.primary,
