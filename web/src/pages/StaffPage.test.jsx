@@ -196,7 +196,7 @@ describe("StaffPage Shift History is read-only", () => {
   it("shows the attendance report for the owner with KPIs and per-staff rows", async () => {
     renderPage();
     expect(await screen.findByText("Attendance report")).toBeInTheDocument();
-    expect(screen.getByText("83%")).toBeInTheDocument();
+    expect(await screen.findByText("83%")).toBeInTheDocument();
     // Half-day rule: the column shows for the half-day day.
     expect(screen.getAllByText("Half days").length).toBeGreaterThanOrEqual(2);
     // "Tardy" was renamed to "Late" in both the KPI and the table header.
@@ -208,7 +208,7 @@ describe("StaffPage Shift History is read-only", () => {
   it("counts only today's unregistered card taps", async () => {
     renderPage();
     expect(await screen.findByText("Attendance report")).toBeInTheDocument();
-    expect(screen.getByText("1 unregistered tap today")).toBeInTheDocument();
+    expect(await screen.findByText("1 unregistered tap today")).toBeInTheDocument();
   });
 
   it("shows the append-only note and offers no edit or delete actions", async () => {
