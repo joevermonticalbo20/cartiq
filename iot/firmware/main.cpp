@@ -80,6 +80,7 @@ String lastUid = "";
 unsigned long lastTapMs = 0;
 unsigned long lastHeartbeat = 0;
 unsigned long lastReaderCheck = 0;
+unsigned long tapFlashUntil = 0;   // brief confirmation blink after a queued tap
 bool readerOk = false;
 
 // The RC522 can drop off the SPI bus after a power dip (a weak USB port is
@@ -303,6 +304,8 @@ void queueShift(const String& uid) {
     shiftBuf[shiftCount++] = {uid, captured, eventId, approxTap};
     saveQueue();  // power-loss safe BEFORE the LED goes dark
   }
+  // Confirm locally that the tap was recorded — no WiFi needed.
+  tapFlashUntil = millis() + 600UL;
   // Blue LED goes OFF while the tap is being handed to the web. It only
   // comes back on steady once the server accepted every buffered event.
   digitalWrite(LED_PIN, LOW);
@@ -475,9 +478,13 @@ void setup() {
 }
 
 void loop() {
-  // Blue LED: steady when online and nothing pending, slow blink while the
-  // queue still has taps to deliver, OFF when offline with an empty queue.
-  if (shiftCount > 0) {
+  // Blue LED: a 2-blink confirmation right after a tap, then the normal state:
+  // steady when online and nothing pending, slow blink while the queue still
+  // has taps to deliver, OFF when offline with an empty queue.
+  if (millis() < tapFlashUntil) {
+    unsigned long elapsed = 600UL - (tapFlashUntil - millis());
+    digitalWrite(LED_PIN, ((elapsed / 150UL) % 2UL == 0UL) ? HIGH : LOW);
+  } else if (shiftCount > 0) {
     digitalWrite(LED_PIN, (millis() % 1500UL) < 150UL ? HIGH : LOW);
   } else if (WiFi.status() == WL_CONNECTED) {
     digitalWrite(LED_PIN, HIGH);
