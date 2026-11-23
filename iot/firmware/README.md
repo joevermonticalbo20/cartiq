@@ -57,7 +57,7 @@ ESP32 board support: install **esp32 by Espressif Systems** via Boards Manager.
 RFID taps are queued in **Preferences/NVS** (24 slots, FIFO) together with the
 tap time and an idempotency key, so they survive power loss. They are uploaded
 in batches (10 per POST) when the node boots and finds the configured Wi-Fi
-within its **15-second boot window**. If that window is missed the node stays
+within its **30-second boot window**. If that window is missed the node stays
 in **offline-use mode** (no background retries) until it is replugged. Events
 older than **12 hours** are discarded.
 

@@ -37,12 +37,12 @@
 #define QUEUE_MAX        24
 #define SHIFT_TTL_SEC    (12UL * 60UL * 60UL)
 
-// The cart gets ONE 15-second WiFi attempt at boot. If the configured SSID is
+// The cart gets ONE 30-second WiFi attempt at boot. If the configured SSID is
 // not found in that window it stays in offline-use mode: taps queue in NVS and
 // are only pushed after the operator replugs the node (fresh boot attempt).
 // No background retries — that keeps loop() free to read cards while offline.
 #ifndef WIFI_CONNECT_TIMEOUT_MS
-#define WIFI_CONNECT_TIMEOUT_MS 15000UL
+#define WIFI_CONNECT_TIMEOUT_MS 30000UL
 #endif
 
 MFRC522 rfid(SS_PIN, RST_PIN);
@@ -569,6 +569,6 @@ void loop() {
     flushReadings();
   }
 
-  // No background WiFi retries by design: a missed 15-second window at boot
+  // No background WiFi retries by design: a missed 30-second window at boot
   // means offline-use mode. Replug the node to try again and upload the queue.
 }
