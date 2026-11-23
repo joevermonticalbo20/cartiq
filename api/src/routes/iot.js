@@ -526,9 +526,9 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
             rejected.push({ staff_uid: uid, event, reason: duplicate });
             continue;
           }
-          // Double tap: the first tap within 5 minutes wins. A second tap is
-          // swallowed (no OUT) so a nervous tap cannot end the shift instantly.
-          if (recentTapWithin(todays, ts)) {
+          // Double tap: a SECOND tap of the SAME event within 5 minutes is a
+          // no-op. An IN followed by an OUT is a real shift, never swallowed.
+          if (recentTapWithin(todays, ts, event)) {
             accepted.push({ staff_uid: uid, event, matched: user.name, duplicate: true });
             continue;
           }

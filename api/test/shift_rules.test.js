@@ -31,11 +31,13 @@ test("boundStaffIds ignores unbound and non-staff users", () => {
   assert.deepEqual([...ids], [2]);
 });
 
-test("recentTapWithin absorbs a double tap but not a real second session", () => {
+test("recentTapWithin absorbs a repeated tap but never an IN→OUT", () => {
   const todays = [{ event: "IN", ts: new Date("2026-11-23T23:00:00Z") }];
-  assert.equal(recentTapWithin(todays, new Date("2026-11-23T23:05:00Z")), true);
-  assert.equal(recentTapWithin(todays, new Date("2026-11-23T23:06:00Z")), false);
-  assert.equal(recentTapWithin([], new Date("2026-11-23T23:05:00Z")), false);
+  assert.equal(recentTapWithin(todays, new Date("2026-11-23T23:05:00Z"), "IN"), true);
+  assert.equal(recentTapWithin(todays, new Date("2026-11-23T23:06:00Z"), "IN"), false);
+  // An OUT tap shortly after the IN must NOT be treated as a double tap.
+  assert.equal(recentTapWithin(todays, new Date("2026-11-23T23:01:00Z"), "OUT"), false);
+  assert.equal(recentTapWithin([], new Date("2026-11-23T23:05:00Z"), "IN"), false);
 });
 
 // An offline batch arrives as several events for one person. The DB read is

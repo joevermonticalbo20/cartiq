@@ -99,10 +99,12 @@ export const DUP_TAP_WINDOW_MS = 5 * 60 * 1000;
  * absorb a double tap at the reader: the first tap wins, the second is a no-op
  * instead of an immediate OUT. `todays` comes from shiftsOfPersonOnDay().
  */
-export function recentTapWithin(todays, ts, windowMs = DUP_TAP_WINDOW_MS) {
+export function recentTapWithin(todays, ts, event, windowMs = DUP_TAP_WINDOW_MS) {
   const t = new Date(ts).getTime();
   if (!Number.isFinite(t)) return false;
+  const wanted = String(event ?? "").toUpperCase();
   return (todays ?? []).some((s) => {
+    if (String(s?.event ?? "").toUpperCase() !== wanted) return false;
     const st = new Date(s?.ts).getTime();
     return Number.isFinite(st) && Math.abs(st - t) <= windowMs;
   });

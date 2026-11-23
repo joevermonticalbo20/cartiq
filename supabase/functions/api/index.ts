@@ -3366,10 +3366,12 @@ function resolveNextEventEdge(todays) {
 
 /** A second tap within 5 minutes of an existing one is a double tap. */
 const DUP_TAP_WINDOW_MS_EDGE = 5 * 60 * 1000;
-function recentTapWithinEdge(todays, ts) {
+function recentTapWithinEdge(todays, ts, event) {
   const t = new Date(ts).getTime();
   if (!Number.isFinite(t)) return false;
+  const wanted = String(event ?? "").toUpperCase();
   return (todays ?? []).some((s) => {
+    if (String(s?.event ?? "").toUpperCase() !== wanted) return false;
     const st = new Date(s?.ts).getTime();
     return Number.isFinite(st) && Math.abs(st - t) <= DUP_TAP_WINDOW_MS_EDGE;
   });
@@ -6560,8 +6562,9 @@ async function handleDeviceShifts(req, _origin, device) {
           rejected.push({ staff_uid: uid, event, reason: duplicate });
           continue;
         }
-        // Double tap: first tap within 5 minutes wins, second is a no-op.
-        if (recentTapWithinEdge(todays, ts)) {
+        // Double tap: a SECOND tap of the SAME event within 5 minutes is a
+        // no-op. An IN followed by an OUT is a real shift, never swallowed.
+        if (recentTapWithinEdge(todays, ts, event)) {
           accepted.push({ staff_uid: uid, event, matched: user.name, duplicate: true });
           continue;
         }
