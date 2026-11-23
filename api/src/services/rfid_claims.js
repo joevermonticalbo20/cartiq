@@ -53,9 +53,10 @@ function pruneClaims(now = Date.now()) {
  * staff card at the reader without the staff member being there.
  */
 export function openClaim({ userId, locationId, locationCode, event, targetUserId }) {
+  const numericLocationId = Number(locationId);
   pruneClaims();
   for (const [id, rec] of _claims) {
-    if (isClaimActive(rec) && (rec.userId === userId || rec.locationId === locationId)) {
+    if (isClaimActive(rec) && (rec.userId === userId || Number(rec.locationId) === numericLocationId)) {
       _claims.delete(id);
     }
   }
@@ -66,7 +67,7 @@ export function openClaim({ userId, locationId, locationCode, event, targetUserI
     userId,
     // The account the card is enrolled on. Falls back to the opener.
     targetUserId: targetUserId ?? userId,
-    locationId,
+    locationId: numericLocationId,
     locationCode,
     // What the person pressed in the app: "IN" to clock on, "OUT" to clock
     // off, null when they were only enrolling a card. The firmware otherwise

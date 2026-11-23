@@ -100,7 +100,7 @@ class _RfidClaimDialogState extends State<RfidClaimDialog> {
 
   @override
   void dispose() {
-    _countdownTimer?.cancel();
+    _stopCountdown();
     _escalationTimer?.cancel();
     _autoDismissTimer?.cancel();
     super.dispose();
@@ -120,9 +120,16 @@ class _RfidClaimDialogState extends State<RfidClaimDialog> {
     });
   }
 
+  /// Stop the local ticker. Called the moment the claim resolves (or fails)
+  /// so the "Xs left" number freezes instead of draining past the tap.
+  void _stopCountdown() {
+    _countdownTimer?.cancel();
+    _countdownTimer = null;
+  }
+
   /// Reset and re-run the claim (the Retry button on a failure).
   void _retry() {
-    _countdownTimer?.cancel();
+    _stopCountdown();
     _escalationTimer?.cancel();
     _autoDismissTimer?.cancel();
     setState(() {
@@ -159,8 +166,7 @@ class _RfidClaimDialogState extends State<RfidClaimDialog> {
           // Pause the local ticker so the number doesn't drain while the
           // person is staring at the "lost connection" message. The server's
           // expiry is the authoritative source on every reconnect tick.
-          _countdownTimer?.cancel();
-          _countdownTimer = null;
+          _stopCountdown();
         }
         _readerOnline = false;
         _connectingSince ??= now;
@@ -226,6 +232,8 @@ class _RfidClaimDialogState extends State<RfidClaimDialog> {
       onReaderStatus: _onReaderStatus,
     );
     if (!mounted) return;
+    // Freeze the countdown the moment the claim resolves — the tap has happened.
+    _stopCountdown();
     switch (result) {
       case RfidBound():
         unawaited(Haptics.success());

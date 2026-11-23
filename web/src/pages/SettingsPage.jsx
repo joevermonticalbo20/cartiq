@@ -1187,6 +1187,8 @@ export default function SettingsPage() {
       const { data } = await api.get(`/auth/my-rfid/claim/${encodeURIComponent(claimId)}`);
       const claim = data?.claim;
       if (!claim) return;
+      // Freeze the countdown the moment the tap resolves the claim.
+      if (claim.status !== "pending") stopCardTimers();
       setCardReaderOnline(claim.deviceOnline !== false);
       if (claim.status === "pending") {
         // When the reader first comes online, the server just started the 30s

@@ -1291,7 +1291,8 @@ async function openClaim({ userId, locationId, locationCode, event, targetUserId
   const now = Date.now();
 
   // Evict this user's other live claims and any live claim on the same cart.
-  const byLocation = await fsQueryEqual(CLAIM_COLLECTION, "locationId", locationId, RFID_CLAIM_MAX)
+  const numericLocationId = Number(locationId);
+  const byLocation = await fsQueryEqual(CLAIM_COLLECTION, "locationId", numericLocationId, RFID_CLAIM_MAX)
     .catch(() => []);
   const writes = [];
   for (const rec of byLocation) {
@@ -1313,7 +1314,7 @@ async function openClaim({ userId, locationId, locationCode, event, targetUserId
     // The account the card is enrolled on. Falls back to the person who
     // opened the claim; an OWNER may open a claim for a staff member.
     targetUserId: targetUserId ?? userId,
-    locationId,
+    locationId: Number(locationId),
     locationCode,
     event: event ?? null,
     resolvedEvent: null,
@@ -1379,7 +1380,7 @@ async function resolveClaim(claimId, status, rfidUid, holderName, event, cardLoc
 }
 
 async function findActiveClaimForLocation(locationId) {
-  const recs = await fsQueryEqual(CLAIM_COLLECTION, "locationId", locationId, RFID_CLAIM_MAX)
+  const recs = await fsQueryEqual(CLAIM_COLLECTION, "locationId", Number(locationId), RFID_CLAIM_MAX)
     .catch(() => []);
   const now = Date.now();
   let best = null;
