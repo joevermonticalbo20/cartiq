@@ -37,9 +37,11 @@
 #define QUEUE_MAX        24
 #define SHIFT_TTL_SEC    (12UL * 60UL * 60UL)
 
-// How long to wait before re-associating after the link drops.
+// One association attempt takes up to WIFI_CONNECT_TIMEOUT_MS. The retry gap
+// must be longer than that, otherwise loop() never gets back to reading cards
+// and an offline node can't accept taps.
 #ifndef WIFI_RETRY_INTERVAL_MS
-#define WIFI_RETRY_INTERVAL_MS 20000UL
+#define WIFI_RETRY_INTERVAL_MS 60000UL
 #endif
 
 // One association attempt. Kept generous because a weak-signal cart may need
