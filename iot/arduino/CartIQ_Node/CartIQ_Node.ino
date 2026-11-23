@@ -151,6 +151,10 @@ void connectWifi() {
   } else {
     Serial.printf("\nWi-Fi unavailable (status %d) - buffering offline\n", (int)WiFi.status());
   }
+  // The antenna was off for the radio bring-up (brownout protection). The
+  // WiFi attempt is over now — turn it back on whether or not we connected,
+  // otherwise an offline node can never read a card.
+  if (readerOk) rfid.PCD_AntennaOn();
 }
 
 int postBatch(const char* path, const String& body) {
@@ -470,9 +474,7 @@ void setup() {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    // The reader antenna was disabled for the radio bring-up; the node is
-    // online now, it can pulse RF again.
-    rfid.PCD_AntennaOn();
+    // The antenna is back on after the WiFi attempt (online or offline).
     checkDeviceAuth();
   }
 }
