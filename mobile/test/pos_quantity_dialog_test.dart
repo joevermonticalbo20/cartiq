@@ -34,8 +34,8 @@ void main() {
     // Set is disabled.
     await tester.enterText(find.byType(TextField), '6');
     await tester.pump();
-    expect(find.text('The order exceeds the 200-unit limit by 1 serving'),
-        findsAtLeastNWidgets(1));
+    expect(find.text('Too many servings - remove 1 to stay within the '
+        '200-unit limit. Set 5 or less.'), findsAtLeastNWidgets(1));
     final setButton = tester.widget<FilledButton>(
       find.widgetWithText(FilledButton, 'Set'),
     );
@@ -44,8 +44,8 @@ void main() {
     // Fix the number: the error clears and Set works again.
     await tester.enterText(find.byType(TextField), '5');
     await tester.pump();
-    expect(find.text('The order exceeds the 200-unit limit by 1 serving'),
-        findsNothing);
+    expect(find.text('Too many servings - remove 1 to stay within the '
+        '200-unit limit. Set 5 or less.'), findsNothing);
     expect(
       tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Set')).onPressed,
       isNotNull,

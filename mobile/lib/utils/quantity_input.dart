@@ -18,9 +18,13 @@ class QuantityInput {
   /// The user-facing copy for the 200-unit limit (POS toast + field error).
   static const String limitMessage = 'Limit per order is only 200 units';
 
-  /// The message for a cart that crossed the 200-unit cap.
-  static String capacityMessage(int over) =>
-      'The order exceeds the 200-unit limit by $over serving${over == 1 ? '' : 's'}';
+  /// The message for a cart that crossed the 200-unit cap. Tells the vendor
+  /// exactly how many servings to remove and the most they may set.
+  static String capacityMessage(int over, {int? capacity}) {
+    final tail = capacity == null ? '' : ' Set $capacity or less.';
+    return 'Too many servings - remove $over to stay within the '
+        '200-unit limit.$tail';
+  }
 
   /// Parses what the vendor typed.
   ///

@@ -198,7 +198,8 @@ void main() {
       await tester.enterText(find.byType(TextField), '10');
       await tester.pump();
       expect(
-        find.text('The order exceeds the 200-unit limit by 10 servings'),
+        find.text('Too many servings - remove 10 to stay within the '
+            '200-unit limit. Set 0 or less.'),
         findsAtLeastNWidgets(1),
       );
       expect(

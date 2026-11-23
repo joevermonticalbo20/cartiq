@@ -360,7 +360,7 @@ class _PosQuantityDialogState extends State<_PosQuantityDialog> {
     if (value == null || value < 1) return 'Enter a number';
     final capacity = widget.capacityLimit;
     if (capacity != null && value > capacity) {
-      return QuantityInput.capacityMessage(value - capacity);
+      return QuantityInput.capacityMessage(value - capacity, capacity: capacity);
     }
     if (value > QuantityInput.maximum) return QuantityInput.limitMessage;
     if (widget.maxQuantity != null && value > widget.maxQuantity!) {
@@ -427,8 +427,9 @@ class _PosQuantityDialogState extends State<_PosQuantityDialog> {
               hintText: widget.maxQuantity == null
                   ? '1'
                   : '1 - ${widget.maxQuantity}',
-              errorText: _error,
             ),
+            // Full error shown as wrapping text below — errorText clips to
+            // one line and hides "remove N / set X" on narrow phones.
             onChanged: (_) {
               // Validate live: the error shows right away and Set stays
               // disabled until the number is usable again.
@@ -438,6 +439,16 @@ class _PosQuantityDialogState extends State<_PosQuantityDialog> {
             },
             onSubmitted: (_) => _submit(),
           ),
+          if (_error != null) ...[
+            const SizedBox(height: AppSpacing.space2),
+            Text(
+              _error!,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.error,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ],
           if (widget.maxQuantity != null) ...[
             const SizedBox(height: AppSpacing.space2),
             Text(
