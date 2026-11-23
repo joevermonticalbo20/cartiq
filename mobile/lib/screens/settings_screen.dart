@@ -2491,7 +2491,7 @@ class _TimeRowState extends State<_TimeRow> {
                               : (nextEvent == 'OUT' ? 'Time out' : 'Time in'),
                           accent: okColor,
                           enabled: nextOpen,
-                          onTap: nextOpen && nextEvent != null ? () => widget.onPressed(nextEvent!) : null,
+                          onTap: nextOpen && nextEvent != null ? () => widget.onPressed(nextEvent) : null,
                         ),
                       ),
                       Container(
