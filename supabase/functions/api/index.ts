@@ -622,6 +622,10 @@ function createWrite(collection, id, obj) {
   };
 }
 
+function deleteWrite(collection, id) {
+  return { delete: fsDocName(collection, id) };
+}
+
 function updateWrite(collection, id, patch, updateTime) {
   const w = {
     update: { name: fsDocName(collection, id), fields: fsEncodeFields(patch) },
@@ -1294,19 +1298,31 @@ async function openClaim({ userId, locationId, locationCode, event, targetUserId
   const numericLocationId = Number(locationId);
   const byLocation = await fsQueryEqual(CLAIM_COLLECTION, "locationId", numericLocationId, RFID_CLAIM_MAX)
     .catch(() => []);
-  const writes = [];
-  for (const rec of byLocation) {
-    if (claimIsPending(rec, now)) {
-      writes.push(updateWrite(CLAIM_COLLECTION, rec.claimId ?? rec._name, { status: CLAIM_EXPIRED }, null));
-    }
-  }
   const mine = await fsQueryEqual(CLAIM_COLLECTION, "userId", userId, RFID_CLAIM_MAX)
     .catch(() => []);
-  for (const rec of mine) {
-    if (claimIsPending(rec, now)) {
-      writes.push(updateWrite(CLAIM_COLLECTION, rec.claimId ?? rec._name, { status: CLAIM_EXPIRED }, null));
-    }
-  }
+  const writes = [];
+  const seen = new Set();
+  const addStaleDelete = (rec) => {
+    if (claimIsPending(rec, now)) return;
+    const id = rec.claimId ?? rec._name;
+    if (seen.has(id)) return;
+    seen.add(id);
+    writes.push(deleteWrite(CLAIM_COLLECTION, id));
+  };
+  const evictLive = (rec) => {
+    if (!claimIsPending(rec, now)) return;
+    const id = rec.claimId ?? rec._name;
+    if (seen.has(id)) return;
+    seen.add(id);
+    writes.push(updateWrite(CLAIM_COLLECTION, id, { status: CLAIM_EXPIRED }, null));
+  };
+  // Delete stale claim docs — otherwise expired-but-pending rows fill the
+  // 200-limit query and the live claim is never seen by the reader's tap.
+  byLocation.forEach(addStaleDelete);
+  mine.forEach(addStaleDelete);
+  // Evict this user's other live claims and any live claim on the same cart.
+  byLocation.forEach(evictLive);
+  mine.forEach(evictLive);
 
   const rec = {
     claimId,
