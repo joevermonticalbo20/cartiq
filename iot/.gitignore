@@ -1,2 +1,3 @@
 firmware/config.h
 firmware/.pio/
+arduino/*/config.h
