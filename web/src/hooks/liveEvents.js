@@ -21,6 +21,7 @@ export const LIVE_EVENT_NAMES = Object.freeze([
   // Orders.
   "order:new",
   "order:updated",
+  "orders:updated", // announceChange("orders") — GCash & void requests
   // Alerts (low stock, void decisions, restock status).
   "alert:new",
   // Staff on shift.
@@ -59,6 +60,7 @@ export const LIVE_EVENT_NAMES = Object.freeze([
 export const LIVE_EVENTS = Object.freeze({
   orderNew: "order:new",
   orderUpdated: "order:updated",
+  ordersUpdated: "orders:updated",
   alertNew: "alert:new",
   restockRequestNew: "restock-request:new",
   restockRequestUpdated: "restock-request:updated",

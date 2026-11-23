@@ -320,6 +320,11 @@ router.post("/orders", requireAuth, async (req, res, next) => {
         orderId: result.order.id,
         locationCode: location.code,
       });
+      // Open owner tabs (GCash approvals, sales, void requests) refetch live.
+      await announceChange("orders", {
+        id: result.order.id,
+        status: isGcashPending ? "PENDING_GCASH" : "PAID",
+      }).catch(() => {});
     } catch {
       // best-effort only
     }
@@ -913,6 +918,11 @@ router.post("/orders/:id/void-request", requireAuth, async (req, res, next) => {
       locationId: alert.locationId ?? null,
       orderId: existing.id,
     });
+    // The owner's Void Requests tab refetches without a manual reload.
+    await announceChange("orders", {
+      id: existing.id,
+      status: "void_requested",
+    }).catch(() => {});
     return res.status(201).json({ order, alert });
   } catch (err) {
     return next(err);

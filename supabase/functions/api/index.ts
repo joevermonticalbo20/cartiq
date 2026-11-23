@@ -2218,6 +2218,13 @@ async function handleCreateOrder(req, origin, user) {
         : createWrite("_counters", "alerts", { next: alertNext + newAlerts.length }));
     }
     await fsCommit(writes);
+    // Announce the new order so open tabs (GCash approvals, void requests,
+    // sales) refetch without a manual reload. The SSE poll also picks up the
+    // new alert, but an explicit frame is instant and reliable.
+    await announceChange("orders", {
+      id: orderId,
+      status: isGcash ? "PENDING_GCASH" : "PAID",
+    }).catch(() => {});
     return {
       dup: false,
       order: {
@@ -2659,6 +2666,11 @@ async function handleOrderVoidRequest(req, orderId, user) {
     alertId: alertDoc.id,
   };
   await fsPatch("orders", orderId, { voidRequest });
+  // Announce so the owner's Void Requests tab refetches without a reload.
+  await announceChange("orders", {
+    id: orderId,
+    status: "void_requested",
+  }).catch(() => {});
   const order = await fsGet("orders", orderId);
   return { status: 201, body: { order: cleanDoc(order), alert: cleanDoc(alertDoc) } };
 }
@@ -3472,6 +3484,13 @@ async function handlePutStaffSchedule(req, staffId, user) {
   await fsPatch("staffSchedules", String(staffId), doc);
   // Reuse the "staff" live kind so the dashboard refetches the roster.
   await broadcastEvent("staff:updated", { kind: "schedule", id: staffId }).catch(() => {});
+  // The phone does not use SSE — a silent DATA_CHANGED push makes it re-read
+  // its own roster so the attendance screen's time window updates live.
+  await announceChange("staff", {
+    id: staffId,
+    username: target.username ?? null,
+    kind: "schedule",
+  }).catch(() => {});
   return { status: 200, body: { schedule: scheduleViewEdge(doc) } };
 }
 
@@ -3483,6 +3502,11 @@ async function handleDeleteStaffSchedule(staffId) {
   if (!existing) return { status: 200, body: { deleted: false } }; // already unrestricted
   await fsDeleteByName(fsDocName("staffSchedules", staffId));
   await broadcastEvent("staff:updated", { kind: "schedule", id: staffId }).catch(() => {});
+  await announceChange("staff", {
+    id: staffId,
+    username: target.username ?? null,
+    kind: "schedule",
+  }).catch(() => {});
   return { status: 200, body: { deleted: true } };
 }
 

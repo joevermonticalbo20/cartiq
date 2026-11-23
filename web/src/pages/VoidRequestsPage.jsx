@@ -77,6 +77,7 @@ export default function VoidRequestsPage() {
 
   useLiveEvent("alert:new", load);
   useLiveEvent("order:updated", load);
+  useLiveEvent("orders:updated", load);
 
   const toggleOne = (id) => {
     setSelected((current) => {

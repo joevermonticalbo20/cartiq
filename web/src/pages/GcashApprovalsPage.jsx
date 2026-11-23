@@ -92,6 +92,7 @@ export default function GcashApprovalsPage() {
 
   useLiveEvent("alert:new", load);
   useLiveEvent("order:updated", load);
+  useLiveEvent("orders:updated", load);
 
   async function blobErrorMessage(err, fallback) {
     try {

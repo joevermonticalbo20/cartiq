@@ -6,6 +6,7 @@ import { Router } from "express";
 import { db as prisma } from "../firestore.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { emit } from "./events.js";
+import { announceChange } from "../services/announce.js";
 import {
   normalizeDays,
   scheduleVerdict,
@@ -101,6 +102,13 @@ router.put("/staff/:id/schedule", requireAuth, requireRole("OWNER"), async (req,
     } catch {
       /* the stream must never fail the save */
     }
+    // The phone does not use SSE — a silent push makes it re-read its own
+    // roster so the attendance time window updates without a reload.
+    await announceChange("staff", {
+      id: staffId,
+      username: target.username ?? null,
+      kind: "schedule",
+    }).catch(() => {});
     return res.json({ schedule: scheduleView(doc) });
   } catch (err) {
     return next(err);
@@ -127,6 +135,11 @@ router.delete("/staff/:id/schedule", requireAuth, requireRole("OWNER"), async (r
     } catch {
       /* the stream must never fail the delete */
     }
+    await announceChange("staff", {
+      id: staffId,
+      username: target.username ?? null,
+      kind: "schedule",
+    }).catch(() => {});
     return res.json({ deleted: true });
   } catch (err) {
     return next(err);

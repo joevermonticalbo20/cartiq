@@ -88,9 +88,11 @@ class AuthState extends ChangeNotifier {
           // do not depend on them. Nothing to do.
           break;
         case DataChange.staff:
-          // An account changed - it may be this one (a disabled account, a
-          // new cart, a new card).
+          // An account changed — it may be this one (a disabled account, a
+          // new cart, a new card) or the weekly roster the owner just edited.
+          // Re-read both so the attendance time-window updates without reload.
           await refreshProfile();
+          await refreshMySchedule();
           break;
         case DataChange.expenses:
           // A receipt was filed, edited or deleted: the receipt list reloads.
