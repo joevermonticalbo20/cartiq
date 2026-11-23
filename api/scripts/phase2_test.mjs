@@ -86,14 +86,15 @@ async function main() {
   );
   check("LOW_STOCK alert fired once for LPG", lowAlerts.length === 1);
 
-  // 4. a tap nobody asked for is now the bare clock: with no claim open the
-  //    reader still signs the person in/out (state-driven, IN if nothing this
-  //    morning, OUT if IN was already recorded), and the row is recorded as
-  //    method RFID. A refused claim still leaves no trace (see step 5/6).
+  // 4. a queued tap from an OFFLINE reader is the bare clock: with no claim
+  //    open the reader still signs the person in/out (state-driven, IN if
+  //    nothing this morning, OUT if IN was already recorded), and the row is
+  //    recorded as method RFID. An online tap with no app claim records
+  //    nothing. A refused claim still leaves no trace (see step 5/6).
   const bareTap = await req("/shifts", {
     method: "POST",
     token: DEV_TOKEN,
-    body: { events: [{ staff_uid: "04A2B3C4", event: "IN" }] },
+    body: { events: [{ staff_uid: "04A2B3C4", event: "IN", offline: true }] },
   });
   check("a bare tap signs the staff member in (state-driven)",
         bareTap.status === 201 &&
@@ -135,7 +136,7 @@ async function main() {
   const tapIn = await req("/shifts", {
     method: "POST",
     token: DEV_TOKEN,
-    body: { events: [{ staff_uid: "04A2B3C4", event: "IN" }] },
+    body: { events: [{ staff_uid: "04A2B3C4", event: "IN", offline: true }] },
   });
   check("the duplicate is refused, the day stays as recorded",
         tapIn.data.accepted?.length === 0 &&
