@@ -3,7 +3,7 @@
 // Log dropdowns, and (b) Shift History cannot be edited or deleted from the
 // web — the log is an append-only audit trail.
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent, within, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, Outlet } from "react-router-dom";
 import { ToastProvider } from "../components/Toast.jsx";
 
@@ -18,6 +18,8 @@ vi.mock("../utils/errors.js", () => ({
 
 import api from "../api.js";
 import { __resetLiveData } from "../state/liveData.js";
+import { __emitLiveEvent } from "../hooks/useLiveStream.js";
+import { LIVE_EVENTS } from "../hooks/liveEvents.js";
 import StaffPage from "./StaffPage.jsx";
 
 const activeStaff = { id: 2, name: "Stall Staff 1", username: "staff01", role: "STAFF", active: true };
@@ -183,6 +185,22 @@ describe("StaffPage Manual Log", () => {
     fireEvent.click(within(cartField).getByRole("button"));
     expect(within(cartField).getAllByRole("option", { name: "CART-01" }).length).toBeGreaterThan(0);
     expect(within(cartField).queryByRole("option", { name: "CART-09" })).toBeNull();
+});
+
+  it("refreshes the shift history table when a tap is recorded live", async () => {
+    let historyCalls = 0;
+    const originalGet = api.get.getMockImplementation();
+    api.get.mockImplementation((url) => {
+      if (String(url).startsWith("/shifts/history")) historyCalls++;
+      return originalGet(url);
+    });
+    renderPage();
+    await screen.findByText("Attendance report");
+    const before = historyCalls;
+    expect(before).toBeGreaterThan(0);
+
+    __emitLiveEvent(LIVE_EVENTS.shiftNew, { event: "IN" });
+    await waitFor(() => expect(historyCalls).toBeGreaterThan(before));
   });
 });
 

@@ -287,6 +287,13 @@ export default function DashboardPage() {
     setLivePulse((n) => n + 1);
   });
 
+  useLiveEvent("shift:new", () => {
+    // A tap on the reader or in the app changes who is on shift — pull the
+    // fresh list instead of waiting for the next 60s refresh.
+    api.get("/staff/on-shift")
+      .then(({ data }) => setOnShift(data?.on_shift ?? []))
+      .catch(() => {});
+  });
   useLiveEvent("alert:new", (data) => {
     setAlerts((a) =>
       [

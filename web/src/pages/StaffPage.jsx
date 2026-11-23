@@ -261,7 +261,16 @@ export default function StaffPage() {
   // A card tapped on the reader: refresh who is on shift right away instead of
   // waiting for the next poll. A schedule save in another tab refreshes the roster too.
   useLiveEvent(LIVE_EVENTS.shiftNew, () => {
+    // A tap on the reader changes both the on-shift KPIs and the paged shift
+    // history. Without refreshTable() the rows below stay stale until the
+    // operator manually refreshes the page.
     fetchTopData();
+    refreshTable();
+  });
+  useLiveEvent(LIVE_EVENTS.alertNew, () => {
+    // App Tap (/shifts/self) emits alert:new, not shift:new. Refresh the rows
+    // on that event too so phone clock-ins appear without a manual reload.
+    refreshTable();
   });
   useLiveEvent(LIVE_EVENTS.staffUpdated, () => {
     if (!isOwner) return;

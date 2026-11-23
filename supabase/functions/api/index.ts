@@ -6866,7 +6866,15 @@ async function handleSelfShift(_req, user) {
     };
     writes.push(createWrite("alerts", alertDoc.id, alertDoc));
     await fsCommit(writes);
-    // The attendance change also shows up live on the dashboard.
+    // The attendance change shows up live on both dashboards: shift:new
+    // refreshes the on-shift list and history, alert:new feeds the bell.
+    await broadcastEvent("shift:new", {
+      staff_uid: user.rfidUid ?? `APP-${user.id}`,
+      event,
+      staff_name: user.name ?? null,
+      location_code: location.code,
+      status: "recorded",
+    }).catch(() => {});
     await broadcastEvent("alert:new", {
       id: alertDoc.id,
       type: alertDoc.type,

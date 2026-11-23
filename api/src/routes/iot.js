@@ -1016,6 +1016,13 @@ router.post("/shifts/self", requireAuth, requireRole("STAFF"), async (req, res, 
           locationCode: location.code,
         },
       });
+      emit("shift:new", {
+        staff_uid: user.rfidUid ?? `APP-${user.id}`,
+        event,
+        staff_name: user.name ?? null,
+        location_code: location.code,
+        status: "recorded",
+      });
       emit("alert:new", {
         id: alert.id,
         type: alert.type,
