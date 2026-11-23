@@ -37,17 +37,12 @@
 #define QUEUE_MAX        24
 #define SHIFT_TTL_SEC    (12UL * 60UL * 60UL)
 
-// One association attempt takes up to WIFI_CONNECT_TIMEOUT_MS. The retry gap
-// must be longer than that, otherwise loop() never gets back to reading cards
-// and an offline node can't accept taps.
-#ifndef WIFI_RETRY_INTERVAL_MS
-#define WIFI_RETRY_INTERVAL_MS 60000UL
-#endif
-
-// One association attempt. Kept generous because a weak-signal cart may need
-// several seconds to answer the handshake.
+// The cart gets ONE 15-second WiFi attempt at boot. If the configured SSID is
+// not found in that window it stays in offline-use mode: taps queue in NVS and
+// are only pushed after the operator replugs the node (fresh boot attempt).
+// No background retries — that keeps loop() free to read cards while offline.
 #ifndef WIFI_CONNECT_TIMEOUT_MS
-#define WIFI_CONNECT_TIMEOUT_MS 30000UL
+#define WIFI_CONNECT_TIMEOUT_MS 15000UL
 #endif
 
 MFRC522 rfid(SS_PIN, RST_PIN);
@@ -77,7 +72,6 @@ bool clockTrusted = false;
 
 unsigned long lastSample = 0;
 unsigned long lastFlush = 0;
-unsigned long wifiAttemptStarted = 0;
 unsigned long lastServerHeartbeat = 0;
 String lastUid = "";
 unsigned long lastTapMs = 0;
@@ -107,8 +101,6 @@ bool initReader() {
 }
 
 void connectWifi() {
-  // Marks the start of this attempt so loop() knows when it is safe to retry.
-  wifiAttemptStarted = millis();
   Serial.println("[dbg] connectWifi start");
 
   // Turn the antenna off BEFORE touching the Wi-Fi driver. On a weak supply
@@ -156,7 +148,7 @@ void connectWifi() {
                   WiFi.localIP().toString().c_str(), WiFi.RSSI(),
                   WiFi.gatewayIP().toString().c_str());
   } else {
-    Serial.printf("\nWi-Fi unavailable (status %d) - buffering offline\n", (int)WiFi.status());
+    Serial.printf("\nWi-Fi unavailable (status %d) - OFFLINE MODE: taps will queue in NVS; replug to retry\n", (int)WiFi.status());
   }
   // The antenna was off for the radio bring-up (brownout protection). The
   // WiFi attempt is over now — turn it back on whether or not we connected,
@@ -577,12 +569,6 @@ void loop() {
     flushReadings();
   }
 
-  // A marginal signal (a cart parked at the far end of a stall) associates only
-  // some of the time, so keep retrying instead of staying offline until a
-  // manual reset. Buffered events upload as soon as the link returns.
-  if (WiFi.status() != WL_CONNECTED &&
-      millis() - wifiAttemptStarted > WIFI_RETRY_INTERVAL_MS) {
-    Serial.println("Wi-Fi down - retrying");
-    connectWifi();
-  }
+  // No background WiFi retries by design: a missed 15-second window at boot
+  // means offline-use mode. Replug the node to try again and upload the queue.
 }

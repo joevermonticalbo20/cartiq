@@ -56,9 +56,10 @@ ESP32 board support: install **esp32 by Espressif Systems** via Boards Manager.
 
 RFID taps are queued in **Preferences/NVS** (24 slots, FIFO) together with the
 tap time and an idempotency key, so they survive power loss. They are uploaded
-in batches (10 per POST) as soon as the configured Wi-Fi returns; the server
-re-runs every rule using the original tap time and resolves the staff name from
-the card UID. Events older than **12 hours** are discarded.
+in batches (10 per POST) when the node boots and finds the configured Wi-Fi
+within its **15-second boot window**. If that window is missed the node stays
+in **offline-use mode** (no background retries) until it is replugged. Events
+older than **12 hours** are discarded.
 
 There is no battery-backed RTC, so when a tap happens after a power loss and
 before NTP sync, the timestamp is an estimate and is marked `approx` in the
