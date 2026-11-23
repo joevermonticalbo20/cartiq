@@ -505,21 +505,27 @@ void loop() {
       Serial.println("Reader retry...");
       initReader();
     }
-  } else if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
-    String uid = "";
-    uid.reserve(11);
-    for (byte i = 0; i < rfid.uid.size; i++) {
-      if (rfid.uid.uidByte[i] < 0x10) uid += "0";
-      uid += String(rfid.uid.uidByte[i], HEX);
+  } else if (rfid.PICC_IsNewCardPresent()) {
+    if (!rfid.PICC_ReadCardSerial()) {
+      Serial.println("[rfid] card present, read failed");
+    } else {
+      String uid = "";
+      uid.reserve(11);
+      for (byte i = 0; i < rfid.uid.size; i++) {
+        if (rfid.uid.uidByte[i] < 0x10) uid += "0";
+        uid += String(rfid.uid.uidByte[i], HEX);
+      }
+      uid.toUpperCase();
+      rfid.PICC_HaltA();
+      queueShift(uid);
     }
-    uid.toUpperCase();
-    rfid.PICC_HaltA();
-    queueShift(uid);
   }
 
   if (millis() - lastHeartbeat > 5000) {
     lastHeartbeat = millis();
-    Serial.printf("[heartbeat] reader %s\n", readerOk ? "OK" : "MISSING");
+    byte tx = rfid.PCD_ReadRegister(MFRC522::TxControlReg);
+    Serial.printf("[heartbeat] reader %s antenna=%02X (bits03=%u)\n",
+                  readerOk ? "OK" : "MISSING", tx, (unsigned)(tx & 0x03));
   }
 
   // Server liveness every 10s so the registration dialog can tell "reader
