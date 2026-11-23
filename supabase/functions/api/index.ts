@@ -6877,13 +6877,22 @@ async function handleDeviceStatus(_req, url, user) {
 
 async function handleOnShift() {
   const start = manilaDayStart(0);
-  const shifts = await fsRunQuery("shifts", {
-    filters: [{ field: "ts", op: "GREATER_THAN_OR_EQUAL", value: start }],
-    orderBy: [{ field: "ts", dir: "ASCENDING" }],
-    limit: 5000,
-  });
+  const [shifts, userRows, locations] = await Promise.all([
+    fsRunQuery("shifts", {
+      filters: [{ field: "ts", op: "GREATER_THAN_OR_EQUAL", value: start }],
+      orderBy: [{ field: "ts", dir: "ASCENDING" }],
+      limit: 5000,
+    }),
+    fsListAll("users"),
+    fsListAll("locations"),
+  ]);
+  const bound = new Set(
+    (userRows ?? [])
+      .filter((u) => u?.rfidUid != null && String(u.rfidUid).trim() !== "")
+      .map((u) => Number(u?.id))
+      .filter(Number.isFinite),
+  );
   shifts.sort((a, b) => a.ts.getTime() - b.ts.getTime());
-  const locations = await fsListAll("locations");
   const locById = new Map(locations.map((l) => [l.id, l]));
   const withLoc = shifts.map((s) => {
     const c = cleanDoc(s);
@@ -6891,7 +6900,9 @@ async function handleOnShift() {
     c.location = loc ? { code: loc.code, name: loc.name } : { code: "-", name: "" };
     return c;
   });
-  const registered = withLoc.filter((s) => Boolean(s.staffName));
+  const registered = withLoc.filter(
+    (s) => Boolean(s.staffName) && bound.has(Number(s.staffId)),
+  );
   const latestByPerson = new Map();
   for (const s of registered) {
     latestByPerson.set(`${s.staffUid}|${s.locationId}`, s);
@@ -7078,6 +7089,7 @@ async function handleShiftReport(url, user) {
   const locById = new Map(locations.map((l) => [l.id, l]));
   const staff = userRows
     .filter((u) => String(u?.role ?? "").toUpperCase() === "STAFF")
+    .filter((u) => String(u?.rfidUid ?? "").trim() !== "")
     .map((u) => ({
       ...u,
       locationCode: u.locationId != null ? locById.get(Number(u.locationId))?.code ?? null : null,
@@ -7110,13 +7122,22 @@ async function handleShiftsHistory(url) {
     if (!range) return { status: 400, body: { error: "date must be YYYY-MM-DD" } };
   }
   const orderBy = [{ field: "ts", dir: "DESCENDING" }];
+  const [userRows, locations] = await Promise.all([
+    fsListAll("users"),
+    fsListAll("locations"),
+  ]);
+  const bound = new Set(
+    (userRows ?? [])
+      .filter((u) => u?.rfidUid != null && String(u.rfidUid).trim() !== "")
+      .map((u) => Number(u?.id))
+      .filter(Number.isFinite),
+  );
   const { total, data: slice, nextCursor } = await pagedList("shifts", {
     eqFilters: filters, dateField: "ts", range, orderBy, page, pageSize, cursor,
-    // Shift history is for real staff only — unregistered card taps are
-    // rejected at write time, but older rows must stay hidden too.
-    filter: (s) => s.staffId != null || Boolean(s.staffName),
+    // Attendance belongs to staff who currently have a card bound. Unbinding
+    // hides it; re-binding brings it back, even with a different card.
+    filter: (s) => bound.has(Number(s.staffId)),
   });
-  const locations = await fsListAll("locations");
   const locById = new Map(locations.map((l) => [l.id, l]));
   const scheduleMap = await loadScheduleMapEdge();
   // Half-day rule (IN without OUT, once the Manila day ends): the OUT can be

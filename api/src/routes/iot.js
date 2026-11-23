@@ -4,6 +4,7 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import { requireDevice } from "../middleware/device.js";
 import { manilaDayRange, manilaDayStart, manilaDayKey } from "../services/timezone.js";
 import {
+  boundStaffIds,
   duplicateShiftReason,
   manilaDayKeyOf,
   recentTapWithin,
@@ -761,12 +762,17 @@ router.delete("/shifts/:id", requireAuth, requireRole("OWNER"), (_req, res) =>
 router.get("/staff/on-shift", requireAuth, async (_req, res, next) => {
   try {
     const start = manilaDayStart(0);
-    const shifts = await prisma.shift.findMany({
-      where: { ts: { gte: start } },
-      include: { location: { select: { code: true, name: true } } },
-      orderBy: { ts: "asc" },
-    });
-    const registered = shifts.filter((s) => Boolean(s.staffName));
+    const [shifts, users] = await Promise.all([
+      prisma.shift.findMany({
+        where: { ts: { gte: start } },
+        include: { location: { select: { code: true, name: true } } },
+        orderBy: { ts: "asc" },
+      }),
+      prisma.user.findMany({ where: { role: "STAFF" } }),
+    ]);
+    const bound = boundStaffIds(users);
+    const shiftsForBound = shifts.filter((s) => bound.has(Number(s.staffId)));
+    const registered = shiftsForBound.filter((s) => Boolean(s.staffName));
     const latestByPerson = new Map();
     for (const s of registered) {
       const key = `${s.staffUid}|${s.locationId}`;
@@ -811,9 +817,9 @@ router.get("/shifts/report", requireAuth, requireRole("OWNER"), async (req, res,
     ]);
     // Cart filter: show only staff assigned to that cart (the report still
     // counts taps at any cart they work — assignment is the scope, not the tap).
-    const staff = code
+    const staff = (code
       ? users.filter((u) => String(u.location?.code ?? "").toUpperCase() === code)
-      : users;
+      : users).filter((u) => String(u.rfidUid ?? "").trim() !== "");
     return res.json(
       aggregateShiftReport({ shifts, staffUsers: staff, scheduleMap, days }),
     );
@@ -828,7 +834,14 @@ router.get("/shifts/history", requireAuth, async (req, res, next) => {
     const { code, date } = req.query;
     const page = Math.max(1, Number(req.query.page) || 1);
     const pageSize = Math.min(Number(req.query.pageSize) || 10, 100);
-    const where = { staffId: { not: null } }; // unregistered cards never appear in history
+    // Attendance belongs to staff who currently have a card bound. Unbinding
+    // the card hides their history; re-binding (even a new card) brings it back.
+    const users = await prisma.user.findMany({ where: { role: "STAFF" } });
+    const bound = [...boundStaffIds(users)];
+    if (bound.length === 0) {
+      return res.json({ data: [], meta: { total: 0, page, pageSize, totalPages: 1 } });
+    }
+    const where = { staffId: { in: bound } };
     if (code) where.location = { code: String(code) };
     if (date) {
       const range = manilaDayRange(String(date));

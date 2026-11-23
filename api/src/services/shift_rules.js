@@ -81,6 +81,16 @@ export function duplicateShiftReason(todayShifts, event) {
   return `You already timed ${label} today${at}.`;
 }
 
+/** Staff ids that currently have an RFID card bound (unbound staff have no attendance). */
+export function boundStaffIds(users) {
+  return new Set(
+    (users ?? [])
+      .filter((u) => u?.rfidUid != null && String(u.rfidUid).trim() !== "")
+      .map((u) => Number(u.id))
+      .filter(Number.isFinite),
+  );
+}
+
 /** Two taps of the same card inside this window are one attendance action. */
 export const DUP_TAP_WINDOW_MS = 5 * 60 * 1000;
 

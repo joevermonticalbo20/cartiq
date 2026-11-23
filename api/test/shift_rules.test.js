@@ -13,12 +13,23 @@ import {
   duplicateShiftReason,
   formatManilaClock12,
   manilaDayKeyOf,
+  boundStaffIds,
   recentTapWithin,
   rememberPlannedShift,
   shiftsOfPersonOnDay,
 } from "../src/services/shift_rules.js";
 import { resolveNextEvent } from "../src/services/attendance_core.js";
 import { timeClockScheduleError } from "../src/services/time_clock.js";
+
+test("boundStaffIds ignores unbound and non-staff users", () => {
+  const ids = boundStaffIds([
+    { id: 2, rfidUid: "5A436083" },
+    { id: 3, rfidUid: null },
+    { id: 4, rfidUid: "  " },
+    { id: 5 },
+  ]);
+  assert.deepEqual([...ids], [2]);
+});
 
 test("recentTapWithin absorbs a double tap but not a real second session", () => {
   const todays = [{ event: "IN", ts: new Date("2026-11-23T23:00:00Z") }];
