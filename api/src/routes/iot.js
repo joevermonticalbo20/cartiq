@@ -8,6 +8,7 @@ import {
   duplicateShiftReason,
   manilaDayKeyOf,
   recentTapWithin,
+  recentBareTap,
   rememberPlannedShift,
   shiftsOfPersonOnDay,
 } from "../services/shift_rules.js";
@@ -355,6 +356,15 @@ router.post("/shifts", requireDevice, async (req, res, next) => {
         if (bare) {
           // State-driven: the method never decides IN vs OUT, the day does.
           const probeUser = byUid.get(lookupUid(uid)) ?? null;
+          // Second tap of the same card within 5 hours is a duplicate of the
+          // first — swallow it so it never records an immediate OUT. Only a
+          // tap after the 5h window is accepted as the OUT.
+          if (probeUser && recentBareTap(recentShifts, {
+            uid, staffId: probeUser.id, ts,
+          })) {
+            accepted.push({ staff_uid: uid, event: "AUTO", matched: probeUser.name, duplicate: true });
+            continue;
+          }
           if (probeUser) {
             const next = resolveNextEvent(
               shiftsOfPersonOnDay(recentShifts, {

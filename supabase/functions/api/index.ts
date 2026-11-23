@@ -6259,6 +6259,23 @@ async function bindClaimedTag({ rawUid, locationId }) {
   };
 }
 
+/** A bare (no claim) tap of the same card inside this window is a duplicate:
+ *  the first tap is the IN and the next one only counts as OUT after 5 hours. */
+const BARE_RETRY_WINDOW_MS_EDGE = 5 * 60 * 60 * 1000;
+
+function recentBareTapEdge(recentShifts, { uid, staffId, ts }) {
+  const t = new Date(ts).getTime();
+  if (!Number.isFinite(t)) return false;
+  return (recentShifts ?? []).some((s) => {
+    const samePerson = staffId != null
+      ? Number(s?.staffId) === Number(staffId)
+      : String(s?.staffUid) === String(uid);
+    if (!samePerson) return false;
+    const st = new Date(s?.ts).getTime();
+    return Number.isFinite(st) && st <= t && t - st < BARE_RETRY_WINDOW_MS_EDGE;
+  });
+}
+
 /** Online bare taps need an app claim; offline taps may auto-resolve IN/OUT. */
 function bareTapNeedsClaimEdge(event) {
   return event?._bare === true && event?.offline !== true;
@@ -6396,6 +6413,15 @@ async function handleDeviceShifts(req, _origin, device) {
       if (bare) {
         // State-driven: the method never decides IN vs OUT, the day does.
         const probeUser = byUid.get(lookupUid(uid)) ?? null;
+        // A second tap of the SAME card within 5 hours is a duplicate of the
+        // first (a nervous double tap) — swallow it so it never becomes an
+        // immediate OUT. Only a tap after the 5h window is accepted as the OUT.
+        if (probeUser && recentBareTapEdge(recentShifts, {
+          uid, staffId: probeUser.id, ts,
+        })) {
+          accepted.push({ staff_uid: uid, event: "AUTO", matched: probeUser.name, duplicate: true });
+          continue;
+        }
         if (probeUser) {
           const next = resolveNextEventEdge(
             shiftsOfPersonOnDay(recentShifts, {

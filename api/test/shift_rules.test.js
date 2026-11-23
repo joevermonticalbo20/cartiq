@@ -15,6 +15,7 @@ import {
   manilaDayKeyOf,
   boundStaffIds,
   recentTapWithin,
+  recentBareTap,
   rememberPlannedShift,
   shiftsOfPersonOnDay,
 } from "../src/services/shift_rules.js";
@@ -29,6 +30,17 @@ test("boundStaffIds ignores unbound and non-staff users", () => {
     { id: 5 },
   ]);
   assert.deepEqual([...ids], [2]);
+});
+
+test("recentBareTap swallows a same-card re-tap for 5 hours, not after", () => {
+  const first = new Date("2026-11-23T20:30:00Z"); // 4:30 AM Manila
+  const shifts = [{ staffId: 2, staffUid: "3A20704F", event: "IN", ts: first }];
+  // 4:31 — one minute later: duplicate, swallowed.
+  assert.equal(recentBareTap(shifts, { uid: "3A20704F", staffId: 2, ts: new Date("2026-11-23T20:31:00Z") }), true);
+  // 9:30 — exactly 5h later: allowed as the OUT.
+  assert.equal(recentBareTap(shifts, { uid: "3A20704F", staffId: 2, ts: new Date("2026-11-24T01:30:00Z") }), false);
+  // A different card is never a duplicate.
+  assert.equal(recentBareTap(shifts, { uid: "AAAA1111", staffId: 3, ts: new Date("2026-11-23T20:31:00Z") }), false);
 });
 
 test("recentTapWithin absorbs a repeated tap but never an IN→OUT", () => {

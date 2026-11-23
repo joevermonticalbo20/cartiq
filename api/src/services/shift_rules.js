@@ -116,6 +116,22 @@ export function recentTapWithin(todays, ts, event, windowMs = DUP_TAP_WINDOW_MS)
  * request; without this, two buffered offline taps (IN then OUT) would both be
  * matched against the pre-batch state and resolve to IN.
  */
+/** A bare tap of the same card inside this window is a duplicate: first = IN,
+ *  and only a tap after 5 hours becomes the OUT. */
+export const BARE_RETRY_WINDOW_MS = 5 * 60 * 60 * 1000;
+export function recentBareTap(recentShifts, { uid, staffId, ts }) {
+  const t = new Date(ts).getTime();
+  if (!Number.isFinite(t)) return false;
+  return (recentShifts ?? []).some((s) => {
+    const same = staffId != null
+      ? Number(s?.staffId) === Number(staffId)
+      : String(s?.staffUid) === String(uid);
+    if (!same) return false;
+    const st = new Date(s?.ts).getTime();
+    return Number.isFinite(st) && st <= t && t - st < BARE_RETRY_WINDOW_MS;
+  });
+}
+
 export function rememberPlannedShift(recentShifts, { uid, event, ts, user }) {
   if (!Array.isArray(recentShifts)) return recentShifts;
   recentShifts.push({
