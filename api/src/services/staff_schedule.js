@@ -112,14 +112,16 @@ export function scheduleVerdict(doc, nowMs = Date.now(), event = "IN") {
   const now = manilaMinutesOfDay(nowMs);
   const start = hmToMinutes(entry.start);
   const end = hmToMinutes(entry.end);
+  // Both IN and OUT open one hour before the scheduled start; OUT stays open
+  // two hours after the scheduled end (17:00 shift -> 07:00-19:00).
+  const open = start - 60;
   if (event === "IN") {
-    const open = start - 15; // 15-minute early grace
     if (now >= open && now <= end) return { scheduled: true, ok: true, entry, start, end };
     if (now < open) {
       return {
         scheduled: true,
         ok: false,
-        reason: `Time in opens 15 minutes before your scheduled start (${entry.start}). You may tap from ${String(Math.floor(open / 60)).padStart(2, "0")}:${String(open % 60).padStart(2, "0")}.`,
+        reason: `Time in opens 1 hour before your scheduled start (${entry.start}). You may tap from ${minutesToHm(open)}.`,
       };
     }
     return {
@@ -129,19 +131,25 @@ export function scheduleVerdict(doc, nowMs = Date.now(), event = "IN") {
     };
   }
   // Time OUT
-  if (now >= start && now <= end + 60) return { scheduled: true, ok: true, entry, start, end };
-  if (now < start) {
+  if (now >= open && now <= end + 120) return { scheduled: true, ok: true, entry, start, end };
+  if (now < open) {
     return {
       scheduled: true,
       ok: false,
-      reason: `Your scheduled shift starts at ${entry.start}. You may time out only from then.`,
+      reason: `Time out opens 1 hour before your scheduled start (${entry.start}). You may tap from ${minutesToHm(open)}.`,
     };
   }
   return {
     scheduled: true,
     ok: false,
-    reason: `Your scheduled shift ended at ${entry.end} (overtime window is 60 minutes). Ask OWNER to log your hours.`,
+    reason: `Your scheduled shift ended at ${entry.end} (time out closes at ${minutesToHm(end + 120)}). Ask OWNER to log your hours.`,
   };
+}
+
+/** Minutes since midnight -> HH:MM, wrapping past midnight. */
+function minutesToHm(m) {
+  const wrapped = ((m % 1440) + 1440) % 1440;
+  return `${String(Math.floor(wrapped / 60)).padStart(2, "0")}:${String(wrapped % 60).padStart(2, "0")}`;
 }
 
 /** "90m" -> "1h 30m"; plain minutes under an hour. */
@@ -154,7 +162,7 @@ export function fmtMinutes(m) {
 /**
  * Classify a single tap EVENT against the scheduled window (used by Shift
  * History, which lists IN and OUT taps as separate rows).
- *   IN : On time (within 5 min of start, incl. early arrival) | Tardy +Nm
+ *   IN : On time (within 5 min of start, incl. early arrival) | Late +Nm
  *   OUT: Early out Nm | On time
  * Returns { label, tone } with tone one of ok|warn|info|neutral.
  */
@@ -168,7 +176,7 @@ export function tapBadge({ event, instant, entry }) {
   if (event === "IN") {
     const late = t - start;
     if (late <= 5) return { label: "On time", tone: "ok" };
-    return { label: `Tardy +${fmtMinutes(late)}`, tone: "warn" };
+    return { label: `Late +${fmtMinutes(late)}`, tone: "warn" };
   }
   // Time OUT
   const early = end - t;

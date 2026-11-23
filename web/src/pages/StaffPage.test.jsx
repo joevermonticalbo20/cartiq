@@ -188,6 +188,9 @@ describe("StaffPage Shift History is read-only", () => {
     expect(screen.getByText("83%")).toBeInTheDocument();
     // Half-day rule: the column shows for the half-day day.
     expect(screen.getAllByText("Half days").length).toBeGreaterThanOrEqual(2);
+    // "Tardy" was renamed to "Late" in both the KPI and the table header.
+    expect(screen.getAllByText("Late").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("Tardy")).toBeNull();
     expect(screen.getByRole("button", { name: /csv/i })).toBeEnabled();
   });
 

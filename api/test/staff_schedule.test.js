@@ -1,9 +1,8 @@
 // Weekly staff schedule — normalization, the tap gate and the per-tap badge.
 //
-// The policy the prof asked for: time in/out are only accepted when the
-// tap falls inside the person's own scheduled window (with a 15-minute
-// early grace for Time in and 60 minutes of overtime for Time out).
-// Unscheduled staff stay unrestricted.
+// The policy: time in and time out both open one hour before the person's
+// scheduled start; time out stays open until two hours after the scheduled
+// end (08:00-17:00 shift -> 07:00-19:00). Unscheduled staff stay unrestricted.
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -59,28 +58,29 @@ test("a scheduled day off refuses the tap", () => {
   assert.match(v.reason, /day off/i);
 });
 
-test("time in: early grace opens 15 minutes before the start", () => {
+test("time in: opens 1 hour before the start", () => {
   const d = doc(week(TUESDAY_SHIFT));
-  assert.equal(scheduleVerdict(d, at("2026-11-17T05:44:00"), "IN").ok, false); // 16 min early
-  assert.equal(scheduleVerdict(d, at("2026-11-17T05:45:00"), "IN").ok, true);  // 15 min early
+  assert.equal(scheduleVerdict(d, at("2026-11-17T04:59:00"), "IN").ok, false); // 61 min early
+  assert.equal(scheduleVerdict(d, at("2026-11-17T05:00:00"), "IN").ok, true);  // 1 hour early
   assert.equal(scheduleVerdict(d, at("2026-11-17T06:00:00"), "IN").ok, true);
   assert.equal(scheduleVerdict(d, at("2026-11-17T13:59:00"), "IN").ok, true);
   assert.equal(scheduleVerdict(d, at("2026-11-17T14:00:00"), "IN").ok, true);  // at the end is fine
   assert.equal(scheduleVerdict(d, at("2026-11-17T14:01:00"), "IN").ok, false); // shift already over
 });
 
-test("time out: allowed from the start until 60 minutes past the end", () => {
+test("time out: opens 1 hour before start and closes 2 hours after end", () => {
   const d = doc(week(TUESDAY_SHIFT));
-  assert.equal(scheduleVerdict(d, at("2026-11-17T05:59:00"), "OUT").ok, false); // before start
+  assert.equal(scheduleVerdict(d, at("2026-11-17T04:59:00"), "OUT").ok, false); // before the window
+  assert.equal(scheduleVerdict(d, at("2026-11-17T05:00:00"), "OUT").ok, true);  // 1 hour early
   assert.equal(scheduleVerdict(d, at("2026-11-17T06:00:00"), "OUT").ok, true);
   assert.equal(scheduleVerdict(d, at("2026-11-17T14:00:00"), "OUT").ok, true);
-  assert.equal(scheduleVerdict(d, at("2026-11-17T15:00:00"), "OUT").ok, true);  // +60 OT
-  assert.equal(scheduleVerdict(d, at("2026-11-17T15:01:00"), "OUT").ok, false); // beyond OT window
+  assert.equal(scheduleVerdict(d, at("2026-11-17T16:00:00"), "OUT").ok, true);  // +2h
+  assert.equal(scheduleVerdict(d, at("2026-11-17T16:01:00"), "OUT").ok, false); // beyond the window
 });
 
 test("the refusal reason names the scheduled times", () => {
   const d = doc(week(TUESDAY_SHIFT));
-  const early = scheduleVerdict(d, at("2026-11-17T05:00:00"), "IN");
+  const early = scheduleVerdict(d, at("2026-11-17T04:30:00"), "IN");
   assert.match(early.reason, /06:00/);
   const late = scheduleVerdict(d, at("2026-11-17T16:00:00"), "IN");
   assert.match(late.reason, /14:00/);
@@ -93,8 +93,8 @@ test("tapBadge: an on-time clock-in within 5 minutes of the start", () => {
 });
 
 test("tapBadge: a late clock-in reports how late", () => {
-  assert.deepEqual(tapBadge({ event: "IN", instant: "2026-11-17T06:14:00+08:00", entry: TUESDAY_SHIFT }), { label: "Tardy +14m", tone: "warn" });
-  assert.deepEqual(tapBadge({ event: "IN", instant: "2026-11-17T07:30:00+08:00", entry: TUESDAY_SHIFT }), { label: "Tardy +1h 30m", tone: "warn" });
+  assert.deepEqual(tapBadge({ event: "IN", instant: "2026-11-17T06:14:00+08:00", entry: TUESDAY_SHIFT }), { label: "Late +14m", tone: "warn" });
+  assert.deepEqual(tapBadge({ event: "IN", instant: "2026-11-17T07:30:00+08:00", entry: TUESDAY_SHIFT }), { label: "Late +1h 30m", tone: "warn" });
 });
 
 test("tapBadge: early outs and late clock-outs on a clock-out", () => {

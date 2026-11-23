@@ -3212,14 +3212,16 @@ function staffScheduleVerdict(rawDoc, nowMs, event) {
   const now = manilaMinutesOfDay(nowMs);
   const start = hmToMinutes(entry.start);
   const end = hmToMinutes(entry.end);
+  // Both IN and OUT open one hour before the scheduled start; OUT stays open
+  // two hours after the scheduled end (17:00 shift -> 07:00-19:00).
+  const open = start - 60;
   if (event === "IN") {
-    const open = start - 15; // 15-minute early grace
     if (now >= open && now <= end) return { scheduled: true, ok: true, entry, start, end };
     if (now < open) {
       return {
         scheduled: true,
         ok: false,
-        reason: `Time in opens 15 minutes before your scheduled start (${entry.start}). You may tap from ${String(Math.floor(open / 60)).padStart(2, "0")}:${String(open % 60).padStart(2, "0")}.`,
+        reason: `Time in opens 1 hour before your scheduled start (${entry.start}). You may tap from ${fmtClockEdge(open)}.`,
       };
     }
     return {
@@ -3229,18 +3231,18 @@ function staffScheduleVerdict(rawDoc, nowMs, event) {
     };
   }
   // Time OUT
-  if (now >= start && now <= end + 60) return { scheduled: true, ok: true, entry, start, end };
-  if (now < start) {
+  if (now >= open && now <= end + 120) return { scheduled: true, ok: true, entry, start, end };
+  if (now < open) {
     return {
       scheduled: true,
       ok: false,
-      reason: `Your scheduled shift starts at ${entry.start}. You may time out only from then.`,
+      reason: `Time out opens 1 hour before your scheduled start (${entry.start}). You may tap from ${fmtClockEdge(open)}.`,
     };
   }
   return {
     scheduled: true,
     ok: false,
-    reason: `Your scheduled shift ended at ${entry.end} (overtime window is 60 minutes). Ask OWNER to log your hours.`,
+    reason: `Your scheduled shift ended at ${entry.end} (time out closes at ${fmtClockEdge(end + 120)}). Ask OWNER to log your hours.`,
   };
 }
 
@@ -3258,6 +3260,12 @@ function fmtMinutesEdge(m) {
   return `${Math.floor(abs / 60)}h ${String(abs % 60).padStart(2, "0")}m`;
 }
 
+/** Minutes since midnight -> HH:MM, wrapping past midnight. */
+function fmtClockEdge(m) {
+  const wrapped = ((m % 1440) + 1440) % 1440;
+  return `${String(Math.floor(wrapped / 60)).padStart(2, "0")}:${String(wrapped % 60).padStart(2, "0")}`;
+}
+
 /** Badge for a single tap event against its scheduled entry. */
 function tapBadgeEdge(event, instant, entry) {
   if (!entry) return { label: "No schedule", tone: "neutral" };
@@ -3268,7 +3276,7 @@ function tapBadgeEdge(event, instant, entry) {
   if (event === "IN") {
     const late = t - start;
     if (late <= 5) return { label: "On time", tone: "ok" };
-    return { label: `Tardy +${fmtMinutesEdge(late)}`, tone: "warn" };
+    return { label: `Late +${fmtMinutesEdge(late)}`, tone: "warn" };
   }
   const early = end - t;
   if (early > 5) return { label: `Early out ${fmtMinutesEdge(early)}`, tone: "warn" };

@@ -210,7 +210,7 @@ export default function StaffPage() {
     if (!report) return;
     const head = [
       "Name", "Username", "Cart", "Scheduled days", "Clock-ins", "Clock-outs",
-      "On-time", "Tardy", "Early out", "Hours worked",
+      "On-time", "Late", "Early out", "Hours worked",
       "On-time %", "Half days", "Absences", "Status",
     ];
     const lines = [csvRow(head)];
@@ -780,7 +780,7 @@ export default function StaffPage() {
                     { key: "staff", label: "Staff", skeletonWidth: "58%" },
                     { key: "in", label: "Clock-ins", width: 100, skeletonType: "badge" },
                     { key: "ontime", label: "On-time %", width: 100, skeletonType: "badge" },
-                    { key: "tardy", label: "Tardy", width: 80, skeletonType: "badge" },
+                    { key: "tardy", label: "Late", width: 80, skeletonType: "badge" },
                     { key: "absence", label: "Absences", width: 100, skeletonType: "badge" },
                   ]}
                 />
@@ -792,7 +792,7 @@ export default function StaffPage() {
                     {[
                       { label: "On-time", value: report.totals.on_time_pct == null ? "—" : `${report.totals.on_time_pct}%` },
                       { label: "Clock-ins", value: report.totals.clock_ins },
-                      { label: "Tardy", value: report.totals.tardy },
+                      { label: "Late", value: report.totals.tardy },
                       { label: "Early out", value: report.totals.early_out },
                       { label: "Half days", value: report.totals.half_days },
                       { label: "Absences", value: report.totals.absences },
@@ -811,7 +811,7 @@ export default function StaffPage() {
                           <th className="t-right">Clock-ins</th>
                           <th className="t-right">Clock-outs</th>
                           <th className="t-right" title="Share of scheduled clock-ins that were on time">On-time %</th>
-                          <th className="t-right">Tardy</th>
+                          <th className="t-right">Late</th>
                           <th className="t-right">Early out</th>
                           <th className="t-right">Worked h</th>
                           <th className="t-right" title="A day with an IN but no OUT after the day ends (hours credited: half of the scheduled shift)">Half days</th>
