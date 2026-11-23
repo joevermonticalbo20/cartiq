@@ -58,6 +58,7 @@ export default function StaffPage() {
   const isOwner = user?.role === "OWNER";
   
   const [onShift, setOnShift] = useState([]);
+  const [unknownTapsToday, setUnknownTapsToday] = useState(0);
   const [loc, setLoc] = useState("");
   const [performance, setPerformance] = useState(null);
   const [perfLoading, setPerfLoading] = useState(true);
@@ -162,10 +163,22 @@ export default function StaffPage() {
       isOwner
         ? track("schedules", api.get("/staff/schedules"), { data: { data: [] } })
         : Promise.resolve({ data: { data: [] } }),
-    ]).then(([shiftRes, perfRes, schedRes]) => {
+      isOwner
+        ? track("unknown-alerts", api.get("/alerts?pageSize=100"), { data: { data: [] } })
+        : Promise.resolve({ data: { data: [] } }),
+    ]).then(([shiftRes, perfRes, schedRes, alertsRes]) => {
       setOnShift(shiftRes.data?.on_shift ?? []);
       setPerformance(perfRes.data ?? { staff: [] });
       setSchedules(schedRes.data?.data ?? []);
+      const manilaDay = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit",
+      });
+      const today = manilaDay.format(new Date());
+      const taps = (alertsRes.data?.data ?? []).filter(
+        (a) => a?.type === "UNKNOWN_CARD" &&
+          manilaDay.format(new Date(a.createdAt ?? 0)) === today
+      ).length;
+      setUnknownTapsToday(taps);
       setSchedLoading(false);
       setPerfLoading(false);
     });
@@ -445,7 +458,17 @@ export default function StaffPage() {
         <section className="panel staff-panel">
           <div className="flex items-center justify-between" style={{ marginBottom: "var(--space-4)" }}>
             <h3 className="section-title m-0 p-0" style={{ borderBottom: "none" }}>Currently on shift</h3>
-            <Badge variant={onShift.length > 0 ? "ok" : "neutral"}>{onShift.length} Active</Badge>
+            <div className="flex items-center gap-2">
+              {isOwner && unknownTapsToday > 0 && (
+                <Badge
+                  variant="warn"
+                  title="Unregistered RFID card taps today - no shift was recorded"
+                >
+                  {unknownTapsToday} unregistered tap{unknownTapsToday === 1 ? "" : "s"} today
+                </Badge>
+              )}
+              <Badge variant={onShift.length > 0 ? "ok" : "neutral"}>{onShift.length} Active</Badge>
+            </div>
           </div>
           {perfLoading ? (
             <div className="staff-chip-list-skeleton" aria-hidden="true">

@@ -120,6 +120,17 @@ function mockApi() {
         },
       });
     }
+    if (url.startsWith("/alerts")) {
+      return Promise.resolve({
+        data: {
+          data: [
+            { id: 1, type: "UNKNOWN_CARD", createdAt: new Date().toISOString() },
+            { id: 2, type: "UNKNOWN_CARD", createdAt: "2026-01-01T00:00:00Z" },
+            { id: 3, type: "SHIFT", createdAt: new Date().toISOString() },
+          ],
+        },
+      });
+    }
     if (url.startsWith("/shifts/history")) {
       return Promise.resolve({
         data: {
@@ -192,6 +203,12 @@ describe("StaffPage Shift History is read-only", () => {
     expect(screen.getAllByText("Late").length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByText("Tardy")).toBeNull();
     expect(screen.getByRole("button", { name: /csv/i })).toBeEnabled();
+  });
+
+  it("counts only today's unregistered card taps", async () => {
+    renderPage();
+    expect(await screen.findByText("Attendance report")).toBeInTheDocument();
+    expect(screen.getByText("1 unregistered tap today")).toBeInTheDocument();
   });
 
   it("shows the append-only note and offers no edit or delete actions", async () => {
