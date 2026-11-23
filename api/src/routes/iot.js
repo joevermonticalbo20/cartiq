@@ -1038,9 +1038,9 @@ router.post("/shifts/self", requireAuth, requireRole("STAFF"), async (req, res, 
 // GET /api/device-status - the cart reader's connectivity for the app's tap
 // UI (the staff-safe subset of the OWNER /devices registry). Staff see their
 // own cart; OWNER may pass ?code=CART-01 (defaults to the first active cart).
-// Same cadence rule as the claim gate: firmware heartbeats every 10s, so
-// 15s = one missed beat plus jitter. Kept in step with CLAIM_DEVICE_ONLINE_MS.
-const DEVICE_ONLINE_MS = 15 * 1000;
+// Same cadence rule as the claim gate: firmware heartbeats every 3s, so
+// 6s = one missed beat plus jitter. Kept in step with CLAIM_DEVICE_ONLINE_MS.
+const DEVICE_ONLINE_MS = 6 * 1000;
 router.get("/device-status", requireAuth, async (req, res, next) => {
   try {
     let location = null;

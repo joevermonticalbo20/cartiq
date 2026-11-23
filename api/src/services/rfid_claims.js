@@ -83,6 +83,10 @@ export function openClaim({ userId, locationId, locationCode, event, targetUserI
     reason: null,
     createdAt: Date.now(),
     exp,
+    // The 30s window starts when the reader is first seen online (the moment
+    // the app shows "waiting for card"), not when the claim is opened. Network
+    // latency between those two events would otherwise eat into the countdown.
+    windowStarted: false,
   });
   return _claims.get(claimId);
 }
@@ -135,6 +139,20 @@ export function findActiveClaimForLocation(locationId) {
     if (rec.locationId === locationId && isClaimActive(rec)) return rec;
   }
   return null;
+}
+
+/**
+ * Start the 30s window the first time the reader is seen online. Called on
+ * every pending status poll; idempotent. Before this, the claim has a short
+ * grace expiry just so it cannot live forever if nobody ever polls.
+ */
+export function startClaimWindow(claimId, now = Date.now()) {
+  pruneClaims(now);
+  const rec = _claims.get(claimId);
+  if (!rec || rec.status !== CLAIM_PENDING || rec.windowStarted) return rec ?? null;
+  rec.windowStarted = true;
+  rec.exp = now + RFID_CLAIM_TTL_MS;
+  return rec;
 }
 
 /**

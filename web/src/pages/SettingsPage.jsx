@@ -64,7 +64,7 @@ const MINUTES_60 = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0
  * Module-level on purpose: reading the clock during render is impure, and the
  * countdown is a side effect of a click, not of a render.
  */
-const readerSecondsLeft = (expiresAtIso, fallbackMs = 90000) => {
+const readerSecondsLeft = (expiresAtIso, fallbackMs = 30000) => {
   const expires = expiresAtIso
     ? new Date(expiresAtIso).getTime()
     : Date.now() + fallbackMs;
@@ -302,6 +302,7 @@ export default function SettingsPage() {
   const [cardDone, setCardDone] = useState("");
   const cardPollRef = useRef(null);
   const cardTickRef = useRef(null);
+  const cardWindowStartedRef = useRef(false);
 
   // Never leave a poll running after the page goes away.
   useEffect(() => () => {
@@ -1157,6 +1158,7 @@ export default function SettingsPage() {
     setCardDone("");
     setCardClaim(null);
     setCardSecondsLeft(0);
+    cardWindowStartedRef.current = false;
     if (!s.location?.code) {
       setCardError(
         `${s.name} has no cart yet - assign one first. A card belongs to the cart where it is used.`,
@@ -1167,8 +1169,10 @@ export default function SettingsPage() {
       const { data } = await api.post("/auth/my-rfid/claim", { targetUserId: s.id });
       const claim = data?.claim;
       setCardClaim(claim);
+      // The 30s window starts on the first online status poll, not at open.
+      // Show the full window now and let the poll resync when the reader is live.
       setCardReaderOnline(claim?.deviceOnline !== false);
-      setCardSecondsLeft(readerSecondsLeft(claim?.expiresAt));
+      setCardSecondsLeft(claim?.deviceOnline !== false ? 30 : 0);
       cardTickRef.current = setInterval(() => {
         setCardSecondsLeft((s2) => (s2 > 0 ? s2 - 1 : 0));
       }, 1000);
@@ -1184,7 +1188,15 @@ export default function SettingsPage() {
       const claim = data?.claim;
       if (!claim) return;
       setCardReaderOnline(claim.deviceOnline !== false);
-      if (claim.status === "pending") return;
+      if (claim.status === "pending") {
+        // When the reader first comes online, the server just started the 30s
+        // window. Display the full 30s from that authoritative expiry.
+        if (!cardWindowStartedRef.current && claim.deviceOnline !== false) {
+          cardWindowStartedRef.current = true;
+          setCardSecondsLeft(readerSecondsLeft(claim.expiresAt) || 30);
+        }
+        return;
+      }
       stopCardTimers();
       if (claim.status === "bound") {
         setCardDone(`Card ${claim.rfidUid} registered to ${cardStaff?.name}.`);

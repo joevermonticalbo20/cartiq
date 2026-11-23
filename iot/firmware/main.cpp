@@ -18,6 +18,10 @@
 
 #include "config.h"   // copy config.example.h -> config.h and fill in
 
+// If a live WiFi link drops, wait this long for the AP to come back before
+// switching to offline-use mode (taps queue in NVS until a replug).
+#define WIFI_LOST_GRACE_MS 30000UL
+
 // HX711 load cells are optional. Set USE_LOAD_CELLS to 0 in config.h for an
 // RFID-only node.
 //
@@ -80,6 +84,9 @@ unsigned long lastHeartbeat = 0;
 unsigned long lastReaderCheck = 0;
 unsigned long lastAnchorSave = 0;
 unsigned long tapFlashUntil = 0;   // brief confirmation blink after a queued tap
+unsigned long wifiLostAt = 0;      // when a live WiFi link dropped (0 = fine)
+bool offlineMode = false;
+bool wasWifiConnected = false;
 bool readerOk = false;
 
 // The RC522 can drop off the SPI bus after a power dip (a weak USB port is
@@ -490,12 +497,33 @@ void setup() {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
+    wasWifiConnected = true;
     // The antenna is back on after the WiFi attempt (online or offline).
     checkDeviceAuth();
   }
 }
 
 void loop() {
+  // Track a live WiFi link dropping: give it 30s to come back, then switch to
+  // offline-use mode. A fresh boot (replug) is the only thing that retries
+  // after that — queued taps are pushed as soon as it reconnects.
+  const bool linkUp = WiFi.status() == WL_CONNECTED;
+  if (linkUp && !wasWifiConnected) {
+    wasWifiConnected = true;
+    offlineMode = false;
+    wifiLostAt = 0;
+    Serial.println("Wi-Fi link (re)established - online mode");
+  } else if (!linkUp && wasWifiConnected && wifiLostAt == 0) {
+    wasWifiConnected = false;
+    wifiLostAt = millis();
+    offlineMode = false;
+    Serial.println("Wi-Fi link lost - waiting 30s for reconnect...");
+  } else if (!linkUp && wifiLostAt > 0 && !offlineMode &&
+             millis() - wifiLostAt >= WIFI_LOST_GRACE_MS) {
+    offlineMode = true;
+    Serial.println("Wi-Fi still down after 30s - OFFLINE MODE: taps will queue; replug to upload");
+  }
+
   // Blue LED: a 2-blink confirmation right after a tap, then the normal state:
   // steady when online and nothing pending, slow blink while the queue still
   // has taps to deliver, OFF when offline with an empty queue.
@@ -549,13 +577,10 @@ void loop() {
     prefs.putULong("anchorEpoch", (unsigned long)epochAnchor);
   }
 
-  // Server liveness every 10s so the registration dialog can tell "reader
-  // offline" from "waiting for your tap" (load cells disabled means no
-  // readings would otherwise keep lastSeenAt fresh). Starts at boot because
-  // lastServerHeartbeat is 0. 10s is the fastest cadence that stays cheap:
-  // each beat is one Firestore write, so the server-side claim gate treats
-  // anything older than 15s as offline.
-  if (millis() - lastServerHeartbeat > 10000 && WiFi.status() == WL_CONNECTED) {
+  // Server liveness every 3s so the app flags a power/Wi-Fi loss within ~5s.
+  // Each beat is a Firestore write; 3s keeps detection fast while the server
+  // marks the reader offline after 6s (one missed beat plus jitter).
+  if (millis() - lastServerHeartbeat > 3000 && WiFi.status() == WL_CONNECTED) {
     lastServerHeartbeat = millis();
     postBatch("/devices/heartbeat", "{}");
   }
@@ -574,6 +599,6 @@ void loop() {
     flushReadings();
   }
 
-  // No background WiFi retries by design: a missed 30-second window at boot
-  // means offline-use mode. Replug the node to try again and upload the queue.
+  // A WiFi link that dropped gets a 30s grace; after that the node stays in
+  // offline-use mode (no background retries) until it is replugged.
 }

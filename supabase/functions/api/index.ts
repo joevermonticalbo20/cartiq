@@ -1327,6 +1327,9 @@ async function openClaim({ userId, locationId, locationCode, event, targetUserId
     reason: null,
     exp: new Date(now + RFID_CLAIM_TTL_MS),
     createdAt: new Date(now),
+    // 30s window starts when the reader is first seen online (the app is
+    // showing "waiting for card"), not when the claim was created.
+    windowStarted: false,
   };
   writes.push(createWrite(CLAIM_COLLECTION, claimId, rec));
   await fsCommit(writes);
@@ -1337,6 +1340,20 @@ async function getClaim(claimId) {
   if (!claimId) return null;
   const rec = await fsGet(CLAIM_COLLECTION, claimId).catch(() => null);
   return rec ? { ...rec, claimId } : null;
+}
+
+/**
+ * Start the 30s window the first time the reader is online. Idempotent.
+ */
+async function startClaimWindow(claimId) {
+  const rec = await getClaim(claimId);
+  if (!rec || rec.status !== CLAIM_PENDING) return rec ?? null;
+  if (rec.windowStarted) return rec;
+  await fsPatch(CLAIM_COLLECTION, claimId, {
+    windowStarted: true,
+    exp: new Date(Date.now() + RFID_CLAIM_TTL_MS),
+  }, null);
+  return { ...rec, windowStarted: true, exp: new Date(Date.now() + RFID_CLAIM_TTL_MS) };
 }
 
 async function resolveClaim(claimId, status, rfidUid, holderName, event, cardLocationCode, reason) {
@@ -1402,10 +1419,10 @@ function claimView(claim, now = Date.now()) {
 
 // True when the cart's ESP32 node has heartbeated recently. The registration
 // dialog gates its countdown on this so a 30s window never burns down for an
-// offline reader. The firmware posts /devices/heartbeat every 10s, so 15s
+// offline reader. The firmware posts /devices/heartbeat every 3s, so 6s
 // allows one missed beat plus jitter; a board that just unplugged reads
-// offline well inside the 30s claim window. Mirrors api/src/routes/auth.js.
-const CLAIM_DEVICE_ONLINE_MS = 15 * 1000;
+// offline within ~5s. Mirrors api/src/routes/auth.js.
+const CLAIM_DEVICE_ONLINE_MS = 6 * 1000;
 async function claimDeviceOnline(locationId) {
   const secs = await claimDeviceLastSeenSeconds(locationId);
   return secs != null && secs * 1000 < CLAIM_DEVICE_ONLINE_MS;
@@ -6849,9 +6866,9 @@ async function handleSelfShift(_req, user) {
 }
 
 /** GET /device-status — staff-safe cart reader connectivity for the tap UI. */
-// Same cadence rule as the claim gate: firmware heartbeats every 10s, so
-// 15s = one missed beat plus jitter. Kept in step with CLAIM_DEVICE_ONLINE_MS.
-const DEVICE_STATUS_ONLINE_MS = 15 * 1000;
+// Same cadence rule as the claim gate: firmware heartbeats every 3s, so
+// 6s = one missed beat plus jitter. Kept in step with CLAIM_DEVICE_ONLINE_MS.
+const DEVICE_STATUS_ONLINE_MS = 6 * 1000;
 async function handleDeviceStatus(_req, url, user) {
   let location = null;
   if (String(user?.role ?? "").toUpperCase() === "OWNER") {
@@ -11230,7 +11247,10 @@ async function handleRfidClaimStatus(_req, origin, user, path) {
   }
   const deviceOnline = await claimDeviceOnline(claim.locationId);
   const readerLastSeenSeconds = await claimDeviceLastSeenSeconds(claim.locationId);
-  return jsonRes(origin, { claim: { ...claimView(claim), deviceOnline, readerLastSeenSeconds } });
+  // Begin the 30s window only once the app can show a live "waiting for card"
+  // screen; network delay before then must not eat into the countdown.
+  const live = deviceOnline ? await startClaimWindow(claim.claimId) ?? claim : claim;
+  return jsonRes(origin, { claim: { ...claimView(live), deviceOnline, readerLastSeenSeconds } });
 }
 
 // ---------- events: ticket + poll stream (mirror api/src/routes/events.js) ----------

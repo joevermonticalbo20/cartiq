@@ -31,6 +31,7 @@ import {
   openClaim,
   resetClaims,
   resolveClaim,
+  startClaimWindow,
 } from "../src/services/rfid_claims.js";
 
 test("normalizeRfidUid uppercases and drops separators a human may paste", () => {
@@ -163,6 +164,24 @@ test("claims on different carts do not evict each other", () => {
   const b = openClaim({ userId: 2, locationId: 2, locationCode: "CART-02" });
   assert.equal(findActiveClaimForLocation(1).claimId, a.claimId);
   assert.equal(findActiveClaimForLocation(2).claimId, b.claimId);
+});
+
+test("the 30s window starts on the first online poll, not at claim open", () => {
+  const claim = openClaim({ userId: 2, locationId: 1, locationCode: "CART-01" });
+  const t0 = Date.now();
+  // Simulate 10s of network delay before the reader is seen online.
+  const later = t0 + 10_000;
+  // Not started yet: 10s of network delay has already eaten into the window.
+  assert.equal(claimView(claim, later).status, "pending");
+  assert.equal(new Date(claim.exp).getTime() - later, RFID_CLAIM_TTL_MS - 10_000);
+  const started = startClaimWindow(claim.claimId, later);
+  assert.equal(started.windowStarted, true);
+  // Fresh 30s window from the moment the waiting screen appears.
+  assert.equal(new Date(started.exp).getTime() - later, RFID_CLAIM_TTL_MS);
+  // A second poll does not restart it.
+  const again = startClaimWindow(claim.claimId, later + 5000);
+  assert.equal(new Date(again.exp).getTime(), new Date(started.exp).getTime());
+  assert.equal(claimView(again, later + 5000).status, "pending");
 });
 
 test("an expired claim reports expired instead of pending forever", () => {

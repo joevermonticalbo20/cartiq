@@ -60,7 +60,7 @@ import {
 } from "../services/otp_anti_spam.js";
 import { readTimeClock, timeClockVerdict } from "../services/time_clock.js";
 import { announceChange } from "../services/announce.js";
-import { openClaim, getClaim, claimView } from "../services/rfid_claims.js";
+import { openClaim, getClaim, claimView, startClaimWindow } from "../services/rfid_claims.js";
 import { emit } from "./events.js";
 import crypto from "node:crypto";
 
@@ -581,9 +581,9 @@ router.get("/my-rfid", requireAuth, async (req, res, next) => {
 // True when the cart's ESP32 node has heartbeated recently. The registration
 // dialog gates its countdown on this so the person never watches a 30s
 // window burn down for a reader that is offline. The firmware posts
-// /devices/heartbeat every 10s, so 15s allows one missed beat plus jitter;
-// a board that just unplugged reads offline well inside the 30s claim window.
-const CLAIM_DEVICE_ONLINE_MS = 15 * 1000;
+// heartbeat every 3s, so 6s allows one missed beat plus jitter; a board that
+// just lost power reads offline within ~5s.
+const CLAIM_DEVICE_ONLINE_MS = 6 * 1000;
 async function deviceOnlineForLocation(locationId) {
   const secs = await deviceLastSeenForLocation(locationId);
   return secs != null && secs * 1000 < CLAIM_DEVICE_ONLINE_MS;
@@ -705,7 +705,10 @@ router.get("/my-rfid/claim/:claimId", requireAuth, async (req, res, next) => {
     }
     const deviceOnline = await deviceOnlineForLocation(claim.locationId);
     const lastSeen = await deviceLastSeenForLocation(claim.locationId);
-    return res.json({ claim: { ...claimView(claim), deviceOnline, readerLastSeenSeconds: lastSeen } });
+    // The 30s countdown begins when the app can actually show the waiting
+    // screen with a live reader — not when the claim was created.
+    const live = deviceOnline ? startClaimWindow(claim.claimId) ?? claim : claim;
+    return res.json({ claim: { ...claimView(live), deviceOnline, readerLastSeenSeconds: lastSeen } });
   } catch (err) {
     return next(err);
   }

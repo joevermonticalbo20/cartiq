@@ -154,7 +154,7 @@ class RfidRegistrationService {
       if (claimId == null || claimId.isEmpty) {
         return const RfidFailed('Server did not return a claim.');
       }
-      final expiresAt =
+      DateTime expiresAt =
           DateTime.tryParse(claim['expiresAt'] as String? ?? '')?.toLocal() ??
               DateTime.now();
 
@@ -170,6 +170,7 @@ class RfidRegistrationService {
       // every request, so a slow network turned a 1s countdown into 2s steps.
       var firstPoll = true;
       var nextAt = DateTime.now();
+      var windowStarted = false;
       while (true) {
         if (!firstPoll) {
           final wait = nextAt.difference(DateTime.now());
@@ -241,9 +242,22 @@ class RfidRegistrationService {
           }
         }
         if (view['deviceOnline'] != false) {
+          // The server starts the 30s window on the first online poll. Use its
+          // authoritative expiry from THIS response, not the stale one from
+          // when the claim was opened — otherwise the screen shows 27s.
+          final fresh = DateTime.tryParse(view['expiresAt'] as String? ?? '')?.toLocal();
+          if (fresh != null) expiresAt = fresh;
           final left = expiresAt.difference(DateTime.now());
           if (left.isNegative) return const RfidExpired();
-          onTick?.call(left.inSeconds);
+          // First online tick = the "waiting for card" screen just appeared.
+          // Show the full window (30s), not a value shaved by the poll RTT.
+          if (!windowStarted) {
+            windowStarted = true;
+            onTick?.call(30);
+          } else {
+            // Round UP so 29.4s reads 29, never an early 28 from truncation.
+            onTick?.call((left.inMilliseconds / 1000).ceil());
+          }
         }
         onReaderStatus?.call(
           view['deviceOnline'] != false,
