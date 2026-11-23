@@ -17,6 +17,7 @@ import '../theme.dart';
 import '../utils/app_messenger.dart';
 import '../utils/haptics.dart';
 import '../utils/manila_time.dart';
+import '../utils/text_input.dart';
 import '../widgets/app_badge.dart';
 import '../widgets/app_skeleton.dart';
 import '../widgets/empty_state.dart';
@@ -2216,6 +2217,12 @@ class _VoidReasonSheetState extends State<_VoidReasonSheet> {
               child: TextField(
                 controller: otherController,
                 autofocus: true,
+                // Custom reason is capped at 40 characters (web/API rule).
+                maxLength: TextInputRules.maxLength,
+                maxLines: 3,
+                inputFormatters: [
+                  SingleSpaceFormatter(TextInputRules.maxLength),
+                ],
                 decoration: InputDecoration(
                   labelText: 'Specify custom reason',
                   hintText: 'Enter reason here...',
@@ -2260,12 +2267,14 @@ class _VoidReasonSheetState extends State<_VoidReasonSheet> {
                     minimumSize: const Size.fromHeight(52),
                   ),
                   onPressed: () {
+                    final trimmed = otherController.text.trim();
                     if (selectedReason == 'Others' &&
-                        otherController.text.trim().isEmpty) {
+                        (trimmed.isEmpty ||
+                            trimmed.length > TextInputRules.maxLength)) {
                       return;
                     }
                     final text = selectedReason == 'Others'
-                        ? otherController.text.trim()
+                        ? trimmed
                         : selectedReason;
                     Navigator.pop(context, text);
                   },
