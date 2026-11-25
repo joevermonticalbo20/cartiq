@@ -7219,6 +7219,28 @@ async function handleShiftsHistory(url) {
   const page = Math.max(1, Number(params.get("page")) || 1);
   const pageSize = Math.min(Number(params.get("pageSize")) || 10, 100);
   const cursor = params.get("cursor");
+  const search = String(params.get("search") ?? "").trim().toLowerCase();
+  const event = String(params.get("event") ?? "").trim().toUpperCase();
+  const method = String(params.get("method") ?? "").trim().toUpperCase();
+  const punctuality = String(params.get("punctuality") ?? "").trim().toLowerCase();
+  const SHIFT_EVENTS_EDGE = ["IN", "OUT"];
+  if (event && !SHIFT_EVENTS_EDGE.includes(event)) {
+    return { status: 400, body: { error: "event must be IN or OUT" } };
+  }
+  if (method && !["RFID", "APP", "MANUAL"].includes(method)) {
+    return { status: 400, body: { error: "method must be RFID, APP, or MANUAL" } };
+  }
+  const punctualityFilters = {
+    "on-time": (label) => label === "on time",
+    late: (label) => label.startsWith("late "),
+    "early-out": (label) => label.startsWith("early out "),
+    "half-day": (label) => label === "half day",
+    "no-schedule": (label) => label === "no schedule",
+    "not-scheduled": (label) => label === "not scheduled",
+  };
+  if (punctuality && !Object.prototype.hasOwnProperty.call(punctualityFilters, punctuality)) {
+    return { status: 400, body: { error: "invalid punctuality filter" } };
+  }
   const filters = [];
   let range = null;
   if (code) {
@@ -7243,12 +7265,17 @@ async function handleShiftsHistory(url) {
       .map((u) => Number(u?.id))
       .filter(Number.isFinite),
   );
-  const { total, data: slice, nextCursor } = await pagedList("shifts", {
-    eqFilters: filters, dateField: "ts", range, orderBy, page, pageSize, cursor,
-    // Attendance belongs to staff who currently have a card bound. Unbinding
-    // hides it; re-binding brings it back, even with a different card.
-    filter: (s) => bound.has(Number(s.staffId)),
-  });
+  // Fetch the whole scoped set once, then filter + paginate in code: the
+  // punctuality label and search span fields that Firestore cannot filter on.
+  const scopedFilters = [...filters];
+  if (range) {
+    scopedFilters.push({ field: "ts", op: "GREATER_THAN_OR_EQUAL", value: range.start });
+    scopedFilters.push({ field: "ts", op: "LESS_THAN", value: range.end });
+  }
+  const allRows = await fsRunQuery("shifts", {
+    filters: scopedFilters, orderBy, limit: 2000,
+  }).catch(() => []);
+  const slice = allRows.filter((s) => bound.has(Number(s.staffId)));
   const locById = new Map(locations.map((l) => [l.id, l]));
   const scheduleMap = await loadScheduleMapEdge();
   // Half-day rule (IN without OUT, once the Manila day ends): the OUT can be
@@ -7299,13 +7326,25 @@ async function handleShiftsHistory(url) {
     c.method = attendanceMethodEdge(c);
     return c;
   });
-  const _last = slice[slice.length - 1];
+  const filtered = data.filter((s) => {
+    if (event && String(s.event ?? "").toUpperCase() !== event) return false;
+    if (method && String(s.method ?? "").toUpperCase() !== method) return false;
+    if (punctuality &&
+        !punctualityFilters[punctuality](String(s.punctuality?.label ?? "").toLowerCase())) return false;
+    if (!search) return true;
+    const searchable = [
+      s.staffName, s.staffUid, s.location?.code, s.location?.name,
+      s.event, s.method, s.punctuality?.label,
+    ].join(" ").toLowerCase();
+    return searchable.includes(search);
+  });
+  const total = filtered.length;
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   return {
     status: 200,
     body: {
-      data,
+      data: pageRows,
       meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
-      ...(nextCursor ? { nextCursor } : {}),
     },
   };
 }
@@ -8077,7 +8116,8 @@ async function handleTrends(url) {
       orders: orders.length,
       by_weekday: byWeekday.map((w) => ({ ...w, total_sales: Number(w.total_sales.toFixed(2)) })),
       locations: [...locMap.values()].map((l) => ({ ...l, total_sales: Number(l.total_sales.toFixed(2)) })),
-      top_items: items.slice(0, 5),
+      // All matched items so the web can show a complete best-seller list.
+      top_items: items,
       slow_items: items.slice(-3).reverse(),
       daily_series,
     },
