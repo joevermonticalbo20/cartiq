@@ -229,13 +229,38 @@ describe("StaffPage Shift History is read-only", () => {
     expect(await screen.findByText("1 unregistered tap today")).toBeInTheDocument();
   });
 
-  it("sends shift history search and filter values to the paged endpoint", async () => {
+  it("filters shift history in the browser as the user types, without refetching", async () => {
     renderPage();
     expect(await screen.findByText("Attendance report")).toBeInTheDocument();
 
+    const historyRequests = () =>
+      api.get.mock.calls.map(([url]) => String(url))
+        .filter((url) => url.startsWith("/shifts/history?"));
+    const before = historyRequests().length;
+
     fireEvent.change(screen.getByRole("searchbox", { name: "Search shift history" }), {
-      target: { value: "Andrey" },
+      target: { value: "Stall" },
     });
+
+    // Instant: no new request for a search keystroke.
+    expect(historyRequests()).toHaveLength(before);
+    const matchesInHistory = () => {
+      const section = screen.getByText("Shift History").closest("section");
+      const table = within(section).queryByText("Punctuality")?.closest("table");
+      return table ? within(table).queryAllByText("Stall Staff 1") : [];
+    };
+    expect(matchesInHistory().length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search shift history" }), {
+      target: { value: "zzzz" },
+    });
+    await waitFor(() => expect(matchesInHistory()).toHaveLength(0));
+  });
+
+  it("sends select filters (event/method/punctuality/date) to the paged endpoint", async () => {
+    renderPage();
+    expect(await screen.findByText("Attendance report")).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: "Filter by event" }));
     fireEvent.click(screen.getByRole("option", { name: "OUT" }));
     fireEvent.click(screen.getByRole("button", { name: "Filter by method" }));
@@ -251,7 +276,7 @@ describe("StaffPage Shift History is read-only", () => {
         .map(([url]) => String(url))
         .filter((url) => url.startsWith("/shifts/history?"));
       expect(historyRequests).toContain(
-        "/shifts/history?page=1&pageSize=10&search=Andrey&event=OUT&method=MANUAL&punctuality=half-day&date=2026-11-24",
+        "/shifts/history?page=1&pageSize=100&event=OUT&method=MANUAL&punctuality=half-day&date=2026-11-24",
       );
     });
   });

@@ -1,5 +1,5 @@
 import CharacterCountInput from "../components/CharacterCountInput.jsx";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useOutletContext } from "react-router-dom";
 import { Trophy, Plus, Clock, Calendar, CalendarDays, Pencil, Copy, Eraser, CalendarCheck, FileText, Download, Search, ChevronDown } from "lucide-react";
 import api from "../api.js";
@@ -86,16 +86,15 @@ export default function StaffPage() {
   const [reportError, setReportError] = useState("");
 
   const [historySearchInput, setHistorySearchInput] = useState("");
-  const [historySearch, setHistorySearch] = useState("");
   const [historyEvent, setHistoryEvent] = useState("");
   const [historyMethod, setHistoryMethod] = useState("");
   const [historyPunctuality, setHistoryPunctuality] = useState("");
   const [historyDate, setHistoryDate] = useState("");
 
-  useEffect(() => {
-    const timer = setTimeout(() => setHistorySearch(historySearchInput.trim()), 250);
-    return () => clearTimeout(timer);
-  }, [historySearchInput]);
+  // The search box filters the already-loaded rows in the browser. It is NOT
+  // a usePagedData dependency, so typing a letter never triggers a refetch —
+  // "S" instantly shows every matching staff/cart/card, then "St" narrows it.
+  const normalizedHistorySearch = historySearchInput.trim().toLowerCase();
 
   // One shared, live copy of the staff accounts and of the carts. A new
   // account, a disabled account or a deactivated cart shows up here at once,
@@ -151,18 +150,35 @@ export default function StaffPage() {
   // top-section requests failed so the UI can say so with a retry.
   const [topErrors, setTopErrors] = useState([]);
 
-  const { rows, meta, loading: tableLoading, error, gotoPage, refresh: refreshTable } = usePagedData(
+  const HISTORY_PAGE_SIZE = 100;
+  const { rows: historyRows, loading: tableLoading, error, refresh: refreshTable } = usePagedData(
     (p) => {
-      const params = new URLSearchParams({ page: String(p), pageSize: "10" });
+      const params = new URLSearchParams({ page: String(p), pageSize: String(HISTORY_PAGE_SIZE) });
       if (loc) params.set("code", loc);
-      if (historySearch.trim()) params.set("search", historySearch.trim());
       if (historyEvent) params.set("event", historyEvent);
       if (historyMethod) params.set("method", historyMethod);
       if (historyPunctuality) params.set("punctuality", historyPunctuality);
       if (historyDate) params.set("date", historyDate);
       return `/shifts/history?${params.toString()}`;
     },
-    [loc, historySearch, historyEvent, historyMethod, historyPunctuality, historyDate]
+    [loc, historyEvent, historyMethod, historyPunctuality, historyDate]
+  );
+
+  // Client-side search + pagination over the loaded page — no network on type.
+  const filteredHistoryRows = useMemo(() => {
+    if (!normalizedHistorySearch) return historyRows;
+    return historyRows.filter((s) =>
+      `${s.staffName ?? ""} ${s.staffUid ?? ""} ${s.location?.code ?? ""} ${s.location?.name ?? ""} ${s.event ?? ""} ${s.method ?? ""} ${s.punctuality?.label ?? ""}`
+        .toLowerCase()
+        .includes(normalizedHistorySearch)
+    );
+  }, [historyRows, normalizedHistorySearch]);
+  const historyPageCount = Math.max(1, Math.ceil(filteredHistoryRows.length / HISTORY_PAGE_SIZE));
+  const [historyPage, setHistoryPage] = useState(1);
+  const currentHistoryPage = Math.min(historyPage, historyPageCount);
+  const visibleHistoryRows = filteredHistoryRows.slice(
+    (currentHistoryPage - 1) * HISTORY_PAGE_SIZE,
+    currentHistoryPage * HISTORY_PAGE_SIZE
   );
 
   const fetchTopData = useCallback(() => {
@@ -968,7 +984,6 @@ export default function StaffPage() {
                 className="small-btn ghost"
                 onClick={() => {
                   setHistorySearchInput("");
-                  setHistorySearch("");
                   setHistoryEvent("");
                   setHistoryMethod("");
                   setHistoryPunctuality("");
@@ -996,7 +1011,7 @@ export default function StaffPage() {
             />
           ) : error ? (
             <ErrorBox message={error} onRetry={handleRefreshAll} />
-          ) : (!rows || rows.length === 0) ? (
+          ) : (filteredHistoryRows.length === 0) ? (
             <EmptyState 
               icon={Calendar} 
               title="We couldn't find any shift history for your current selection." 
@@ -1076,8 +1091,14 @@ export default function StaffPage() {
                   },
                 },
               ]}
-              data={rows}
-              pagination={meta ? { ...meta, onPageChange: gotoPage } : null}
+              data={visibleHistoryRows}
+              pagination={{
+                total: filteredHistoryRows.length,
+                page: currentHistoryPage,
+                pageSize: HISTORY_PAGE_SIZE,
+                totalPages: historyPageCount,
+                onPageChange: setHistoryPage,
+              }}
             />
           )}
         </section>
