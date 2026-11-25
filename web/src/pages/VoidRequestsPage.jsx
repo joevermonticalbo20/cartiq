@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useOutletContext, useSearchParams } from "react-router-dom";
-import { Hourglass, Check, Ban, Square, CheckSquare } from "lucide-react";
+import { Hourglass, Check } from "lucide-react";
 
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
@@ -16,6 +16,14 @@ import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import { useToast } from "../components/Toast.jsx";
 import useNotificationHighlight from "../hooks/useNotificationHighlight.js";
+
+const VOID_DENIAL_TEMPLATES = [
+  { value: "Order was already fulfilled. Please contact the owner if you need help.", label: "Order was already fulfilled" },
+  { value: "Duplicate void request. The original request is being reviewed.", label: "Duplicate void request" },
+  { value: "Order details do not match the request. Please verify the order and try again.", label: "Order details do not match" },
+  { value: "Order is not eligible for voiding. Please contact the owner for details.", label: "Order is not eligible for voiding" },
+  { value: "Other / specific reason", label: "Other / type a specific reason" },
+];
 
 function orderIdOf(request) {
   let orderId = request?.orderId ?? null;
@@ -302,7 +310,7 @@ export default function VoidRequestsPage() {
                             disabled={deciding !== null || bulkPending}
                             onClick={() => decideOne(req, "deny")}
                           >
-                            <Ban size={13} aria-hidden="true" /> Deny
+                            Deny
                           </button>
                           <button
                             type="button"
@@ -310,7 +318,7 @@ export default function VoidRequestsPage() {
                             disabled={deciding !== null || bulkPending}
                             onClick={() => decideOne(req, "approve")}
                           >
-                            <Check size={13} aria-hidden="true" /> Approve
+                            Approve
                           </button>
                         </div>
                       </td>
@@ -332,8 +340,7 @@ export default function VoidRequestsPage() {
                   disabled={bulkPending}
                   aria-label="Toggle select all"
                 >
-                  {allSelected ? <CheckSquare size={16} aria-hidden="true" /> : <Square size={16} aria-hidden="true" />}
-                  {allSelected ? " Deselect all" : " Select all"}
+                  {allSelected ? "Deselect all" : "Select all"}
                 </button>
                 <span className="muted small">{selected.size} of {voidRequests.length} selected</span>
               </div>
@@ -348,7 +355,7 @@ export default function VoidRequestsPage() {
                     setBulkNoteError("");
                   }}
                 >
-                  <Ban size={13} aria-hidden="true" /> Deny selected
+                  Deny selected
                 </button>
                 <button
                   type="button"
@@ -360,7 +367,7 @@ export default function VoidRequestsPage() {
                     setBulkNoteError("");
                   }}
                 >
-                  <Check size={13} aria-hidden="true" /> Void selected
+                  Void selected
                 </button>
               </div>
             </div>
@@ -395,6 +402,8 @@ export default function VoidRequestsPage() {
               onErrorChange={setBulkNoteError}
               autoFocus
               label="Decline reason"
+              options={VOID_DENIAL_TEMPLATES}
+              editableTemplates
             />
           )}
         </ConfirmDialog>
@@ -425,6 +434,8 @@ export default function VoidRequestsPage() {
               onErrorChange={setDecisionNoteError}
               autoFocus
               label="Decline reason"
+              options={VOID_DENIAL_TEMPLATES}
+              editableTemplates
             />
           )}
         </ConfirmDialog>

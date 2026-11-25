@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useOutletContext, useSearchParams } from "react-router-dom";
-import { Smartphone, Eye, Check, Ban, Square, CheckSquare } from "lucide-react";
+import { Smartphone, Eye } from "lucide-react";
 
 import api from "../api.js";
 import { getFriendlyError } from "../utils/errors.js";
@@ -33,10 +33,10 @@ function rowId(order) {
 }
 
 const GCASH_DECLINE_REASONS = [
-  { value: "Transaction not found in GCash account", label: "Transaction not found in GCash account" },
-  { value: "Amount does not match order total", label: "Amount does not match order total" },
-  { value: "Receipt is unclear or appears invalid", label: "Receipt is unclear or appears invalid" },
-  { value: "Duplicate payment submission", label: "Duplicate payment submission" },
+  { value: "Payment not found in the GCash account. Please verify the transaction details.", label: "Payment not found" },
+  { value: "Paid amount does not match the order total. Please verify the amount.", label: "Amount does not match" },
+  { value: "Receipt is unclear or invalid. Please submit a clear and valid receipt.", label: "Receipt is unclear or invalid" },
+  { value: "This payment was submitted more than once. Please check before retrying.", label: "Duplicate payment submission" },
   { value: "Other / specific reason", label: "Other / type a specific reason" },
 ];
 
@@ -325,7 +325,7 @@ export default function GcashApprovalsPage() {
                               onClick={() => openReceipt(order)}
                               aria-label={`View proof for order ${id}`}
                             >
-                              <Eye size={13} aria-hidden="true" /> View
+                              View
                             </button>
                             {order.receiptReplacedAfterRecording && (
                               <Badge variant="warn">Replaced</Badge>
@@ -347,7 +347,7 @@ export default function GcashApprovalsPage() {
                               setRejectNoteError("");
                             }}
                           >
-                            <Ban size={13} aria-hidden="true" /> Decline
+                            Decline
                           </button>
                           <button
                             type="button"
@@ -355,7 +355,7 @@ export default function GcashApprovalsPage() {
                             disabled={anyBusy || bulkPending}
                             onClick={() => setConfirming(order)}
                           >
-                            <Check size={13} aria-hidden="true" /> Confirm
+                            Confirm
                           </button>
                         </div>
                       </td>
@@ -377,10 +377,7 @@ export default function GcashApprovalsPage() {
                   disabled={bulkPending}
                   aria-label="Toggle select all"
                 >
-                  {orders.length > 0 && selected.size === orders.length
-                    ? <CheckSquare size={16} aria-hidden="true" />
-                    : <Square size={16} aria-hidden="true" />}
-                  {orders.length > 0 && selected.size === orders.length ? " Deselect all" : " Select all"}
+                  {orders.length > 0 && selected.size === orders.length ? "Deselect all" : "Select all"}
                 </button>
                 <span className="muted small">{selected.size} of {orders.length} selected</span>
               </div>
@@ -395,7 +392,7 @@ export default function GcashApprovalsPage() {
                     setBulkRejectNoteError("");
                   }}
                 >
-                  <Ban size={13} aria-hidden="true" /> Decline selected
+                  Decline selected
                 </button>
                 <button
                   type="button"
@@ -403,7 +400,7 @@ export default function GcashApprovalsPage() {
                   disabled={selected.size === 0 || bulkPending}
                   onClick={() => setConfirmBulk("confirm")}
                 >
-                  <Check size={13} aria-hidden="true" /> Confirm selected
+                  Confirm selected
                 </button>
               </div>
             </div>
@@ -439,6 +436,7 @@ export default function GcashApprovalsPage() {
               autoFocus
               label="Decline reason"
               options={GCASH_DECLINE_REASONS}
+              editableTemplates
             />
           )}
         </ConfirmDialog>
@@ -541,6 +539,7 @@ export default function GcashApprovalsPage() {
             autoFocus
             label="Decline reason"
             options={GCASH_DECLINE_REASONS}
+            editableTemplates
           />
         </ConfirmDialog>
       </div>

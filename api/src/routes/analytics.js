@@ -161,7 +161,7 @@ router.get("/analytics/trends", requireAuth, async (req, res, next) => {
         ...l,
         total_sales: Number(l.total_sales.toFixed(2)),
       })),
-      top_items: items.slice(0, 5),
+      top_items: items,
       slow_items: items.slice(-3).reverse(),
       daily_series,
     });

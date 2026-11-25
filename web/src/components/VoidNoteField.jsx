@@ -27,6 +27,7 @@ export default function VoidNoteField({
   label = "Reason for void",
   placeholder = "Type the specific reason...",
   options = DEFAULT_VOID_NOTE_OPTIONS,
+  editableTemplates = false,
 }) {
   const ref = useRef(null);
   const radioGroupId = useId();
@@ -88,9 +89,9 @@ export default function VoidNoteField({
         ))}
       </fieldset>
 
-      {preset === otherValue && (
+      {(preset === otherValue || (editableTemplates && preset !== "")) && (
         <label className="field void-note-specific">
-          Specific reason *
+          {preset === otherValue ? "Specific reason *" : "Decline message *"}
           <textarea
             ref={ref}
             value={value}
@@ -106,7 +107,7 @@ export default function VoidNoteField({
             className={displayError ? "input-invalid" : undefined}
             aria-invalid={displayError ? "true" : undefined}
             aria-describedby="void-note-error"
-            aria-label="Specific reason"
+            aria-label={preset === otherValue ? "Specific reason" : "Decline message"}
             placeholder={placeholder}
           />
           {focused && value.length > 0 && (

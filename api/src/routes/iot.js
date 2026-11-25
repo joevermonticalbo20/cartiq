@@ -850,12 +850,33 @@ router.get("/shifts/report", requireAuth, requireRole("OWNER"), async (req, res,
   }
 });
 
-// GET /api/shifts/history?code=&date=&page=&pageSize= - paged shift log
+// GET /api/shifts/history?code=&date=&search=&event=&method=&punctuality=&page=&pageSize=
 router.get("/shifts/history", requireAuth, async (req, res, next) => {
   try {
     const { code, date } = req.query;
     const page = Math.max(1, Number(req.query.page) || 1);
     const pageSize = Math.min(Number(req.query.pageSize) || 10, 100);
+    const search = String(req.query.search ?? "").trim().toLowerCase();
+    const event = String(req.query.event ?? "").trim().toUpperCase();
+    const method = String(req.query.method ?? "").trim().toUpperCase();
+    const punctuality = String(req.query.punctuality ?? "").trim().toLowerCase();
+    if (event && !EVENTS.includes(event)) {
+      return res.status(400).json({ error: "event must be IN or OUT" });
+    }
+    if (method && !["RFID", "APP", "MANUAL"].includes(method)) {
+      return res.status(400).json({ error: "method must be RFID, APP, or MANUAL" });
+    }
+    const punctualityFilters = {
+      "on-time": (label) => label === "on time",
+      late: (label) => label.startsWith("late "),
+      "early-out": (label) => label.startsWith("early out "),
+      "half-day": (label) => label === "half day",
+      "no-schedule": (label) => label === "no schedule",
+      "not-scheduled": (label) => label === "not scheduled",
+    };
+    if (punctuality && !Object.prototype.hasOwnProperty.call(punctualityFilters, punctuality)) {
+      return res.status(400).json({ error: "invalid punctuality filter" });
+    }
     // Attendance belongs to staff who currently have a card bound. Unbinding
     // the card hides their history; re-binding (even a new card) brings it back.
     const users = await prisma.user.findMany({ where: { role: "STAFF" } });
@@ -872,21 +893,17 @@ router.get("/shifts/history", requireAuth, async (req, res, next) => {
       }
       where.ts = { gte: range.start, lt: range.end };
     }
-    const [total, shifts, scheduleMap] = await Promise.all([
-      prisma.shift.count({ where }),
+    const [shifts, scheduleMap] = await Promise.all([
       prisma.shift.findMany({
         where,
         include: { location: { select: { code: true, name: true } } },
         orderBy: { ts: "desc" },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
       }),
       loadScheduleMap(),
     ]);
     // Half-day rule (IN without OUT, once the Manila day ends): any IN row
     // on a prior Manila day whose staff never tapped OUT shows "Half day".
-    // The OUT itself may live on another page of this same history, so load
-    // the day taps for the staff visible on this page to detect it.
+    // Load the day's taps separately because those OUT rows may be filtered out.
     const todayKey = manilaDayKey(new Date());
     const halfDayCandidates = shifts.filter(
       (s) => s.event === "IN" && manilaDayKey(new Date(s.ts)) < todayKey,
@@ -894,14 +911,14 @@ router.get("/shifts/history", requireAuth, async (req, res, next) => {
     const dayWindowStart = halfDayCandidates.length
       ? Math.min(...halfDayCandidates.map((s) => new Date(s.ts).getTime()))
       : null;
-    const pageOutKeys = new Set();
+    const dayOutKeys = new Set();
     if (dayWindowStart != null) {
       const probe = await prisma.shift.findMany({
         where: { ts: { gte: new Date(dayWindowStart - 24 * 60 * 60 * 1000), lt: new Date(Date.now()) } },
         select: { staffId: true, ts: true, event: true },
       });
       for (const p of probe) {
-        if (p.event === "OUT") pageOutKeys.add(`${Number(p.staffId)}:${manilaDayKey(new Date(p.ts))}`);
+        if (p.event === "OUT") dayOutKeys.add(`${Number(p.staffId)}:${manilaDayKey(new Date(p.ts))}`);
       }
     }
     const data = shifts.map((s) => {
@@ -912,7 +929,7 @@ router.get("/shifts/history", requireAuth, async (req, res, next) => {
       if (
         s.event === "IN" &&
         manilaDayKey(new Date(s.ts)) < todayKey &&
-        !pageOutKeys.has(`${Number(s.staffId)}:${manilaDayKey(new Date(s.ts))}`)
+        !dayOutKeys.has(`${Number(s.staffId)}:${manilaDayKey(new Date(s.ts))}`)
       ) {
         punctuality = { label: "Half day", tone: "warn" };
       } else if (sched === undefined) punctuality = { label: "No schedule", tone: "neutral" };
@@ -920,8 +937,26 @@ router.get("/shifts/history", requireAuth, async (req, res, next) => {
       else punctuality = tapBadge({ event: s.event, instant: s.ts, entry: sched });
       return { ...s, punctuality, method: attendanceMethod(s) };
     });
+    const filtered = data.filter((s) => {
+      if (event && s.event !== event) return false;
+      if (method && s.method !== method) return false;
+      if (punctuality && !punctualityFilters[punctuality](s.punctuality.label.toLowerCase())) return false;
+      if (!search) return true;
+      const searchable = [
+        s.staffName,
+        s.staffUid,
+        s.location?.code,
+        s.location?.name,
+        s.event,
+        s.method,
+        s.punctuality.label,
+      ].join(" ").toLowerCase();
+      return searchable.includes(search);
+    });
+    const total = filtered.length;
+    const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
     return res.json({
-      data,
+      data: pageRows,
       meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
     });
   } catch (err) {

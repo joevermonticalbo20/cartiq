@@ -229,6 +229,33 @@ describe("StaffPage Shift History is read-only", () => {
     expect(await screen.findByText("1 unregistered tap today")).toBeInTheDocument();
   });
 
+  it("sends shift history search and filter values to the paged endpoint", async () => {
+    renderPage();
+    expect(await screen.findByText("Attendance report")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search shift history" }), {
+      target: { value: "Andrey" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Filter by event" }));
+    fireEvent.click(screen.getByRole("option", { name: "OUT" }));
+    fireEvent.click(screen.getByRole("button", { name: "Filter by method" }));
+    fireEvent.click(screen.getByRole("option", { name: "MANUAL" }));
+    fireEvent.click(screen.getByRole("button", { name: "Filter by punctuality" }));
+    fireEvent.click(screen.getByRole("option", { name: "Half day" }));
+    fireEvent.change(screen.getByLabelText("Filter by date"), {
+      target: { value: "2026-11-24" },
+    });
+
+    await waitFor(() => {
+      const historyRequests = api.get.mock.calls
+        .map(([url]) => String(url))
+        .filter((url) => url.startsWith("/shifts/history?"));
+      expect(historyRequests).toContain(
+        "/shifts/history?page=1&pageSize=10&search=Andrey&event=OUT&method=MANUAL&punctuality=half-day&date=2026-11-24",
+      );
+    });
+  });
+
   it("shows the append-only note and offers no edit or delete actions", async () => {
     renderPage();
     expect(await screen.findByText(/append-only/i)).toBeInTheDocument();

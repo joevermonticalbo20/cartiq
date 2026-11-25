@@ -85,6 +85,18 @@ export default function StaffPage() {
   const [reportLoading, setReportLoading] = useState(true);
   const [reportError, setReportError] = useState("");
 
+  const [historySearchInput, setHistorySearchInput] = useState("");
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyEvent, setHistoryEvent] = useState("");
+  const [historyMethod, setHistoryMethod] = useState("");
+  const [historyPunctuality, setHistoryPunctuality] = useState("");
+  const [historyDate, setHistoryDate] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => setHistorySearch(historySearchInput.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [historySearchInput]);
+
   // One shared, live copy of the staff accounts and of the carts. A new
   // account, a disabled account or a deactivated cart shows up here at once,
   // in this tab and in the other tabs.
@@ -140,8 +152,17 @@ export default function StaffPage() {
   const [topErrors, setTopErrors] = useState([]);
 
   const { rows, meta, loading: tableLoading, error, gotoPage, refresh: refreshTable } = usePagedData(
-    (p) => `/shifts/history?page=${p}&pageSize=10` + (loc ? `&code=${loc}` : ""),
-    [loc]
+    (p) => {
+      const params = new URLSearchParams({ page: String(p), pageSize: "10" });
+      if (loc) params.set("code", loc);
+      if (historySearch.trim()) params.set("search", historySearch.trim());
+      if (historyEvent) params.set("event", historyEvent);
+      if (historyMethod) params.set("method", historyMethod);
+      if (historyPunctuality) params.set("punctuality", historyPunctuality);
+      if (historyDate) params.set("date", historyDate);
+      return `/shifts/history?${params.toString()}`;
+    },
+    [loc, historySearch, historyEvent, historyMethod, historyPunctuality, historyDate]
   );
 
   const fetchTopData = useCallback(() => {
@@ -887,6 +908,78 @@ export default function StaffPage() {
             </div>
           )}
 
+          <div className="shift-history-filters" aria-label="Shift history filters">
+            <label className="schedule-search">
+              <Search size={16} aria-hidden="true" />
+              <input
+                type="search"
+                aria-label="Search shift history"
+                placeholder="Search staff, cart, or card ID"
+                value={historySearchInput}
+                onChange={(event) => setHistorySearchInput(event.target.value)}
+              />
+            </label>
+            <Select
+              value={historyEvent}
+              onChange={setHistoryEvent}
+              ariaLabel="Filter by event"
+              options={[
+                { value: "", label: "All events" },
+                { value: "IN", label: "IN" },
+                { value: "OUT", label: "OUT" },
+              ]}
+            />
+            <Select
+              value={historyMethod}
+              onChange={setHistoryMethod}
+              ariaLabel="Filter by method"
+              options={[
+                { value: "", label: "All methods" },
+                { value: "RFID", label: "RFID" },
+                { value: "APP", label: "APP" },
+                { value: "MANUAL", label: "MANUAL" },
+              ]}
+            />
+            <Select
+              value={historyPunctuality}
+              onChange={setHistoryPunctuality}
+              ariaLabel="Filter by punctuality"
+              options={[
+                { value: "", label: "All punctuality" },
+                { value: "on-time", label: "On time" },
+                { value: "late", label: "Late" },
+                { value: "early-out", label: "Early out" },
+                { value: "half-day", label: "Half day" },
+                { value: "no-schedule", label: "No schedule" },
+                { value: "not-scheduled", label: "Not scheduled" },
+              ]}
+            />
+            <label className="shift-history-date">
+              <input
+                type="date"
+                aria-label="Filter by date"
+                value={historyDate}
+                onChange={(event) => setHistoryDate(event.target.value)}
+              />
+            </label>
+            {(historySearchInput || historyEvent || historyMethod || historyPunctuality || historyDate) && (
+              <button
+                type="button"
+                className="small-btn ghost"
+                onClick={() => {
+                  setHistorySearchInput("");
+                  setHistorySearch("");
+                  setHistoryEvent("");
+                  setHistoryMethod("");
+                  setHistoryPunctuality("");
+                  setHistoryDate("");
+                }}
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+
           {tableLoading ? (
             <TableSkeleton
               ariaLabel="Loading shift history"
@@ -907,7 +1000,7 @@ export default function StaffPage() {
             <EmptyState 
               icon={Calendar} 
               title="We couldn't find any shift history for your current selection." 
-              subtitle="Try adjusting your cart filters, or wait for your staff to complete their shifts." 
+              subtitle="Try changing your search or filters, or wait for your staff to complete their shifts."
             />
           ) : (
             <DataTable

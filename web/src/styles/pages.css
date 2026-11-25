@@ -1662,11 +1662,40 @@ button.sales-icon-btn.is-danger:hover:not(:disabled) {
   border: 0;
   box-shadow: none;
 }
+.shift-history-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: var(--space-4, 16px);
+}
+.shift-history-filters .schedule-search {
+  flex: 1 1 240px;
+  width: min(100%, 320px);
+  margin: 0;
+}
+.shift-history-filters .custom-select-wrapper {
+  flex: 0 1 150px;
+}
+.shift-history-date {
+  display: flex;
+  align-items: center;
+}
+.shift-history-date input {
+  min-width: 150px;
+  height: 45px;
+  min-height: 45px;
+  padding: 8px 10px;
+}
 @media (max-width: 460px) {
   .schedule-card-actions .small-btn {
     padding-inline: 8px;
   }
   .schedule-card-status {
     margin-left: 0;
+  }
+  .shift-history-filters .custom-select-wrapper,
+  .shift-history-date {
+    flex: 1 1 calc(50% - 8px);
   }
 }

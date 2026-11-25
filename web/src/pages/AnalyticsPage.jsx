@@ -5,7 +5,8 @@ import {
 } from "recharts";
 import {
   TrendingUp, TrendingDown, ShoppingBag,
-  DollarSign, BarChart2, PackageSearch, X, Sparkles, Printer
+  DollarSign, BarChart2, PackageSearch, X, Sparkles, Printer,
+  Award, Clock, ArrowUpRight, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import api from "../api.js";
@@ -43,6 +44,7 @@ const BUSIEST_DAYS_STACK_COLORS = [
 ];
 // API risk level -> badge variant
 const RISK_CHIP = { high: "danger", medium: "warn", low: "ok", unknown: "neutral" };
+const ACTIONS_PREVIEW_COUNT = 2;
 
 function mapeBadge(value) {
   if (value == null || Number.isNaN(Number(value))) return { label: "No backtest", variant: "neutral" };
@@ -195,6 +197,7 @@ export default function AnalyticsPage() {
   const [trends, setTrends] = useState(null);
   const [prevTrends, setPrevTrends] = useState(null);
   const [forecast, setForecast] = useState(null);
+  const [reorderSuggestions, setReorderSuggestions] = useState([]);
   const [profit, setProfit] = useState(null);
   const [hourly, setHourly] = useState(null);
   const [salesFc, setSalesFc] = useState(null);
@@ -209,6 +212,7 @@ export default function AnalyticsPage() {
   const [sortCol, setSortCol] = useState("sales");
   const [sortDir, setSortDir] = useState("desc");
   const [summaryLang, setSummaryLang] = useState("en");
+  const [showAllActions, setShowAllActions] = useState(false);
 
   // State for interactive Pie Chart
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -293,6 +297,14 @@ export default function AnalyticsPage() {
         return { code: cart.code, error: requestError };
       }
     }));
+    const reorderSuggestionsRequest = Promise.all(forecastCarts.map(async (cart) => {
+      try {
+        const { data } = await api.get(`/reorders/suggestions?code=${encodeURIComponent(cart.code)}`);
+        return { code: cart.code, data };
+      } catch (requestError) {
+        return { code: cart.code, error: requestError };
+      }
+    }));
 
     Promise.all([
       currentTrendsRequest,
@@ -303,7 +315,8 @@ export default function AnalyticsPage() {
       profitRequest,
       cartTrendsRequest,
       forecastsRequest,
-    ]).then(([currentResponse, previousResponse, hourlyResult, salesForecastResult, salesForecastCartResults, profitResult, cartTrendResults, forecastResults]) => {
+      reorderSuggestionsRequest,
+    ]).then(([currentResponse, previousResponse, hourlyResult, salesForecastResult, salesForecastCartResults, profitResult, cartTrendResults, forecastResults, reorderResults]) => {
       if (!alive) return;
       setLoading(false);
       const currentData = currentResponse.data;
@@ -316,6 +329,7 @@ export default function AnalyticsPage() {
       const cartTrendFailures = cartTrendResults.some((result) => result.error);
       const successfulCartTrends = cartTrendFailures ? [] : cartTrendResults;
       const failedForecast = forecastResults.some((result) => result.error);
+      const failedReorderSuggestions = reorderResults.some((result) => result.error);
       const forecastData = {
         items: forecastResults.flatMap(({ code, data }) =>
           (data?.items ?? []).map((item) => ({ ...item, cart_code: code }))
@@ -331,6 +345,7 @@ export default function AnalyticsPage() {
       if (salesForecastResult.error) failedSections.push("Sales forecast");
       if (profitResult.error) failedSections.push("Profit");
       if (failedForecast) failedSections.push("Stock forecast");
+      if (failedReorderSuggestions) failedSections.push("Restock recommendations");
 
       setTrends(addCartBreakdowns(currentData, successfulCartTrends));
       setPrevTrends({
@@ -339,6 +354,15 @@ export default function AnalyticsPage() {
         top_items: [],
       });
       setForecast(failedForecast || forecastCarts.length === 0 ? null : forecastData);
+      setReorderSuggestions(failedReorderSuggestions
+        ? []
+        : reorderResults.flatMap(({ code, data }) =>
+            (data?.suggestions ?? []).map((suggestion) => ({
+              ...suggestion,
+              cart_code: code,
+              lead_time_days: data.lead_time_days,
+            }))
+          ));
       setProfit(profitResult.data);
       setHourly(hourlyResult.data);
       setSalesFc(salesForecastResult.data);
@@ -351,6 +375,7 @@ export default function AnalyticsPage() {
       setTrends(null);
       setPrevTrends(null);
       setForecast(null);
+      setReorderSuggestions([]);
       setProfit(null);
       setHourly(null);
       setSalesFc(null);
@@ -397,6 +422,96 @@ export default function AnalyticsPage() {
         : null;
     return { name: cur.name, qty: cur.qty, trend };
   }, [trends, prevTrends]);
+
+  const productPerformance = useMemo(
+    () => [...(trends?.top_items ?? [])].sort((a, b) => (Number(b.qty) || 0) - (Number(a.qty) || 0)),
+    [trends]
+  );
+  const bestSellingProduct = productPerformance[0] ?? null;
+  const lowestSellingProduct = productPerformance.length > 1
+    ? productPerformance[productPerformance.length - 1]
+    : null;
+
+  const businessActions = useMemo(() => {
+    const actions = [];
+    if (revenueTrend !== null) {
+      const isDown = revenueTrend < 0;
+      actions.push({
+        id: "revenue-trend",
+        tone: isDown ? "warn" : "success",
+        category: isDown ? "Attention" : "Momentum",
+        metric: `${isDown ? "-" : "+"}${Math.abs(revenueTrend).toFixed(1)}%`,
+        icon: isDown ? TrendingDown : TrendingUp,
+        targetId: "section-sales",
+        ctaLabel: "View sales trend",
+        title: isDown ? "Review the sales dip" : "Build on revenue momentum",
+        detail: isDown
+          ? `Revenue is down ${Math.abs(revenueTrend).toFixed(1)}% against the previous period. Compare the weakest-selling products and peak trading times, then test one targeted promotion before changing prices or the menu.`
+          : `Revenue is up ${revenueTrend.toFixed(1)}% against the previous period. Keep the current strong sellers available and prepare staffing and stock for the busiest periods.`,
+      });
+    }
+    if (bestSellingProduct) {
+      const productLabel = `${bestSellingProduct.name}${bestSellingProduct.flavor ? ` · ${bestSellingProduct.flavor}` : ""}`;
+      actions.push({
+        id: "best-seller",
+        tone: "info",
+        category: "Best Seller",
+        metric: `${bestSellingProduct.qty} sold`,
+        icon: Award,
+        targetId: "section-sales-breakdown",
+        ctaLabel: "View top items",
+        title: `Protect your best seller: ${productLabel}`,
+        detail: `${bestSellingProduct.qty} sold${bestSellingProduct.sales != null ? `, generating P${Number(bestSellingProduct.sales).toLocaleString()} in sales` : ""} in this period. Keep its ingredients ready and consider featuring it in a combo.`,
+      });
+    }
+    if (lowestSellingProduct) {
+      const productLabel = `${lowestSellingProduct.name}${lowestSellingProduct.flavor ? ` · ${lowestSellingProduct.flavor}` : ""}`;
+      actions.push({
+        id: "slow-mover",
+        tone: "warn",
+        category: "Slow Mover",
+        metric: `${lowestSellingProduct.qty} sold`,
+        icon: PackageSearch,
+        targetId: "section-sales-breakdown",
+        ctaLabel: "Inspect breakdown",
+        title: `Review the slowest-selling recorded item: ${productLabel}`,
+        detail: `It had ${lowestSellingProduct.qty} sale(s) in this period. Try a small promotion or review its prep quantity; use a longer date range before making a permanent menu decision.`,
+      });
+    }
+    if (hourly?.peak?.dow != null && hourly?.peak?.hour != null) {
+      const shortDay = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hourly.peak.dow];
+      actions.push({
+        id: "peak-window",
+        tone: "info",
+        category: "Peak Traffic",
+        metric: `${shortDay} · ${formatHour12(hourly.peak.hour)}`,
+        icon: Clock,
+        targetId: "section-dow",
+        ctaLabel: "View busiest days",
+        title: "Prepare for the busiest trading window",
+        detail: `Sales peak on ${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][hourly.peak.dow]} around ${formatHour12(hourly.peak.hour)}. Schedule coverage and prepare popular items ahead of that period.`,
+      });
+    }
+    if (avgOrderValue > 0) {
+      actions.push({
+        id: "order-value",
+        tone: "info",
+        category: "Order Value",
+        metric: `P${Math.round(avgOrderValue).toLocaleString()} avg`,
+        icon: ShoppingBag,
+        targetId: "section-sales-breakdown",
+        ctaLabel: "Explore menu mix",
+        title: "Test a simple order-value lift",
+        detail: `Average spend is P${avgOrderValue.toLocaleString()} per order. Trial an add-on or bundle and compare average spend and order count in the next period.`,
+      });
+    }
+    return actions;
+  }, [revenueTrend, bestSellingProduct, lowestSellingProduct, hourly, avgOrderValue]);
+
+  const hasMoreActions = businessActions.length > ACTIONS_PREVIEW_COUNT;
+  const visibleActions = showAllActions
+    ? businessActions
+    : businessActions.slice(0, ACTIONS_PREVIEW_COUNT);
 
   const categoryData = useMemo(() => {
     const items = trends?.top_items ?? [];
@@ -844,6 +959,94 @@ export default function AnalyticsPage() {
               ))}
             </div>
 
+            <section className="analytics-section analytics-actions-section panel" id="section-actions">
+              <div className="analytics-section-header analytics-actions-header">
+                <div className="analytics-actions-heading">
+                  <span className="analytics-actions-badge-icon" aria-hidden="true">
+                    <Sparkles size={16} />
+                  </span>
+                  <div>
+                    <h2 className="analytics-section-title analytics-actions-title">Business & Product Actions</h2>
+                    <p className="analytics-section-sub">Practical next steps based on the selected period's actual sales and traffic</p>
+                  </div>
+                </div>
+                {businessActions.length > 0 && (
+                  <div className="analytics-actions-controls">
+                    {!hasMoreActions ? (
+                      <span className="chip brand analytics-actions-count">
+                        {businessActions.length} {businessActions.length === 1 ? "action" : "actions"}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="analytics-actions-toggle"
+                        aria-expanded={showAllActions}
+                        aria-controls="analytics-action-grid"
+                        onClick={() => setShowAllActions((prev) => !prev)}
+                      >
+                        <span>
+                          {showAllActions ? "Show less" : `View all (${businessActions.length})`}
+                        </span>
+                        {showAllActions ? (
+                          <ChevronUp size={14} aria-hidden="true" />
+                        ) : (
+                          <ChevronDown size={14} aria-hidden="true" />
+                        )}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+              {businessActions.length > 0 ? (
+                <div
+                  id="analytics-action-grid"
+                  className={`analytics-action-grid ${showAllActions ? "is-expanded" : "is-compact"}`}
+                >
+                  {visibleActions.map((action) => {
+                    const ActionIcon = action.icon;
+                    return (
+                      <article className={`analytics-action-card ${action.tone}`} key={action.id}>
+                        <div className="analytics-action-top">
+                          <div className="analytics-action-lead">
+                            <span className="analytics-action-icon" aria-hidden="true">
+                              <ActionIcon size={15} />
+                            </span>
+                            <span className="analytics-action-tag">{action.category}</span>
+                          </div>
+                          {action.metric && (
+                            <span className="analytics-action-metric">{action.metric}</span>
+                          )}
+                        </div>
+                        <div className="analytics-action-copy">
+                          <strong className="analytics-action-title">{action.title}</strong>
+                          <p className="analytics-action-detail">{action.detail}</p>
+                        </div>
+                        {action.targetId && (
+                          <div className="analytics-action-footer">
+                            <button
+                              type="button"
+                              className="analytics-action-link"
+                              onClick={() => scrollToSection(action.targetId)}
+                            >
+                              <span>{action.ctaLabel}</span>
+                              <ArrowUpRight size={13} aria-hidden="true" />
+                            </button>
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <EmptyState
+                  icon={Sparkles}
+                  title="No actions suggested yet"
+                  subtitle="More sales history is needed before business actions can be suggested."
+                  compact
+                />
+              )}
+            </section>
+
             <div className="analytics-section panel" id="section-sales">
               <div className="analytics-section-header">
                 <div>
@@ -1074,7 +1277,7 @@ export default function AnalyticsPage() {
               <div className="analytics-section-header">
                 <div>
                   <h2 className="analytics-section-title"><span className="section-num" aria-hidden="true">3</span> Sales Breakdown</h2>
-                  <p className="analytics-section-sub">Sales by Category & Top Items</p>
+                  <p className="analytics-section-sub">All products and flavors ranked by units sold and revenue</p>
                 </div>
                 {selectedCategory && (
                   <button className="small-btn ghost" onClick={() => setSelectedCategory(null)}>
@@ -1091,14 +1294,14 @@ export default function AnalyticsPage() {
                   compact
                 />
               ) : (
-                <div className="dashboard-ops-row" style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: "var(--space-4)", alignItems: "start" }}>
+                <div className="analytics-breakdown-grid">
                   
                   {/* LEFT: INTERACTIVE PIE CHART */}
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
                     <h4 className="muted small text-center" style={{ marginBottom: "8px", fontWeight: 700 }}>
                       {selectedCategory ? `Viewing: ${selectedCategory}` : "Click a category slice to filter"}
                     </h4>
-                    <div className="chart-container" style={{ height: "260px", width: "100%" }}>
+                    <div className="chart-container analytics-category-chart">
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie
@@ -1135,12 +1338,13 @@ export default function AnalyticsPage() {
                   </div>
 
                   {/* RIGHT: DYNAMIC TOP ITEMS TABLE */}
-                  <div className="table-wrap" style={{ height: "290px", overflowY: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)" }}>
-                    <table className="data top-items-table table-fixed">
-                      <thead style={{ position: "sticky", top: 0, zIndex: 10, background: "var(--surface-alt)" }}>
+                  <div className="table-wrap analytics-product-table-wrap">
+                    <table className="data top-items-table table-fixed analytics-product-table">
+                      <thead className="analytics-product-table-head">
                         <tr>
                           <th style={{ width: 40 }}>#</th>
-                          <th onClick={() => handleSort("name")}>Item {sortIcon("name")}</th>
+                          <th onClick={() => handleSort("name")}>Product {sortIcon("name")}</th>
+                          <th>Flavor</th>
                           <th onClick={() => handleSort("qty")} className="t-right" style={{ width: 90 }}>Qty {sortIcon("qty")}</th>
                           <th onClick={() => handleSort("sales")} className="t-right" style={{ width: 110 }}>Revenue {sortIcon("sales")}</th>
                         </tr>
@@ -1148,16 +1352,14 @@ export default function AnalyticsPage() {
                       <tbody>
                         {filteredTopItems.length === 0 ? (
                           <tr>
-                            <td colSpan={4} className="text-center muted py-4">No items found for this category.</td>
+                            <td colSpan={5} className="text-center muted py-4">No items found for this category.</td>
                           </tr>
                         ) : (
                           filteredTopItems.map((item, idx) => (
                             <tr key={item.rank}>
                               <td className="muted">{idx + 1}</td>
-                              <td>
-                                <strong>{item.name}</strong>
-                                {item.flavor && <span className="muted flavor-note">({item.flavor})</span>}
-                              </td>
+                              <td><strong>{item.name}</strong></td>
+                              <td>{item.flavor || <span className="muted">—</span>}</td>
                               <td className="t-right">{item.qty}</td>
                               <td className="t-right">P{Number(item.sales).toLocaleString()}</td>
                             </tr>
@@ -1170,10 +1372,97 @@ export default function AnalyticsPage() {
               )}
             </div>
 
+            <div className="analytics-section panel" id="section-restock">
+              <div className="analytics-section-header">
+                <div>
+                  <h2 className="analytics-section-title"><span className="section-num" aria-hidden="true">4</span> Restock Recommendations</h2>
+                  <p className="analytics-section-sub">Suggested order quantities account for supplier lead time, usage, and safety stock{!cartCode ? " · per cart" : ""}</p>
+                </div>
+                <button className="small-btn ghost" onClick={() => navigate("/inventory")}>Review inventory</button>
+              </div>
+              {sectionErrors.includes("Restock recommendations") ? (
+                <p className="muted small" role="status">Restock recommendations could not be loaded. Use the inventory page to check current stock.</p>
+              ) : reorderSuggestions.length === 0 ? (
+                <EmptyState
+                  icon={PackageSearch}
+                  title="No restock recommendations"
+                  subtitle="Recommendations appear when inventory items are available for the selected cart."
+                  compact
+                />
+              ) : (
+                <>
+                  <p className="muted small" style={{ marginBottom: "var(--space-2)" }}>
+                    Supplier lead time: <strong>{reorderSuggestions[0]?.lead_time_days ?? "configured"} days</strong>. Items with limited history need a manual stock check instead of an estimated order quantity.
+                  </p>
+                  <div
+                    className="table-wrap analytics-restock-wrap"
+                    tabIndex={0}
+                    role="region"
+                    aria-label="Restock recommendations table"
+                  >
+                    <table className="data table-fixed analytics-restock-table">
+                      <thead className="analytics-restock-head">
+                        <tr>
+                          <th>Cart</th>
+                          <th>Inventory item</th>
+                          <th>Current stock</th>
+                          <th>Usage / day</th>
+                          <th>Safety stock</th>
+                          <th>Reorder point</th>
+                          <th>Suggested order</th>
+                          <th>Depletion</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reorderSuggestions.map((suggestion) => {
+                          const urgency = suggestion.urgency ?? "none";
+                          const urgencyLabel = {
+                            immediate: "Order now",
+                            this_week: "Order this week",
+                            manual_check: "Manual stock check",
+                            ok: "Stock healthy",
+                            none: "Monitor",
+                          }[urgency] ?? urgency;
+                          const variant = urgency === "immediate"
+                            ? "danger"
+                            : urgency === "this_week" || urgency === "manual_check"
+                              ? "warn"
+                              : urgency === "ok"
+                                ? "ok"
+                                : "neutral";
+                          return (
+                            <tr key={`${suggestion.cart_code}-${suggestion.item}`}>
+                              <td><strong>{suggestion.cart_code}</strong></td>
+                              <td>
+                                <strong>{suggestion.item}</strong>
+                                <div className="muted small analytics-restock-reason">{suggestion.reason}</div>
+                              </td>
+                              <td>{suggestion.current_stock ?? "—"} {suggestion.unit}</td>
+                              <td>{suggestion.avg_daily_use == null ? "—" : `${suggestion.avg_daily_use} ${suggestion.unit}`}</td>
+                              <td>{suggestion.safety_stock == null ? "—" : `${suggestion.safety_stock} ${suggestion.unit}`}</td>
+                              <td>{suggestion.reorder_point == null ? "—" : `${suggestion.reorder_point} ${suggestion.unit}`}</td>
+                              <td>
+                                {suggestion.suggested_qty == null
+                                  ? <span className="muted">Manual check</span>
+                                  : <strong>{suggestion.suggested_qty} {suggestion.unit}</strong>}
+                              </td>
+                              <td>{suggestion.depletion_date ?? "—"}</td>
+                              <td><Badge variant={variant}>{urgencyLabel}</Badge></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+
             <div className="analytics-section panel" id="section-forecast">
               <div className="analytics-section-header">
                 <div>
-                  <h2 className="analytics-section-title"><span className="section-num" aria-hidden="true">4</span> Stock Predictions</h2>
+                  <h2 className="analytics-section-title"><span className="section-num" aria-hidden="true">5</span> Stock Predictions</h2>
                   <p className="analytics-section-sub">What runs out, and when to reorder</p>
                 </div>
               </div>
@@ -1198,7 +1487,7 @@ export default function AnalyticsPage() {
                       <EmptyState
                         icon={PackageSearch}
                         title="No forecast yet"
-                        subtitle="Forecasting needs roughly 30 days of stock readings and sales for the selected cart."
+                        subtitle="Recipe-based forecasts need usage on 14 days within the latest 21-day window. Sensor-based forecasts need at least 4 readings in the last 5 days and a measurable stock decrease."
                         action={{ label: "Check inventory", variant: "ghost", onClick: () => navigate("/inventory") }}
                         compact
                       />
@@ -1292,7 +1581,7 @@ export default function AnalyticsPage() {
             <div className="analytics-section panel" id="section-revenue-fc">
               <div className="analytics-section-header">
                 <div>
-                  <h2 className="analytics-section-title"><span className="section-num" aria-hidden="true">5</span> Expected Sales</h2>
+                  <h2 className="analytics-section-title"><span className="section-num" aria-hidden="true">6</span> Expected Sales</h2>
                   <p className="analytics-section-sub">Expected daily revenue, next {salesFc?.horizon_days ?? 7} days{!cartCode ? " · per cart" : ""}</p>
                 </div>
                 
@@ -1475,6 +1764,25 @@ export default function AnalyticsPage() {
             </section>
             <SkeletonCards count={4} className="analytics-kpis" />
             <div className="analytics-loading-sections">
+              <section className="analytics-section analytics-actions-section panel" aria-hidden="true">
+                <div className="analytics-section-header analytics-actions-header">
+                  <div className="skel" style={{ width: "30%", height: 18 }} />
+                  <div className="skel" style={{ width: 96, height: 28, borderRadius: 99 }} />
+                </div>
+                <div className="analytics-action-grid is-compact">
+                  {[0, 1].map((idx) => (
+                    <div key={idx} className="analytics-action-skeleton-card">
+                      <div className="analytics-action-top">
+                        <div className="skel" style={{ width: 100, height: 24, borderRadius: 99, margin: 0 }} />
+                        <div className="skel" style={{ width: 64, height: 22, borderRadius: 99, margin: 0 }} />
+                      </div>
+                      <div className="skel" style={{ width: "64%", height: 14, margin: 0 }} />
+                      <div className="skel" style={{ width: "96%", height: 11, margin: 0 }} />
+                      <div className="skel" style={{ width: "78%", height: 11, margin: 0 }} />
+                    </div>
+                  ))}
+                </div>
+              </section>
               <section className="analytics-section panel" aria-hidden="true">
                 <div className="analytics-section-header">
                   <div className="skel" style={{ width: "28%", height: 18 }} />

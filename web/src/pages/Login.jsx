@@ -1,4 +1,3 @@
-import CharacterCountInput from "../components/CharacterCountInput.jsx";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, User, Lock, ArrowRight, Shield, Zap } from "lucide-react";
@@ -291,10 +290,11 @@ export default function Login() {
               <label htmlFor="login-username" className="field-label">Username</label>
               <div className="input-wrapper">
                 <User className={`input-icon ${userFocused ? "focused" : ""}`} size={20} />
-                <CharacterCountInput
+                <input
                   id="login-username"
                   name="username"
                   type="text"
+                  maxLength={50}
                   value={username}
                   onChange={(e) => {
                     setUsername(e.target.value);
@@ -317,10 +317,11 @@ export default function Login() {
               <label htmlFor="login-password" className="field-label">Password</label>
               <div className="input-wrapper">
                 <Lock className={`input-icon ${passwordFocused ? "focused" : ""}`} size={20} />
-                <CharacterCountInput
+                <input
                   id="login-password"
                   name="password"
                   ref={passwordRef}
+                  maxLength={50}
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

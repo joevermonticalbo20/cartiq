@@ -102,12 +102,36 @@ describe("VoidRequestsPage approve flow", () => {
     const confirm = await screen.findByRole("button", { name: "Deny request" });
     expect(confirm).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("radio", { name: "Duplicate order" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Duplicate void request" }));
+    expect(screen.getByRole("textbox", { name: "Decline message" })).toHaveValue(
+      "Duplicate void request. The original request is being reviewed.",
+    );
     expect(confirm).not.toBeDisabled();
 
     fireEvent.click(confirm);
     await waitFor(() =>
-      expect(api.patch).toHaveBeenCalledWith("/orders/7/void-request", { decision: "deny", note: "Duplicate order" }),
+      expect(api.patch).toHaveBeenCalledWith("/orders/7/void-request", {
+        decision: "deny",
+        note: "Duplicate void request. The original request is being reviewed.",
+      }),
+    );
+  });
+
+  it("allows editing a selected void denial message template", async () => {
+    renderPage();
+    expect(await screen.findByText("#7")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Deny" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Order was already fulfilled" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Decline message" }), {
+      target: { value: "Order was already fulfilled. Please review the request." },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Deny request" }));
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith("/orders/7/void-request", {
+        decision: "deny",
+        note: "Order was already fulfilled. Please review the request.",
+      }),
     );
   });
 

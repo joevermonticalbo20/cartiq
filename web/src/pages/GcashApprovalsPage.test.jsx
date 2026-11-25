@@ -86,14 +86,33 @@ describe("GcashApprovalsPage", () => {
     const confirm = await screen.findByRole("button", { name: "Decline payment" });
     expect(confirm).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("radio", { name: "Transaction not found in GCash account" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Payment not found" }));
     expect(confirm).not.toBeDisabled();
 
     fireEvent.click(confirm);
     await waitFor(() =>
       expect(api.patch).toHaveBeenCalledWith(
         "/orders/9/gcash-decision",
-        { decision: "reject", note: "Transaction not found in GCash account" },
+        { decision: "reject", note: "Payment not found in the GCash account. Please verify the transaction details." },
+      ),
+    );
+  });
+
+  it("allows editing a selected GCash decline message template", async () => {
+    renderPage();
+    expect(await screen.findByText("#9")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Decline$/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "Payment not found" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Decline message" }), {
+      target: { value: "Payment not found. Please check the reference." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Decline payment" }));
+
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith(
+        "/orders/9/gcash-decision",
+        { decision: "reject", note: "Payment not found. Please check the reference." },
       ),
     );
   });

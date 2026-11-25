@@ -231,15 +231,23 @@ class PosSizePicker extends StatelessWidget {
           ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: AppSpacing.space3),
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: AppSpacing.space2,
-          crossAxisSpacing: AppSpacing.space2,
-          childAspectRatio: 1.55,
-          children: [for (final size in sizes) _sizeTile(context, size)],
-        ),
+        for (var i = 0; i < sizes.length; i += 2) ...[
+          if (i > 0) const SizedBox(height: AppSpacing.space2),
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: _sizeTile(context, sizes[i])),
+                const SizedBox(width: AppSpacing.space2),
+                Expanded(
+                  child: i + 1 < sizes.length
+                      ? _sizeTile(context, sizes[i + 1])
+                      : const SizedBox.shrink(),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -269,9 +277,11 @@ class PosSizePicker extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadius.l),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: unavailable || atStock ? null : () => onQuantityChanged(name, quantity + 1),
+          onTap: unavailable || atStock
+              ? null
+              : () => onQuantityChanged(name, quantity + 1),
           child: Container(
-            padding: const EdgeInsets.all(AppSpacing.space3),
+            padding: EdgeInsets.all(AppSpacing.space3 - (isSelected ? 1.0 : 0.0)),
             decoration: BoxDecoration(
               border: Border.all(color: borderColor, width: isSelected ? 2 : 1),
               borderRadius: BorderRadius.circular(AppRadius.l),
@@ -280,47 +290,57 @@ class PosSizePicker extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
+                Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Expanded(
-                      child: Text(
-                        name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w900,
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w900),
+                          ),
                         ),
+                        if (price is num) ...[
+                          const SizedBox(width: 6),
+                          Text(
+                            '₱${_priceLabel(price)}',
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.space1),
+                    Text(
+                      unavailable
+                          ? 'Out of stock'
+                          : servings is num && servings <= 10
+                          ? '${servings.toInt()} left'
+                          : servings is num
+                          ? '${servings.toInt()} servings left'
+                          : 'In stock',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: unavailable
+                            ? AppColors.danger
+                            : Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    if (price is num)
-                      Text(
-                        '₱${_priceLabel(price)}',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
                   ],
                 ),
-                const SizedBox(height: AppSpacing.space1),
-                Text(
-                  unavailable
-                      ? 'Out of stock'
-                      : servings is num && servings <= 10
-                      ? '${servings.toInt()} left'
-                      : servings is num
-                      ? '${servings.toInt()} servings left'
-                      : 'In stock',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: unavailable
-                        ? AppColors.danger
-                        : Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                const SizedBox(height: AppSpacing.space3),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     PosQtyButton(
                       icon: Icons.remove,
@@ -328,44 +348,56 @@ class PosSizePicker extends StatelessWidget {
                           ? () => onQuantityChanged(name, quantity - 1)
                           : null,
                     ),
+                    const SizedBox(width: 6),
                     // The count is its own input: tap it and type any amount
                     // up to the servings left.
-                    Material(
-                      color: quantity > 0
-                          ? AppColors.primary.withValues(alpha: 0.1)
-                          : Theme.of(context).colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(AppRadius.s),
-                      clipBehavior: Clip.antiAlias,
-                      child: InkWell(
-                        onTap: unavailable
-                            ? null
-                            : () async {
-                                final result = await showPosQuantityDialog(
-                                  context,
-                                  quantity: quantity > 0 ? quantity : 1,
-                                  maxQuantity: servings is num
-                                      ? servings.toInt()
-                                      : null,
-                                  capacityLimit: _capacityFor(context, quantity),
-                                  title: 'How many $name?',
-                                );
-                                if (result != null) {
-                                  onQuantityChanged(name, result);
-                                }
-                              },
-                        child: Container(
-                          width: 54,
-                          height: 38,
-                          alignment: Alignment.center,
-                          child: Text(
-                            '$quantity',
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w900,
+                    Expanded(
+                      child: Material(
+                        color: quantity > 0
+                            ? AppColors.primary.withValues(alpha: 0.1)
+                            : Theme.of(
+                                context,
+                              ).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(AppRadius.s),
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          onTap: unavailable
+                              ? null
+                              : () async {
+                                  final result = await showPosQuantityDialog(
+                                    context,
+                                    quantity: quantity > 0 ? quantity : 1,
+                                    maxQuantity: servings is num
+                                        ? servings.toInt()
+                                        : null,
+                                    capacityLimit: _capacityFor(
+                                      context,
+                                      quantity,
+                                    ),
+                                    title: 'How many $name?',
+                                  );
+                                  if (result != null) {
+                                    onQuantityChanged(name, result);
+                                  }
+                                },
+                          child: Container(
+                            height: 38,
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            alignment: Alignment.center,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                '$quantity',
+                                maxLines: 1,
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w900),
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
+                    const SizedBox(width: 6),
                     PosQtyButton(
                       icon: Icons.add,
                       onPressed: !unavailable && !atStock

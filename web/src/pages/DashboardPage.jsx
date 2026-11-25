@@ -99,6 +99,51 @@ function formatStock(val) {
   return Number(val).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+function RoundedTopBarShape({ cartCode, stackOrder, ...props }) {
+  const { x, y, width, height, fill, stroke, strokeWidth, payload, value } = props;
+  const numericVal = Array.isArray(value) ? value[1] - value[0] : Number(value);
+
+  if (
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0 ||
+    !numericVal ||
+    numericVal <= 0
+  ) {
+    return null;
+  }
+
+  let isTop = true;
+  if (cartCode && Array.isArray(stackOrder) && payload) {
+    let topCode = null;
+    for (let i = stackOrder.length - 1; i >= 0; i--) {
+      if (Number(payload[stackOrder[i]]) > 0) {
+        topCode = stackOrder[i];
+        break;
+      }
+    }
+    isTop = topCode === cartCode;
+  }
+
+  const r = isTop ? Math.min(12, width / 2, height) : 0;
+  const d =
+    r > 0
+      ? `M ${x},${y + height} L ${x},${y + r} A ${r},${r} 0 0 1 ${x + r},${y} L ${x + width - r},${y} A ${r},${r} 0 0 1 ${x + width},${y + r} L ${x + width},${y + height} Z`
+      : `M ${x},${y + height} L ${x},${y} L ${x + width},${y} L ${x + width},${y + height} Z`;
+
+  return (
+    <path
+      d={d}
+      fill={fill}
+      stroke={stroke}
+      strokeWidth={strokeWidth}
+    />
+  );
+}
+
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { user } = useOutletContext();
@@ -355,6 +400,7 @@ export default function DashboardPage() {
         weeklyChartData.some((d) => d[loc.code] !== undefined)
       );
   const hasCartBreakdown = breakdownCarts.length > 0;
+  const breakdownCartCodes = breakdownCarts.map((loc) => loc.code);
 
   return (
     <PageErrorBoundary>
@@ -616,7 +662,13 @@ export default function DashboardPage() {
                               fill={CHART_COLORS[idx % CHART_COLORS.length]}
                               stroke="var(--surface)"
                               strokeWidth={2}
-                              radius={idx === breakdownCarts.length - 1 ? [99, 99, 0, 0] : [0, 0, 0, 0]}
+                              shape={(barProps) => (
+                                <RoundedTopBarShape
+                                  {...barProps}
+                                  cartCode={loc.code}
+                                  stackOrder={breakdownCartCodes}
+                                />
+                              )}
                               animationDuration={300}
                             />
                           ))
@@ -624,7 +676,7 @@ export default function DashboardPage() {
                           <Bar 
                             dataKey="total_sales" 
                             fill="var(--primary)" 
-                            radius={[99, 99, 0, 0]} 
+                            shape={(barProps) => <RoundedTopBarShape {...barProps} />}
                             animationDuration={300}
                           />
                         )}

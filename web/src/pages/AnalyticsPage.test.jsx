@@ -53,8 +53,13 @@ const curTrends = {
   total_sales: 5000,
   orders: 100,
   top_items: [
-    { name: "Cheese Fries", qty: 60, sales: 3000 },
-    { name: "BBQ Fries", qty: 40, sales: 2000 },
+    { name: "Cheese Fries", flavor: "Cheese", qty: 60, sales: 3000 },
+    { name: "BBQ Fries", flavor: "Barbecue", qty: 40, sales: 2000 },
+    { name: "Cheese Fries", flavor: "Sour Cream", qty: 35, sales: 1750 },
+    { name: "Cheese Fries", flavor: "Truffle", qty: 30, sales: 1500 },
+    { name: "Chili Fries", flavor: "Cheese", qty: 25, sales: 1250 },
+    { name: "Loaded Fries", flavor: "Bacon", qty: 20, sales: 1000 },
+    { name: "Garlic Fries", flavor: "Garlic", qty: 10, sales: 500 },
   ],
   by_weekday: [{ dow: 1, label: "Mon", total_sales: 1000, orders: 20 }],
 };
@@ -113,6 +118,27 @@ function mockApiAllOk() {
     }
     if (url.startsWith("/analytics/forecast")) {
       return Promise.resolve({ data: cartForecast });
+    }
+    if (url.startsWith("/reorders/suggestions")) {
+      return Promise.resolve({
+        data: {
+          lead_time_days: 2,
+          suggestions: [
+            {
+              item: "Cheese Powder",
+              current_stock: 1,
+              unit: "kg",
+              avg_daily_use: 2,
+              safety_stock: 1.25,
+              reorder_point: 4.5,
+              suggested_qty: 8,
+              depletion_date: "2026-11-27",
+              urgency: "immediate",
+              reason: "Projected depletion is within the supplier lead time",
+            },
+          ],
+        },
+      });
     }
     if (url.startsWith("/analytics/sales-forecast")) {
       return Promise.resolve({ data: salesForecast });
@@ -210,6 +236,23 @@ describe("AnalyticsPage loading/error states", () => {
     expect(within(section).getByText("Previous 7 days")).toBeInTheDocument();
     expect(within(section).getByText("CART-01")).toBeInTheDocument();
     expect(within(section).getByText("All carts")).toBeInTheDocument();
+  });
+
+  it("shows all product flavors and the calculated restock recommendation", async () => {
+    mockApiAllOk();
+    renderPage();
+    await screen.findByText("Quick Summary");
+
+    const breakdown = document.querySelector("#section-sales-breakdown");
+    expect(within(breakdown).getByText("Truffle")).toBeInTheDocument();
+    expect(within(breakdown).getByText("Garlic")).toBeInTheDocument();
+    expect(within(breakdown).getAllByRole("row")).toHaveLength(8);
+
+    const restock = document.querySelector("#section-restock");
+    expect(await within(restock).findByText("2 days")).toBeInTheDocument();
+    expect(within(restock).getByText("1.25 kg")).toBeInTheDocument();
+    expect(within(restock).getByText("8 kg")).toBeInTheDocument();
+    expect(within(restock).getByText("Order now")).toBeInTheDocument();
   });
 });
 
