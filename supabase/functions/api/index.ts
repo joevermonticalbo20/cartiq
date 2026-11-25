@@ -7218,7 +7218,6 @@ async function handleShiftsHistory(url) {
   const date = params.get("date");
   const page = Math.max(1, Number(params.get("page")) || 1);
   const pageSize = Math.min(Number(params.get("pageSize")) || 10, 100);
-  const cursor = params.get("cursor");
   const search = String(params.get("search") ?? "").trim().toLowerCase();
   const event = String(params.get("event") ?? "").trim().toUpperCase();
   const method = String(params.get("method") ?? "").trim().toUpperCase();

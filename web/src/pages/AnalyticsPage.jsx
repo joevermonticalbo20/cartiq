@@ -967,7 +967,7 @@ export default function AnalyticsPage() {
                   </span>
                   <div>
                     <h2 className="analytics-section-title analytics-actions-title">Business & Product Actions</h2>
-                    <p className="analytics-section-sub">Practical next steps based on the selected period's actual sales and traffic</p>
+                    <p className="analytics-section-sub">Practical next steps based on the selected period&apos;s actual sales and traffic</p>
                   </div>
                 </div>
                 {businessActions.length > 0 && (
