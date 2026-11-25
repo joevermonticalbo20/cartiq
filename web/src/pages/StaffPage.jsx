@@ -165,10 +165,13 @@ export default function StaffPage() {
   );
 
   // Client-side search + pagination over the loaded page — no network on type.
+  // Match only what the table shows (plus the card ID the placeholder promises).
+  // Cart NAME is excluded: "Main Canteen" contains "in"/"an" and made every
+  // row match an "in" or "an" search.
   const filteredHistoryRows = useMemo(() => {
     if (!normalizedHistorySearch) return historyRows;
     return historyRows.filter((s) =>
-      `${s.staffName ?? ""} ${s.staffUid ?? ""} ${s.location?.code ?? ""} ${s.location?.name ?? ""} ${s.event ?? ""} ${s.method ?? ""} ${s.punctuality?.label ?? ""}`
+      `${s.staffName ?? ""} ${s.staffUid ?? ""} ${s.location?.code ?? ""} ${s.event ?? ""} ${s.method ?? ""} ${s.punctuality?.label ?? ""}`
         .toLowerCase()
         .includes(normalizedHistorySearch)
     );

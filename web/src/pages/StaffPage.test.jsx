@@ -255,6 +255,20 @@ describe("StaffPage Shift History is read-only", () => {
       target: { value: "zzzz" },
     });
     await waitFor(() => expect(matchesInHistory()).toHaveLength(0));
+
+    // "mai" is only inside the cart NAME (Main Cart), which is not a
+    // searchable column — the row must stay hidden.
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search shift history" }), {
+      target: { value: "mai" },
+    });
+    await waitFor(() => expect(matchesInHistory()).toHaveLength(0));
+
+    // "in" matches the visible EVENT column (IN) and not the OUT rows, even
+    // though "Main Cart" also contains "in".
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search shift history" }), {
+      target: { value: "in" },
+    });
+    await waitFor(() => expect(matchesInHistory().length).toBeGreaterThan(0));
   });
 
   it("sends select filters (event/method/punctuality/date) to the paged endpoint", async () => {
