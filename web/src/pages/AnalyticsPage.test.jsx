@@ -31,6 +31,7 @@ vi.mock("recharts", () => {
 
 import api from "../api.js";
 import { __resetLiveData } from "../state/liveData.js";
+import { __emitLiveEvent } from "../hooks/useLiveStream.js";
 import AnalyticsPage from "./AnalyticsPage.jsx";
 
 function renderPage() {
@@ -352,5 +353,75 @@ describe("AnalyticsPage Top Item trend honesty", () => {
     // Total Revenue, Total Orders and Average Spend are totals, so the
     // extended-minus-current subtraction is valid for those.
     expect(container.querySelectorAll(".kpi-card-trend")).toHaveLength(3);
+  });
+});
+
+describe("AnalyticsPage cart switching", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetLiveData();
+  });
+
+  it("offers only active carts and restores a cart the moment it is activated", async () => {
+    let locations = [
+      { code: "CART-01", name: "Cart 1", status: "ACTIVE" },
+      { code: "CART-02", name: "Cart 2", status: "INACTIVE" },
+    ];
+    mockApiAllOk();
+    const baseGet = api.get.getMockImplementation();
+    api.get.mockImplementation((url) =>
+      url === "/locations"
+        ? Promise.resolve({ data: { data: locations } })
+        : baseGet(url)
+    );
+
+    renderPage();
+    await screen.findByText("Quick Summary");
+
+    fireEvent.click(screen.getByRole("button", { name: "All carts" }));
+    expect(screen.getByRole("option", { name: "CART-01 - Cart 1" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /CART-02/ })).toBeNull();
+
+    locations = [
+      { code: "CART-01", name: "Cart 1", status: "ACTIVE" },
+      { code: "CART-02", name: "Cart 2", status: "ACTIVE" },
+    ];
+    __emitLiveEvent("locations:updated", { kind: "locations" });
+    await waitFor(() =>
+      expect(screen.getByRole("option", { name: "CART-02 - Cart 2" })).toBeInTheDocument()
+    );
+  });
+
+  it("shows the selected cart's KPIs without waiting on slow stock/reorder endpoints", async () => {
+    const slow = new Promise(() => {});
+    mockApiAllOk();
+    const baseGet = api.get.getMockImplementation();
+    api.get.mockImplementation((url) => {
+      if (url.startsWith("/analytics/forecast") || url.startsWith("/reorders/suggestions")) {
+        return slow;
+      }
+      if (url.startsWith("/analytics/trends")) {
+        const params = new URLSearchParams(url.split("?")[1]);
+        const code = params.get("code");
+        return Promise.resolve({
+          data: { ...curTrends, total_sales: code === "CART-01" ? 1234 : 5000, location: code ?? "ALL" },
+        });
+      }
+      return baseGet(url);
+    });
+
+    renderPage();
+    await screen.findByText("Quick Summary");
+
+    fireEvent.click(screen.getByRole("button", { name: "All carts" }));
+    fireEvent.click(await screen.findByRole("option", { name: /CART-01/ }));
+
+    // The headline number changes while the slow endpoints are still pending.
+    await waitFor(() => {
+      const card = [...document.querySelectorAll(".kpi-card")].find(
+        (c) => c.querySelector(".kpi-card-label")?.textContent === "Total Income"
+      );
+      expect(card?.querySelector(".kpi-card-value")?.textContent).toBe("P1,234");
+    });
   });
 });

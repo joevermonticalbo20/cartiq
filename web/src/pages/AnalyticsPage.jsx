@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, Fragment } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback, Fragment } from "react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis,
   Tooltip, ResponsiveContainer, CartesianGrid, LabelList,
@@ -209,6 +209,22 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
 
+  // Snapshot cache keyed by cart + window. Switching carts reuses the last
+  // numbers instantly instead of blanking the page while 9 endpoints refetch.
+  const snapshotCache = useRef(new Map());
+  const applySnapshot = useCallback((s) => {
+    setTrends(s.trends);
+    setPrevTrends(s.prevTrends);
+    setForecast(s.forecast);
+    setReorderSuggestions(s.reorderSuggestions);
+    setProfit(s.profit);
+    setHourly(s.hourly);
+    setSalesFc(s.salesFc);
+    setSalesFcCarts(s.salesFcCarts);
+    setSectionErrors(s.sectionErrors);
+    setError("");
+  }, []);
+
   const [sortCol, setSortCol] = useState("sales");
   const [sortDir, setSortDir] = useState("desc");
   const [summaryLang, setSummaryLang] = useState("en");
@@ -241,6 +257,15 @@ export default function AnalyticsPage() {
       };
     }
 
+    // INSTANT cart switch: reuse this cart + window's last snapshot on the
+    // next render (zero network wait), then revalidate quietly below.
+    const cacheKey = JSON.stringify([cartCode, range, startDate, endDate, isOwner, reload]);
+    const cached = snapshotCache.current.get(cacheKey);
+    if (cached) {
+      applySnapshot(cached);
+      setLoading(false);
+    }
+
     const currentQuery = analyticsQuery(dateWindow, cartCode);
     const previousQuery = analyticsQuery({
       startDate: dateWindow.previousStartDate,
@@ -248,6 +273,29 @@ export default function AnalyticsPage() {
     }, cartCode);
     const currentTrendsRequest = api.get(`/analytics/trends?${currentQuery}`);
     const previousTrendsRequest = api.get(`/analytics/trends?${previousQuery}`);
+
+    // FAST PATH: the headline numbers (KPIs, summary, charts) need only these
+    // two requests. Paint them the moment both land instead of waiting for the
+    // slower stock / reorder / forecast endpoints in the Promise.all below.
+    Promise.all([currentTrendsRequest, previousTrendsRequest]).then(([c, p]) => {
+      if (!alive) return;
+      const currentData = c.data;
+      const previousData = p.data;
+      if (cartCode && (
+        currentData.location !== cartCode || previousData.location !== cartCode
+      )) return; // the full path below reports the real error
+      setTrends(addCartBreakdowns(currentData, cached?.trendCartResults ?? []));
+      setPrevTrends({
+        total_sales: previousData.total_sales ?? 0,
+        orders: previousData.orders ?? 0,
+        top_items: [],
+      });
+      setLoading(false);
+      setError("");
+    }).catch(() => {
+      // Error reporting belongs to the full path below.
+    });
+
     const optionalRequest = (request) => request
       .then(({ data }) => ({ data }))
       .catch((requestError) => ({ data: null, error: requestError }));
@@ -347,14 +395,14 @@ export default function AnalyticsPage() {
       if (failedForecast) failedSections.push("Stock forecast");
       if (failedReorderSuggestions) failedSections.push("Restock recommendations");
 
-      setTrends(addCartBreakdowns(currentData, successfulCartTrends));
-      setPrevTrends({
+      const nextTrends = addCartBreakdowns(currentData, successfulCartTrends);
+      const nextPrevTrends = {
         total_sales: previousData.total_sales ?? 0,
         orders: previousData.orders ?? 0,
         top_items: [],
-      });
-      setForecast(failedForecast || forecastCarts.length === 0 ? null : forecastData);
-      setReorderSuggestions(failedReorderSuggestions
+      };
+      const nextForecast = failedForecast || forecastCarts.length === 0 ? null : forecastData;
+      const nextReorderSuggestions = failedReorderSuggestions
         ? []
         : reorderResults.flatMap(({ code, data }) =>
             (data?.suggestions ?? []).map((suggestion) => ({
@@ -362,13 +410,36 @@ export default function AnalyticsPage() {
               cart_code: code,
               lead_time_days: data.lead_time_days,
             }))
-          ));
+          );
+      const nextSalesFcCarts = salesForecastCartResults.filter((result) => !result.error);
+
+      setTrends(nextTrends);
+      setPrevTrends(nextPrevTrends);
+      setForecast(nextForecast);
+      setReorderSuggestions(nextReorderSuggestions);
       setProfit(profitResult.data);
       setHourly(hourlyResult.data);
       setSalesFc(salesForecastResult.data);
-      setSalesFcCarts(salesForecastCartResults.filter((result) => !result.error));
+      setSalesFcCarts(nextSalesFcCarts);
       setSectionErrors(failedSections);
       setError("");
+
+      // Complete snapshot so switching back to this cart is instant.
+      snapshotCache.current.set(cacheKey, {
+        trends: nextTrends,
+        prevTrends: nextPrevTrends,
+        forecast: nextForecast,
+        reorderSuggestions: nextReorderSuggestions,
+        profit: profitResult.data,
+        hourly: hourlyResult.data,
+        salesFc: salesForecastResult.data,
+        salesFcCarts: nextSalesFcCarts,
+        sectionErrors: failedSections,
+        trendCartResults: successfulCartTrends,
+      });
+      if (snapshotCache.current.size > 40) {
+        snapshotCache.current.delete(snapshotCache.current.keys().next().value);
+      }
     }).catch((requestError) => {
       if (!alive) return;
       setLoading(false);
@@ -387,7 +458,7 @@ export default function AnalyticsPage() {
     return () => {
       alive = false;
     };
-  }, [range, cartCode, reload, isOwner, startDate, endDate, carts, cartsError]);
+  }, [range, cartCode, reload, isOwner, startDate, endDate, carts, cartsError, applySnapshot]);
 
   const revenueTrend = useMemo(() => {
     if (!trends || !prevTrends || prevTrends.total_sales <= 0) return null;
@@ -661,12 +732,13 @@ export default function AnalyticsPage() {
     : null;
   const isVarianceUp = expectedVariance >= 0;
 
+  // Only active carts belong in the dropdown. The list is live, so a cart
+  // reappears on its own the moment it is activated again.
   const locationOptions = [
     { value: "", label: "All carts" },
-    ...carts.map((c) => ({
-      value: c.code,
-      label: `${c.code} - ${c.name}${c.status === "INACTIVE" ? " (inactive)" : ""}`,
-    }))
+    ...carts
+      .filter((c) => c.status !== "INACTIVE")
+      .map((c) => ({ value: c.code, label: `${c.code} - ${c.name}` }))
   ];
 
   const rangeOptions = [
