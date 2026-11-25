@@ -618,7 +618,11 @@ export default function InventoryPage() {
   const currentItems = current?.items ?? [];
   const allSelected = current && selectedIds.size === currentItems.length && currentItems.length > 0;
 
-  const locationOptions = safeLocations.map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
+  // A cart deactivated in Settings disappears from every dropdown. Because
+  // the cart list is live, reactivating it puts it back with no refresh.
+  const locationOptions = safeLocations
+    .filter((l) => l.status !== "INACTIVE")
+    .map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }));
   const categoryOptions = INVENTORY_CATEGORIES.map((c) => ({ value: c, label: c }));
   // Exactly the five spec units - no Boxes.
   const unitOptions = UNIT_OPTIONS;

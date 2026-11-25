@@ -384,9 +384,11 @@ export default function DashboardPage() {
   const salesDir = dirOf(salesDelta);
   const ordersDir = dirOf(ordersDelta);
 
+  // A cart deactivated in Settings disappears from every dropdown. Because
+  // the cart list is live, reactivating it puts it back with no refresh.
   const locationOptions = [
     { value: "", label: "All carts" },
-    ...locations.filter((l) => l.status !== "INACTIVE" || l.code === cartFilter)
+    ...locations.filter((l) => l.status !== "INACTIVE")
       .map((l) => ({ value: l.code, label: l.code }))
   ];
 

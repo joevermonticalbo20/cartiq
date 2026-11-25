@@ -119,6 +119,12 @@ describe("DashboardPage Cart Status", () => {
     // Deactivated cart never shows in the Cart Status section
     const section = screen.getByText("Cart status").closest("section");
     expect(within(section).queryByText("CART-02")).toBeNull();
+
+    // ...and it is not selectable in the "All carts" dropdown either.
+    fireEvent.click(screen.getByRole("button", { name: "All carts" }));
+    const menu = screen.getByRole("listbox");
+    expect(within(menu).getByText("CART-01")).toBeInTheDocument();
+    expect(within(menu).queryByText("CART-02")).toBeNull();
   });
 });
 

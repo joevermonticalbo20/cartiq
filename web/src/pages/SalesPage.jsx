@@ -212,9 +212,12 @@ export default function SalesPage() {
   }
 
   const safeLocations = Array.isArray(locations) ? locations : [];
+  // A cart deactivated in Settings disappears from every dropdown. Because
+  // the cart list is live, reactivating it puts it back with no refresh.
   const locationOptions = [
     { value: "", label: "All carts" },
-    ...safeLocations.map((l) => ({ value: l.code, label: l.code }))
+    ...safeLocations.filter((l) => l.status !== "INACTIVE")
+      .map((l) => ({ value: l.code, label: l.code }))
   ];
 
   async function doVoid() {

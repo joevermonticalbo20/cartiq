@@ -13,7 +13,7 @@ import ErrorBox from "../components/ErrorBox.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import PageErrorBoundary from "../components/PageErrorBoundary.jsx";
 import PageHeader from "../components/PageHeader.jsx";
-import { useLiveList, activeCarts } from "../state/liveData.js";
+import { useLiveList } from "../state/liveData.js";
 import { useToast } from "../components/Toast.jsx";
 import Select from "../components/Select.jsx";
 import { sanitizeMoneyInput, parseMoney } from "../utils/format.js";
@@ -289,11 +289,12 @@ export default function ExpensesPage() {
   }
 
   const safeLocations = Array.isArray(locations) ? locations : [];
+  // A cart deactivated in Settings disappears from every dropdown. Because
+  // the cart list is live, reactivating it puts it back with no refresh.
   const locationOptions = [
     { value: "", label: "All carts" },
-    // Deactivated carts disappear from the filter. The cart a filter is
-    // already set to stays visible until the filter is cleared.
-    ...activeCarts(safeLocations, code).map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }))
+    ...safeLocations.filter((l) => l.status !== "INACTIVE")
+      .map((l) => ({ value: l.code, label: `${l.code} - ${l.name}` }))
   ];
 
   // Add/Edit form dropdowns offer ACTIVE carts only - a deactivated cart is

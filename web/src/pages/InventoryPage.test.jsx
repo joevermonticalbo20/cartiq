@@ -360,3 +360,42 @@ describe("InventoryPage loading/error states", () => {
     expect(screen.queryByText(/Used by BBQ Fries - Medium/)).toBeNull();
   });
 });
+
+describe("InventoryPage cart dropdown", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetLiveData();
+    api.get.mockImplementation((url) => {
+      if (url === "/locations") {
+        return Promise.resolve({
+          data: {
+            data: [
+              { id: 1, code: "CART-01", name: "Main Cart", status: "ACTIVE", items: [] },
+              { id: 2, code: "CART-04", name: "Old Cart", status: "INACTIVE", items: [] },
+            ],
+          },
+        });
+      }
+      if (url === "/inventory") {
+        return Promise.resolve({ data: { locations: [{ id: 1, code: "CART-01", name: "Main Cart", items: [] }] } });
+      }
+      if (url === "/catalog") {
+        return Promise.resolve({ data: { locations: [{ code: "CART-01", name: "Main Cart" }] } });
+      }
+      if (url.startsWith("/analytics/forecast") || url.startsWith("/reorders/prep")) {
+        return Promise.resolve({ data: null });
+      }
+      return Promise.resolve({ data: null });
+    });
+  });
+
+  it("hides a deactivated cart from the cart picker", async () => {
+    renderPage();
+    await vi.waitFor(() => screen.getByRole("button", { name: /CART-01/ }));
+    fireEvent.click(screen.getByRole("button", { name: /CART-01/ }));
+
+    const menu = screen.getByRole("listbox");
+    expect(within(menu).getByText("CART-01 - Main Cart")).toBeInTheDocument();
+    expect(within(menu).queryByText(/CART-04/)).toBeNull();
+  });
+});

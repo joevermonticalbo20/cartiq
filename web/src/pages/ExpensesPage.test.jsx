@@ -89,6 +89,17 @@ describe("ExpensesPage loading/error states", () => {
     expect(screen.queryByText("SM Supermarket")).toBeNull();
   });
 
+  it("hides a deactivated cart from the All carts dropdown", async () => {
+    mockApi([]);
+    renderPage();
+    await screen.findByText("No expenses in this period");
+
+    fireEvent.click(screen.getByRole("button", { name: "All carts" }));
+    const menu = screen.getByRole("listbox");
+    expect(within(menu).getByText("CART-01 - Cart 1")).toBeInTheDocument();
+    expect(within(menu).queryByText(/CART-09/)).toBeNull();
+  });
+
   it("shows the server error instead of the empty state on failure", async () => {
     api.get.mockImplementation((url) => {
       if (url === "/catalog") return Promise.resolve({ data: { locations: [] } });
